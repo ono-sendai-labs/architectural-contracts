@@ -25,6 +25,16 @@
 > comments in its interface files (Pillar 2 proof of concept); manifests live
 > **at their component's root**; and the schema drops `packages` and
 > `contract_note` and makes `reason` optional.
+>
+> **Step-0 Capslock spike folded in** (`../research/spike-capslock.md`, executed
+> against the pinned Capslock checkout): the capability classifier is configured
+> **exclude-UNANALYZED** and **"ambient authority = capability *minting*, not
+> *use*"** (the `(*os.File)` handle methods are reclassified `SAFE`, §5.4a). A
+> consequence: `manifest.Parse(io.Reader)` is ambient-authority-free **by
+> construction**, so the earlier "shell must wrap the manifest in a
+> `bytes.Reader`" rule is **dropped**. The spike also retired the review-B8
+> `sort.Slice` prohibition (Capslock rewrites `sort.Sort`/`sort.Slice` call sites,
+> so both are clean).
 > This document is standalone; it does not require reading the other project files.
 
 ## 1. Overview
@@ -154,7 +164,12 @@ Consolidated from `idea-honing.md` and the rough idea.
   fails conformance; a component with empty `declared_authority` must therefore
   be provably **ambient-authority-free**. Non-default policies (e.g. "true
   fails, analysis-defeating warns") remain expressible through the same
-  parameter.
+  parameter. The underlying capability findings come from a **spike-configured
+  classifier** (§5.4a): `UNANALYZED` is excluded (so ubiquitous stream/callback
+  helpers like `io.ReadAll` don't generate spurious findings — the remaining
+  analysis-defeating signals `REFLECT`/`UNSAFE_POINTER`/`CGO` still surface), and
+  authority is attributed at the **capability-minting** site rather than at every
+  point of capability *use*.
 - **FR7 — Absorption.** A third-party/internal package used purely as an
   implementation detail is declared as an **absorbed dependency**: it needs no
   manifest, and its transitive use of ambient authority is **absorbed into and
@@ -220,7 +235,7 @@ flowchart TD
     end
     PORT{{"CapabilityAnalyzer (port/interface)"}}
 
-    CLI -->|"manifest reader\n(bytes.Reader — an object capability)"| MAN
+    CLI -->|"manifest reader\n(an object capability)"| MAN
     CLI -->|orchestrates| LOAD
     CLI -->|orchestrates| CAPADAPT
     LOAD -.produces types defined in.-> FACTS
@@ -255,7 +270,7 @@ sequenceDiagram
 
     U->>CLI: archcheck check path/to/component.textproto
     CLI->>CLI: read manifest file bytes (FILES), set component root := manifest dir
-    CLI->>M: Parse(bytes.Reader) -> Manifest
+    CLI->>M: Parse(reader) -> Manifest  (authority-free by construction, §5.4a)
     M-->>CLI: Manifest (validated)
     CLI->>L: ResolveDependencyInterface(each component dep) (FILES)
     L-->>CLI: DepIfaces (declared interface symbols per dep)
@@ -403,8 +418,11 @@ type DependencyInterface struct {
 // Reader is an OBJECT CAPABILITY handed in by the shell — a deliberate
 // illustration of deprivileging (PR-review): the component can read exactly
 // what it was handed and holds no ambient authority to open anything itself.
-// The shell reads the file and passes a bytes.Reader (see §11 for why the
-// concrete Reader type matters to Capslock attribution).
+// Parse is ambient-authority-free BY CONSTRUCTION regardless of the concrete
+// reader passed in: the classifier attributes filesystem authority at the
+// os.Open MINTING site (the shell), not at the point of capability *use* — so
+// reading the handed-in reader never counts against `manifest` (§5.4a). The
+// shell may hand Parse any reader; no bytes.Reader wrapping is required.
 func Parse(r io.Reader) (Manifest, error)
 ```
 
@@ -582,6 +600,61 @@ be expressed without re-running analysis. Because findings are **already pruned*
 at component-dependency boundaries (§5.3b / FR5b), authority owned by a dependency
 does not appear here — only authority the analyzed component reaches on its own or
 through its **absorbed** dependencies.
+
+### 5.4a Capability classifier configuration (Step-0 spike, validated)
+
+The MVP `StrictPolicy` capability findings are produced by Capslock's builtin
+classifier with **two configured deviations**, each executed against the pinned
+Capslock checkout in the Step-0 spike (`../research/spike-capslock.md`). The
+`capslockadapter` builds one merged classifier per run from these plus the FR5b
+prune map.
+
+**(1) Exclude `UNANALYZED` (`GetClassifier(excludeUnanalyzed=true)`).** Capslock
+marks a set of callback/stream-consuming stdlib helpers — `io.ReadAll`,
+`io.Copy*`, `errors.Is/As/Unwrap`, the `bufio` readers, `(*sync.Once).Do`, … —
+as `UNANALYZED` *leaves*, so it won't assume "any callback flows to any call
+site." Keeping them visible floods every real component (including the pure core:
+`manifest` uses `io.ReadAll`, everything uses `errors.Is`) with spurious
+`UNANALYZED` findings, **and** masks real authority that flows *through* them.
+Excluding `UNANALYZED` makes Capslock descend through these helpers instead:
+genuinely-clean code yields the empty set the design equates with
+ambient-authority-free, and real authority is still traced to its true leaf.
+(The other analysis-defeating signals — `REFLECT`, `UNSAFE_POINTER`, `CGO`,
+`ARBITRARY_EXECUTION` — are detected by Capslock's source analysis, *not* the
+`UNANALYZED` map, so they still surface and still fail strict.) A post-MVP policy
+could re-raise `UNANALYZED` as a `warn`-set `ANALYSIS_LIMITATION` without failing.
+
+**(2) Ambient authority = capability *minting*, not capability *use*.** Capslock's
+builtin map classifies two object-capability notions identically as `FILES`:
+- **minting** — turning an *ambient designator* into a capability: `os.Open`,
+  `os.OpenFile`, `os.Create`, `os.ReadFile`, `os.WriteFile`, `os.NewFile`,
+  `os.Remove*`, `os.Mkdir*`, `os.Stat`, … all take a *path* (or raw fd);
+- **use** — exercising a capability you were *granted*: the `(*os.File)` methods
+  `.Read/.Write/.Close/.Seek/.Stat/…` operate on a handle you already hold.
+
+Only *minting* is ambient authority; *use* of a granted capability is not (the
+authority was spent by whoever minted the handle). The MVP classifier therefore
+**reclassifies the `(*os.File)` handle *use* methods `CAPABILITY_SAFE`** (a
+per-run capability-map override; a function-level entry wins over the
+`package os` fallback) while leaving the minting functions `FILES`. Authority is
+then attributed to the component **closest to where ambient authority is
+exercised** — the `os.Open` call site — rather than to every downstream consumer
+of the handle. Deliberately **excluded** from the SAFE override:
+`(*os.File).Chdir` (Capslock: `MODIFY_SYSTEM_STATE` — it mutates process-global
+cwd, genuine ambient authority).
+
+This is what makes `manifest.Parse(io.Reader)` ambient-authority-free **by
+construction**, independent of whichever concrete reader a caller passes — the
+robust replacement for the withdrawn §11 "wrap in `bytes.Reader`" rule, and a
+restoration of modular reasoning (a component's authority no longer depends on
+its callers). It composes with FR5b pruning and with (1): all three are merged
+into the single classifier the adapter loads per analysis.
+
+*Caveats (see §11):* the symmetric minting-vs-use split for **network**
+(`net.Dial`/`Listen` mint; `(net.Conn).Read/Write` use) and **exec/env** is
+curated when those capabilities first appear (MVP touches only files); and with
+handle methods `SAFE`, reads of the process-global ambient handles
+`os.Stdin/Stdout/Stderr` become invisible — a knowingly accepted MVP loosening.
 
 ### 5.5 Component-dependency integrity
 For each declared component dependency (review C12):
@@ -788,11 +861,13 @@ the concepts** — including the two dependency kinds and boundary pruning — v
 - **`toprow`** — pure logic: given already-parsed rows, sort and pick. Imports only
   an absorbed CSV-parsing helper + stdlib-safe (`sort`, `strconv`). Its manifest
   declares **no authority**; `archcheck` confirms it is **ambient-authority-free**.
-  **Stdlib pitfall (review B8):** it must use `sort.Sort` with a concrete
-  `sort.Interface` (or another SAFE-classified entry point) — **not `sort.Slice`**,
-  which Capslock classifies `unanalyzed` (its `less` callback is precisely the
-  A3 higher-order phenomenon) and which would fail the strict policy. The Step-0
-  spike establishes the strict-safe stdlib envelope the examples may use.
+  **B8 correction (Step-0 spike):** the earlier draft required `sort.Sort` with a
+  concrete `sort.Interface` and forbade `sort.Slice`. In fact **both are clean** —
+  Capslock's `buildGraph` rewrites `sort.Sort`/`sort.Slice`/`(*sync.Once).Do` call
+  sites to invoke the caller's comparator/closure directly, so neither reaches
+  reflect. The example keeps the concrete `sort.Interface` purely as a readable
+  pattern, not a requirement. The spike's `../research/spike-capslock.md`
+  documents the full strict-safe stdlib envelope (with `UNANALYZED` excluded, §5.4a).
 - **`internal/parsecsv`** — **absorbed** impl-detail dependency (wraps
   `encoding/csv`; no manifest). Declared as an `absorbed_dependency` of `toprow`;
   its behavior — and any authority it used — is **absorbed** into `toprow`'s
@@ -874,15 +949,31 @@ Remaining caveats:
   test-support packages that need authority live outside the component root
   (directory-based membership makes this a directory choice) or become their
   own small component declaring, e.g., `FILES`.
-- **Granted capabilities vs Capslock attribution (PR-review).**
-  `manifest.Parse(io.Reader)` holds no ambient authority — the Reader is an
-  *object capability* handed in by its caller. But Capslock/VTA attributes by
-  the concrete types that flow in: if the shell passed an `*os.File` directly,
-  VTA would resolve `r.Read` to `(*os.File).Read` and attribute `FILES` to the
-  `manifest` component's self-check. The shell therefore reads the file itself
-  and hands `Parse` a `bytes.Reader`. (Distinguishing granted-capability use
-  from ambient authority is exactly what Capslock cannot see — future work,
-  same family as callbacks-as-capabilities.)
+- **Granted capabilities vs Capslock attribution (PR-review; resolved for the
+  filesystem in the Step-0 spike, §5.4a).** `manifest.Parse(io.Reader)` holds no
+  ambient authority — the Reader is an *object capability* handed in by its
+  caller. Capslock's builtin map, however, classifies the `(*os.File)` *use*
+  methods `FILES` alongside the `os.Open` *minting* functions, so under the raw
+  classifier VTA would resolve `r.Read` to `(*os.File).Read` and attribute
+  `FILES` to `manifest` whenever a caller passed a file-backed reader — making a
+  deprivileged component's authority depend on its *callers*, which breaks
+  modular reasoning. The MVP fixes this at the classifier (§5.4a): the handle
+  *use* methods are `SAFE`, so authority attributes at the `os.Open` minting
+  site. **`manifest.Parse` is therefore authority-free by construction and the
+  shell may hand it any reader** — the earlier "wrap in `bytes.Reader`" rule is
+  withdrawn. Two residuals remain: (i) the same minting-vs-use reclassification
+  for **network/exec/env** capabilities is curated when those first appear; and
+  (ii) the general case — an arbitrary object capability (not just an `*os.File`)
+  passed as a grant, and function-valued grants (callbacks) — is still beyond
+  Capslock's view, and is future work in the same family as
+  callbacks-as-capabilities (Appendix D).
+- **Stdio globals (accepted MVP loosening, §5.4a).** Because the `(*os.File)`
+  handle methods are `SAFE`, reads/writes of the process-global ambient handles
+  `os.Stdin`/`os.Stdout`/`os.Stderr` (package *variables*, never minted by the
+  component) no longer count as `FILES`, where Capslock's default would flag
+  them. Defensible — those fds are granted to the process by its parent, i.e.
+  capability use — but a genuine policy choice; a post-MVP strict mode could
+  re-flag references to those three variables specifically.
 - **Directory-based membership (PR-review).** A component is its manifest's
   directory subtree: components cannot span non-contiguous directories,
   component roots must be pairwise disjoint (no nesting, §5.5), and any package
@@ -925,6 +1016,19 @@ Remaining caveats:
   in `analyzer.searchBackwardsFromCapabilities` (review). The prune set also
   includes `func <pkg>.init` per dependency package (review A2 — precedent:
   `func encoding/json.init CAPABILITY_SAFE` in the builtin map).
+- **Ambient authority = capability *minting*, not *use* (Step-0 spike; §5.4a).**
+  Capslock's builtin map conflates minting a capability from an ambient
+  designator (`os.Open(path)`) with merely *using* a granted one
+  (`(*os.File).Read`), classifying both `FILES`. Under an object-capability
+  model only minting is ambient authority. We therefore reclassify the
+  `(*os.File)` use-methods `CAPABILITY_SAFE` (via the same per-run capability-map
+  mechanism as pruning), attributing authority at the minting site. This is the
+  principled fix that lets `manifest.Parse(io.Reader)` — and any deprivileged
+  consumer of a handed-in capability — be authority-free regardless of its
+  callers, and it retires the fragile "wrap in `bytes.Reader`" workaround. The
+  classifier also excludes `UNANALYZED` (§5.4a) so ubiquitous stream/callback
+  helpers don't spuriously fail. The spike executed both against the pinned
+  Capslock (`../research/spike-capslock.md`).
 - **Interface = interface files + well-formedness, not a silent closure
   (PR-review, revising A1).** Review A1 observed that VTA resolves dynamic
   dispatch to *concrete* methods and that Go idiom puts a type and its methods
@@ -981,8 +1085,10 @@ Remaining caveats:
   ships in the package.
 - **`Parse(io.Reader)` as an object-capability demo (PR-review).** The manifest
   parser cannot open anything; it reads exactly the Reader it is handed — a
-  small, concrete illustration of deprivileging a component (see §11 for the
-  attribution nuance).
+  small, concrete illustration of deprivileging a component. With the §5.4a
+  minting-not-use classifier this is now *enforced faithfully*: `Parse` is
+  authority-free by construction, whatever reader flows in (no `bytes.Reader`
+  discipline needed).
 - **Fact model in the core (review B7).** `facts` is a pure core component so the
   checker never imports the shell; `goanalysis` produces core-defined types.
   Same inward-pointing pattern as the `capanalyzer` port.
@@ -1019,6 +1125,18 @@ From `research/capslock.md` and `research/go-component-model.md`:
 - Pillar 1 is **not** Capslock's job; it comes from `go/packages` imports +
   `go/ast` exported-symbol→file mapping. **One `packages.Load` feeds both pillars.**
 
+From `research/spike-capslock.md` (Step-0 spike, executed against the pinned
+Capslock checkout — all six load-bearing assumptions validated):
+- Classifier config settled: **exclude `UNANALYZED`** and reclassify the
+  `(*os.File)` handle *use* methods `SAFE` (**minting, not use**, §5.4a).
+- Key forms (review A4) confirmed: methods emit both `(pkg.T).M` and
+  `(*pkg.T).M`; generic instantiations categorize via the **bracket-free** origin;
+  init appears as `<pkg>.init` (+ a `<pkg>.init#N` body wrapper).
+- `func <pkg>.init CAPABILITY_SAFE` prunes a dependency's import-time authority
+  (review A2), and whole-package scope + `_test.go` exclusion behave as designed.
+- `sort.Slice` is **not** a hazard: Capslock rewrites `sort.*`/`Once.Do` call
+  sites, so the comparator (not the sort internals) is analyzed (retires B8).
+
 ### Appendix D — Remaining open items
 Resolved: Q1 (Capslock as library), Q2 (component membership — revised by the
 PR review to manifest-directory subtree), Q3 (strict parameterized policy), Q4
@@ -1043,15 +1161,18 @@ Post-MVP research questions (from the design review):
    component boundary is itself a capability grant (analogous to a file handle);
    a principled model would attribute the authority such a function exercises —
    when invoked by the callee — back to the *supplier*. The MVP's
-   `HIGHER_ORDER_BOUNDARY_CALL` warning is a stopgap. Note `sort.Slice`'s
-   `unanalyzed` classification in Capslock is the same phenomenon (its `less`
-   argument is a meta-capability).
+   `HIGHER_ORDER_BOUNDARY_CALL` warning is a stopgap. (Capslock sidesteps the
+   related `sort.*` case by rewriting those call sites — Step-0 spike — so it is
+   not a live hazard for the examples; the general higher-order case remains.)
 5. **Robust generic-symbol matching (review A4)** beyond the MVP's
    bracket-stripping normalization (instantiation-aware matching, synthetic
    wrapper functions for promoted methods).
-6. **Granted capabilities vs ambient authority (PR-review).** A handed-in
-   `io.Reader` (or any object capability) is not ambient authority, but
-   Capslock attributes by concrete types flowing through VTA (§11). A
-   principled model would treat capability-typed parameters as grants from the
-   caller — same family as callbacks-as-capabilities (item 4).
+6. **Granted capabilities vs ambient authority (PR-review — partially resolved).**
+   The **filesystem** case is handled in the MVP: reclassifying the `(*os.File)`
+   use-methods `SAFE` attributes authority at the minting site, so a handed-in
+   file-backed `io.Reader` is correctly treated as a grant, not ambient authority
+   (§5.4a). The general case remains open: the same minting-vs-use split for
+   network/exec/env, and truly type-agnostic grant tracking (any object
+   capability, and function-valued grants) — same family as
+   callbacks-as-capabilities (item 4).
 ```

@@ -40,7 +40,7 @@ or orphaned code: every step ends by wiring its output into something runnable.
 
 ## Progress checklist
 
-- [ ] **Step 0 — Capslock validation spike** (draft `examples/csvtool` packages as probes; execute the design's Capslock assumptions: strict-safe stdlib envelope, `CAPABILITY_SAFE` pruning, key formats incl. method/generic/init, whole-package scope + `_test.go` exclusion, Reader attribution)
+- [x] **Step 0 — Capslock validation spike** (draft `examples/csvtool` packages as probes; execute the design's Capslock assumptions: strict-safe stdlib envelope, `CAPABILITY_SAFE` pruning, key formats incl. method/generic/init, whole-package scope + `_test.go` exclusion, Reader attribution) — findings in [`../research/spike-capslock.md`](../research/spike-capslock.md); harness preserved under `../research/spike/`. **All 6 assumptions hold**; three design corrections surfaced: (1) use `excludeUnanalyzed=true`; (1b) **adopt a "minting, not use" classifier** — reclassify `(*os.File)` handle-use methods `SAFE` so ambient authority is attributed at the `os.Open` site, making `manifest.Parse(io.Reader)` authority-free by construction and **dropping the §11 `bytes.Reader` wrapping rule**; (2) drop the B8 `sort.Slice` prohibition.
 - [ ] **Step 1 — Project scaffold & developer tooling** (repo layout, `go/` module skeleton, `justfile`, CI workflow, `AGENTS.md`/`CLAUDE.md` — release workflow deferred to Step 11)
 - [ ] **Step 2 — Manifest schema & parser** (`proto/`, codegen, `internal/manifest`)
 - [ ] **Step 3 — Pure supporting types: `facts` data model, `capanalyzer` port/policy, `report` model & text rendering**
@@ -77,10 +77,11 @@ use them as the spike's probe targets, so the examples exist early and are
 - Drive `analyzer.GetCapabilityInfo` (Capslock as a library) over the probes and
   validate:
   1. **Strict-safe stdlib envelope** — which stdlib entry points are usable by the
-     examples and the pure core under `StrictPolicy` (known already:
-     `sort.Slice` is `unanalyzed` → fails strict; `sort.Ints/Strings`, `fmt` are
-     SAFE; establish the rest empirically). Include `io.ReadAll` over a
-     `bytes.Reader` (needed by `manifest.Parse(io.Reader)`).
+     examples and the pure core under `StrictPolicy`. **Spike result:** with
+     `UNANALYZED` excluded (design §5.4a) the whole probed envelope is clean —
+     `fmt`, `strconv`, `errors.*`, `io.ReadAll` (over any reader), and **both**
+     `sort.Sort` and `sort.Slice` (Capslock rewrites `sort.*` call sites, so the
+     old "`sort.Slice` is `unanalyzed` → fails strict" belief was wrong).
   2. **`CAPABILITY_SAFE` pruning end-to-end** — a custom `.cm` via
      `interesting.LoadClassifier(..., excludeBuiltin=false)` marking `csvfile`'s
      interface symbols (and `func <pkg>.init`) SAFE makes `app` come out
@@ -97,10 +98,15 @@ use them as the spike's probe targets, so the examples exist early and are
      alternative), and that the same authority in a `_test.go` helper (both
      in-package and external `_test` package) is **not** — Capslock's
      `go/packages` load excludes test files from the analyzed build.
-  6. **Reader attribution (design §11, PR-review)** — confirm that a component
-     function taking an `io.Reader` is attributed `FILES` when an `*os.File`
-     flows in via VTA, and stays clean when only a `bytes.Reader` does — this
-     validates the shell-wraps-in-`bytes.Reader` rule for `manifest.Parse`.
+  6. **Reader attribution → minting-not-use (design §5.4a, supersedes §11).**
+     Characterized both behaviors: under the raw classifier a component function
+     taking an `io.Reader` *is* attributed `FILES` when an `*os.File` flows in
+     (which is why §11 wrapped in `bytes.Reader`), but the spike concluded that
+     attribution is **undesirable** — it makes a deprivileged consumer's authority
+     depend on its callers. Resolution: reclassify the `(*os.File)` handle-use
+     methods `SAFE`, attributing authority at the `os.Open` minting site, so
+     `manifest.Parse` is authority-free by construction and the wrapping rule is
+     dropped.
 - Record results in a short `research/spike-capslock.md` (the strict-safe stdlib
   list feeds design §10 and the Step 8/10 examples; any surprises go back into the
   design before Step 3).
@@ -214,9 +220,13 @@ foundation the checker consumes.
   (Steps 6/9).
 - `Parse` takes an **`io.Reader`**, not a path (design §4.1, PR-review): the Reader
   is an **object capability** handed in by the shell — a deliberate illustration of
-  deprivileging the component. Internally `io.ReadAll` + `prototext.Unmarshal`. The
-  shell reads the manifest file itself and passes a `bytes.Reader` (design §11:
-  passing an `*os.File` would make VTA attribute `FILES` to `manifest`).
+  deprivileging the component. Internally `io.ReadAll` + `prototext.Unmarshal`.
+  `Parse` is ambient-authority-free **by construction** and the shell may hand it
+  any reader: the Step-0 spike settled the classifier to attribute filesystem
+  authority at the `os.Open` *minting* site, not at capability *use* (design §5.4a),
+  so reading a handed-in reader never counts against `manifest`. (The earlier
+  "shell must pass a `bytes.Reader`" rule is **withdrawn**; `bytes.Reader` remains a
+  convenient in-memory reader for tests.)
 
 **Tests.** Table-driven unit tests for `Parse` (fed via `bytes.Reader`): a valid
 manifest (e.g. the `toprow` example from §6.1) round-trips to the expected model;
@@ -457,6 +467,21 @@ stubbed/empty here; it is activated in Step 9.)
   analysis-defeating per the taxonomy in research/capslock.md), and the example call
   `path` → `[]Frame` (func/file/line) as evidence. **Empty list ⇒
   ambient-authority-free.** Declares **FILES, EXEC, READ_SYSTEM_STATE**.
+- **Classifier configuration (Step-0 spike, design §5.4a — load-bearing).** Build the
+  per-run classifier as: Capslock builtins **with `UNANALYZED` excluded**
+  (`analyzer.GetClassifier(true)` / `interesting.ClassifierExcludingUnanalyzed`) —
+  else `io.ReadAll`, `errors.Is`, `bufio` reads etc. flood every component with
+  spurious findings and mask real flows — **merged with a "minting, not use"
+  override** that marks the `(*os.File)` handle *use* methods
+  (`.Read`/`.Write`/`.Close`/`.Seek`/`.Stat`/…, **excluding `.Chdir`**)
+  `CAPABILITY_SAFE`, so filesystem authority attributes at the
+  `os.Open`/`os.ReadFile` minting site, not at every consumer of a handle. In
+  Step 9 this same merged classifier also carries the FR5b prune map (all three
+  combine into one `interesting.LoadClassifier(..., excludeBuiltin=false)` result).
+  Carry the exact handle-method list from the spike harness
+  (`../research/spike/harness.go`, `fileHandleUseMethods`). Curate the symmetric
+  network/exec/env use-methods only when those capabilities appear; document the
+  stdio-globals loosening (§5.4a/§11).
 - Honor `AnalyzeRequest.Packages`; accept `PruneAt` in the signature but treat empty as
   "no pruning" (full Capslock transitivity — which already gives **absorption** of
   absorbed deps for free, FR7). The `CAPABILITY_SAFE` custom-map pruning is Step 9.
@@ -498,8 +523,10 @@ project: read a manifest, load facts, run Capslock, check, render, exit correctl
 - `cmd/arcc` + its `app` orchestration subpackage (one subtree — the `cli`
   component; replace the Step-1 stub): parse args
   (`arcc check path/to/component.textproto`, `--format=json`), read the
-  manifest file (FILES) and hand `manifest.Parse` a **`bytes.Reader`** (the
-  Reader-as-object-capability seam; never pass the `*os.File` — design §11),
+  manifest file (FILES) and hand `manifest.Parse` an `io.Reader` (a `bytes.Reader`
+  is fine but **not required**; the Reader-as-object-capability seam. With the
+  §5.4a minting-not-use classifier `manifest` stays authority-free even if an
+  `*os.File` flows in, since authority attributes at the shell's `os.Open` — design §5.4a),
   take the **component root := the manifest's directory**,
   `goanalysis.LoadPackageFacts(root)`, `capslockadapter.Analyze` (whole-package
   scope; empty `PruneAt` for now), `checker.Check` with
@@ -517,9 +544,9 @@ project: read a manifest, load facts, run Capslock, check, render, exit correctl
   (FR10: does / requires / provides, incl. authority):
   - `toprow` — pure logic (sort/pick already-parsed rows), imports only the absorbed
     `internal/parsecsv` helper + strict-safe stdlib per the Step-0 envelope
-    (**`sort.Sort` with a concrete `sort.Interface`, not `sort.Slice`** — review
-    B8); manifest declares **no authority** and an `absorbed_dependency` on
-    `parsecsv`.
+    (either `sort.Sort` or `sort.Slice` is fine — the B8 `sort.Slice` prohibition
+    was **retired** by the Step-0 spike; Capslock rewrites `sort.*` call sites);
+    manifest declares **no authority** and an `absorbed_dependency` on `parsecsv`.
   - `internal/parsecsv` — absorbed impl-detail dep (wraps `encoding/csv`; no manifest).
   - `csvfile` — a component that legitimately `declared_authority: "FILES"` and exposes
     `Read(path) ([][]string, err)`; checked on its own it **conforms** (FILES is
