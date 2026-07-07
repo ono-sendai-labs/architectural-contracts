@@ -1,22 +1,38 @@
 # Detailed Design — Architectural Contracts MVP (Go)
 
-> **Status: revised after design review.** All major requirements decisions are
-> user-confirmed: Capslock-as-library (Q1), component = package-pattern set (Q2),
+> **Status: revised after design review + PR #1 review round.** All major
+> requirements decisions are user-confirmed: Capslock-as-library (Q1),
 > **strict capability policy by default, parameterized** (Q3), **textproto**
 > manifests (Q4), and **`./go` as its own Go module** (Q5). Component→component
 > boundary enforcement and capability pruning (FR5/FR5b) are designed in per the
 > Round-3 directive. A senior design review (see `../design-review.md`) was
 > verified against the Capslock source and its resolutions are folded in:
-> the interface **closure rule** (A1), **init pruning + explicit-init rule** (A2),
-> the **higher-order boundary warning** (A3), key **normalization** (A4),
-> **VTA for both graphs** (A5), the pure **`facts`** component (B7), JSON
-> rendering moved to the shell (B6), and assorted spec-gap fixes (C9–C14).
+> **init pruning + explicit-init rule** (A2), the **higher-order boundary
+> warning** (A3), key **normalization** (A4), **VTA for both graphs** (A5), the
+> pure **`facts`** component (B7), JSON rendering moved to the shell (B6), and
+> assorted spec-gap fixes (C9–C14). A second review round (PR #1, xtofian)
+> supersedes two earlier decisions and adds several rules: **component
+> membership is directory-based** — the manifest sits at the component root and
+> the component is everything beneath it (replaces the Q2 package-pattern list);
+> the review-A1 "closure" is replaced by an **interface well-formedness rule**
+> (every interface-surface method must be *declared* in an interface file, so
+> interface changes always touch interface files — presubmit-visible);
+> capability analysis covers **every function in the component's packages**
+> (an "interface-rooted" alternative was considered and rejected — Appendix A);
+> `declared_authority` is **wired into the policy in the
+> MVP**; `manifest.Parse` takes an **`io.Reader`** (an object-capability
+> illustration); every component carries an **informal contract** as doc
+> comments in its interface files (Pillar 2 proof of concept); manifests live
+> **at their component's root**; and the schema drops `packages` and
+> `contract_note` and makes `reason` optional.
 > This document is standalone; it does not require reading the other project files.
 
 ## 1. Overview
 
 This project prototypes the "architecture as code" idea from
-`rationale-and-concepts.md`: a component's **structure** (its interface, its
+[`rationale-and-concepts.md`](../../../../docs/rationale-and-concepts.md)
+(the concept doc, copied into this repo under `docs/`): a component's
+**structure** (its interface, its
 private implementation, and its dependencies) and its **ambient authority** are
 recorded in a small, machine-readable **manifest**, and a **conformance checker**
 mechanically verifies that the Go code matches the manifest. When the structure
@@ -24,10 +40,13 @@ of the code changes in a way that violates the manifest, the check fails — for
 the architectural change to surface as an explicit edit to the manifest.
 
 The MVP implements **Pillar 1 (Architecture as code)** and **Pillar 3 (Ambient
-authority)** for **Go**, with authority constrained to the strongest case:
-**ambient-authority-free** components (they declare — and provably use — no ambient
-authority). Contracts (Pillar 2) are informal prose in interface-file comments and
-are *not* mechanically checked. Data-flow (Pillar 4) is out of scope.
+authority)** for **Go**. Authority declarations are enforced against the code:
+a component whose manifest declares no authority must be provably
+**ambient-authority-free**, and a component may declare the authority it
+legitimately holds (e.g. `FILES`), which the policy then permits. Contracts
+(Pillar 2) are **informal**: every component's interface files carry doc
+comments stating its contract (FR10) — present as a proof of concept, *not*
+mechanically checked. Data-flow (Pillar 4) is out of scope.
 
 The deliverable is a **CLI** you run against a component manifest; it reports
 whether the code conforms. The tool is itself decomposed into components with
@@ -40,11 +59,17 @@ Consolidated from `idea-honing.md` and the rough idea.
 
 ### 2.1 Functional requirements
 
-- **FR1 — Manifest.** A component is described by a machine-readable manifest that
-  declares: the component's **name**, the **Go packages** that constitute it (by
-  import-path pattern/list), the **interface files** (the `.go` files that hold its
-  public surface), its **component dependencies** and **absorbed (impl-detail)
-  dependencies**, and its **declared ambient authority** (MVP: empty).
+- **FR1 — Manifest.** A component is described by a machine-readable manifest
+  (`component.textproto`) that sits at the **component root**: the component
+  consists of **all Go packages under the manifest file's directory** (PR-review;
+  there is no explicit package list). All paths in the manifest are relative to
+  that directory. The manifest declares: the component's **name**, the
+  **interface files** (the `.go` files that hold its public surface), its
+  **component dependencies** and **absorbed (impl-detail) dependencies**, and its
+  **declared ambient authority** (empty for an ambient-authority-free component;
+  e.g. `FILES` for a component that legitimately reads files). Component roots
+  must be **disjoint** — one component's root may not lie inside another's
+  (checked, §5.5).
 - **FR2 — Conformance CLI.** A CLI takes a manifest and reports pass/fail with
   actionable violations. Exit code `0` = conforms, `1` = violations found, `2` =
   tool error. Human-readable output by default; `--format=json` for machine use.
@@ -53,24 +78,42 @@ Consolidated from `idea-honing.md` and the rough idea.
   component dependency's interface packages or a declared absorbed dependency.
   Undeclared imports fail conformance. (Stdlib imports are governed by Pillar 3,
   not this check — see §5.2.)
-- **FR4 — Declared interface = closure over interface-file declarations.** A
-  component's **declared interface** is the *closure*:
-  - **(a)** every exported top-level symbol (funcs, types, vars, consts) declared
-    in files listed as `interface_files`; **plus**
-  - **(b)** the full **method set** (within the component's packages) of every
-    exported type — including *interface* types — declared in an interface file,
-    **regardless of which file defines the method bodies**. For an exported
-    interface type declared in an interface file, the in-component concrete
-    implementations' methods enter the boundary/prune **symbol set**, because the
-    call graph (VTA) resolves dynamic dispatch to concrete methods (review A1).
-  - **(c)** package **`init` functions are implicitly part of the interface**
-    (importing a package runs its init). To make that explicit, any explicit
-    `func init()` in a component's packages must be declared in an interface
-    file; otherwise → `INIT_OUTSIDE_INTERFACE` violation (review A2).
+- **FR4 — Declared interface = interface-file declarations, kept honest by a
+  well-formedness rule.** A component's **declared interface** is every exported
+  top-level symbol (funcs, types, vars, consts) and every exported method
+  **declared in files listed as `interface_files`**. So that *any* change to the
+  exposed interface necessarily touches a declared interface file — making
+  interface changes trivially visible to, e.g., a presubmit that watches those
+  files — a **well-formedness rule** closes the loopholes where Go lets
+  interface-relevant declarations live elsewhere (PR-review, replacing the
+  earlier A1 "silent closure" rule):
+  - **(a) Methods.** Every exported method of an exported non-interface type
+    declared in an interface file must itself be **declared in an interface
+    file** — not necessarily the same one: Go allows methods in a different file
+    than their receiver type, so a `types.go` + `api.go` split (both listed as
+    interface files) is fine. A method of an interface-file type declared in a
+    non-interface file → `METHOD_OUTSIDE_INTERFACE` violation. (To keep
+    implementation details out of interface files, an interface-file method may
+    delegate to an architecture-private function — slightly awkward, but the
+    best Go allows.)
+  - **(b) Interface types are the exception.** For an exported **interface**
+    type declared in an interface file, in-component concrete implementations
+    are bound by the interface's contract, so their methods need **not** appear
+    in interface files. They **do** enter the boundary/prune **symbol set**,
+    because the call graph (VTA) resolves dynamic dispatch to concrete methods
+    (review A1).
+  - **(c) Inits.** Package **`init` functions are implicitly part of the
+    interface** (importing a package runs its init). Any explicit `func init()`
+    in a component's packages must be declared in an interface file; otherwise →
+    `INIT_OUTSIDE_INTERFACE` violation (review A2). Rule (a) is the
+    method-shaped mirror of this rule.
 
-  A symbol that is Go-exported but outside this closure is
+  A symbol that is Go-exported but not declared in an interface file is
   **architecture-private**: it may be used for cross-package composition *within*
-  the component, but it is not part of the component's contract.
+  the component (or exposed for component-internal testing), but it is not part
+  of the component's contract. **Invariant (the point of well-formedness):** for
+  a well-formed component, every change to the exposed interface is a change to
+  some declared interface file.
 - **FR5 — Cross-component interface boundary (Pillar 1, strong form).** No code
   **outside** a component may call that component's architecture-private symbols;
   equivalently, when component A depends on component B, every call edge from A into
@@ -82,8 +125,9 @@ Consolidated from `idea-honing.md` and the rough idea.
   cross-package/cross-component part.)
 - **FR5b — Pillar 3: capability-attribution pruning at component boundaries.** When
   analyzing component A's ambient authority, the call-graph traversal is **pruned at
-  each direct component dependency's declared interface symbols** (the FR4 closure
-  set) **and at each dependency package's `init` function** (`func <pkg>.init` —
+  each direct component dependency's declared interface symbols** (the FR4 symbol
+  set: interface-file declarations plus concrete implementations of interface-file
+  interface types) **and at each dependency package's `init` function** (`func <pkg>.init` —
   the synthetic root init, which covers explicit `init#N` funcs and package-level
   var initializers; without this, a dependency's import-time authority would
   re-absorb into A with no prune point — review A2). Authority exercised *inside*
@@ -95,16 +139,22 @@ Consolidated from `idea-honing.md` and the rough idea.
   contract, and the whole graph is sound iff every component independently
   conforms. (One known exception — function values passed across the pruned
   boundary — is documented in §11 and warned on, review A3.)
-- **FR6 — Pillar 3: ambient-authority-free enforcement.** Using Capslock's
-  transitive call-graph capability analysis, the component's packages must exercise
-  no ambient authority beyond what a **capability policy** allows. The checker is
-  parameterized by that policy (`allowed` + `warn` capability sets); the policy's
-  `allowed` set is sourced from the manifest's `declared_authority`. **MVP default
-  is strict:** `declared_authority` is empty and `warn` is empty, so **any**
-  capability finding — true-authority *or* analysis-defeating — fails conformance.
-  Non-default policies (e.g. "true fails, analysis-defeating warns", or a per-
-  manifest allow/warn list) are expressible through the same parameter and are the
-  extension path to configurable-per-manifest.
+- **FR6 — Pillar 3: ambient-authority enforcement.** Using Capslock's
+  transitive call-graph capability analysis, **every function in the component's
+  packages** — exported or not, reachable from the declared interface or not —
+  must exercise no ambient authority beyond what a **capability policy** allows
+  (whole-package scope; `_test.go` files are excluded by construction — §5.4 and
+  Appendix A on the rejected interface-rooted alternative). The checker is
+  parameterized by that policy (`allowed` + `warn` capability sets), and **the
+  manifest's `declared_authority` populates the policy's `allowed` set — this
+  wiring is part of the MVP** (PR-review: the CSV example's `csvfile` component
+  legitimately declares `FILES`; that only works if the manifest field actually
+  feeds the policy). The `warn` set is empty by default, so any capability
+  finding beyond `declared_authority` — true-authority *or* analysis-defeating —
+  fails conformance; a component with empty `declared_authority` must therefore
+  be provably **ambient-authority-free**. Non-default policies (e.g. "true
+  fails, analysis-defeating warns") remain expressible through the same
+  parameter.
 - **FR7 — Absorption.** A third-party/internal package used purely as an
   implementation detail is declared as an **absorbed dependency**: it needs no
   manifest, and its transitive use of ambient authority is **absorbed into and
@@ -118,6 +168,14 @@ Consolidated from `idea-honing.md` and the rough idea.
 - **FR9 — Examples.** A small multi-component example Go project (a CSV "top row by
   column" tool) demonstrates a passing ambient-authority-free component and a
   failing (undeclared-authority or undeclared-dependency) component.
+- **FR10 — Informal contracts (Pillar 2, proof of concept).** Every component —
+  the tool's own and the examples' — carries an **informal contract** as doc
+  comments in its interface files: all the information the rest of the program
+  needs about what the component **does**, what it **requires**, and what it
+  **provides** (including the authority it holds and any obligations on
+  callers). The manifest + interface files + contract prose together are the
+  component's complete outside view; the prose is *not* mechanically checked in
+  the MVP (PR-review).
 
 ### 2.2 Non-functional / structural requirements
 
@@ -135,9 +193,10 @@ Consolidated from `idea-honing.md` and the rough idea.
 
 ### 2.3 Out of scope (MVP)
 
-Verified/formal contracts (Pillar 2); data-flow & privacy (Pillar 4); the Bazel
-rule; non-empty declared authority and the capability box (§5.4(b) of the concept
-doc); cross-package private-impl enforcement; languages other than Go.
+Verified/formal contracts (Pillar 2 beyond FR10's informal prose); data-flow &
+privacy (Pillar 4); the Bazel rule; the capability box (§5.4(b) of the concept
+doc — note that non-empty `declared_authority` itself *is* in scope, FR6);
+cross-package private-impl enforcement; languages other than Go.
 
 ## 3. Architecture Overview
 
@@ -154,14 +213,14 @@ flowchart TD
         CAPADAPT["capslock-adapter\n(implements CapabilityAnalyzer port)"]
     end
     subgraph core["Pure core (ambient-authority-free)"]
-        MAN["manifest\n(textproto bytes -> Manifest model, validation)"]
+        MAN["manifest\n(textproto via io.Reader -> Manifest model, validation)"]
         FACTS["facts\n(pure data model: PackageFacts,\nCallEdge, DependencyInterface)"]
         CHK["checker\n(all conformance rules -> ConformanceReport)"]
         REP["report\n(report model + text rendering;\nJSON marshaling is the shell's job)"]
     end
     PORT{{"CapabilityAnalyzer (port/interface)"}}
 
-    CLI -->|manifest bytes| MAN
+    CLI -->|"manifest reader\n(bytes.Reader — an object capability)"| MAN
     CLI -->|orchestrates| LOAD
     CLI -->|orchestrates| CAPADAPT
     LOAD -.produces types defined in.-> FACTS
@@ -194,13 +253,13 @@ sequenceDiagram
     participant C as capslock-adapter (shell)
     participant K as checker (core)
 
-    U->>CLI: archcheck check COMPONENT.textproto
-    CLI->>CLI: read manifest file bytes (FILES)
-    CLI->>M: Parse(bytes) -> Manifest
+    U->>CLI: archcheck check path/to/component.textproto
+    CLI->>CLI: read manifest file bytes (FILES), set component root := manifest dir
+    CLI->>M: Parse(bytes.Reader) -> Manifest
     M-->>CLI: Manifest (validated)
     CLI->>L: ResolveDependencyInterface(each component dep) (FILES)
     L-->>CLI: DepIfaces (declared interface symbols per dep)
-    CLI->>L: LoadPackageFacts(manifest.packages) (go list + SSA callgraph, FILES/EXEC)
+    CLI->>L: LoadPackageFacts(component root) (go list ./... + SSA callgraph, FILES/EXEC)
     L-->>CLI: PackageFacts (imports, exported symbols->file, call edges)
     CLI->>C: Analyze({Packages, PruneAt: DepIfaces.Symbols})
     C-->>CLI: CapabilityFinding[] (pruned at component-dep boundaries)
@@ -211,20 +270,24 @@ sequenceDiagram
 
 ## 4. Components and Interfaces
 
-Each of the tool's own components gets a manifest (self-hosting). Working import
+Each of the tool's own components gets a manifest (self-hosting), located **at
+the component's root directory** (FR1) — e.g.
+`internal/checker/component.textproto` — and each component's interface files
+carry its **informal contract** as doc comments (FR10): what it does, what it
+requires (inputs, invariants, authority), and what it provides. Working import
 root: `github.com/xtofian/architectural-contracts/go` (adjust to the real module
 path). Component boundaries and their authority:
 
 | Component | Package(s) | Role | Ambient authority |
 |---|---|---|---|
-| `manifest` | `.../internal/manifest` | Parse+validate manifest bytes → model | none (pure)* |
+| `manifest` | `.../internal/manifest` | Parse+validate manifest from an `io.Reader` → model | none (pure)* |
 | `facts` | `.../internal/facts` | Pure data model: `PackageFacts`, `CallEdge`, `DependencyInterface` (produced by the shell, consumed by the checker) | none (pure) |
 | `checker` | `.../internal/checker` | All conformance rules → report | none (pure) |
 | `report` | `.../internal/report` | Report model + text rendering (JSON marshaling is the shell's) | none (pure) |
 | `capanalyzer` (port) | `.../internal/capanalyzer` | `CapabilityAnalyzer` interface + finding types | none (pure) |
 | `goanalysis` | `.../internal/goanalysis` | `go/packages` load; AST/imports extraction; VTA call-graph → cross-component call edges; resolve component-dependency manifests → declared-interface symbol sets (all as `facts.*` values) | FILES, EXEC, READ_SYSTEM_STATE |
 | `capslockadapter` | `.../internal/capslockadapter` | Capslock-backed `CapabilityAnalyzer` | FILES, EXEC, READ_SYSTEM_STATE |
-| `cli` | `.../cmd/archcheck` + `.../internal/app` | Orchestration, I/O, exit codes, JSON marshaling of the report | FILES (read manifest, stdout), REFLECT (encoding/json) |
+| `cli` | `.../cmd/archcheck` (+ its `app` orchestration subpackage — one subtree, since membership is directory-based) | Orchestration, I/O, exit codes, JSON marshaling of the report | FILES (read manifest, stdout), REFLECT (encoding/json) |
 
 Core components (`manifest`, `facts`, `checker`, `report`, `capanalyzer`) are
 **ambient-authority-free** and depend only on each other and stdlib-that-is-safe.
@@ -253,17 +316,20 @@ type Frame struct{ Func, File string; Line int }
 //
 // Matching is NORMALIZED (review A4): generic type-argument brackets are
 // stripped from SSA names before comparison, and methods are emitted in BOTH
-// pointer- and value-receiver key forms. Symbol sets are the FR4 *closure*
-// (interface-file decls + method sets of interface-file types, incl. concrete
-// implementations of interface-file interface types).
+// pointer- and value-receiver key forms. Symbol sets are the FR4 symbol set
+// (interface-file decls, plus concrete implementations of interface-file
+// interface types — §5.3).
 type InterfaceSymbol string
 
-// AnalyzeRequest asks the analyzer for the capabilities of a component's packages,
-// with the call-graph traversal PRUNED at the given symbols (the declared
+// AnalyzeRequest asks the analyzer for the capabilities of a component's packages.
+// Scope is EVERY function in Packages (Capslock's native behavior: a backwards
+// search from capability sites reports each queried-package function on a path
+// to a capability — exported or not, dead or live; _test.go files are excluded
+// by construction). The traversal is PRUNED at PruneAt (the declared
 // interface symbols of the component's direct *component* dependencies, plus
 // "func <pkg>.init" for each dependency package — review A2). Authority
-// reached only *through* a pruned symbol is attributed to the dependency, not to
-// the analyzed component. Absorbed deps are simply absent from PruneAt.
+// reached only *through* a pruned symbol is attributed to the dependency, not
+// to the analyzed component. Absorbed deps are simply absent from PruneAt.
 type AnalyzeRequest struct {
     Packages []string
     PruneAt  []InterfaceSymbol
@@ -309,8 +375,8 @@ type ExportedSymbol struct {
     File     string       // file (relative to component root) where declared
     Kind     string       // func | type | var | const | method | init
     Receiver string       // for methods: the declaring type's key (drives the
-                          // FR4 closure: method ∈ interface iff its receiver
-                          // type is declared in an interface file)
+                          // FR4 well-formedness rule: methods of interface-file
+                          // types must themselves be declared in interface files)
 }
 // CallEdge is one static call edge; used for the FR5 cross-component boundary check.
 type CallEdge struct {
@@ -321,21 +387,32 @@ type CallEdge struct {
 }
 
 // DependencyInterface is a *component* dependency's manifest + interface files
-// resolved into its declared-interface symbol set (the FR4 closure, incl.
+// resolved into its declared-interface symbol set (the FR4 symbol set, incl.
 // concrete methods of interface-file interface types, plus per-package init
 // keys). Used to (a) build the FR5b PruneAt set and (b) validate FR5 boundary
 // calls.
 type DependencyInterface struct {
     Component string
-    Packages  []string
+    Packages  []string    // all packages under the dependency's component root (derived, not declared)
     Symbols   []capanalyzer.InterfaceSymbol
 }
 ```
 
 ```go
+// package manifest  (pure core) — parses a manifest from an io.Reader. The
+// Reader is an OBJECT CAPABILITY handed in by the shell — a deliberate
+// illustration of deprivileging (PR-review): the component can read exactly
+// what it was handed and holds no ambient authority to open anything itself.
+// The shell reads the file and passes a bytes.Reader (see §11 for why the
+// concrete Reader type matters to Capslock attribution).
+func Parse(r io.Reader) (Manifest, error)
+```
+
+```go
 // package goanalysis  (shell) — produces the facts the checker needs, as
-// values of the core-defined facts types.
-func LoadPackageFacts(pkgPatterns []string) (facts.PackageFacts, error) // FILES/EXEC
+// values of the core-defined facts types. componentRoot is the manifest file's
+// directory; membership = all Go packages under it (FR1).
+func LoadPackageFacts(componentRoot string) (facts.PackageFacts, error) // FILES/EXEC
 func ResolveDependencyInterface(dep manifest.ComponentDependency) (facts.DependencyInterface, error) // FILES
 ```
 
@@ -373,7 +450,9 @@ Build the **allowed import set** = union of:
   glob-matches literal import strings against the declared patterns — pure).
 
 For each package in the component, for each of its **non-stdlib** direct imports
-that is **not itself part of the component**: if the import ∉ allowed set →
+that is **not itself part of the component** (membership = the packages under the
+component root, i.e. the import paths present in `Facts.Packages` — FR1): if the
+import ∉ allowed set →
 `UNDECLARED_DEPENDENCY` violation (with the importing package + the import path).
 Types-only imports follow the same allowlist (type *use* across the boundary is
 governed by FR5's call-edge scope; see the §11 "use beyond calls" caveat).
@@ -392,35 +471,59 @@ that reaches a privileged call will fail the **Pillar-3** check. This keeps the 
 pillars cleanly separated: Pillar 1 governs *edges to other code units*, Pillar 3
 governs *system powers reached*.
 
-### 5.3 Declared interface (FR4 closure)
-From `PackageFacts`, the component's **declared interface** is computed as the
-FR4 closure:
-- every `ExportedSymbol` whose `File` ∈ `interface_files`;
-- every method whose `Receiver` type is declared in an interface file — even if
-  the method body lives in a non-interface file (review A1; requiring
-  colocation of a type and all its methods in one file is not idiomatic Go);
-- for exported **interface types** declared in interface files, the
-  in-component concrete implementations' method keys (computed via `go/types`
-  method-set/satisfaction analysis in `goanalysis`) join the *boundary/prune
-  symbol set*, since VTA edges land on concrete methods, not abstract ones.
+### 5.3 Declared interface & well-formedness (FR4)
+From `PackageFacts`, the component's **declared interface** is every
+`ExportedSymbol` whose `File` ∈ `interface_files`. Two **well-formedness rules**
+guarantee the interface is *fully visible in the interface files* (FR4 —
+PR-review, replacing the earlier silent-closure computation):
 
-Exported symbols outside this closure are **architecture-private** (usable for
-intra-component composition, not part of the contract). An
-exported-but-non-interface symbol is *not itself* a violation of the component's
-own manifest — it is governed by the boundary rule below, which forbids *outside*
-code from calling it. (We may still emit an informational note when such symbols
-exist, to help authors notice unintended public surface.)
+- **Method rule:** an exported method whose `Receiver` type is an exported
+  non-interface type declared in an interface file, but whose own declaration is
+  **not** in an interface file → `METHOD_OUTSIDE_INTERFACE` violation. Any
+  declared interface file will do — e.g. a `types.go` holding the receiver type
+  and an `api.go` holding its method declarations (Go allows methods in a
+  different file than their type). Keeping implementation detail out of
+  interface files then means interface-file methods delegate to
+  architecture-private functions — a little awkward, but the best Go allows.
+- **Explicit `init` rule (review A2):** an explicit `func init()` declared in a
+  non-interface file → `INIT_OUTSIDE_INTERFACE` violation. Importing a package
+  runs its inits, so init behavior is *de facto* part of the component's exposed
+  interface; the manifest should make that visible rather than implicit.
+  (Synthetic inits from package-level var initializers are governed by the
+  component's own capability check.)
 
-**Explicit `init` rule (review A2):** an explicit `func init()` declared in a
-non-interface file → `INIT_OUTSIDE_INTERFACE` violation. Rationale: importing a
-package runs its inits, so init behavior is *de facto* part of the component's
-exposed interface; the manifest should make that visible rather than implicit.
-(Synthetic inits from package-level var initializers are governed by the
-component's own capability check.)
+For the **boundary/prune symbol set** used by FR5/FR5b (§5.3b), the declared
+interface is augmented with the in-component concrete implementations' method
+keys for every exported **interface type** declared in an interface file
+(computed via `go/types` method-set/satisfaction analysis in `goanalysis`) —
+VTA edges land on concrete methods, not abstract ones (review A1). These
+implementation methods are **exempt from the method rule**: the implementation
+is bound by the interface's contract, so only the interface type needs to
+appear in the interface files (PR-review).
+
+Exported symbols not declared in interface files are **architecture-private**
+(usable for intra-component composition and component-internal testing, not
+part of the contract). Such a symbol is *not itself* a violation of the
+component's own manifest — it is governed by the boundary rule below, which
+forbids *outside* code from calling it. (We may still emit an informational
+note when such symbols exist, to help authors notice unintended public
+surface.)
+
+**Invariant (why well-formedness matters):** for a well-formed component, any
+change to the exposed interface necessarily modifies a declared interface file,
+so tooling (e.g. a presubmit) can flag interface-affecting changes purely by
+watching the interface file set.
+
+**Known corner case (settle in the Step-0 spike):** methods *promoted* into an
+interface-file type from an embedded type are declared wherever the embedded
+type's methods are declared — possibly outside the interface files. MVP stance:
+the method rule fires (the exposure is real); authors avoid embedding in
+interface-file types or wrap the promoted methods explicitly.
 
 ### 5.3b Cross-component interface boundary (FR5 + FR5b linkage)
-Using `Facts.CallEdges` and the resolved `DepIfaces` (symbol sets are the FR4
-closure; matching uses the A4 normalization — generic brackets stripped, both
+Using `Facts.CallEdges` and the resolved `DepIfaces` (symbol sets per §5.3 —
+interface-file declarations plus interface-type implementation methods;
+matching uses the A4 normalization — generic brackets stripped, both
 receiver forms):
 - For each call edge whose **callee** belongs to a direct component dependency
   `B`'s packages: if the callee ∉ `B`'s declared interface symbol set →
@@ -448,8 +551,24 @@ it call; the guarantee accrues as coverage does (see §11 compositional trust
 and Appendix D whole-graph mode).
 
 ### 5.4 Authority rule (FR6)
+**Analysis scope (PR-review discussion; Appendix A).** Capability findings
+cover **every function in the component's packages** — Capslock's native
+behavior: it searches backwards from capability call sites and reports each
+queried-package function on a path to a capability, whether or not that
+function is exported or reachable from the declared interface. So "conforms
+with empty `declared_authority`" means *no code in the component whatsoever*
+can exercise ambient authority — latent authority in architecture-private or
+dead code fails too. Note that `_test.go` files (including external `_test`
+packages) are **excluded by construction**: the analyzed build does not contain
+them, so ordinary test helpers and fixture readers never count against a
+component. Test-support code in regular `.go` files that needs authority must
+live **outside the component root** or be its own authority-declaring component
+(§11).
+
 Derive the effective policy: `policy.Allowed ⊇ manifest.declared_authority`
-(empty in MVP). For each `CapabilityFinding`:
+(empty for an authority-free component; e.g. `FILES` for the example's
+`csvfile` — the manifest→policy wiring is MVP scope, FR6). For each
+`CapabilityFinding`:
 - capability ∈ `policy.Allowed` → no report entry.
 - capability ∈ `policy.Warn` → `ANALYSIS_LIMITATION`/`ALLOWED_WITH_WARNING`
   **warning** (non-fatal).
@@ -470,9 +589,10 @@ For each declared component dependency (review C12):
   resolves and loads — failure is a tool error (exit 2);
 - the resolved manifest's `name` matches `ComponentDependency.name` — mismatch
   is a tool error;
-- the dependency's package set does **not overlap** the analyzed component's
-  package set → overlap is a conformance violation (`PACKAGE_OVERLAP`) —
-  overlapping membership breaks attribution;
+- the dependency's **component root is disjoint** from the analyzed component's
+  root — with directory-based membership (FR1), overlap means one root lies
+  inside the other's subtree; nesting → conformance violation
+  (`PACKAGE_OVERLAP`) — overlapping membership breaks attribution;
 - imports/edges into it target only its declared interface packages/symbols
   (§5.3b).
 
@@ -489,39 +609,43 @@ current check's dependency path is caught only by whole-graph mode, Appendix D.)
 syntax = "proto3";
 package archcontracts.v1;
 
+// A component's manifest, stored as component.textproto at the COMPONENT ROOT.
+// The component consists of all Go packages under the manifest file's
+// directory (FR1 — no explicit package list); all paths below are relative to
+// that directory (C9). There is no contract field: the component's informal
+// contract is doc-comment prose in its interface files (FR10).
 message Component {
   string name = 1;                          // logical component name
-  repeated string packages = 2;             // import-path patterns/list defining membership
-  repeated string interface_files = 3;      // .go files holding the public surface, relative to the
-                                            // COMPONENT ROOT := the manifest file's directory (C9);
-                                            // multi-package components use subdir paths (store/api.go)
-  repeated ComponentDependency component_dependencies = 4;
-  repeated AbsorbedDependency  absorbed_dependencies  = 5;
-  repeated string declared_authority = 6;   // capability names, validated at parse time against the
-                                            // known capability set (C11); MVP: empty (authority-free)
-  string contract_note = 7;                 // optional free-text pointer; real contract is prose in interface files
+  repeated string interface_files = 2;      // .go files holding the public surface, relative to the
+                                            // component root; multi-package components use subdir
+                                            // paths (store/api.go)
+  repeated ComponentDependency component_dependencies = 3;
+  repeated AbsorbedDependency  absorbed_dependencies  = 4;
+  repeated string declared_authority = 5;   // capability names, validated at parse time against the
+                                            // known capability set (C11); empty = ambient-authority-free
 }
 
 message ComponentDependency {
   string name = 1;                          // referenced component's name; must match the `name`
                                             // in the resolved manifest (C12)
   string manifest = 2;                      // path to that component's manifest, relative to the
-                                            // DECLARING manifest's directory (source of truth for
-                                            // the dependency's declared interface symbols)
-  reserved 3;                               // was interface_packages; dropped — interface packages
-                                            // are DERIVED (packages containing interface files, C10)
+                                            // DECLARING manifest's directory; the resolved manifest's
+                                            // own directory is the dependency's component root and the
+                                            // source of truth for its declared interface symbols
+                                            // (interface packages are DERIVED — packages containing
+                                            // interface files, C10)
 }
 
 message AbsorbedDependency {
   string import_path = 1;                   // third-party/internal impl-detail package (may be a pattern)
-  string reason = 2;                        // optional human note (why it's an impl detail)
+  optional string reason = 2;               // human note (why it's an impl detail)
 }
 ```
 
-Example (`examples/csvtool/toprow/COMPONENT.textproto`):
+Example (`examples/csvtool/toprow/component.textproto` — membership is implicit:
+everything under `examples/csvtool/toprow/`):
 ```textproto
 name: "toprow"
-packages: "example.com/csvtool/toprow"
 interface_files: "toprow.go"
 absorbed_dependencies { import_path: "example.com/csvtool/internal/parsecsv" reason: "CSV parsing impl detail" }
 # declared_authority intentionally empty -> ambient-authority-free
@@ -537,7 +661,8 @@ type ConformanceReport struct {
 }
 type Finding struct {
     Kind     Kind        // violations: UNDECLARED_DEPENDENCY | CALLS_UNDECLARED_INTERFACE |
-                         //   UNDECLARED_AUTHORITY | INIT_OUTSIDE_INTERFACE | PACKAGE_OVERLAP
+                         //   UNDECLARED_AUTHORITY | METHOD_OUTSIDE_INTERFACE |
+                         //   INIT_OUTSIDE_INTERFACE | PACKAGE_OVERLAP
                          // warnings:   ANALYSIS_LIMITATION | ALLOWED_WITH_WARNING |
                          //   HIGHER_ORDER_BOUNDARY_CALL | UNUSED_DEPENDENCY
     Message  string
@@ -563,13 +688,13 @@ Three-way outcome, mapped to exit codes (mirrors Capslock's own convention):
   failure) → error to stderr, exit `2`. Tool errors are distinct from
   conformance failures and never masquerade as a "pass."
 
-Specifics (validation is split — review C9 — because pure `Parse` cannot
-resolve package patterns to directories):
+Specifics (validation is split — review C9 — because pure `Parse` sees only the
+manifest's contents, not the filesystem around it):
 - **Syntactic manifest validation** (pure, in `manifest.Parse`): empty `name`,
-  empty `packages`, duplicate declarations, unknown capability name in
+  empty `interface_files`, duplicate declarations, unknown capability name in
   `declared_authority` (C11) → parse error (exit 2).
 - **Resolved validation** (shell, after package load): interface file missing
-  on disk or not belonging to any of the component's packages; dependency
+  on disk or not belonging to any package under the component root; dependency
   manifest unresolvable or name-mismatched (§5.5) → tool error (exit 2).
 - **Package load**: `go/packages` load errors (e.g. package not found, build
   errors) are surfaced verbatim and abort with exit 2 (we do not analyze a broken
@@ -584,19 +709,26 @@ resolve package patterns to directories):
   pure function of `(Manifest, PackageFacts, []CapabilityFinding)`, we test every
   rule with hand-constructed inputs and golden `ConformanceReport`s — no Go build,
   no Capslock, fully deterministic. This is the bulk of the test suite.
-- **manifest.Parse — unit tests** for valid/invalid textproto, including each
-  validation error.
+- **manifest.Parse — unit tests** for valid/invalid textproto (fed via a
+  `bytes.Reader` — the Reader-as-capability seam), including each validation
+  error.
 - **goanalysis — integration tests** against small fixture packages under
   `testdata/`: assert extracted imports and exported-symbol→file mappings.
-  Fixtures must cover the FR4-closure corner cases (review A1/A4): a type
-  declared in an interface file with methods defined elsewhere; an exported
-  interface type + concrete implementation; a generic function/method
-  (normalization); pointer- vs value-receiver keys; promoted methods from
-  embedding; an explicit `func init()`.
+  Fixtures must cover the FR4 well-formedness corner cases (review A1/A4,
+  PR-review): a type declared in an interface file with an exported method
+  declared in a non-interface file (→ `METHOD_OUTSIDE_INTERFACE`); a
+  `types.go` + `api.go` split across two interface files (clean); an exported
+  interface type + concrete implementation (impl methods exempt but in the
+  boundary/prune symbol set); a generic function/method (normalization);
+  pointer- vs value-receiver keys; promoted methods from embedding; an explicit
+  `func init()`.
 - **capslockadapter — integration tests** against fixture packages with known
   capabilities (e.g. a package that reads a file → expect a FILES finding; a pure
   arithmetic package → expect none). Guards our mapping of Capslock's proto onto
-  `CapabilityFinding`/`Class`.
+  `CapabilityFinding`/`Class`. Includes **scope** tests (§5.4): authority in an
+  architecture-private exported helper (unreachable from the declared interface)
+  **is** reported — whole-package scope; the same authority in a `_test.go`
+  helper is **not** (test files are outside the analyzed build).
 - **End-to-end golden tests** on the `examples/` projects: run the CLI, assert exit
   code + rendered report. Includes at least one **conforming** and one
   **intentionally non-conforming** example (undeclared dep, leaked symbol,
@@ -608,32 +740,38 @@ resolve package patterns to directories):
 
 ```
 architectural-contracts/
+├── docs/
+│   └── rationale-and-concepts.md  # the concept doc (copied into this repo; linked from §1)
 ├── proto/                         # shared, language-neutral schema
 │   └── archcontracts/v1/component.proto
 ├── go/                            # Go toolchain (this MVP)
 │   ├── go.mod
-│   ├── cmd/archcheck/             # CLI entry (shell)
-│   ├── internal/
-│   │   ├── manifest/              # pure: parse+validate  (+ generated proto or gen/)
-│   │   ├── facts/                 # pure: fact data model (PackageFacts, CallEdge, DependencyInterface)
-│   │   ├── checker/               # pure: conformance rules
-│   │   ├── report/                # pure: report model + text rendering (JSON = shell)
-│   │   ├── capanalyzer/           # pure: CapabilityAnalyzer port + finding types
-│   │   ├── goanalysis/            # shell: go/packages + AST facts (produces facts.* values)
-│   │   ├── capslockadapter/       # shell: Capslock-backed adapter
-│   │   └── app/                   # shell: orchestration used by cmd/archcheck (+ JSON marshal)
-│   ├── components/                # this tool's OWN manifests (self-hosting)
-│   │   ├── checker.COMPONENT.textproto
-│   │   ├── manifest.COMPONENT.textproto
-│   │   └── ...
+│   ├── cmd/archcheck/             # CLI entry (shell) — component root of `cli`
+│   │   ├── component.textproto
+│   │   ├── main.go
+│   │   └── app/                   # orchestration subpackage (+ JSON marshal) — same subtree ⇒ same component
+│   ├── internal/                  # each component's manifest sits AT ITS ROOT (PR-review)
+│   │   ├── manifest/              # pure: parse+validate  (+ generated proto or gen/)  + component.textproto
+│   │   ├── facts/                 # pure: fact data model                              + component.textproto
+│   │   ├── checker/               # pure: conformance rules                            + component.textproto
+│   │   ├── report/                # pure: report model + text rendering (JSON = shell) + component.textproto
+│   │   ├── capanalyzer/           # pure: CapabilityAnalyzer port + finding types      + component.textproto
+│   │   ├── goanalysis/            # shell: go/packages + AST facts                     + component.textproto
+│   │   └── capslockadapter/       # shell: Capslock-backed adapter                     + component.textproto
 │   └── examples/
 │       └── csvtool/               # demo multi-component Go project
-│           ├── toprow/            # ambient-authority-free logic component
-│           ├── internal/parsecsv/ # absorbed impl-detail dependency
-│           ├── shell/             # component that holds file I/O (declares FILES) or fails if it claims none
-│           └── *.COMPONENT.textproto
+│           ├── toprow/            # authority-free logic component     + component.textproto
+│           ├── internal/parsecsv/ # absorbed impl-detail dependency (no manifest)
+│           ├── csvfile/           # FILES-declaring component          + component.textproto
+│           └── app/               # composition root (pruning showcase)+ component.textproto
 └── (rust/ later)
 ```
+
+Manifests live **at each component's root** — the manifest's directory *defines*
+the component (FR1), so there is no central `go/components/` directory
+(PR-review). A consequence of directory-based membership: the former
+`internal/app` orchestration package moves **under `cmd/archcheck/`**, so the
+`cli` component is a single subtree.
 
 Note (Q5, confirmed): **`./go` is its own Go module** (`go/go.mod`). The `proto/`
 dir is deliberately outside `go/` so a future Rust toolchain can share it (NFR1);
@@ -669,6 +807,12 @@ the concepts** — including the two dependency kinds and boundary pruning — v
   **ambient-authority-free** while orchestrating authority it never holds. That is
   the capability model working as intended.
 
+Per FR10, each example component's interface files carry its **informal
+contract** as doc comments — e.g. `csvfile.Read` documents that it reads the
+named file from the real filesystem (hence `FILES`), and `toprow` documents
+that it operates only on rows it is handed. Together with the manifest, that
+prose is everything a consumer needs to know.
+
 Failing variants (golden non-conformance tests):
 - `app` **absorbs** `csvfile` instead of depending on it as a component (or calls
   `os.Open` directly) while claiming no authority → `UNDECLARED_AUTHORITY` (evidence:
@@ -698,11 +842,14 @@ Remaining caveats:
   *absorbed dependency*, authority it exercises when B invokes it is attributed
   to nobody (A's path is pruned at B; B's own check never sees A's absorbed
   dep). Authority in **A's own functions** invoked via callback *is* still
-  caught (Capslock reports every queried-package function with its own path to
-  a capability). Mitigation: `HIGHER_ORDER_BOUNDARY_CALL` warning on func-valued
-  arguments crossing a pruned boundary (§5.3b). A principled treatment —
-  functions passed to higher-order functions are themselves capabilities whose
-  authority should attribute to the supplier — is future work (Appendix D).
+  caught — a consequence of the whole-package analysis scope (§5.4): Capslock
+  reports every queried-package function with its own path to a capability,
+  reachable from A's interface or not. (Under the rejected interface-rooted
+  alternative this would have been a hole — Appendix A.) Mitigation:
+  `HIGHER_ORDER_BOUNDARY_CALL` warning on func-valued arguments crossing a
+  pruned boundary (§5.3b). A principled treatment — functions passed to
+  higher-order functions are themselves capabilities whose authority should
+  attribute to the supplier — is future work (Appendix D).
 - **Generic symbols (review A4).** MVP matching strips generic type-argument
   brackets from SSA names and emits both receiver key forms; this is believed
   conservative (a missed match fails *open*: authority leaks in and surfaces as
@@ -717,9 +864,34 @@ Remaining caveats:
   dependency's types, struct fields, or exported **vars** (a mutable-state channel
   invisible to both FR5 and FR5b) without a call is not covered; an extension.
   (Concept §3.1: "calls into, uses types from, or otherwise communicates with".)
-- **Interface strictness (resolved):** exported symbols outside the FR4 closure are
-  *architecture-private*, not errors (§5.3) — the boundary rule, not a blanket
-  "everything exported must be in an interface file," is what bites.
+- **Whole-package authority scope & test-support code (PR-review, §5.4).**
+  Because every function in the component's packages counts, an
+  authority-using helper in a regular (non-`_test.go`) file fails the
+  component's check even if it exists only to support tests. This is treated as
+  a feature, not a carve-out: authority that ships in the package is real.
+  Placement guidance — per-test helpers and fixture readers go in `_test.go`
+  files (excluded from the analyzed build by construction); *shared*
+  test-support packages that need authority live outside the component root
+  (directory-based membership makes this a directory choice) or become their
+  own small component declaring, e.g., `FILES`.
+- **Granted capabilities vs Capslock attribution (PR-review).**
+  `manifest.Parse(io.Reader)` holds no ambient authority — the Reader is an
+  *object capability* handed in by its caller. But Capslock/VTA attributes by
+  the concrete types that flow in: if the shell passed an `*os.File` directly,
+  VTA would resolve `r.Read` to `(*os.File).Read` and attribute `FILES` to the
+  `manifest` component's self-check. The shell therefore reads the file itself
+  and hands `Parse` a `bytes.Reader`. (Distinguishing granted-capability use
+  from ambient authority is exactly what Capslock cannot see — future work,
+  same family as callbacks-as-capabilities.)
+- **Directory-based membership (PR-review).** A component is its manifest's
+  directory subtree: components cannot span non-contiguous directories,
+  component roots must be pairwise disjoint (no nesting, §5.5), and any package
+  placed under a component's root silently joins the component. Accepted for
+  the MVP.
+- **Interface strictness (resolved):** exported symbols not declared in
+  interface files are *architecture-private*, not errors (§5.3) — the boundary
+  rule plus the FR4 well-formedness rules, not a blanket "everything exported
+  must be in an interface file," are what bite.
 - **Analysis soundness** is otherwise bounded by Capslock (reflection/unsafe/cgo),
   which under `StrictPolicy` fail conformance rather than pass silently.
 
@@ -753,12 +925,64 @@ Remaining caveats:
   in `analyzer.searchBackwardsFromCapabilities` (review). The prune set also
   includes `func <pkg>.init` per dependency package (review A2 — precedent:
   `func encoding/json.init CAPABILITY_SAFE` in the builtin map).
-- **Interface = closure, not file-literal (review A1).** Call graphs (VTA)
-  resolve dynamic dispatch to *concrete* methods, so a file-literal reading of
-  "declared interface" breaks on idiomatic Go (interface-returning constructors,
-  type in `api.go` / methods in `impl.go`). The FR4 closure — method sets of
-  interface-file types, incl. concrete implementations of interface-file
-  interface types — is what makes FR5/FR5b match real edges.
+- **Interface = interface files + well-formedness, not a silent closure
+  (PR-review, revising A1).** Review A1 observed that VTA resolves dynamic
+  dispatch to *concrete* methods and that Go idiom puts a type and its methods
+  in different files; the earlier draft answered by silently *including* such
+  methods in the interface (a closure). That undermined a key goal: interface
+  changes should always be visible as edits to the declared interface files
+  (e.g. for a presubmit). Revised: methods of interface-file types declared
+  outside interface files are a **violation** (`METHOD_OUTSIDE_INTERFACE`),
+  mirroring the explicit-init rule — multiple interface files (`types.go` +
+  `api.go`) keep this idiomatic. A1's VTA concern survives only where it must:
+  concrete implementations of interface-file *interface types* are exempt
+  (contract-bound by their interface) and are added to the boundary/prune
+  symbol set so FR5/FR5b match real edges.
+- **Directory-based membership (PR-review, revising Q2).** The manifest sits at
+  the component root and the component is every package beneath it: no
+  `packages` field to keep in sync, membership is unambiguous, and the manifest
+  location itself documents the boundary. Cost: components are contiguous,
+  disjoint subtrees (§11).
+- **Authority-analysis scope = every function in the component's packages
+  (PR-review discussion; "interface-rooted" alternative rejected).** Capslock
+  has no notion of entry points: it searches *backwards* from capability call
+  sites through the VTA graph and reports every queried-package function on a
+  path to a capability — exported or unexported, live or dead. We keep that
+  native whole-package scope, so an empty finding list means *no code in the
+  component at all* can exercise undeclared authority.
+
+  **The rejected alternative — root the traversal at the declared interface.**
+  Motivated by the observation that a component's public-but-undeclared symbols
+  may exist only for component-internal testing: analysis would start at the
+  FR4 symbol set + package inits (symmetric with pruning: start at your own
+  interface, stop at your dependencies'), and the authority footprint would be
+  exactly "what a consumer of the contract can trigger." Rejected because the
+  costs outweigh that precision:
+  1. it *hides latent authority* in architecture-private code — safe against
+     checked consumers (the FR5 boundary rule forbids calling such symbols) but
+     not against unchecked ones, weakening the compositional story;
+  2. it would have re-opened a **callback hole**: one of A's own functions,
+     reachable only via a pruned dependency invoking it, escapes attribution —
+     under whole-package scope it is always reported (§11 higher-order caveat);
+  3. the natural implementation (keep findings whose example path starts at a
+     root) silently depends on Capslock's per-(function, capability) reporting
+     granularity — an assumption that would need spike validation and could
+     regress with Capslock releases;
+  4. it adds `Roots` plumbing through the port, adapter, and CLI.
+
+  **The test-helper concern is handled architecturally instead** (§5.4, §11):
+  `_test.go` files never enter the analyzed build (go/packages default), so
+  ordinary test helpers and fixture readers are already invisible; *shared*
+  authority-using test-support code belongs outside the component root or in
+  its own authority-declaring component — visible authority instead of an
+  analysis carve-out. The knowingly accepted consequence: an exported-for-
+  testing symbol in a shipped non-test file that touches ambient authority
+  fails the component's check — deliberately, since that authority genuinely
+  ships in the package.
+- **`Parse(io.Reader)` as an object-capability demo (PR-review).** The manifest
+  parser cannot open anything; it reads exactly the Reader it is handed — a
+  small, concrete illustration of deprivileging a component (see §11 for the
+  attribution nuance).
 - **Fact model in the core (review B7).** `facts` is a pure core component so the
   checker never imports the shell; `goanalysis` produces core-defined types.
   Same inward-pointing pattern as the `capanalyzer` port.
@@ -773,7 +997,7 @@ Remaining caveats:
 | Capslock as **library** | structured protos; call-graph hook; single shared `packages.Load` | tighter coupling to a pre-1.0 API |
 | Capslock as **subprocess** (rejected) | loose coupling; API-churn-proof | no call-graph hook; JSON parsing; still shells out |
 | **textproto** manifests `[PROVISIONAL]` | matches protobuf constraint; diff-friendly; Bazel-generatable | less familiar than YAML to some authors |
-| Component = **package-pattern set** | flexible; matches "module or packages" | needs care mapping patterns→membership |
+| Component = **manifest-directory subtree** (PR-review; replaced package-pattern set) | zero config — manifest location *is* the membership; nothing to keep in sync | components must be contiguous, disjoint dirs; stray packages under a root silently join |
 
 ### Appendix C — Research findings (summary)
 
@@ -786,16 +1010,22 @@ From `research/capslock.md` and `research/go-component-model.md`:
   "terminates further analysis") gives us **boundary pruning for component deps** —
   verified against `interesting/interesting.cm`; key format
   `func <path>.<Name>` / `func (*<path>.<Type>).<Method>`.
+- Capslock's scope is **every function in the queried packages** (backwards
+  search from capability sites; no entry-point notion), and its `go/packages`
+  load **excludes `_test.go` files** — so test code is outside the analysis by
+  construction (spike-verify both — Step 0).
 - Capslock **itself requires ambient authority** (`go list` via `os/exec`) → drives
   the pure-core/shell split.
 - Pillar 1 is **not** Capslock's job; it comes from `go/packages` imports +
   `go/ast` exported-symbol→file mapping. **One `packages.Load` feeds both pillars.**
 
 ### Appendix D — Remaining open items
-Resolved: Q1 (Capslock as library), Q2 (package-pattern component), Q3 (strict
-parameterized policy), Q4 (textproto), Q5 (`./go` own module), call-graph
-algorithm (**VTA**, matching Capslock — review A5), interface-file strictness
-(exported-but-non-interface symbols are architecture-private, not errors, §5.3).
+Resolved: Q1 (Capslock as library), Q2 (component membership — revised by the
+PR review to manifest-directory subtree), Q3 (strict parameterized policy), Q4
+(textproto), Q5 (`./go` own module), call-graph algorithm (**VTA**, matching
+Capslock — review A5), interface-file strictness (exported-but-non-interface
+symbols are architecture-private, not errors, plus the FR4 well-formedness
+rules, §5.3).
 
 Still open, non-blocking for the MVP:
 1. **`CapabilityAnalyzer` port** — confirm wrapping Capslock behind our own port
@@ -819,4 +1049,9 @@ Post-MVP research questions (from the design review):
 5. **Robust generic-symbol matching (review A4)** beyond the MVP's
    bracket-stripping normalization (instantiation-aware matching, synthetic
    wrapper functions for promoted methods).
+6. **Granted capabilities vs ambient authority (PR-review).** A handed-in
+   `io.Reader` (or any object capability) is not ambient authority, but
+   Capslock attributes by concrete types flowing through VTA (§11). A
+   principled model would treat capability-typed parameters as grants from the
+   caller — same family as callbacks-as-capabilities (item 4).
 ```

@@ -42,7 +42,7 @@ the API is the seam that makes future **configurable-per-manifest** cheap — an
 ### Q4. How are manifests authored / schema'd?
 **A (CONFIRMED): Proto schema + textproto manifests.** A shared `.proto` defines
 the manifest message; each component ships a hand-authored `.textproto` (working
-name `COMPONENT.textproto`). Matches the "we use protobuf" constraint and stays
+name `component.textproto`). Matches the "we use protobuf" constraint and stays
 diff-friendly.
 
 ### Q5. Go module boundary for the tool?
