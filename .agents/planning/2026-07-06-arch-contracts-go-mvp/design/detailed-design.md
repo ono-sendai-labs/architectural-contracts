@@ -624,16 +624,26 @@ ambient-authority-free, and real authority is still traced to its true leaf.
 `UNANALYZED` map, so they still surface and still fail strict.) A post-MVP policy
 could re-raise `UNANALYZED` as a `warn`-set `ANALYSIS_LIMITATION` without failing.
 
-**(2) Ambient authority = capability *minting*, not capability *use*.** Capslock's
-builtin map classifies two object-capability notions identically as `FILES`:
+**(2) Ambient authority = capability *minting*, not capability *use*.** The
+Step-0 spike surfaced a modular-reasoning hazard in Capslock's default behavior:
+a component may or may not carry a capability finding **based purely on how it is
+called**. `manifest.Parse(io.Reader)` is attributed `FILES` when a caller hands
+it an `*os.File`, yet stays clean when handed an in-memory reader — even though
+`Parse`'s own code is byte-for-byte identical in both cases. That makes a
+component's authority a property of its callers rather than of its own code,
+which makes compositional reasoning cumbersome. The root cause is that Capslock's
+builtin map classifies two distinct object-capability notions identically as
+`FILES`:
 - **minting** — turning an *ambient designator* into a capability: `os.Open`,
   `os.OpenFile`, `os.Create`, `os.ReadFile`, `os.WriteFile`, `os.NewFile`,
   `os.Remove*`, `os.Mkdir*`, `os.Stat`, … all take a *path* (or raw fd);
 - **use** — exercising a capability you were *granted*: the `(*os.File)` methods
   `.Read/.Write/.Close/.Seek/.Stat/…` operate on a handle you already hold.
 
-Only *minting* is ambient authority; *use* of a granted capability is not (the
-authority was spent by whoever minted the handle). The MVP classifier therefore
+**In this design we take an object-capability point of view: minting a
+capability exercises ambient authority; using a capability you were granted does
+not** (the authority was already spent by whoever minted the handle). The MVP
+classifier therefore
 **reclassifies the `(*os.File)` handle *use* methods `CAPABILITY_SAFE`** (a
 per-run capability-map override; a function-level entry wins over the
 `package os` fallback) while leaving the minting functions `FILES`. Authority is
@@ -1154,7 +1164,13 @@ Still open, non-blocking for the MVP:
    manifests) or offer a "check the whole graph" mode that verifies every reachable
    component (which would also catch package-membership overlap globally, §5.5)?
    MVP does single-component + resolve-direct-deps; whole-graph is a natural
-   extension.
+   extension. A useful property enables such a mode cheaply: because ambient
+   authority *use* is attributed to the component where it happens (including its
+   absorbed deps, §5.4a), a top-level component's authority can be **"buried"** in
+   a transitive sub-dependency — but that fact can be reasoned about purely at the
+   level of the **component graph**, without the code-level call graph. This opens
+   the door to high-level component-graph conformance checks, e.g. constraining
+   the use of a given ambient authority across an entire transitive sub-graph.
 
 Post-MVP research questions (from the design review):
 4. **Callbacks as capabilities (review A3).** A function value passed across a
@@ -1175,4 +1191,17 @@ Post-MVP research questions (from the design review):
    network/exec/env, and truly type-agnostic grant tracking (any object
    capability, and function-valued grants) — same family as
    callbacks-as-capabilities (item 4).
+7. **Verified-safe abstractions.** A component may provide a capability-oriented
+   abstraction over an ambient resource — e.g. a
+   [`cap-std`](https://docs.rs/cap-std)-style filesystem that only *derives*
+   smaller capabilities from ones it was already granted (obtaining a file handle
+   from a [directory capability](https://docs.rs/cap-std/latest/cap_std/fs/struct.Dir.html#method.open))
+   rather than *minting* new ones. Semantically such a component exercises **no**
+   ambient authority, but its implementation bottoms out in a low-level call like
+   `openat`, which Capslock attributes as `FILES`. In these cases we want to mark
+   the component **verified-safe** so that it presents as ambient-authority-free in
+   cross-component graph analysis, despite the raw Capslock finding — a
+   manual-audit escape hatch complementing the automated minting-vs-use classifier
+   (§5.4a). This is the semantic counterpart, at the component level, of the
+   handle-method SAFE reclassification the MVP already does at the stdlib level.
 ```
