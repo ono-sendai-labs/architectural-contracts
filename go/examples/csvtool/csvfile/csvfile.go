@@ -14,7 +14,7 @@ package csvfile
 import (
 	"os"
 
-	"github.com/xtofian/architectural-contracts/go/examples/csvtool/internal/parsecsv"
+	"github.com/ono-sendai-labs/architectural-contracts/go/examples/csvtool/internal/parsecsv"
 )
 
 // Read reads the CSV file at path from the real filesystem and parses it.

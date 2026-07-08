@@ -4,7 +4,7 @@
 // pruned (review A2).
 package initimporter
 
-import "github.com/xtofian/architectural-contracts/spike/probes/initauth"
+import "github.com/ono-sendai-labs/architectural-contracts/spike/probes/initauth"
 
 // Get returns the value captured by initauth's init.
 func Get() string { return initauth.Value() }

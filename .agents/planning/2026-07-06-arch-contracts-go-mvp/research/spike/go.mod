@@ -1,4 +1,4 @@
-module github.com/xtofian/architectural-contracts/spike
+module github.com/ono-sendai-labs/architectural-contracts/spike
 
 go 1.26.4
 

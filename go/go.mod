@@ -1,3 +1,3 @@
-module github.com/xtofian/architectural-contracts/go
+module github.com/ono-sendai-labs/architectural-contracts/go
 
 go 1.26

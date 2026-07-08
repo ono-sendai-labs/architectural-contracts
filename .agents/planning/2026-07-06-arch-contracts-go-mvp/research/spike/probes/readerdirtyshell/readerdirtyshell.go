@@ -7,7 +7,7 @@ package readerdirtyshell
 import (
 	"os"
 
-	"github.com/xtofian/architectural-contracts/spike/probes/readerattr"
+	"github.com/ono-sendai-labs/architectural-contracts/spike/probes/readerattr"
 )
 
 // Run opens a file and hands the *os.File to Parse; FILES flows through.

@@ -290,7 +290,7 @@ the component's root directory** (FR1) — e.g.
 `internal/checker/component.textproto` — and each component's interface files
 carry its **informal contract** as doc comments (FR10): what it does, what it
 requires (inputs, invariants, authority), and what it provides. Working import
-root: `github.com/xtofian/architectural-contracts/go` (adjust to the real module
+root: `github.com/ono-sendai-labs/architectural-contracts/go` (adjust to the real module
 path). Component boundaries and their authority:
 
 | Component | Package(s) | Role | Ambient authority |

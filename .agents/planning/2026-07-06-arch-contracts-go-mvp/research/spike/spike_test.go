@@ -51,8 +51,8 @@ func logFindings(t *testing.T, title string, fs []Finding) {
 }
 
 const (
-	spikeMod   = "github.com/xtofian/architectural-contracts/spike"
-	csvtoolMod = "github.com/xtofian/architectural-contracts/go/examples/csvtool"
+	spikeMod   = "github.com/ono-sendai-labs/architectural-contracts/spike"
+	csvtoolMod = "github.com/ono-sendai-labs/architectural-contracts/go/examples/csvtool"
 )
 
 // Assumption 1: strict-safe stdlib envelope.

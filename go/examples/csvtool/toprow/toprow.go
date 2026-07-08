@@ -13,7 +13,7 @@ package toprow
 import (
 	"sort"
 
-	"github.com/xtofian/architectural-contracts/go/examples/csvtool/internal/parsecsv"
+	"github.com/ono-sendai-labs/architectural-contracts/go/examples/csvtool/internal/parsecsv"
 )
 
 // byColumn is a concrete sort.Interface. We use sort.Sort with it rather than
