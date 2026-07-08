@@ -135,7 +135,7 @@ yet; the deliverable is a green, reproducible pipeline.
 **Implementation guidance.**
 - **Layout (NFR1, design §9).** Create the top-level skeleton: `proto/` (empty for
   now — schema lands in Step 2), `go/` as its **own module** (`go/go.mod`, working
-  import root `github.com/xtofian/architectural-contracts/go` — adjust to the real
+  import root `github.com/ono-sendai-labs/architectural-contracts/go` — adjust to the real
   path, Q5), and placeholder dirs `go/internal/`, `go/cmd/arcc/`,
   `go/examples/`. There is **no** central `go/components/` dir — each component's
   `component.textproto` lives at its root (design §9, PR-review), authored in

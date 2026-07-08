@@ -4,7 +4,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/xtofian/architectural-contracts/spike/probes/scope"
+	"github.com/ono-sendai-labs/architectural-contracts/spike/probes/scope"
 )
 
 // externalTestAuthority uses FILES from an external (_test package) test file —

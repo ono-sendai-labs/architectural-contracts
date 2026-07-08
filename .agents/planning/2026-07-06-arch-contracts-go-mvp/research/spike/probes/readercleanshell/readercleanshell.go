@@ -6,7 +6,7 @@ package readercleanshell
 import (
 	"bytes"
 
-	"github.com/xtofian/architectural-contracts/spike/probes/readerattr"
+	"github.com/ono-sendai-labs/architectural-contracts/spike/probes/readerattr"
 )
 
 // Run parses in-memory data; only a *bytes.Reader ever reaches Parse.

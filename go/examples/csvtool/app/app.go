@@ -26,8 +26,8 @@ package app
 import (
 	"fmt"
 
-	"github.com/xtofian/architectural-contracts/go/examples/csvtool/csvfile"
-	"github.com/xtofian/architectural-contracts/go/examples/csvtool/toprow"
+	"github.com/ono-sendai-labs/architectural-contracts/go/examples/csvtool/csvfile"
+	"github.com/ono-sendai-labs/architectural-contracts/go/examples/csvtool/toprow"
 )
 
 // Run reads the CSV at path and prints its top 3 rows by the first column.
