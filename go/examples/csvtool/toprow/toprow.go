@@ -16,10 +16,8 @@ import (
 	"github.com/ono-sendai-labs/architectural-contracts/go/examples/csvtool/internal/parsecsv"
 )
 
-// byColumn is a concrete sort.Interface. We use sort.Sort with it rather than
-// sort.Slice: sort.Slice reaches reflect.Swapper and comes out UNANALYZED under
-// Capslock's strict envelope, which would spuriously fail an authority-free
-// claim (spike finding; review B8).
+// byColumn is a concrete sort.Interface. The Step-0 spike confirmed sort.Sort
+// and sort.Slice are both acceptable under the strict-safe stdlib envelope.
 type byColumn struct {
 	rows [][]string
 	col  int
