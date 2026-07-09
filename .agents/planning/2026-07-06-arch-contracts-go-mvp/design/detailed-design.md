@@ -1,40 +1,20 @@
 # Detailed Design — Architectural Contracts MVP (Go)
 
-> **Status: revised after design review + PR #1 review round.** All major
-> requirements decisions are user-confirmed: Capslock-as-library (Q1),
-> **strict capability policy by default, parameterized** (Q3), **textproto**
-> manifests (Q4), and **`./go` as its own Go module** (Q5). Component→component
-> boundary enforcement and capability pruning (FR5/FR5b) are designed in per the
-> Round-3 directive. A senior design review (see `../design-review.md`) was
-> verified against the Capslock source and its resolutions are folded in:
-> **init pruning + explicit-init rule** (A2), the **higher-order boundary
-> warning** (A3), key **normalization** (A4), **VTA for both graphs** (A5), the
-> pure **`facts`** component (B7), JSON rendering moved to the shell (B6), and
-> assorted spec-gap fixes (C9–C14). A second review round (PR #1, xtofian)
-> supersedes two earlier decisions and adds several rules: **component
-> membership is directory-based** — the manifest sits at the component root and
-> the component is everything beneath it (replaces the Q2 package-pattern list);
-> the review-A1 "closure" is replaced by an **interface well-formedness rule**
-> (every interface-surface method must be *declared* in an interface file, so
-> interface changes always touch interface files — presubmit-visible);
-> capability analysis covers **every function in the component's packages**
-> (an "interface-rooted" alternative was considered and rejected — Appendix A);
-> `declared_authority` is **wired into the policy in the
-> MVP**; `manifest.Parse` takes an **`io.Reader`** (an object-capability
-> illustration); every component carries an **informal contract** as doc
-> comments in its interface files (Pillar 2 proof of concept); manifests live
-> **at their component's root**; and the schema drops `packages` and
-> `contract_note` and makes `reason` optional.
+> **Status: current MVP design after senior review, PR-review, and the Step-0
+> Capslock spike.** Current decisions: Capslock is consumed as a Go library behind
+> a port; manifests are textproto; `./go` is its own module; component membership
+> is the manifest directory subtree; the declared interface is interface-file
+> declarations plus explicit well-formedness rules; capability analysis covers
+> every function in a component's packages; `declared_authority` feeds the checker
+> policy; `manifest.Parse` takes an `io.Reader`; every component carries informal
+> contract prose in interface-file doc comments; and the CLI name is `arcc`.
 >
-> **Step-0 Capslock spike folded in** (`../research/spike-capslock.md`, executed
-> against the pinned Capslock checkout): the capability classifier is configured
-> **exclude-UNANALYZED** and **"ambient authority = capability *minting*, not
-> *use*"** (the `(*os.File)` handle methods are reclassified `SAFE`, §5.4a). A
-> consequence: `manifest.Parse(io.Reader)` is ambient-authority-free **by
-> construction**, so the earlier "shell must wrap the manifest in a
-> `bytes.Reader`" rule is **dropped**. The spike also retired the review-B8
-> `sort.Slice` prohibition (Capslock rewrites `sort.Sort`/`sort.Slice` call sites,
-> so both are clean).
+> The Step-0 spike (`../research/spike-capslock.md`) is folded in: the adapter's
+> Capslock classifier excludes `UNANALYZED`, treats ambient authority as
+> capability *minting* rather than capability *use* for `*os.File` handles, prunes
+> component dependencies with `CAPABILITY_SAFE`, and permits both `sort.Sort` and
+> `sort.Slice`. Historical alternatives and superseded decisions are recorded in
+> the appendices/decision log, not in the implementer-facing body.
 > This document is standalone; it does not require reading the other project files.
 
 ## 1. Overview
@@ -95,8 +75,7 @@ Consolidated from `idea-honing.md` and the rough idea.
   exposed interface necessarily touches a declared interface file — making
   interface changes trivially visible to, e.g., a presubmit that watches those
   files — a **well-formedness rule** closes the loopholes where Go lets
-  interface-relevant declarations live elsewhere (PR-review, replacing the
-  earlier A1 "silent closure" rule):
+  interface-relevant declarations live elsewhere:
   - **(a) Methods.** Every exported method of an exported non-interface type
     declared in an interface file must itself be **declared in an interface
     file** — not necessarily the same one: Go allows methods in a different file
@@ -124,15 +103,17 @@ Consolidated from `idea-honing.md` and the rough idea.
   of the component's contract. **Invariant (the point of well-formedness):** for
   a well-formed component, every change to the exposed interface is a change to
   some declared interface file.
-- **FR5 — Cross-component interface boundary (Pillar 1, strong form).** No code
-  **outside** a component may call that component's architecture-private symbols;
-  equivalently, when component A depends on component B, every call edge from A into
-  B must land on one of **B's declared interface symbols** — never on a symbol that
-  is merely language-level public. This one graph property, seen from B's side, is
-  "private-implementation protection"; seen from A's side, it is "only call declared
-  interfaces." (Within a single package, Go visibility already enforces the
-  unexported part for free; this FR adds the exported-but-not-declared part and the
-  cross-package/cross-component part.)
+- **FR5 — Cross-component call-boundary conformance (Pillar 1, MVP scope).** For
+  the MVP, boundary enforcement is deliberately **call-edge based**. When
+  component A depends on component B, every call edge from A into B must land on
+  one of **B's declared interface symbols** — never on a symbol that is merely
+  language-level public. Seen from A's side this is "only call declared
+  interfaces"; seen from B's side it protects architecture-private callable
+  implementation over the set of checked consumers. Non-call communication across
+  a dependency boundary — type use, field access, exported vars, and other
+  non-call channels — is explicitly out of MVP enforcement and recorded as a
+  post-MVP extension (§11). Within a single package, Go visibility still enforces
+  unexported implementation details.
 - **FR5b — Pillar 3: capability-attribution pruning at component boundaries.** When
   analyzing component A's ambient authority, the call-graph traversal is **pruned at
   each direct component dependency's declared interface symbols** (the FR4 symbol
@@ -268,11 +249,11 @@ sequenceDiagram
     participant C as capslock-adapter (shell)
     participant K as checker (core)
 
-    U->>CLI: archcheck check path/to/component.textproto
+    U->>CLI: arcc check path/to/component.textproto
     CLI->>CLI: read manifest file bytes (FILES), set component root := manifest dir
     CLI->>M: Parse(reader) -> Manifest  (authority-free by construction, §5.4a)
     M-->>CLI: Manifest (validated)
-    CLI->>L: ResolveDependencyInterface(each component dep) (FILES)
+    CLI->>L: ResolveDependencyInterface(root context, each component dep) (FILES)
     L-->>CLI: DepIfaces (declared interface symbols per dep)
     CLI->>L: LoadPackageFacts(component root) (go list ./... + SSA callgraph, FILES/EXEC)
     L-->>CLI: PackageFacts (imports, exported symbols->file, call edges)
@@ -280,7 +261,7 @@ sequenceDiagram
     C-->>CLI: CapabilityFinding[] (pruned at component-dep boundaries)
     CLI->>K: Check({Manifest, Facts, DepIfaces, Caps, Policy})
     K-->>CLI: ConformanceReport
-    CLI->>U: rendered report + exit code (0/1)
+    CLI->>U: rendered report + exit code (0/1/2)
 ```
 
 ## 4. Components and Interfaces
@@ -295,20 +276,20 @@ path). Component boundaries and their authority:
 
 | Component | Package(s) | Role | Ambient authority |
 |---|---|---|---|
-| `manifest` | `.../internal/manifest` | Parse+validate manifest from an `io.Reader` → model | none (pure)* |
+| `manifest` | `.../internal/manifest` | Parse+validate manifest from an `io.Reader` → model | none by authority model; possible `REFLECT` from `prototext`* |
 | `facts` | `.../internal/facts` | Pure data model: `PackageFacts`, `CallEdge`, `DependencyInterface` (produced by the shell, consumed by the checker) | none (pure) |
 | `checker` | `.../internal/checker` | All conformance rules → report | none (pure) |
 | `report` | `.../internal/report` | Report model + text rendering (JSON marshaling is the shell's) | none (pure) |
 | `capanalyzer` (port) | `.../internal/capanalyzer` | `CapabilityAnalyzer` interface + finding types | none (pure) |
 | `goanalysis` | `.../internal/goanalysis` | `go/packages` load; AST/imports extraction; VTA call-graph → cross-component call edges; resolve component-dependency manifests → declared-interface symbol sets (all as `facts.*` values) | FILES, EXEC, READ_SYSTEM_STATE |
 | `capslockadapter` | `.../internal/capslockadapter` | Capslock-backed `CapabilityAnalyzer` | FILES, EXEC, READ_SYSTEM_STATE |
-| `cli` | `.../cmd/archcheck` (+ its `app` orchestration subpackage — one subtree, since membership is directory-based) | Orchestration, I/O, exit codes, JSON marshaling of the report | FILES (read manifest, stdout), REFLECT (encoding/json) |
+| `cli` | `.../cmd/arcc` (+ its `app` orchestration subpackage — one subtree, since membership is directory-based) | Orchestration, I/O, exit codes, JSON marshaling of the report | FILES (read manifest), REFLECT (encoding/json) |
 
-Core components (`manifest`, `facts`, `checker`, `report`, `capanalyzer`) are
-**ambient-authority-free** and depend only on each other and stdlib-that-is-safe.
-They are the self-hosting showcase. (*`manifest` carries a known reflection
-caveat from `prototext` — see the plan's Step 2 risk note; the guaranteed
-showcase is `facts`/`checker`/`report`/`capanalyzer`.)
+Core components (`facts`, `checker`, `report`, `capanalyzer`, and ideally
+`manifest`) depend only on each other and stdlib-that-is-safe. The guaranteed
+self-hosting showcase is `facts`/`checker`/`report`/`capanalyzer`. (*`manifest`
+carries a known reflection caveat from `prototext`; Step 10 scopes the
+authority-free showcase around that unless a reflection-free parser is added.)
 
 ### 4.1 Key interfaces (Go signatures, illustrative)
 
@@ -431,7 +412,11 @@ func Parse(r io.Reader) (Manifest, error)
 // values of the core-defined facts types. componentRoot is the manifest file's
 // directory; membership = all Go packages under it (FR1).
 func LoadPackageFacts(componentRoot string) (facts.PackageFacts, error) // FILES/EXEC
-func ResolveDependencyInterface(dep manifest.ComponentDependency) (facts.DependencyInterface, error) // FILES
+func ResolveDependencyInterface(
+    declaringRoot string,
+    analyzedRoot string,
+    dep manifest.ComponentDependency,
+) (facts.DependencyInterface, error) // FILES
 ```
 
 ```go
@@ -492,8 +477,7 @@ governs *system powers reached*.
 ### 5.3 Declared interface & well-formedness (FR4)
 From `PackageFacts`, the component's **declared interface** is every
 `ExportedSymbol` whose `File` ∈ `interface_files`. Two **well-formedness rules**
-guarantee the interface is *fully visible in the interface files* (FR4 —
-PR-review, replacing the earlier silent-closure computation):
+guarantee the interface is *fully visible in the interface files* (FR4):
 
 - **Method rule:** an exported method whose `Receiver` type is an exported
   non-interface type declared in an interface file, but whose own declaration is
@@ -562,6 +546,10 @@ symbol of B, that symbol is (correctly) **not** in `PruneAt`, so any authority
 behind it leaks into A's capability findings — but A has already failed the
 boundary check, so the outcome (A is non-conformant) is the same either way.
 
+MVP scope is intentionally limited to **calls**. Type references, field access,
+exported variables, and other non-call communication can still be architecture
+significant, but they are not enforced by FR5 in this release (§11).
+
 **Scope honesty (review D18):** seen from B's side, "nothing outside B calls
 B's architecture-private symbols" is enforced only over the set of components
 that are actually *checked*. An unchecked consumer can call anything Go lets
@@ -603,9 +591,11 @@ through its **absorbed** dependencies.
 
 ### 5.4a Capability classifier configuration (Step-0 spike, validated)
 
-The MVP `StrictPolicy` capability findings are produced by Capslock's builtin
-classifier with **two configured deviations**, each executed against the pinned
-Capslock checkout in the Step-0 spike (`../research/spike-capslock.md`). The
+MVP capability findings are produced by Capslock's builtin classifier with
+**two configured deviations**, each executed against the pinned Capslock checkout
+in the Step-0 spike (`../research/spike-capslock.md`). This adapter-side
+classifier configuration is distinct from the checker-side `CapabilityPolicy`
+allow/warn decision. The
 `capslockadapter` builds one merged classifier per run from these plus the FR5b
 prune map.
 
@@ -816,7 +806,7 @@ manifest's contents, not the filesystem around it):
   code + rendered report. Includes at least one **conforming** and one
   **intentionally non-conforming** example (undeclared dep, leaked symbol,
   undeclared authority).
-- **Self-hosting test.** Run `archcheck` on the tool's own core-component manifests
+- **Self-hosting test.** Run `arcc` on the tool's own core-component manifests
   in CI; the pure core must verify as ambient-authority-free.
 
 ## 9. Repository layout
@@ -829,7 +819,7 @@ architectural-contracts/
 │   └── archcontracts/v1/component.proto
 ├── go/                            # Go toolchain (this MVP)
 │   ├── go.mod
-│   ├── cmd/archcheck/             # CLI entry (shell) — component root of `cli`
+│   ├── cmd/arcc/                  # CLI entry (shell) — component root of `cli`
 │   │   ├── component.textproto
 │   │   ├── main.go
 │   │   └── app/                   # orchestration subpackage (+ JSON marshal) — same subtree ⇒ same component
@@ -853,7 +843,7 @@ architectural-contracts/
 Manifests live **at each component's root** — the manifest's directory *defines*
 the component (FR1), so there is no central `go/components/` directory
 (PR-review). A consequence of directory-based membership: the former
-`internal/app` orchestration package moves **under `cmd/archcheck/`**, so the
+`internal/app` orchestration package moves **under `cmd/arcc/`**, so the
 `cli` component is a single subtree.
 
 Note (Q5, confirmed): **`./go` is its own Go module** (`go/go.mod`). The `proto/`
@@ -870,7 +860,7 @@ the concepts** — including the two dependency kinds and boundary pruning — v
 
 - **`toprow`** — pure logic: given already-parsed rows, sort and pick. Imports only
   an absorbed CSV-parsing helper + stdlib-safe (`sort`, `strconv`). Its manifest
-  declares **no authority**; `archcheck` confirms it is **ambient-authority-free**.
+  declares **no authority**; `arcc` confirms it is **ambient-authority-free**.
   **B8 correction (Step-0 spike):** the earlier draft required `sort.Sort` with a
   concrete `sort.Interface` and forbade `sort.Slice`. In fact **both are clean** —
   Capslock's `buildGraph` rewrites `sort.Sort`/`sort.Slice`/`(*sync.Once).Do` call
@@ -945,10 +935,12 @@ Remaining caveats:
   conformant. A partial check (some components unchecked) weakens the guarantee —
   and the FR5 "two views" equivalence likewise only covers checked consumers
   (§5.3b scope note).
-- **Use beyond calls.** The boundary check targets *call* edges. Using a
-  dependency's types, struct fields, or exported **vars** (a mutable-state channel
-  invisible to both FR5 and FR5b) without a call is not covered; an extension.
-  (Concept §3.1: "calls into, uses types from, or otherwise communicates with".)
+- **Use beyond calls.** Accepted MVP scope: the boundary check targets *call*
+  edges only. Using a dependency's types, struct fields, or exported **vars** (a
+  mutable-state channel invisible to both FR5 and FR5b) without a call is not
+  covered. Extending Pillar 1 to all cross-component object/type/value uses is
+  post-MVP work. (Concept §3.1: "calls into, uses types from, or otherwise
+  communicates with".)
 - **Whole-package authority scope & test-support code (PR-review, §5.4).**
   Because every function in the component's packages counts, an
   authority-using helper in a regular (non-`_test.go`) file fails the
@@ -1013,11 +1005,13 @@ Remaining caveats:
   contract); an **absorbed dependency** is not pruned (its authority is absorbed and
   surfaced by the absorber, which Capslock's transitivity does for free). This is
   the resolution of the rough idea's central open question.
-- **One boundary property, two views (FR5).** "A only calls B's declared interface"
-  (dependent's view) and "nothing outside B calls B's architecture-private symbols"
-  (dependency's view) are the *same* call-graph property. Interface files define the
-  declared set; the same set drives the FR5 check and the FR5b prune set — one
-  primitive, both pillars.
+- **One call-boundary property, two views (FR5).** "A only calls B's declared
+  interface" (dependent's view) and "checked consumers do not call B's
+  architecture-private callable symbols" (dependency's view) are the same
+  call-graph property. Interface files define the declared set; the same set
+  drives the FR5 check and the FR5b prune set — one primitive, both pillars. Type
+  use, field access, exported vars, and other non-call communication are explicit
+  post-MVP extensions (§11).
 - **Pruning mechanism = Capslock `CAPABILITY_SAFE`.** We generate a per-analysis
   custom capability map marking each pruned symbol `CAPABILITY_SAFE`, which
   "terminates further analysis" — no fork of Capslock needed. Feasibility and the
@@ -1133,7 +1127,9 @@ From `research/capslock.md` and `research/go-component-model.md`:
 - Capslock **itself requires ambient authority** (`go list` via `os/exec`) → drives
   the pure-core/shell split.
 - Pillar 1 is **not** Capslock's job; it comes from `go/packages` imports +
-  `go/ast` exported-symbol→file mapping. **One `packages.Load` feeds both pillars.**
+  `go/ast`/`go/types`/VTA facts. The MVP keeps the shell's package-load settings
+  consistent between `goanalysis` and `capslockadapter`; sharing an already-loaded
+  package graph is an optimization, not a port requirement.
 
 From `research/spike-capslock.md` (Step-0 spike, executed against the pinned
 Capslock checkout — all six load-bearing assumptions validated):
@@ -1148,18 +1144,16 @@ Capslock checkout — all six load-bearing assumptions validated):
   sites, so the comparator (not the sort internals) is analyzed (retires B8).
 
 ### Appendix D — Remaining open items
-Resolved: Q1 (Capslock as library), Q2 (component membership — revised by the
+Resolved: Q1 (Capslock as library behind the `CapabilityAnalyzer` port), Q2 (component membership — revised by the
 PR review to manifest-directory subtree), Q3 (strict parameterized policy), Q4
 (textproto), Q5 (`./go` own module), call-graph algorithm (**VTA**, matching
 Capslock — review A5), interface-file strictness (exported-but-non-interface
 symbols are architecture-private, not errors, plus the FR4 well-formedness
-rules, §5.3).
+rules, §5.3), and CLI name (`arcc`, replacing the earlier working name
+`archcheck`).
 
 Still open, non-blocking for the MVP:
-1. **`CapabilityAnalyzer` port** — confirm wrapping Capslock behind our own port
-   (vs the checker importing the library directly). Design assumes the port.
-2. **CLI name** — working name `archcheck`; confirm or replace.
-3. **Whole-graph vs single-component invocation.** Because FR5b's guarantee is
+1. **Whole-graph vs single-component invocation.** Because FR5b's guarantee is
    compositional (§11), do we check one manifest at a time (trusting dependency
    manifests) or offer a "check the whole graph" mode that verifies every reachable
    component (which would also catch package-membership overlap globally, §5.5)?
@@ -1173,25 +1167,25 @@ Still open, non-blocking for the MVP:
    the use of a given ambient authority across an entire transitive sub-graph.
 
 Post-MVP research questions (from the design review):
-4. **Callbacks as capabilities (review A3).** A function value passed across a
+2. **Callbacks as capabilities (review A3).** A function value passed across a
    component boundary is itself a capability grant (analogous to a file handle);
    a principled model would attribute the authority such a function exercises —
    when invoked by the callee — back to the *supplier*. The MVP's
    `HIGHER_ORDER_BOUNDARY_CALL` warning is a stopgap. (Capslock sidesteps the
    related `sort.*` case by rewriting those call sites — Step-0 spike — so it is
    not a live hazard for the examples; the general higher-order case remains.)
-5. **Robust generic-symbol matching (review A4)** beyond the MVP's
+3. **Robust generic-symbol matching (review A4)** beyond the MVP's
    bracket-stripping normalization (instantiation-aware matching, synthetic
    wrapper functions for promoted methods).
-6. **Granted capabilities vs ambient authority (PR-review — partially resolved).**
+4. **Granted capabilities vs ambient authority (PR-review — partially resolved).**
    The **filesystem** case is handled in the MVP: reclassifying the `(*os.File)`
    use-methods `SAFE` attributes authority at the minting site, so a handed-in
    file-backed `io.Reader` is correctly treated as a grant, not ambient authority
    (§5.4a). The general case remains open: the same minting-vs-use split for
    network/exec/env, and truly type-agnostic grant tracking (any object
    capability, and function-valued grants) — same family as
-   callbacks-as-capabilities (item 4).
-7. **Verified-safe abstractions.** A component may provide a capability-oriented
+   callbacks-as-capabilities (item 2).
+5. **Verified-safe abstractions.** A component may provide a capability-oriented
    abstraction over an ambient resource — e.g. a
    [`cap-std`](https://docs.rs/cap-std)-style filesystem that only *derives*
    smaller capabilities from ones it was already granted (obtaining a file handle
@@ -1204,4 +1198,3 @@ Post-MVP research questions (from the design review):
    manual-audit escape hatch complementing the automated minting-vs-use classifier
    (§5.4a). This is the semantic counterpart, at the component level, of the
    handle-method SAFE reclassification the MVP already does at the stdlib level.
-```

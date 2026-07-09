@@ -45,7 +45,7 @@ or orphaned code: every step ends by wiring its output into something runnable.
 - [ ] **Step 2 — Manifest schema & parser** (`proto/`, codegen, `internal/manifest`)
 - [ ] **Step 3 — Pure supporting types: `facts` data model, `capanalyzer` port/policy, `report` model & text rendering**
 - [ ] **Step 4 — Checker core I: dependency rule (FR3) + declared-interface & well-formedness (FR4)**
-- [ ] **Step 5 — Checker core II: boundary rule (FR5) + policy-aware authority rule (FR6)** — pure core complete
+- [ ] **Step 5 — Checker core II: call-boundary rule (FR5) + policy-aware authority rule (FR6)** — pure core complete
 - [ ] **Step 6 — `goanalysis` loader I: imports + exported-symbol→file extraction** (first vertical slice)
 - [ ] **Step 7 — `capslockadapter`: Capslock-backed `CapabilityAnalyzer`**
 - [ ] **Step 8 — CLI/app orchestration + CSV example** — first full end-to-end
@@ -354,15 +354,15 @@ with one undeclared import and prints the rendered report showing the
 
 ---
 
-## Step 5: Checker core II — boundary rule (FR5) + policy-aware authority rule (FR6)
+## Step 5: Checker core II — call-boundary rule (FR5) + policy-aware authority rule (FR6)
 
-**Objective.** Complete the pure `checker`: add the cross-component boundary rule and
+**Objective.** Complete the pure `checker`: add the cross-component call-boundary rule and
 the ambient-authority rule, both operating on injected data. After this step
 `checker.Check` is a **complete, fully unit-tested pure function** — the self-hosting
 showcase in miniature, with no Go build or Capslock in the loop.
 
 **Implementation guidance.**
-- **FR5 boundary rule (§5.3b):** given `Facts.CallEdges` + resolved `DepIfaces`, for
+- **FR5 call-boundary rule (§5.3b):** given `Facts.CallEdges` + resolved `DepIfaces`, for
   each call edge whose callee belongs to a component dependency `B`'s packages, if the
   callee ∉ `B`'s declared-interface symbol set (per §5.3: interface-file decls +
   interface-type implementation methods; matching uses the A4 normalization —
@@ -372,8 +372,9 @@ showcase in miniature, with no Go build or Capslock in the loop.
   (review A3). Overlapping membership between the component and a resolved
   dependency (with directory-based membership: one component root nested inside
   the other, surfaced in the resolved package sets) → `PACKAGE_OVERLAP` violation
-  (§5.5, review C12/PR-review). (Real call edges arrive in Step 9; here they are
-  hand-built.)
+  (§5.5, review C12/PR-review). MVP scope is intentionally call-only: type use,
+  field access, exported vars, and other non-call channels are post-MVP. (Real call
+  edges arrive in Step 9; here they are hand-built.)
 - **FR6 authority rule (§5.4):** derive the effective policy with `Allowed ⊇
   manifest.declared_authority`, then per `CapabilityFinding`: in `Allowed` → no entry;
   in `Warn` → non-fatal `ANALYSIS_LIMITATION`/`ALLOWED_WITH_WARNING` warning; otherwise
@@ -419,8 +420,8 @@ vertical end-to-end slice** (Pillar-1 verdict, no authority yet).
   manifest file's directory; membership = **all Go packages under it** (FR1,
   PR-review; load `./...` from the root) — using
   `golang.org/x/tools/go/packages` with a load mode covering types/syntax/imports/deps/
-  module (the same loader Capslock uses — one load feeds both pillars,
-  research/go-component-model.md). Extract per package: direct imports, `IsStdlib` (via
+  module (the same load settings Capslock needs; sharing an already-loaded package
+  graph is not required by the MVP port). Extract per package: direct imports, `IsStdlib` (via
   module/std detection), exported top-level decls via `go/ast` (`ast.IsExported`)
   mapped to the declaring file — including **`Receiver`** linkage for methods (drives
   the FR4 well-formedness rule) and explicit **`init`** decls (Kind `init`, review
@@ -481,7 +482,9 @@ stubbed/empty here; it is activated in Step 9.)
   Carry the exact handle-method list from the spike harness
   (`../research/spike/harness.go`, `fileHandleUseMethods`). Curate the symmetric
   network/exec/env use-methods only when those capabilities appear; document the
-  stdio-globals loosening (§5.4a/§11).
+  stdio-globals loosening (§5.4a/§11). This classifier configuration is adapter-side
+  analysis setup; it is separate from the checker-side `CapabilityPolicy`
+  allow/warn decision over findings.
 - Honor `AnalyzeRequest.Packages`; accept `PruneAt` in the signature but treat empty as
   "no pruning" (full Capslock transitivity — which already gives **absorption** of
   absorbed deps for free, FR7). The `CAPABILITY_SAFE` custom-map pruning is Step 9.
@@ -584,10 +587,10 @@ undeclared-dependency and direct-`os.Open` variants prints actionable violations
 ## Step 9: Call graph + FR5/FR5b — VTA edges, dependency-interface resolution, boundary pruning
 
 **Objective.** Add the remaining, most sophisticated piece: the VTA call graph that
-powers the cross-component **boundary check (FR5)** and **capability pruning (FR5b)**,
-making the *component-dep vs absorbed-dep* distinction mechanically precise. Complete
-the CSV example with the multi-component `app` that **composes a FILES-holding
-component yet checks ambient-authority-free** — the pruning showcase.
+powers the cross-component **call-boundary check (FR5)** and **capability pruning
+(FR5b)**, making the *component-dep vs absorbed-dep* distinction mechanically
+precise. Complete the CSV example with the multi-component `app` that **composes a
+FILES-holding component yet checks ambient-authority-free** — the pruning showcase.
 
 **Implementation guidance.**
 - `goanalysis`: build the call graph with **`vta.CallGraph`** — matching Capslock's
@@ -595,9 +598,12 @@ component yet checks ambient-authority-free** — the pruning showcase.
   A5; Capslock's own graph is unexported, so the double build is an accepted MVP
   cost). Populate `CallEdges` (caller→callee in `InterfaceSymbol` key form,
   normalized per A4 — strip generic type-argument brackets), including
-  `PassesFuncValue` on call sites passing function-typed values (review A3).
-  Implement `ResolveDependencyInterface(dep)` — load the dependency's manifest
-  (its directory = the dependency's **component root**; enumerate
+  `PassesFuncValue` on call sites passing function-typed values (review A3). The
+  MVP intentionally enforces call edges only; non-call cross-component uses are
+  documented limitations, not Step-9 work.
+  Implement `ResolveDependencyInterface(declaringRoot, analyzedRoot, dep)` — resolve
+  `dep.manifest` relative to the declaring component root, load the dependency's
+  manifest (its directory = the dependency's **component root**; enumerate
   `DependencyInterface.Packages` from that subtree) + its interface files → that
   dependency's declared-interface **symbol set** per design §5.3 (interface-file
   decls, augmented via `go/types` with the concrete in-component implementation
@@ -773,7 +779,7 @@ attestations.
 | FR2 CLI / exit codes / JSON | 3 (text render), 8 (wire + shell JSON) |
 | FR3 dependency conformance (+ UNUSED_DEPENDENCY) | 4 |
 | FR4 declared interface + well-formedness (method/init rules) | 4 |
-| FR5 cross-component boundary (+ higher-order warning) | 5 (rule), 9 (real edges) |
+| FR5 cross-component call-boundary (+ higher-order warning) | 5 (rule), 9 (real edges) |
 | FR5b capability pruning (+ init pruning) | 9 |
 | FR6 authority + policy (declared_authority → Allowed; whole-package scope) | 5 (rule), 7 (adapter), 8 (wire) |
 | FR7 absorption | 7 (transitivity), 8 (example) |
