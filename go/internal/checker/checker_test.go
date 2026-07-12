@@ -1,6 +1,7 @@
 package checker_test
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/capanalyzer"
@@ -229,5 +230,284 @@ func TestCheck_FR3_DeterministicOutput(t *testing.T) {
 	v3 := rep.Violations[2]
 	if v3.Message != `package "mycomponent/pkgb" imports undeclared dependency "github.com/bad2"` || v3.Location.File != "b.go" {
 		t.Errorf("violation 3 mismatch: %q at %q", v3.Message, v3.Location.File)
+	}
+}
+
+func TestCheck_FR4_MethodOutsideInterface(t *testing.T) {
+	in := checker.Inputs{
+		Manifest: manifest.Manifest{
+			Name:           "mycomponent",
+			InterfaceFiles: []string{"pkg/types.go"},
+		},
+		Facts: facts.PackageFacts{
+			Packages: []facts.PackageFact{
+				{
+					ImportPath: "mycomponent/pkg",
+					ExportedSymbols: []facts.ExportedSymbol{
+						{
+							Name: "mycomponent/pkg.DB",
+							File: "pkg/types.go",
+							Kind: "type",
+						},
+						{
+							Name:     "(*mycomponent/pkg.DB).Get",
+							File:     "pkg/db_impl.go",
+							Kind:     "method",
+							Receiver: "(*mycomponent/pkg.DB)",
+						},
+					},
+				},
+			},
+		},
+	}
+
+	rep := checker.Check(in)
+	if len(rep.Violations) != 1 {
+		t.Fatalf("expected exactly 1 violation, got %d", len(rep.Violations))
+	}
+	v := rep.Violations[0]
+	if v.Kind != report.MethodOutsideInterface {
+		t.Errorf("expected kind %s, got %s", report.MethodOutsideInterface, v.Kind)
+	}
+	expectedMsg := `exported method "(*mycomponent/pkg.DB).Get" with receiver "(*mycomponent/pkg.DB)" declared in non-interface file "pkg/db_impl.go"`
+	if v.Message != expectedMsg {
+		t.Errorf("expected message %q, got %q", expectedMsg, v.Message)
+	}
+	if v.Location.File != "pkg/db_impl.go" {
+		t.Errorf("expected location file \"pkg/db_impl.go\", got %q", v.Location.File)
+	}
+}
+
+func TestCheck_FR4_MethodSplitClean(t *testing.T) {
+	in := checker.Inputs{
+		Manifest: manifest.Manifest{
+			Name:           "mycomponent",
+			InterfaceFiles: []string{"pkg/types.go", "pkg/api.go"},
+		},
+		Facts: facts.PackageFacts{
+			Packages: []facts.PackageFact{
+				{
+					ImportPath: "mycomponent/pkg",
+					ExportedSymbols: []facts.ExportedSymbol{
+						{
+							Name: "mycomponent/pkg.DB",
+							File: "pkg/types.go",
+							Kind: "type",
+						},
+						{
+							Name:     "(*mycomponent/pkg.DB).Get",
+							File:     "pkg/api.go",
+							Kind:     "method",
+							Receiver: "(*mycomponent/pkg.DB)",
+						},
+					},
+				},
+			},
+		},
+	}
+
+	rep := checker.Check(in)
+	if len(rep.Violations) != 0 {
+		t.Errorf("expected 0 violations, got %d: %v", len(rep.Violations), rep.Violations)
+	}
+}
+
+func TestCheck_FR4_InterfaceTypeImplementationExempt(t *testing.T) {
+	in := checker.Inputs{
+		Manifest: manifest.Manifest{
+			Name:           "mycomponent",
+			InterfaceFiles: []string{"pkg/types.go"}, // Store interface declared in types.go
+		},
+		Facts: facts.PackageFacts{
+			Packages: []facts.PackageFact{
+				{
+					ImportPath: "mycomponent/pkg",
+					ExportedSymbols: []facts.ExportedSymbol{
+						{
+							Name: "mycomponent/pkg.Store", // Interface type
+							File: "pkg/types.go",
+							Kind: "type",
+						},
+						{
+							Name: "mycomponent/pkg.StoreImpl", // Concrete implementation type
+							File: "pkg/impl.go",               // Declared in non-interface file
+							Kind: "type",
+						},
+						{
+							Name:     "(*mycomponent/pkg.StoreImpl).Get", // Concrete implementation method
+							File:     "pkg/impl.go",                      // Declared in non-interface file
+							Kind:     "method",
+							Receiver: "(*mycomponent/pkg.StoreImpl)",
+						},
+					},
+				},
+			},
+		},
+	}
+
+	rep := checker.Check(in)
+	if len(rep.Violations) != 0 {
+		t.Errorf("expected 0 violations, got %d: %v", len(rep.Violations), rep.Violations)
+	}
+}
+
+func TestCheck_FR4_ExplicitInitOutsideInterface(t *testing.T) {
+	in := checker.Inputs{
+		Manifest: manifest.Manifest{
+			Name:           "mycomponent",
+			InterfaceFiles: []string{"pkg/types.go"},
+		},
+		Facts: facts.PackageFacts{
+			Packages: []facts.PackageFact{
+				{
+					ImportPath: "mycomponent/pkg",
+					ExportedSymbols: []facts.ExportedSymbol{
+						{
+							Name: "mycomponent/pkg.init",
+							File: "pkg/impl.go",
+							Kind: "init",
+						},
+					},
+				},
+			},
+		},
+	}
+
+	rep := checker.Check(in)
+	if len(rep.Violations) != 1 {
+		t.Fatalf("expected exactly 1 violation, got %d", len(rep.Violations))
+	}
+	v := rep.Violations[0]
+	if v.Kind != report.InitOutsideInterface {
+		t.Errorf("expected kind %s, got %s", report.InitOutsideInterface, v.Kind)
+	}
+	expectedMsg := `explicit init declared in non-interface file "pkg/impl.go" in package "mycomponent/pkg"`
+	if v.Message != expectedMsg {
+		t.Errorf("expected message %q, got %q", expectedMsg, v.Message)
+	}
+	if v.Location.File != "pkg/impl.go" {
+		t.Errorf("expected location file \"pkg/impl.go\", got %q", v.Location.File)
+	}
+}
+
+func TestCheck_FR4_ExplicitInitInInterfaceClean(t *testing.T) {
+	in := checker.Inputs{
+		Manifest: manifest.Manifest{
+			Name:           "mycomponent",
+			InterfaceFiles: []string{"pkg/types.go"},
+		},
+		Facts: facts.PackageFacts{
+			Packages: []facts.PackageFact{
+				{
+					ImportPath: "mycomponent/pkg",
+					ExportedSymbols: []facts.ExportedSymbol{
+						{
+							Name: "mycomponent/pkg.init",
+							File: "pkg/types.go",
+							Kind: "init",
+						},
+					},
+				},
+			},
+		},
+	}
+
+	rep := checker.Check(in)
+	if len(rep.Violations) != 0 {
+		t.Errorf("expected 0 violations, got %d: %v", len(rep.Violations), rep.Violations)
+	}
+}
+
+func TestCheck_FR4_ArchitecturePrivateSymbolClean(t *testing.T) {
+	in := checker.Inputs{
+		Manifest: manifest.Manifest{
+			Name:           "mycomponent",
+			InterfaceFiles: []string{"pkg/types.go"},
+		},
+		Facts: facts.PackageFacts{
+			Packages: []facts.PackageFact{
+				{
+					ImportPath: "mycomponent/pkg",
+					ExportedSymbols: []facts.ExportedSymbol{
+						{
+							Name: "mycomponent/pkg.HelperFunc", // Exported, but not in any interface file, and not method/init
+							File: "pkg/impl.go",
+							Kind: "func",
+						},
+					},
+				},
+			},
+		},
+	}
+
+	rep := checker.Check(in)
+	if len(rep.Violations) != 0 {
+		t.Errorf("expected 0 violations, got %d: %v", len(rep.Violations), rep.Violations)
+	}
+	if len(rep.Warnings) != 0 {
+		t.Errorf("expected 0 warnings, got %d: %v", len(rep.Warnings), rep.Warnings)
+	}
+}
+
+func TestCheck_FR4_Combined(t *testing.T) {
+	in := checker.Inputs{
+		Manifest: manifest.Manifest{
+			Name:           "mycomponent",
+			InterfaceFiles: []string{"pkg/types.go"},
+		},
+		Facts: facts.PackageFacts{
+			Packages: []facts.PackageFact{
+				{
+					ImportPath: "mycomponent/pkg",
+					Imports:    []string{"github.com/bad/lib"}, // Undeclared import -> FR3 violation
+					ExportedSymbols: []facts.ExportedSymbol{
+						{
+							Name: "mycomponent/pkg.DB",
+							File: "pkg/types.go",
+							Kind: "type",
+						},
+						{
+							Name:     "(*mycomponent/pkg.DB).Get",
+							File:     "pkg/db_impl.go", // Declared in non-interface file -> FR4 violation
+							Kind:     "method",
+							Receiver: "(*mycomponent/pkg.DB)",
+						},
+					},
+				},
+			},
+		},
+	}
+
+	rep := checker.Check(in)
+	if len(rep.Violations) != 2 {
+		t.Fatalf("expected exactly 2 violations, got %d", len(rep.Violations))
+	}
+
+	// Orders must be sorted alphabetically by message:
+	// "exported method..." starts with 'e'
+	// "package..." starts with 'p'
+	v1 := rep.Violations[0]
+	if v1.Kind != report.MethodOutsideInterface {
+		t.Errorf("expected kind %s, got %s", report.MethodOutsideInterface, v1.Kind)
+	}
+	if v1.Location.File != "pkg/db_impl.go" {
+		t.Errorf("expected location file \"pkg/db_impl.go\", got %q", v1.Location.File)
+	}
+
+	v2 := rep.Violations[1]
+	if v2.Kind != report.UndeclaredDependency {
+		t.Errorf("expected kind %s, got %s", report.UndeclaredDependency, v2.Kind)
+	}
+	if v2.Location.File != "pkg/types.go" { // first symbol's file is pkg/types.go
+		t.Errorf("expected location file \"pkg/types.go\", got %q", v2.Location.File)
+	}
+
+	// Rendered text should include both violations
+	rendered := report.RenderText(rep)
+	if !strings.Contains(rendered, "METHOD_OUTSIDE_INTERFACE") {
+		t.Errorf("expected rendered text to contain METHOD_OUTSIDE_INTERFACE, got:\n%s", rendered)
+	}
+	if !strings.Contains(rendered, "UNDECLARED_DEPENDENCY") {
+		t.Errorf("expected rendered text to contain UNDECLARED_DEPENDENCY, got:\n%s", rendered)
 	}
 }
