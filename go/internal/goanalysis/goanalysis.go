@@ -12,8 +12,12 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/ono-sendai-labs/architectural-contracts/go/internal/capanalyzer"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/facts"
+	"golang.org/x/tools/go/callgraph/vta"
 	"golang.org/x/tools/go/packages"
+	"golang.org/x/tools/go/ssa"
+	"golang.org/x/tools/go/ssa/ssautil"
 )
 
 var (
@@ -101,9 +105,74 @@ func LoadPackageFacts(componentRoot string) (facts.PackageFacts, error) {
 		}
 	}
 
+	// Build SSA and construct the VTA call graph
+	prog, _ := ssautil.AllPackages(pkgs, ssa.InstantiateGenerics)
+	prog.Build()
+
+	allFuncs := ssautil.AllFunctions(prog)
+	cg := vta.CallGraph(allFuncs, nil)
+
+	compPkgPaths := make(map[string]bool)
+	for _, p := range pkgs {
+		compPkgPaths[p.PkgPath] = true
+	}
+
+	type edgeKey struct {
+		caller string
+		callee string
+	}
+	edgesMap := make(map[edgeKey]bool)
+
+	for fn, node := range cg.Nodes {
+		if fn == nil || node == nil {
+			continue
+		}
+		callerPkg := getFuncPackagePath(fn)
+		if !compPkgPaths[callerPkg] {
+			continue
+		}
+		callerSym := getFuncSymbol(fn)
+
+		for _, edge := range node.Out {
+			if edge.Callee == nil || edge.Callee.Func == nil {
+				continue
+			}
+			calleeFn := edge.Callee.Func
+			calleePkg := getFuncPackagePath(calleeFn)
+			if callerPkg == calleePkg {
+				continue
+			}
+			calleeSym := getFuncSymbol(calleeFn)
+
+			key := edgeKey{caller: string(callerSym), callee: string(calleeSym)}
+			passes := passesFuncValue(edge.Site)
+			if oldPasses, exists := edgesMap[key]; exists {
+				edgesMap[key] = oldPasses || passes
+			} else {
+				edgesMap[key] = passes
+			}
+		}
+	}
+
+	var callEdges []facts.CallEdge
+	for k, passes := range edgesMap {
+		callEdges = append(callEdges, facts.CallEdge{
+			Caller:          capanalyzer.InterfaceSymbol(k.caller),
+			Callee:          capanalyzer.InterfaceSymbol(k.callee),
+			PassesFuncValue: passes,
+		})
+	}
+
+	sort.Slice(callEdges, func(i, j int) bool {
+		if callEdges[i].Caller != callEdges[j].Caller {
+			return callEdges[i].Caller < callEdges[j].Caller
+		}
+		return callEdges[i].Callee < callEdges[j].Callee
+	})
+
 	res := facts.PackageFacts{
 		Packages:  factsPkgs,
-		CallEdges: nil, // keep empty for this increment
+		CallEdges: callEdges,
 	}
 
 	if len(factsPkgs) > 0 {
@@ -292,4 +361,94 @@ func ValidateInterfaceFiles(componentRoot string, interfaceFiles []string, loade
 	}
 
 	return nil
+}
+
+// stripAllBrackets recursively removes all brackets and their contents from a string,
+// such as generic type parameters/arguments like "[T]" or "[K, V]".
+func stripAllBrackets(s string) string {
+	var sb strings.Builder
+	depth := 0
+	for i := 0; i < len(s); i++ {
+		ch := s[i]
+		if ch == '[' {
+			depth++
+		} else if ch == ']' {
+			if depth > 0 {
+				depth--
+			}
+		} else if depth == 0 {
+			sb.WriteByte(ch)
+		}
+	}
+	return sb.String()
+}
+
+// extractPackageFromStr parses the package path from a formatted function/method string.
+func extractPackageFromStr(s string) string {
+	s = stripAllBrackets(s)
+	if strings.HasPrefix(s, "(*") {
+		idx := strings.LastIndex(s, ")")
+		if idx != -1 {
+			receiver := s[2:idx]
+			dotIdx := strings.LastIndex(receiver, ".")
+			if dotIdx != -1 {
+				return receiver[:dotIdx]
+			}
+		}
+	} else if strings.HasPrefix(s, "(") {
+		idx := strings.LastIndex(s, ")")
+		if idx != -1 {
+			receiver := s[1:idx]
+			dotIdx := strings.LastIndex(receiver, ".")
+			if dotIdx != -1 {
+				return receiver[:dotIdx]
+			}
+		}
+	} else {
+		dotIdx := strings.LastIndex(s, ".")
+		if dotIdx != -1 {
+			return s[:dotIdx]
+		}
+	}
+	return ""
+}
+
+// getFuncPackagePath returns the package path of an ssa.Function, falling back to parsing
+// its string representation if Pkg is nil.
+func getFuncPackagePath(fn *ssa.Function) string {
+	if fn == nil {
+		return ""
+	}
+	if fn.Pkg != nil && fn.Pkg.Pkg != nil {
+		return fn.Pkg.Pkg.Path()
+	}
+	return extractPackageFromStr(fn.String())
+}
+
+// getFuncSymbol returns the InterfaceSymbol key of an ssa.Function.
+func getFuncSymbol(fn *ssa.Function) capanalyzer.InterfaceSymbol {
+	if fn == nil {
+		return ""
+	}
+	return capanalyzer.InterfaceSymbol(stripAllBrackets(fn.String()))
+}
+
+// passesFuncValue checks if a call site passes any function-typed value.
+func passesFuncValue(site ssa.CallInstruction) bool {
+	if site == nil {
+		return false
+	}
+	common := site.Common()
+	if common == nil {
+		return false
+	}
+	for _, arg := range common.Args {
+		if arg == nil {
+			continue
+		}
+		if _, ok := arg.Type().Underlying().(*types.Signature); ok {
+			return true
+		}
+	}
+	return false
 }

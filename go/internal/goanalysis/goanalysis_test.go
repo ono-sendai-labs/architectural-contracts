@@ -80,8 +80,11 @@ func TestLoadPackageFacts_Success(t *testing.T) {
 		// a.go
 		{Name: expectedA + ".Hello", File: "a/a.go", Kind: "func"},
 		// api.go
+		{Name: expectedA + ".CallWithFunc", File: "a/api.go", Kind: "func"},
 		{Name: expectedA + ".Identity", File: "a/api.go", Kind: "func"},
+		{Name: expectedA + ".ProcessString", File: "a/api.go", Kind: "func"},
 		{Name: "(*" + expectedA + ".GreeterImpl).SayHello", File: "a/api.go", Kind: "method", Receiver: "(*" + expectedA + ".GreeterImpl)"},
+		{Name: expectedA + ".StringProcessor", File: "a/api.go", Kind: "type"},
 		// init.go
 		{Name: expectedA + ".init", File: "a/init.go", Kind: "init"},
 		// types.go
@@ -106,15 +109,95 @@ func TestLoadPackageFacts_Success(t *testing.T) {
 
 	// Assert exported symbols for Package B
 	expectedSymbolsB := []facts.ExportedSymbol{
+		{Name: expectedB + ".CallGreet", File: "a/b/b.go", Kind: "func"},
 		{Name: expectedB + ".Greet", File: "a/b/b.go", Kind: "func"},
+		{Name: expectedB + ".TriggerDynamicDispatch", File: "a/b/b.go", Kind: "func"},
+		{Name: expectedB + ".TriggerGenericFunc", File: "a/b/b.go", Kind: "func"},
+		{Name: expectedB + ".TriggerGenericMethods", File: "a/b/b.go", Kind: "func"},
+		{Name: expectedB + ".TriggerHigherOrder", File: "a/b/b.go", Kind: "func"},
+		{Name: expectedB + ".TriggerHigherOrderNamed", File: "a/b/b.go", Kind: "func"},
 	}
 
 	if !reflect.DeepEqual(pkgB.ExportedSymbols, expectedSymbolsB) {
 		t.Errorf("expected package b exported symbols to match. Expected:\n%+v\nGot:\n%+v", expectedSymbolsB, pkgB.ExportedSymbols)
 	}
 
-	if len(factsResult.CallEdges) != 0 {
-		t.Errorf("expected CallEdges to be empty")
+	// Expected inter-package call edges sorted alphabetically by Caller then Callee
+	expectedCallEdges := []facts.CallEdge{
+		{
+			Caller:          "github.com/ono-sendai-labs/architectural-contracts/go/internal/goanalysis/testdata/success/a.CallWithFunc",
+			Callee:          "github.com/ono-sendai-labs/architectural-contracts/go/internal/goanalysis/testdata/success/a/b.callback",
+			PassesFuncValue: false,
+		},
+		{
+			Caller:          "github.com/ono-sendai-labs/architectural-contracts/go/internal/goanalysis/testdata/success/a.Hello",
+			Callee:          "fmt.Println",
+			PassesFuncValue: false,
+		},
+		{
+			Caller:          "github.com/ono-sendai-labs/architectural-contracts/go/internal/goanalysis/testdata/success/a.ProcessString",
+			Callee:          "github.com/ono-sendai-labs/architectural-contracts/go/internal/goanalysis/testdata/success/a/b.stringCallback",
+			PassesFuncValue: false,
+		},
+		{
+			Caller:          "github.com/ono-sendai-labs/architectural-contracts/go/internal/goanalysis/testdata/success/a.init",
+			Callee:          "fmt.init",
+			PassesFuncValue: false,
+		},
+		{
+			Caller:          "github.com/ono-sendai-labs/architectural-contracts/go/internal/goanalysis/testdata/success/a.init",
+			Callee:          "github.com/ono-sendai-labs/architectural-contracts/go/internal/facts.init",
+			PassesFuncValue: false,
+		},
+		{
+			Caller:          "github.com/ono-sendai-labs/architectural-contracts/go/internal/goanalysis/testdata/success/a.init#1",
+			Callee:          "fmt.Println",
+			PassesFuncValue: false,
+		},
+		{
+			Caller:          "github.com/ono-sendai-labs/architectural-contracts/go/internal/goanalysis/testdata/success/a/b.CallGreet",
+			Callee:          "(github.com/ono-sendai-labs/architectural-contracts/go/internal/goanalysis/testdata/success/a.GreeterImpl).Greet",
+			PassesFuncValue: false,
+		},
+		{
+			Caller:          "github.com/ono-sendai-labs/architectural-contracts/go/internal/goanalysis/testdata/success/a/b.Greet",
+			Callee:          "github.com/ono-sendai-labs/architectural-contracts/go/internal/goanalysis/testdata/success/a.Hello",
+			PassesFuncValue: false,
+		},
+		{
+			Caller:          "github.com/ono-sendai-labs/architectural-contracts/go/internal/goanalysis/testdata/success/a/b.TriggerGenericFunc",
+			Callee:          "github.com/ono-sendai-labs/architectural-contracts/go/internal/goanalysis/testdata/success/a.Identity",
+			PassesFuncValue: false,
+		},
+		{
+			Caller:          "github.com/ono-sendai-labs/architectural-contracts/go/internal/goanalysis/testdata/success/a/b.TriggerGenericMethods",
+			Callee:          "(*github.com/ono-sendai-labs/architectural-contracts/go/internal/goanalysis/testdata/success/a.Box).Get",
+			PassesFuncValue: false,
+		},
+		{
+			Caller:          "github.com/ono-sendai-labs/architectural-contracts/go/internal/goanalysis/testdata/success/a/b.TriggerGenericMethods",
+			Callee:          "(github.com/ono-sendai-labs/architectural-contracts/go/internal/goanalysis/testdata/success/a.Box).GetVal",
+			PassesFuncValue: false,
+		},
+		{
+			Caller:          "github.com/ono-sendai-labs/architectural-contracts/go/internal/goanalysis/testdata/success/a/b.TriggerHigherOrder",
+			Callee:          "github.com/ono-sendai-labs/architectural-contracts/go/internal/goanalysis/testdata/success/a.CallWithFunc",
+			PassesFuncValue: true,
+		},
+		{
+			Caller:          "github.com/ono-sendai-labs/architectural-contracts/go/internal/goanalysis/testdata/success/a/b.TriggerHigherOrderNamed",
+			Callee:          "github.com/ono-sendai-labs/architectural-contracts/go/internal/goanalysis/testdata/success/a.ProcessString",
+			PassesFuncValue: true,
+		},
+		{
+			Caller:          "github.com/ono-sendai-labs/architectural-contracts/go/internal/goanalysis/testdata/success/a/b.init",
+			Callee:          "github.com/ono-sendai-labs/architectural-contracts/go/internal/goanalysis/testdata/success/a.init",
+			PassesFuncValue: false,
+		},
+	}
+
+	if !reflect.DeepEqual(factsResult.CallEdges, expectedCallEdges) {
+		t.Errorf("expected CallEdges to match.\nExpected (%d):\n%+v\nGot (%d):\n%+v", len(expectedCallEdges), expectedCallEdges, len(factsResult.CallEdges), factsResult.CallEdges)
 	}
 }
 
