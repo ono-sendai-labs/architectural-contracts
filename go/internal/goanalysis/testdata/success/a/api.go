@@ -9,3 +9,14 @@ func (g *GreeterImpl) SayHello() string {
 func Identity[T any](v T) T {
 	return v
 }
+
+// Higher order helper
+func CallWithFunc(f func(string) int) int {
+	return f("hello")
+}
+
+type StringProcessor func(string) string
+
+func ProcessString(p StringProcessor, val string) string {
+	return p(val)
+}
