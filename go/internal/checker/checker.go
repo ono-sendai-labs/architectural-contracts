@@ -29,7 +29,13 @@ type Inputs struct {
 // Check evaluates the injected inputs against architectural contracts and returns a ConformanceReport.
 // This function is completely pure and is a basis for the checker being ambient-authority-free.
 //
-// Currently implements FR3 (dependency allowlist rules). FR4/FR5/FR6 will extend this same function.
+// Implements:
+// - FR3 (dependency allowlist rules)
+// - FR4 (well-formedness rules: Method and Explicit Init rules)
+// - FR5 (cross-component call-boundary rule and higher-order boundary-call warning)
+// - §5.5 (package-overlap check)
+//
+// MVP matching is call-only. Real call edges and resolved interfaces are injected by the shell (Step 9).
 func Check(in Inputs) report.ConformanceReport {
 	// 1. Build component membership set
 	compPkgs := make(map[string]bool)
@@ -145,8 +151,71 @@ func Check(in Inputs) report.ConformanceReport {
 		}
 	}
 
-	// 5. Check for unused declared dependencies
+	// 4c. Package Overlap Checks (§5.5)
+	for _, di := range in.DepIfaces {
+		var overlapping []string
+		for _, dpkg := range di.Packages {
+			if compPkgs[dpkg] {
+				overlapping = append(overlapping, dpkg)
+			}
+		}
+		if len(overlapping) > 0 {
+			sort.Strings(overlapping)
+			violations = append(violations, report.Finding{
+				Kind:    report.PackageOverlap,
+				Message: fmt.Sprintf("package overlap with dependency %q: overlapping packages: %s", di.Component, strings.Join(overlapping, ", ")),
+			})
+		}
+	}
+
+	// 4d. FR5 Cross-component Call Boundary Checks (design §5.3b)
+	// Build package -> DepIface lookup & per-dependency normalized symbols map
+	type depInfo struct {
+		di          *facts.DependencyInterface
+		normSymbols map[string]bool
+	}
+	pkgToDep := make(map[string]*depInfo)
+	for i := range in.DepIfaces {
+		di := &in.DepIfaces[i]
+		normSyms := make(map[string]bool)
+		for _, sym := range di.Symbols {
+			normSyms[NormalizeInterfaceSymbol(sym)] = true
+		}
+		info := &depInfo{
+			di:          di,
+			normSymbols: normSyms,
+		}
+		for _, pkg := range di.Packages {
+			pkgToDep[pkg] = info
+		}
+	}
+
 	var warnings []report.Finding
+
+	for _, edge := range in.Facts.CallEdges {
+		calleePkg := ExtractPackagePath(string(edge.Callee))
+		if info, exists := pkgToDep[calleePkg]; exists {
+			// Mark dependency as matched/used since there's a call edge into it
+			compDepMatched[info.di.Component] = true
+
+			normCallee := NormalizeInterfaceSymbol(edge.Callee)
+			if !info.normSymbols[normCallee] {
+				// Undeclared call -> Violation
+				violations = append(violations, report.Finding{
+					Kind:    report.CallsUndeclaredInterface,
+					Message: fmt.Sprintf("call from %q to undeclared interface symbol %q of dependency %q", edge.Caller, edge.Callee, info.di.Component),
+				})
+			} else if edge.PassesFuncValue {
+				// Declared call passing func value -> Warning
+				warnings = append(warnings, report.Finding{
+					Kind:    report.HigherOrderBoundaryCall,
+					Message: fmt.Sprintf("higher-order boundary call from %q to %q of dependency %q passes function value", edge.Caller, edge.Callee, info.di.Component),
+				})
+			}
+		}
+	}
+
+	// 5. Check for unused declared dependencies
 
 	// Check component dependencies
 	for _, dep := range in.Manifest.ComponentDependencies {
@@ -206,4 +275,60 @@ func cleanReceiverType(receiver string) string {
 		res = res[2 : len(res)-1]
 	}
 	return res
+}
+
+// StripGenericBrackets removes type-parameter brackets (e.g., "Foo[int]" -> "Foo").
+func StripGenericBrackets(s string) string {
+	var sb strings.Builder
+	depth := 0
+	for _, ch := range s {
+		if ch == '[' {
+			depth++
+		} else if ch == ']' {
+			if depth > 0 {
+				depth--
+			}
+		} else if depth == 0 {
+			sb.WriteRune(ch)
+		}
+	}
+	return sb.String()
+}
+
+// NormalizeInterfaceSymbol normalizes a symbol for A4 comparison.
+func NormalizeInterfaceSymbol(sym capanalyzer.InterfaceSymbol) string {
+	s := string(sym)
+	s = StripGenericBrackets(s)
+	s = strings.ReplaceAll(s, "(*", "(")
+	return s
+}
+
+// ExtractPackagePath parses the package path from a symbol.
+func ExtractPackagePath(sym string) string {
+	s := StripGenericBrackets(sym)
+	if strings.HasPrefix(s, "(*") {
+		idx := strings.LastIndex(s, ")")
+		if idx != -1 {
+			receiver := s[2:idx]
+			dotIdx := strings.LastIndex(receiver, ".")
+			if dotIdx != -1 {
+				return receiver[:dotIdx]
+			}
+		}
+	} else if strings.HasPrefix(s, "(") {
+		idx := strings.LastIndex(s, ")")
+		if idx != -1 {
+			receiver := s[1:idx]
+			dotIdx := strings.LastIndex(receiver, ".")
+			if dotIdx != -1 {
+				return receiver[:dotIdx]
+			}
+		}
+	} else {
+		dotIdx := strings.LastIndex(s, ".")
+		if dotIdx != -1 {
+			return s[:dotIdx]
+		}
+	}
+	return ""
 }
