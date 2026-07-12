@@ -43,7 +43,7 @@ or orphaned code: every step ends by wiring its output into something runnable.
 - [x] **Step 0 — Capslock validation spike** (draft `examples/csvtool` packages as probes; execute the design's Capslock assumptions: strict-safe stdlib envelope, `CAPABILITY_SAFE` pruning, key formats incl. method/generic/init, whole-package scope + `_test.go` exclusion, Reader attribution) — findings in [`../research/spike-capslock.md`](../research/spike-capslock.md); harness preserved under `../research/spike/`. **All 6 assumptions hold**; three design corrections surfaced: (1) use `excludeUnanalyzed=true`; (1b) **adopt a "minting, not use" classifier** — reclassify `(*os.File)` handle-use methods `SAFE` so ambient authority is attributed at the `os.Open` site, making `manifest.Parse(io.Reader)` authority-free by construction and **dropping the §11 `bytes.Reader` wrapping rule**; (2) drop the B8 `sort.Slice` prohibition.
 - [x] **Step 1 — Project scaffold & developer tooling** (repo layout, `go/` module skeleton, `justfile`, CI workflow, `AGENTS.md`/`CLAUDE.md` — release workflow deferred to Step 11)
 - [x] **Step 2 — Manifest schema & parser** (`proto/`, codegen, `internal/manifest`)
-- [ ] **Step 3 — Pure supporting types: `facts` data model, `capanalyzer` port/policy, `report` model & text rendering**
+- [x] **Step 3 — Pure supporting types: `facts` data model, `capanalyzer` port/policy, `report` model & text rendering**
 - [ ] **Step 4 — Checker core I: dependency rule (FR3) + declared-interface & well-formedness (FR4)**
 - [ ] **Step 5 — Checker core II: call-boundary rule (FR5) + policy-aware authority rule (FR6)** — pure core complete
 - [ ] **Step 6 — `goanalysis` loader I: imports + exported-symbol→file extraction** (first vertical slice)
