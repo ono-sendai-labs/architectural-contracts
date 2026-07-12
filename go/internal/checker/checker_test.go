@@ -511,3 +511,278 @@ func TestCheck_FR4_Combined(t *testing.T) {
 		t.Errorf("expected rendered text to contain UNDECLARED_DEPENDENCY, got:\n%s", rendered)
 	}
 }
+
+func TestStripGenericBrackets(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected string
+	}{
+		{"Foo", "Foo"},
+		{"Foo[int]", "Foo"},
+		{"Foo[int, string]", "Foo"},
+		{"(*example.com/store.DB[int]).Get", "(*example.com/store.DB).Get"},
+	}
+
+	for _, tc := range tests {
+		got := checker.StripGenericBrackets(tc.input)
+		if got != tc.expected {
+			t.Errorf("StripGenericBrackets(%q) = %q; want %q", tc.input, got, tc.expected)
+		}
+	}
+}
+
+func TestNormalizeInterfaceSymbol(t *testing.T) {
+	tests := []struct {
+		input    capanalyzer.InterfaceSymbol
+		expected string
+	}{
+		{"example.com/store.Read", "example.com/store.Read"},
+		{"(*example.com/store.DB).Get", "(example.com/store.DB).Get"},
+		{"(example.com/store.DB).Get", "(example.com/store.DB).Get"},
+		{"(*example.com/store.DB[int]).Get", "(example.com/store.DB).Get"},
+	}
+
+	for _, tc := range tests {
+		got := checker.NormalizeInterfaceSymbol(tc.input)
+		if got != tc.expected {
+			t.Errorf("NormalizeInterfaceSymbol(%q) = %q; want %q", tc.input, got, tc.expected)
+		}
+	}
+}
+
+func TestExtractPackagePath(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected string
+	}{
+		{"example.com/store.Read", "example.com/store"},
+		{"(*example.com/store.DB).Get", "example.com/store"},
+		{"(example.com/store.DB).Get", "example.com/store"},
+		{"(*example.com/store.DB[int]).Get", "example.com/store"},
+		{"fmt.Printf", "fmt"},
+	}
+
+	for _, tc := range tests {
+		got := checker.ExtractPackagePath(tc.input)
+		if got != tc.expected {
+			t.Errorf("ExtractPackagePath(%q) = %q; want %q", tc.input, got, tc.expected)
+		}
+	}
+}
+
+func TestCheck_FR5_UndeclaredInterfaceCall(t *testing.T) {
+	in := checker.Inputs{
+		Manifest: manifest.Manifest{
+			Name: "mycomponent",
+			ComponentDependencies: []manifest.ComponentDependency{
+				{Name: "dep1"},
+			},
+		},
+		Facts: facts.PackageFacts{
+			Packages: []facts.PackageFact{
+				{ImportPath: "mycomponent/pkg"},
+			},
+			CallEdges: []facts.CallEdge{
+				{
+					Caller: "mycomponent/pkg.Run",
+					Callee: "github.com/dep1/pkg.PrivateFunc",
+				},
+			},
+		},
+		DepIfaces: []facts.DependencyInterface{
+			{
+				Component: "dep1",
+				Packages:  []string{"github.com/dep1/pkg"},
+				Symbols:   []capanalyzer.InterfaceSymbol{"github.com/dep1/pkg.PublicFunc"},
+			},
+		},
+	}
+
+	rep := checker.Check(in)
+	if len(rep.Violations) != 1 {
+		t.Fatalf("expected exactly 1 violation, got %d", len(rep.Violations))
+	}
+	v := rep.Violations[0]
+	if v.Kind != report.CallsUndeclaredInterface {
+		t.Errorf("expected kind %s, got %s", report.CallsUndeclaredInterface, v.Kind)
+	}
+	expectedMsg := `call from "mycomponent/pkg.Run" to undeclared interface symbol "github.com/dep1/pkg.PrivateFunc" of dependency "dep1"`
+	if v.Message != expectedMsg {
+		t.Errorf("expected message %q, got %q", expectedMsg, v.Message)
+	}
+}
+
+func TestCheck_FR5_DeclaredInterfaceCall(t *testing.T) {
+	in := checker.Inputs{
+		Manifest: manifest.Manifest{
+			Name: "mycomponent",
+			ComponentDependencies: []manifest.ComponentDependency{
+				{Name: "dep1"},
+			},
+		},
+		Facts: facts.PackageFacts{
+			Packages: []facts.PackageFact{
+				{ImportPath: "mycomponent/pkg"},
+			},
+			CallEdges: []facts.CallEdge{
+				{
+					Caller: "mycomponent/pkg.Run",
+					Callee: "github.com/dep1/pkg.PublicFunc",
+				},
+			},
+		},
+		DepIfaces: []facts.DependencyInterface{
+			{
+				Component: "dep1",
+				Packages:  []string{"github.com/dep1/pkg"},
+				Symbols:   []capanalyzer.InterfaceSymbol{"github.com/dep1/pkg.PublicFunc"},
+			},
+		},
+	}
+
+	rep := checker.Check(in)
+	if len(rep.Violations) != 0 {
+		t.Errorf("expected 0 violations, got %d: %v", len(rep.Violations), rep.Violations)
+	}
+}
+
+func TestCheck_FR5_Normalization(t *testing.T) {
+	in := checker.Inputs{
+		Manifest: manifest.Manifest{
+			Name: "mycomponent",
+			ComponentDependencies: []manifest.ComponentDependency{
+				{Name: "dep1"},
+			},
+		},
+		Facts: facts.PackageFacts{
+			Packages: []facts.PackageFact{
+				{ImportPath: "mycomponent/pkg"},
+			},
+			CallEdges: []facts.CallEdge{
+				{
+					Caller: "mycomponent/pkg.Run",
+					Callee: "(*github.com/dep1/pkg.DB[int]).Get", // opposite receiver form and generic parameter
+				},
+			},
+		},
+		DepIfaces: []facts.DependencyInterface{
+			{
+				Component: "dep1",
+				Packages:  []string{"github.com/dep1/pkg"},
+				Symbols:   []capanalyzer.InterfaceSymbol{"(github.com/dep1/pkg.DB).Get"}, // declared as value receiver
+			},
+		},
+	}
+
+	rep := checker.Check(in)
+	if len(rep.Violations) != 0 {
+		t.Errorf("expected 0 violations, got %d: %v", len(rep.Violations), rep.Violations)
+	}
+}
+
+func TestCheck_FR5_HigherOrderBoundaryCall(t *testing.T) {
+	in := checker.Inputs{
+		Manifest: manifest.Manifest{
+			Name: "mycomponent",
+			ComponentDependencies: []manifest.ComponentDependency{
+				{Name: "dep1"},
+			},
+		},
+		Facts: facts.PackageFacts{
+			Packages: []facts.PackageFact{
+				{ImportPath: "mycomponent/pkg"},
+			},
+			CallEdges: []facts.CallEdge{
+				{
+					Caller:          "mycomponent/pkg.Run",
+					Callee:          "github.com/dep1/pkg.PublicFunc",
+					PassesFuncValue: true,
+				},
+			},
+		},
+		DepIfaces: []facts.DependencyInterface{
+			{
+				Component: "dep1",
+				Packages:  []string{"github.com/dep1/pkg"},
+				Symbols:   []capanalyzer.InterfaceSymbol{"github.com/dep1/pkg.PublicFunc"},
+			},
+		},
+	}
+
+	rep := checker.Check(in)
+	if len(rep.Violations) != 0 {
+		t.Errorf("expected 0 violations, got %d: %v", len(rep.Violations), rep.Violations)
+	}
+	if len(rep.Warnings) != 1 {
+		t.Fatalf("expected exactly 1 warning, got %d", len(rep.Warnings))
+	}
+	w := rep.Warnings[0]
+	if w.Kind != report.HigherOrderBoundaryCall {
+		t.Errorf("expected kind %s, got %s", report.HigherOrderBoundaryCall, w.Kind)
+	}
+	expectedMsg := `higher-order boundary call from "mycomponent/pkg.Run" to "github.com/dep1/pkg.PublicFunc" of dependency "dep1" passes function value`
+	if w.Message != expectedMsg {
+		t.Errorf("expected message %q, got %q", expectedMsg, w.Message)
+	}
+}
+
+func TestCheck_FR5_PackageOverlap(t *testing.T) {
+	in := checker.Inputs{
+		Manifest: manifest.Manifest{
+			Name: "mycomponent",
+		},
+		Facts: facts.PackageFacts{
+			Packages: []facts.PackageFact{
+				{ImportPath: "mycomponent/pkg"},
+				{ImportPath: "mycomponent/pkg/nested"},
+			},
+		},
+		DepIfaces: []facts.DependencyInterface{
+			{
+				Component: "dep1",
+				Packages:  []string{"mycomponent/pkg/nested", "otherpkg"},
+			},
+		},
+	}
+
+	rep := checker.Check(in)
+	if len(rep.Violations) != 1 {
+		t.Fatalf("expected exactly 1 violation, got %d", len(rep.Violations))
+	}
+	v := rep.Violations[0]
+	if v.Kind != report.PackageOverlap {
+		t.Errorf("expected kind %s, got %s", report.PackageOverlap, v.Kind)
+	}
+	expectedMsg := `package overlap with dependency "dep1": overlapping packages: mycomponent/pkg/nested`
+	if v.Message != expectedMsg {
+		t.Errorf("expected message %q, got %q", expectedMsg, v.Message)
+	}
+}
+
+func TestCheck_FR5_OutOfScope(t *testing.T) {
+	in := checker.Inputs{
+		Manifest: manifest.Manifest{
+			Name: "mycomponent",
+		},
+		Facts: facts.PackageFacts{
+			Packages: []facts.PackageFact{
+				{ImportPath: "mycomponent/pkg"},
+			},
+			CallEdges: []facts.CallEdge{
+				{
+					Caller: "mycomponent/pkg.Run",
+					Callee: "fmt.Println", // stdlib
+				},
+				{
+					Caller: "mycomponent/pkg.Run",
+					Callee: "mycomponent/pkg.Helper", // intra-component
+				},
+			},
+		},
+	}
+
+	rep := checker.Check(in)
+	if len(rep.Violations) != 0 {
+		t.Errorf("expected 0 violations, got %d: %v", len(rep.Violations), rep.Violations)
+	}
+}
