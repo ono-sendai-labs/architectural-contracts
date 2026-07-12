@@ -100,6 +100,51 @@ func Check(in Inputs) report.ConformanceReport {
 		}
 	}
 
+	// 4b. FR4 Well-formedness checks (Method and Explicit Init rules)
+	typeDeclFiles := make(map[string]string)
+	for _, pkg := range in.Facts.Packages {
+		for _, sym := range pkg.ExportedSymbols {
+			if sym.Kind == "type" {
+				typeDeclFiles[sym.Name] = sym.File
+			}
+		}
+	}
+
+	interfaceFiles := make(map[string]bool)
+	for _, f := range in.Manifest.InterfaceFiles {
+		interfaceFiles[f] = true
+	}
+
+	for _, pkg := range in.Facts.Packages {
+		for _, sym := range pkg.ExportedSymbols {
+			if sym.Kind == "method" {
+				recvType := cleanReceiverType(sym.Receiver)
+				declFile, exists := typeDeclFiles[recvType]
+				if exists && interfaceFiles[declFile] {
+					if !interfaceFiles[sym.File] {
+						violations = append(violations, report.Finding{
+							Kind:    report.MethodOutsideInterface,
+							Message: fmt.Sprintf("exported method %q with receiver %q declared in non-interface file %q", sym.Name, sym.Receiver, sym.File),
+							Location: report.Location{
+								File: sym.File,
+							},
+						})
+					}
+				}
+			} else if sym.Kind == "init" {
+				if !interfaceFiles[sym.File] {
+					violations = append(violations, report.Finding{
+						Kind:    report.InitOutsideInterface,
+						Message: fmt.Sprintf("explicit init declared in non-interface file %q in package %q", sym.File, pkg.ImportPath),
+						Location: report.Location{
+							File: sym.File,
+						},
+					})
+				}
+			}
+		}
+	}
+
 	// 5. Check for unused declared dependencies
 	var warnings []report.Finding
 
@@ -151,4 +196,14 @@ func isStdlib(importPath string) bool {
 		first = importPath[:idx]
 	}
 	return !strings.Contains(first, ".")
+}
+
+// cleanReceiverType strips parentheses and pointers from receiver type keys
+// to resolve the underlying type name (e.g. "(*example.com/store.DB)" -> "example.com/store.DB").
+func cleanReceiverType(receiver string) string {
+	res := receiver
+	if strings.HasPrefix(res, "(*") && strings.HasSuffix(res, ")") {
+		res = res[2 : len(res)-1]
+	}
+	return res
 }
