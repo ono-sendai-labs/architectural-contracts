@@ -47,7 +47,7 @@ or orphaned code: every step ends by wiring its output into something runnable.
 - [x] **Step 4 — Checker core I: dependency rule (FR3) + declared-interface & well-formedness (FR4)**
 - [x] **Step 5 — Checker core II: call-boundary rule (FR5) + policy-aware authority rule (FR6)** — pure core complete
 - [x] **Step 6 — `goanalysis` loader I: imports + exported-symbol→file extraction** (first vertical slice)
-- [ ] **Step 7 — `capslockadapter`: Capslock-backed `CapabilityAnalyzer`**
+- [x] **Step 7 — `capslockadapter`: Capslock-backed `CapabilityAnalyzer`**
 - [ ] **Step 8 — CLI/app orchestration + CSV example** — first full end-to-end
 - [ ] **Step 9 — Call graph + FR5/FR5b: VTA edges, dependency-interface resolution, boundary pruning** — full concept
 - [ ] **Step 10 — Self-hosting (FR8): own component manifests + CI check of the core**
