@@ -2,6 +2,11 @@ package goanalysis
 
 import (
 	"fmt"
+	"go/ast"
+	"go/token"
+	"go/types"
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 
@@ -60,11 +65,16 @@ func LoadPackageFacts(componentRoot string) (facts.PackageFacts, error) {
 
 		isStd := isStdlibPackage(p)
 
+		exportedSymbols, err := extractSymbols(p, componentRoot)
+		if err != nil {
+			return facts.PackageFacts{}, err
+		}
+
 		factsPkgs = append(factsPkgs, facts.PackageFact{
 			ImportPath:      p.PkgPath,
 			IsStdlib:        isStd,
 			Imports:         imports,
-			ExportedSymbols: nil, // keep empty for this increment
+			ExportedSymbols: exportedSymbols,
 		})
 	}
 
@@ -88,4 +98,173 @@ func isStdlibPackage(p *packages.Package) bool {
 		return true
 	}
 	return false
+}
+
+func extractSymbols(p *packages.Package, componentRoot string) ([]facts.ExportedSymbol, error) {
+	var symbols []facts.ExportedSymbol
+
+	for _, file := range p.Syntax {
+		if file == nil {
+			continue
+		}
+		pos := p.Fset.Position(file.Pos())
+		absPath := pos.Filename
+		if absPath == "" {
+			continue
+		}
+		relPath, err := filepath.Rel(componentRoot, absPath)
+		if err != nil {
+			return nil, fmt.Errorf("failed to make file path %q relative to root %q: %w", absPath, componentRoot, err)
+		}
+		relPath = filepath.ToSlash(relPath)
+
+		for _, decl := range file.Decls {
+			switch d := decl.(type) {
+			case *ast.FuncDecl:
+				if d.Recv != nil {
+					if ast.IsExported(d.Name.Name) {
+						obj := p.TypesInfo.Defs[d.Name]
+						if obj != nil {
+							if fn, ok := obj.(*types.Func); ok {
+								sig := fn.Type().(*types.Signature)
+								if sig != nil && sig.Recv() != nil {
+									recvType := sig.Recv().Type()
+									formattedRecv := types.TypeString(recvType, nil)
+
+									var receiverKey string
+									if strings.HasPrefix(formattedRecv, "*") {
+										receiverKey = "(*" + formattedRecv[1:] + ")"
+									} else {
+										receiverKey = "(" + formattedRecv + ")"
+									}
+
+									symbols = append(symbols, facts.ExportedSymbol{
+										Name:     receiverKey + "." + d.Name.Name,
+										File:     relPath,
+										Kind:     "method",
+										Receiver: receiverKey,
+									})
+								}
+							}
+						}
+					}
+				} else {
+					if d.Name.Name == "init" {
+						symbols = append(symbols, facts.ExportedSymbol{
+							Name:     p.PkgPath + ".init",
+							File:     relPath,
+							Kind:     "init",
+							Receiver: "",
+						})
+					} else if ast.IsExported(d.Name.Name) {
+						symbols = append(symbols, facts.ExportedSymbol{
+							Name:     p.PkgPath + "." + d.Name.Name,
+							File:     relPath,
+							Kind:     "func",
+							Receiver: "",
+						})
+					}
+				}
+
+			case *ast.GenDecl:
+				if d.Tok == token.IMPORT {
+					continue
+				}
+				for _, spec := range d.Specs {
+					switch s := spec.(type) {
+					case *ast.ValueSpec:
+						for _, ident := range s.Names {
+							if ast.IsExported(ident.Name) {
+								kind := "var"
+								if d.Tok == token.CONST {
+									kind = "const"
+								}
+								symbols = append(symbols, facts.ExportedSymbol{
+									Name:     p.PkgPath + "." + ident.Name,
+									File:     relPath,
+									Kind:     kind,
+									Receiver: "",
+								})
+							}
+						}
+					case *ast.TypeSpec:
+						if ast.IsExported(s.Name.Name) {
+							symbols = append(symbols, facts.ExportedSymbol{
+								Name:     p.PkgPath + "." + s.Name.Name,
+								File:     relPath,
+								Kind:     "type",
+								Receiver: "",
+							})
+						}
+					}
+				}
+			}
+		}
+	}
+
+	sort.Slice(symbols, func(i, j int) bool {
+		if symbols[i].File != symbols[j].File {
+			return symbols[i].File < symbols[j].File
+		}
+		if symbols[i].Kind != symbols[j].Kind {
+			return symbols[i].Kind < symbols[j].Kind
+		}
+		return symbols[i].Name < symbols[j].Name
+	})
+
+	return symbols, nil
+}
+
+// ValidateInterfaceFiles verifies that each interface_files path exists, is relative,
+// does not escape, is a regular file, and belongs to a loaded Go package beneath componentRoot.
+func ValidateInterfaceFiles(componentRoot string, interfaceFiles []string, loaded facts.PackageFacts) error {
+	cfg := &packages.Config{
+		Mode: packages.NeedFiles,
+		Dir:  componentRoot,
+	}
+	pkgs, err := packages.Load(cfg, "./...")
+	if err != nil {
+		return fmt.Errorf("failed to load packages for validation: %w", err)
+	}
+
+	allowedFiles := make(map[string]bool)
+	for _, p := range pkgs {
+		for _, absFile := range p.GoFiles {
+			rel, err := filepath.Rel(componentRoot, absFile)
+			if err != nil {
+				continue
+			}
+			allowedFiles[filepath.ToSlash(filepath.Clean(rel))] = true
+		}
+	}
+
+	for _, f := range interfaceFiles {
+		if filepath.IsAbs(f) {
+			return fmt.Errorf("interface file %q is absolute: all interface_files must be relative", f)
+		}
+
+		cleaned := filepath.Clean(f)
+		if strings.HasPrefix(cleaned, "..") {
+			return fmt.Errorf("interface file %q escapes the component root", f)
+		}
+		cleanedSlash := filepath.ToSlash(cleaned)
+
+		absPath := filepath.Join(componentRoot, cleaned)
+		info, err := os.Stat(absPath)
+		if err != nil {
+			if os.IsNotExist(err) {
+				return fmt.Errorf("interface file %q does not exist", f)
+			}
+			return fmt.Errorf("failed to check interface file %q: %w", f, err)
+		}
+		if info.IsDir() {
+			return fmt.Errorf("interface file %q is a directory, not a regular file", f)
+		}
+
+		if !allowedFiles[cleanedSlash] {
+			return fmt.Errorf("interface file %q does not belong to any loaded Go package under component root", f)
+		}
+	}
+
+	return nil
 }
