@@ -80,9 +80,12 @@ func TestLoadPackageFacts_Success(t *testing.T) {
 
 func TestLoadPackageFacts_Errors(t *testing.T) {
 	// 1. Invalid component root (Scenario 3)
-	_, err := goanalysis.LoadPackageFacts("/nonexistent/directory")
+	invalidFacts, err := goanalysis.LoadPackageFacts("/nonexistent/directory")
 	if err == nil {
 		t.Errorf("expected error on nonexistent component root, got nil")
+	}
+	if len(invalidFacts.Packages) != 0 || len(invalidFacts.CallEdges) != 0 {
+		t.Errorf("expected empty facts on invalid root error, got %+v", invalidFacts)
 	}
 
 	// 2. Broken syntax package (Scenario 2)
@@ -90,9 +93,12 @@ func TestLoadPackageFacts_Errors(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to get absolute path: %v", err)
 	}
-	_, err = goanalysis.LoadPackageFacts(root)
+	brokenFacts, err := goanalysis.LoadPackageFacts(root)
 	if err == nil {
 		t.Fatalf("expected error on package load with broken syntax, got nil")
+	}
+	if len(brokenFacts.Packages) != 0 || len(brokenFacts.CallEdges) != 0 {
+		t.Errorf("expected empty facts on broken-package load error, got %+v", brokenFacts)
 	}
 
 	// Verify the error contains loader diagnostics/syntax error text
