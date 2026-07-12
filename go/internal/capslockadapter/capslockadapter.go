@@ -54,7 +54,13 @@ func buildClassifier(pruneAt []capanalyzer.InterfaceSymbol) (analyzer.Classifier
 // mapClass maps a Capslock capability name to its corresponding capanalyzer.Class.
 // It returns an error if the capability name is unknown or a control value.
 func mapClass(capName string) (capanalyzer.Class, error) {
-	switch capName {
+	// Normalize to documented base category (e.g. "MODIFY_SYSTEM_STATE/ENV" -> "MODIFY_SYSTEM_STATE")
+	baseCap := capName
+	if idx := strings.Index(capName, "/"); idx != -1 {
+		baseCap = capName[:idx]
+	}
+
+	switch baseCap {
 	case "ARBITRARY_EXECUTION", "CGO", "UNSAFE_POINTER", "REFLECT", "UNANALYZED":
 		return capanalyzer.AnalysisDefeating, nil
 	case "FILES", "NETWORK", "READ_SYSTEM_STATE", "MODIFY_SYSTEM_STATE", "OPERATING_SYSTEM", "SYSTEM_CALLS", "EXEC", "RUNTIME":
@@ -128,14 +134,21 @@ func (a *Adapter) Analyze(req capanalyzer.AnalyzeRequest) ([]capanalyzer.Capabil
 			})
 		}
 
-		class, err := mapClass(ci.GetCapabilityName())
+		rawCapName := ci.GetCapabilityName()
+		class, err := mapClass(rawCapName)
 		if err != nil {
 			return nil, err
 		}
 
+		// Normalize to base category name for the Capability finding field
+		normalizedCapName := rawCapName
+		if idx := strings.Index(rawCapName, "/"); idx != -1 {
+			normalizedCapName = rawCapName[:idx]
+		}
+
 		findings = append(findings, capanalyzer.CapabilityFinding{
 			Package:    ci.GetPackageDir(),
-			Capability: ci.GetCapabilityName(),
+			Capability: normalizedCapName,
 			Class:      class,
 			CallPath:   callPath,
 		})

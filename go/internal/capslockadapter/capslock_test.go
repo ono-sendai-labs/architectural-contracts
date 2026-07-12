@@ -1,6 +1,7 @@
 package capslockadapter
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/capanalyzer"
@@ -136,6 +137,8 @@ func TestAdapter_Analyze(t *testing.T) {
 	}
 	if len(findingsPure) != 0 {
 		t.Errorf("expected pure package to have 0 findings (ambient-authority-free), got %d findings: %+v", len(findingsPure), findingsPure)
+	} else {
+		t.Log("ambient-authority-free (no findings)")
 	}
 
 	// 2. Analyze FileReader Package
@@ -158,8 +161,42 @@ func TestAdapter_Analyze(t *testing.T) {
 			if f.Package != expectedPkg {
 				t.Errorf("expected package of FILES capability to be %q, got %q", expectedPkg, f.Package)
 			}
+			if f.Class != capanalyzer.TrueAuthority {
+				t.Errorf("expected FILES finding class to be TrueAuthority, got %q", f.Class)
+			}
 			if len(f.CallPath) == 0 {
 				t.Errorf("expected non-empty CallPath for FILES finding")
+			}
+
+			// Validate and log call path frames
+			t.Logf("FILES finding in package %q (class %s):", f.Package, f.Class)
+			hasPositiveEvidence := false
+			hasReadSomeFileFunc := false
+			hasFileReaderFile := false
+			for idx, frame := range f.CallPath {
+				t.Logf("  [%d] %s at %s:%d", idx, frame.Func, frame.File, frame.Line)
+				if frame.Func == "" {
+					t.Errorf("expected non-empty Func in call path frame [%d]", idx)
+				}
+				if frame.File != "" && frame.Line > 0 {
+					hasPositiveEvidence = true
+				}
+				// Semantic checks
+				if strings.Contains(frame.Func, "ReadSomeFile") {
+					hasReadSomeFileFunc = true
+				}
+				if strings.HasSuffix(frame.File, "filereader.go") {
+					hasFileReaderFile = true
+				}
+			}
+			if !hasPositiveEvidence {
+				t.Errorf("expected at least one frame with positive source-line evidence (non-empty File and Line > 0)")
+			}
+			if !hasReadSomeFileFunc {
+				t.Errorf("expected FILES finding call path to contain a frame with function name ReadSomeFile")
+			}
+			if !hasFileReaderFile {
+				t.Errorf("expected FILES finding call path to contain a frame with filename filereader.go")
 			}
 		}
 	}
@@ -199,7 +236,7 @@ func TestAdapter_Analyze(t *testing.T) {
 	}
 }
 
-// TestAdapter_Analyze_EmptyPackages verifies that an empty package request is rejected with an error.
+// TestAdapter_Analyze_EmptyPackages verifies that an empty package request is rejected with a descriptive error.
 func TestAdapter_Analyze_EmptyPackages(t *testing.T) {
 	adapter := NewAdapter()
 	req := capanalyzer.AnalyzeRequest{
@@ -208,10 +245,12 @@ func TestAdapter_Analyze_EmptyPackages(t *testing.T) {
 	_, err := adapter.Analyze(req)
 	if err == nil {
 		t.Errorf("expected Analyze to fail on empty package request, but it succeeded")
+	} else if !strings.Contains(err.Error(), "package request is empty") {
+		t.Errorf("expected error message to contain %q, got: %q", "package request is empty", err.Error())
 	}
 }
 
-// TestAdapter_Analyze_PruneAtError verifies that non-empty PruneAt is rejected with an error.
+// TestAdapter_Analyze_PruneAtError verifies that non-empty PruneAt is rejected with a descriptive error.
 func TestAdapter_Analyze_PruneAtError(t *testing.T) {
 	adapter := NewAdapter()
 	req := capanalyzer.AnalyzeRequest{
@@ -221,6 +260,26 @@ func TestAdapter_Analyze_PruneAtError(t *testing.T) {
 	_, err := adapter.Analyze(req)
 	if err == nil {
 		t.Errorf("expected Analyze to fail when PruneAt is non-empty, but it succeeded")
+	} else if !strings.Contains(err.Error(), "boundary pruning (PruneAt) is not supported") {
+		t.Errorf("expected error message to contain %q, got: %q", "boundary pruning (PruneAt) is not supported", err.Error())
+	}
+}
+
+// TestAdapter_Analyze_BrokenPackage verifies that a broken or non-existent package pattern
+// returns useful loader diagnostics and no partial findings are returned.
+func TestAdapter_Analyze_BrokenPackage(t *testing.T) {
+	adapter := NewAdapter()
+	req := capanalyzer.AnalyzeRequest{
+		Packages: []string{"github.com/ono-sendai-labs/architectural-contracts/go/internal/capslockadapter/testdata/nonexistent_package_xyz"},
+	}
+	findings, err := adapter.Analyze(req)
+	if err == nil {
+		t.Errorf("expected Analyze to fail on non-existent package pattern, but it succeeded")
+	} else if !strings.Contains(err.Error(), "package load errors") {
+		t.Errorf("expected error message to contain %q, got: %q", "package load errors", err.Error())
+	}
+	if len(findings) != 0 {
+		t.Errorf("expected no findings on package load failure, got %d findings", len(findings))
 	}
 }
 
@@ -229,6 +288,7 @@ func TestMapClass(t *testing.T) {
 	trueCaps := []string{
 		"FILES", "NETWORK", "READ_SYSTEM_STATE", "MODIFY_SYSTEM_STATE",
 		"OPERATING_SYSTEM", "SYSTEM_CALLS", "EXEC", "RUNTIME",
+		"MODIFY_SYSTEM_STATE/ENV", "SYSTEM_CALLS/INDIRECT",
 	}
 	defeatingCaps := []string{
 		"ARBITRARY_EXECUTION", "CGO", "UNSAFE_POINTER", "REFLECT", "UNANALYZED",
@@ -254,7 +314,7 @@ func TestMapClass(t *testing.T) {
 		}
 	}
 
-	unknownCaps := []string{"UNSPECIFIED", "SAFE", "SOMETHING_NEW", ""}
+	unknownCaps := []string{"UNSPECIFIED", "SAFE", "SOMETHING_NEW", "", "UNSPECIFIED/foo", "SAFE/bar"}
 	for _, uc := range unknownCaps {
 		_, err := mapClass(uc)
 		if err == nil {
