@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"strings"
+	"syscall"
 	"testing"
 
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/checker"
@@ -87,8 +88,8 @@ func TestLoadPackageFacts_Success(t *testing.T) {
 		{Name: expectedA + ".ExportedConst1", File: "a/types.go", Kind: "const"},
 		{Name: expectedA + ".ExportedConst2", File: "a/types.go", Kind: "const"},
 		{Name: "(*" + expectedA + ".Base).GetValue", File: "a/types.go", Kind: "method", Receiver: "(*" + expectedA + ".Base)"},
-		{Name: "(*" + expectedA + ".Box[T]).Get", File: "a/types.go", Kind: "method", Receiver: "(*" + expectedA + ".Box[T])"},
-		{Name: "(" + expectedA + ".Box[T]).GetVal", File: "a/types.go", Kind: "method", Receiver: "(" + expectedA + ".Box[T])"},
+		{Name: "(*" + expectedA + ".Box).Get", File: "a/types.go", Kind: "method", Receiver: "(*" + expectedA + ".Box)"},
+		{Name: "(" + expectedA + ".Box).GetVal", File: "a/types.go", Kind: "method", Receiver: "(" + expectedA + ".Box)"},
 		{Name: "(" + expectedA + ".GreeterImpl).Greet", File: "a/types.go", Kind: "method", Receiver: "(" + expectedA + ".GreeterImpl)"},
 		{Name: expectedA + ".Base", File: "a/types.go", Kind: "type"},
 		{Name: expectedA + ".Box", File: "a/types.go", Kind: "type"},
@@ -188,7 +189,7 @@ func TestValidateInterfaceFiles(t *testing.T) {
 		{
 			name:    "directory path rejected",
 			files:   []string{"a/b"},
-			wantErr: "is a directory",
+			wantErr: "is not a regular file",
 		},
 		{
 			name:    "non-Go file outside package set rejected",
@@ -212,6 +213,44 @@ func TestValidateInterfaceFiles(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestValidateInterfaceFiles_RejectsNonRegularCachedPath(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "go.mod"), []byte("module fixture.test/nonregular\n\ngo 1.21\n"), 0o644); err != nil {
+		t.Fatalf("failed to write fixture go.mod: %v", err)
+	}
+	pkgDir := filepath.Join(root, "a")
+	if err := os.MkdirAll(pkgDir, 0o755); err != nil {
+		t.Fatalf("failed to create package dir: %v", err)
+	}
+	goFile := filepath.Join(pkgDir, "a.go")
+	if err := os.WriteFile(goFile, []byte("package a\n"), 0o644); err != nil {
+		t.Fatalf("failed to write fixture file: %v", err)
+	}
+
+	loaded, err := goanalysis.LoadPackageFacts(root)
+	if err != nil {
+		t.Fatalf("failed to load package facts: %v", err)
+	}
+
+	// Replace the cached member source path with a non-regular filesystem entry
+	// (a FIFO) after loading, to prove validation rejects it rather than accepting
+	// it because it is merely "not a directory".
+	if err := os.Remove(goFile); err != nil {
+		t.Fatalf("failed to remove fixture file: %v", err)
+	}
+	if err := syscall.Mkfifo(goFile, 0o644); err != nil {
+		t.Skipf("mkfifo not supported on this platform: %v", err)
+	}
+
+	err = goanalysis.ValidateInterfaceFiles(root, []string{"a/a.go"}, loaded)
+	if err == nil {
+		t.Fatalf("expected error for non-regular cached path, got nil")
+	}
+	if !strings.Contains(err.Error(), "is not a regular file") {
+		t.Errorf("expected error to contain %q, got: %q", "is not a regular file", err.Error())
 	}
 }
 
@@ -347,6 +386,59 @@ func TestValidateInterfaceFiles_UsesCachedMembership(t *testing.T) {
 		t.Errorf("expected other.go to be rejected (not in loaded membership), got nil")
 	} else if !strings.Contains(err.Error(), "does not belong to any loaded Go package") {
 		t.Errorf("expected error containing 'does not belong to any loaded Go package', got: %v", err)
+	}
+}
+
+func TestGenericReceiverMethodOutsideInterfaceIsDetected(t *testing.T) {
+	tmp := t.TempDir()
+
+	goMod := "module generictest\n\ngo 1.21\n"
+	// Box[T] is declared in types.go, which will be an interface file.
+	typesGo := "package generictest\n\ntype Box[T any] struct {\n\tVal T\n}\n"
+	// Get is an exported method on the generic receiver, declared in a
+	// non-interface file. Without bracket-free receiver-key normalization,
+	// this method's receiver key "(*generictest.Box[T])" would not match
+	// the type declaration key "generictest.Box", so FR4 would silently
+	// miss the violation.
+	methodGo := "package generictest\n\nfunc (b *Box[T]) Get() T {\n\treturn b.Val\n}\n"
+
+	if err := os.WriteFile(filepath.Join(tmp, "go.mod"), []byte(goMod), 0o644); err != nil {
+		t.Fatalf("failed to write go.mod: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(tmp, "types.go"), []byte(typesGo), 0o644); err != nil {
+		t.Fatalf("failed to write types.go: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(tmp, "method.go"), []byte(methodGo), 0o644); err != nil {
+		t.Fatalf("failed to write method.go: %v", err)
+	}
+
+	loadedFacts, err := goanalysis.LoadPackageFacts(tmp)
+	if err != nil {
+		t.Fatalf("failed to load package facts: %v", err)
+	}
+
+	interfaceFiles := []string{"types.go"}
+	if err := goanalysis.ValidateInterfaceFiles(tmp, interfaceFiles, loadedFacts); err != nil {
+		t.Fatalf("failed to validate interface files: %v", err)
+	}
+
+	inputs := checker.Inputs{
+		Manifest: manifest.Manifest{
+			Name:           "generic-component",
+			InterfaceFiles: interfaceFiles,
+		},
+		Facts: loadedFacts,
+	}
+	conformanceReport := checker.Check(inputs)
+
+	var found bool
+	for _, v := range conformanceReport.Violations {
+		if v.Kind == report.MethodOutsideInterface && v.Location.File == "method.go" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("expected a MethodOutsideInterface violation for method.go, got violations: %+v", conformanceReport.Violations)
 	}
 }
 

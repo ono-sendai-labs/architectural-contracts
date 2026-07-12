@@ -116,6 +116,16 @@ func LoadPackageFacts(componentRoot string) (facts.PackageFacts, error) {
 	return res, nil
 }
 
+// stripGenericBrackets removes a trailing generic instantiation such as "[T]"
+// or "[K, V]" from a formatted receiver type, so generic receiver keys match
+// the bracket-free type declaration keys used elsewhere (e.g. by FR4 checks).
+func stripGenericBrackets(s string) string {
+	if idx := strings.IndexByte(s, '['); idx != -1 && strings.HasSuffix(s, "]") {
+		return s[:idx]
+	}
+	return s
+}
+
 func isStdlibPackage(p *packages.Package) bool {
 	// Standard library packages do not belong to a module, or belong to the special "std" module.
 	if p.Module == nil {
@@ -156,7 +166,7 @@ func extractSymbols(p *packages.Package, componentRoot string) ([]facts.Exported
 								sig := fn.Type().(*types.Signature)
 								if sig != nil && sig.Recv() != nil {
 									recvType := sig.Recv().Type()
-									formattedRecv := types.TypeString(recvType, nil)
+									formattedRecv := stripGenericBrackets(types.TypeString(recvType, nil))
 
 									var receiverKey string
 									if strings.HasPrefix(formattedRecv, "*") {
@@ -272,8 +282,8 @@ func ValidateInterfaceFiles(componentRoot string, interfaceFiles []string, loade
 			}
 			return fmt.Errorf("failed to check interface file %q: %w", f, err)
 		}
-		if info.IsDir() {
-			return fmt.Errorf("interface file %q is a directory, not a regular file", f)
+		if !info.Mode().IsRegular() {
+			return fmt.Errorf("interface file %q is not a regular file", f)
 		}
 
 		if sourceFiles == nil || !sourceFiles[cleanedSlash] {
