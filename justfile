@@ -21,13 +21,15 @@ fmt:
 	cd {{go_dir}} && go fmt ./...
 
 gen:
-	# Protobuf code generation is wired in Step 2.
-	true
+	protoc --proto_path=proto --go_out=go --go_opt=module=github.com/ono-sendai-labs/architectural-contracts/go proto/archcontracts/v1/component.proto
+
+gen-is-clean: gen
+	test -z "$(jj diff -- go/internal/manifest/gen/)"
 
 run *args:
 	cd {{go_dir}} && go run ./cmd/arcc {{args}}
 
-ci: gen lint build test test-integration
+ci: gen-is-clean lint build test test-integration
 
 clean:
 	cd {{go_dir}} && go clean ./...
