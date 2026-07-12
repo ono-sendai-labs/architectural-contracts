@@ -8,6 +8,16 @@ import (
 
 // TestClassifier_FileHandleUse_Safe protects the complete 22-method set.
 func TestClassifier_FileHandleUse_Safe(t *testing.T) {
+	expectedFileHandleUseMethods := []string{
+		"(*os.File).Chmod", "(*os.File).Chown", "(*os.File).Close", "(*os.File).Fd",
+		"(*os.File).Name", "(*os.File).Read", "(*os.File).ReadAt", "(*os.File).ReadDir",
+		"(*os.File).ReadFrom", "(*os.File).Readdir", "(*os.File).Readdirnames",
+		"(*os.File).Seek", "(*os.File).SetDeadline", "(*os.File).SetReadDeadline",
+		"(*os.File).SetWriteDeadline", "(*os.File).Stat", "(*os.File).Sync",
+		"(*os.File).SyscallConn", "(*os.File).Truncate", "(*os.File).Write",
+		"(*os.File).WriteAt", "(*os.File).WriteString",
+	}
+
 	// Verify exact count is 22
 	if len(fileHandleUseMethods) != 22 {
 		t.Errorf("expected exactly 22 methods in fileHandleUseMethods, got %d", len(fileHandleUseMethods))
@@ -22,13 +32,33 @@ func TestClassifier_FileHandleUse_Safe(t *testing.T) {
 		seen[m] = true
 	}
 
+	// Verify exact match between fileHandleUseMethods (production) and expectedFileHandleUseMethods
+	expectedMap := make(map[string]bool)
+	for _, m := range expectedFileHandleUseMethods {
+		expectedMap[m] = true
+	}
+
+	prodMap := make(map[string]bool)
+	for _, m := range fileHandleUseMethods {
+		prodMap[m] = true
+		if !expectedMap[m] {
+			t.Errorf("unexpected method found in production fileHandleUseMethods: %q", m)
+		}
+	}
+
+	for _, m := range expectedFileHandleUseMethods {
+		if !prodMap[m] {
+			t.Errorf("missing expected method in production fileHandleUseMethods: %q", m)
+		}
+	}
+
 	cl, err := buildClassifier(nil)
 	if err != nil {
 		t.Fatalf("failed to build classifier: %v", err)
 	}
 
 	// Verify every key is classified as SAFE
-	for _, m := range fileHandleUseMethods {
+	for _, m := range expectedFileHandleUseMethods {
 		cat := cl.FunctionCategory("", m)
 		if cat != "SAFE" {
 			t.Errorf("expected method %q to be classified as SAFE, got %q", m, cat)
@@ -46,8 +76,8 @@ func TestClassifier_UNANALYZED_Excluded(t *testing.T) {
 	// io.ReadAll is a built-in helper normally classified as UNANALYZED.
 	// Since UNANALYZED is excluded, it should return "" (allowing traversal).
 	cat := cl.FunctionCategory("", "io.ReadAll")
-	if cat == "UNANALYZED" {
-		t.Errorf("expected UNANALYZED to be excluded from io.ReadAll, but got %q", cat)
+	if cat != "" {
+		t.Errorf("expected empty category (allowing traversal) for io.ReadAll, got %q", cat)
 	}
 }
 
