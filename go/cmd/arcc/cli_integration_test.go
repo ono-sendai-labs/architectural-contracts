@@ -25,7 +25,6 @@ func TestMain(m *testing.M) {
 		fmt.Fprintf(os.Stderr, "failed to create temp dir: %v\n", err)
 		os.Exit(1)
 	}
-	defer os.RemoveAll(tmpDir)
 
 	binName := "arcc"
 	if runtime.GOOS == "windows" {
@@ -36,11 +35,14 @@ func TestMain(m *testing.M) {
 	// Compile arcc using 'go build'
 	cmd := exec.Command("go", "build", "-o", arccBin, "github.com/ono-sendai-labs/architectural-contracts/go/cmd/arcc")
 	if out, err := cmd.CombinedOutput(); err != nil {
+		os.RemoveAll(tmpDir)
 		fmt.Fprintf(os.Stderr, "failed to build arcc: %v\noutput:\n%s\n", err, string(out))
 		os.Exit(1)
 	}
 
-	os.Exit(m.Run())
+	code := m.Run()
+	os.RemoveAll(tmpDir)
+	os.Exit(code)
 }
 
 // runArcc runs the compiled arcc binary as a subprocess and returns its stdout, stderr, and exit code.
@@ -68,9 +70,9 @@ func runArcc(args []string) (string, string, int) {
 func createTempComponent(t *testing.T, name string, manifest string, files map[string]string) (string, string) {
 	t.Helper()
 
-	// Create inside the 'go' module directory
-	// Since tests run in 'go/cmd/arcc', 'go/' is '../../'
-	tmpDir, err := os.MkdirTemp("../..", "temp-integration-"+name+"-*")
+	// Create inside the 'go/examples/csvtool' directory so we can import internal packages there if needed
+	// Since tests run in 'go/cmd/arcc', 'go/examples/csvtool' is '../../examples/csvtool'
+	tmpDir, err := os.MkdirTemp("../../examples/csvtool", "temp-integration-"+name+"-*")
 	if err != nil {
 		t.Fatalf("failed to create temp directory: %v", err)
 	}
@@ -116,11 +118,17 @@ func createTempComponent(t *testing.T, name string, manifest string, files map[s
 
 // normalizeOutput replaces variable paths and file slashes with standard placeholders.
 func normalizeOutput(s string, workspaceRoot, tempDir string) string {
+	s = strings.ReplaceAll(s, "\r\n", "\n")
 	s = strings.ReplaceAll(s, "\\", "/")
 	if tempDir != "" {
 		tempDirSlash := filepath.ToSlash(tempDir)
 		s = strings.ReplaceAll(s, tempDirSlash, "<TEMP_DIR>")
 		s = strings.ReplaceAll(s, tempDir, "<TEMP_DIR>")
+
+		tempDirBase := filepath.Base(tempDir)
+		if tempDirBase != "." && tempDirBase != "/" && tempDirBase != "" {
+			s = strings.ReplaceAll(s, tempDirBase, "<TEMP_DIR_NAME>")
+		}
 	}
 	if workspaceRoot != "" {
 		workspaceRootSlash := filepath.ToSlash(workspaceRoot)
@@ -169,9 +177,9 @@ interface_files: "toprow.go"
 `
 	files := map[string]string{
 		"toprow.go": `package toprow
-import "github.com/ono-sendai-labs/architectural-contracts/go/internal/report"
+import "github.com/ono-sendai-labs/architectural-contracts/go/examples/csvtool/internal/parsecsv"
 func Hello() {
-	_ = report.Finding{}
+	_, _ = parsecsv.Parse("")
 }
 `,
 	}
@@ -192,12 +200,12 @@ func Hello() {
 	workspaceRoot, _ := filepath.Abs(filepath.Join(wd, "../../../"))
 	normalizedStdout := normalizeOutput(stdout, workspaceRoot, absTmpDir)
 
-	// We want to make sure it contains UNDECLARED_DEPENDENCY with package report
+	// We want to make sure it contains UNDECLARED_DEPENDENCY with package parsecsv
 	if !strings.Contains(normalizedStdout, "UNDECLARED_DEPENDENCY") {
 		t.Errorf("expected UNDECLARED_DEPENDENCY in stdout: %s", normalizedStdout)
 	}
-	if !strings.Contains(normalizedStdout, `imports undeclared dependency "github.com/ono-sendai-labs/architectural-contracts/go/internal/report"`) {
-		t.Errorf("expected imports undeclared dependency report in stdout: %s", normalizedStdout)
+	if !strings.Contains(normalizedStdout, `imports undeclared dependency "github.com/ono-sendai-labs/architectural-contracts/go/examples/csvtool/internal/parsecsv"`) {
+		t.Errorf("expected imports undeclared dependency parsecsv in stdout: %s", normalizedStdout)
 	}
 }
 
@@ -230,19 +238,17 @@ func Hello() {
 	workspaceRoot, _ := filepath.Abs(filepath.Join(wd, "../../../"))
 	normalizedStdout := normalizeOutput(stdout, workspaceRoot, absTmpDir)
 
-	// Verify UNDECLARED_AUTHORITY and FILES capability are reported
-	if !strings.Contains(normalizedStdout, "UNDECLARED_AUTHORITY") {
-		t.Errorf("expected UNDECLARED_AUTHORITY in stdout: %s", normalizedStdout)
-	}
-	if !strings.Contains(normalizedStdout, `use of undeclared authority "FILES"`) {
-		t.Errorf("expected FILES capability in stdout: %s", normalizedStdout)
-	}
-	// Verify Capslock path evidence exists
-	if !strings.Contains(normalizedStdout, "Evidence:") {
-		t.Errorf("expected Evidence in stdout: %s", normalizedStdout)
-	}
-	if !strings.Contains(normalizedStdout, "os.ReadFile") {
-		t.Errorf("expected os.ReadFile in Evidence path of stdout: %s", normalizedStdout)
+	// Verify against deterministic golden output to assert stability, finding order, and evidence call-paths.
+	want := `Component: absorbapp
+
+Violations:
+- [UNDECLARED_AUTHORITY] use of undeclared authority "FILES" in package "github.com/ono-sendai-labs/architectural-contracts/go/examples/csvtool/<TEMP_DIR_NAME>"
+  Evidence:
+    - github.com/ono-sendai-labs/architectural-contracts/go/examples/csvtool/<TEMP_DIR_NAME>.Hello at :0
+    - os.ReadFile at main.go:4
+`
+	if strings.TrimSpace(normalizedStdout) != strings.TrimSpace(want) {
+		t.Errorf("normalized stdout does not match golden output.\nGOT:\n%q\nWANT:\n%q", normalizedStdout, want)
 	}
 }
 
@@ -272,28 +278,104 @@ declared_authority: "BOGUS_CAPABILITY"
 	}
 }
 
-func TestIntegration_FormatJSON(t *testing.T) {
-	stdout, stderr, exitCode := runArcc([]string{"check", "../../examples/csvtool/toprow/component.textproto", "--format=json"})
-
-	if exitCode != 0 {
-		t.Fatalf("expected exit code 0, got %d. Stderr: %s", exitCode, stderr)
+func TestIntegration_Invalid_Textproto_Manifest_Exit2(t *testing.T) {
+	manifest := `
+this is completely invalid textproto data {{{
+`
+	files := map[string]string{
+		"api.go": "package main\n\nfunc Hello() {}\n",
 	}
-	if stderr != "" {
-		t.Errorf("expected empty stderr, got %q", stderr)
+
+	_, manifestPath := createTempComponent(t, "invalid-proto", manifest, files)
+
+	stdout, stderr, exitCode := runArcc([]string{"check", manifestPath})
+
+	if exitCode != 2 {
+		t.Fatalf("expected exit code 2, got %d. Stdout: %s", exitCode, stdout)
+	}
+	if stdout != "" {
+		t.Errorf("expected empty stdout, got %q", stdout)
+	}
+	if stderr == "" {
+		t.Error("expected non-empty stderr diagnostics, got empty string")
+	}
+}
+
+func TestIntegration_FormatJSON(t *testing.T) {
+	manifest := `
+name: "absorbapp"
+interface_files: "main.go"
+`
+	files := map[string]string{
+		"main.go": `package main
+import "os"
+func Hello() {
+	_, _ = os.ReadFile("test.csv")
+}
+`,
+	}
+
+	absTmpDir, manifestPath := createTempComponent(t, "absorbapp-json", manifest, files)
+
+	// 1. Run in JSON format
+	stdoutJSON, stderrJSON, exitCodeJSON := runArcc([]string{"check", manifestPath, "--format=json"})
+
+	if exitCodeJSON != 1 {
+		t.Fatalf("expected exit code 1, got %d. Stderr: %s", exitCodeJSON, stderrJSON)
+	}
+	if stderrJSON != "" {
+		t.Errorf("expected empty stderr, got %q", stderrJSON)
 	}
 
 	var rep report.ConformanceReport
-	if err := json.Unmarshal([]byte(stdout), &rep); err != nil {
-		t.Fatalf("failed to decode JSON output: %v, stdout: %s", err, stdout)
+	if err := json.Unmarshal([]byte(stdoutJSON), &rep); err != nil {
+		t.Fatalf("failed to decode JSON output: %v, stdout: %s", err, stdoutJSON)
 	}
 
-	if rep.Component != "toprow" {
-		t.Errorf("rep.Component = %q, want 'toprow'", rep.Component)
+	if rep.Component != "absorbapp" {
+		t.Errorf("rep.Component = %q, want 'absorbapp'", rep.Component)
 	}
-	if len(rep.Violations) != 0 {
-		t.Errorf("violations count = %d, want 0", len(rep.Violations))
+	if len(rep.Violations) != 1 {
+		t.Fatalf("expected 1 violation, got %d", len(rep.Violations))
 	}
-	if !strings.HasSuffix(stdout, "\n") {
-		t.Errorf("expected JSON output to end with a trailing newline")
+
+	v := rep.Violations[0]
+	if string(v.Kind) != "UNDECLARED_AUTHORITY" {
+		t.Errorf("v.Kind = %q, want 'UNDECLARED_AUTHORITY'", v.Kind)
+	}
+	if !strings.Contains(v.Message, `use of undeclared authority "FILES"`) {
+		t.Errorf("v.Message = %q, expected it to contain FILES use", v.Message)
+	}
+	if len(v.Evidence) != 2 {
+		t.Fatalf("expected 2 evidence entries, got %d: %v", len(v.Evidence), v.Evidence)
+	}
+
+	// Verify exact evidence ordering
+	if !strings.Contains(v.Evidence[0], ".Hello at :0") {
+		t.Errorf("v.Evidence[0] = %q, expected it to contain '.Hello at :0'", v.Evidence[0])
+	}
+	if !strings.Contains(v.Evidence[1], "os.ReadFile at main.go:4") {
+		t.Errorf("v.Evidence[1] = %q, expected it to contain 'os.ReadFile at main.go:4'", v.Evidence[1])
+	}
+
+	// 2. Run in Default/Text format and compare semantics
+	stdoutText, stderrText, exitCodeText := runArcc([]string{"check", manifestPath})
+	if exitCodeText != 1 {
+		t.Fatalf("expected text mode exit code 1, got %d. Stderr: %s", exitCodeText, stderrText)
+	}
+	if stderrText != "" {
+		t.Errorf("expected empty text mode stderr, got %q", stderrText)
+	}
+
+	wd, _ := os.Getwd()
+	workspaceRoot, _ := filepath.Abs(filepath.Join(wd, "../../../"))
+	normalizedStdoutText := normalizeOutput(stdoutText, workspaceRoot, absTmpDir)
+
+	// Ensure text mode has exact matching information
+	if !strings.Contains(normalizedStdoutText, `use of undeclared authority "FILES"`) {
+		t.Errorf("text output missing FILES violation: %s", normalizedStdoutText)
+	}
+	if !strings.Contains(normalizedStdoutText, "os.ReadFile at main.go:4") {
+		t.Errorf("text output missing evidence path: %s", normalizedStdoutText)
 	}
 }
