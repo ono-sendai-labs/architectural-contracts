@@ -20,6 +20,7 @@ func TriggerDynamicDispatch() string {
 
 // Test generic normalization
 func TriggerGenericFunc() string {
+	_ = a.Identity[func()](func() {})
 	return a.Identity[string]("generic")
 }
 

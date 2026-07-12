@@ -167,7 +167,7 @@ func TestLoadPackageFacts_Success(t *testing.T) {
 		{
 			Caller:          "github.com/ono-sendai-labs/architectural-contracts/go/internal/goanalysis/testdata/success/a/b.TriggerGenericFunc",
 			Callee:          "github.com/ono-sendai-labs/architectural-contracts/go/internal/goanalysis/testdata/success/a.Identity",
-			PassesFuncValue: false,
+			PassesFuncValue: true,
 		},
 		{
 			Caller:          "github.com/ono-sendai-labs/architectural-contracts/go/internal/goanalysis/testdata/success/a/b.TriggerGenericMethods",
@@ -198,6 +198,15 @@ func TestLoadPackageFacts_Success(t *testing.T) {
 
 	if !reflect.DeepEqual(factsResult.CallEdges, expectedCallEdges) {
 		t.Errorf("expected CallEdges to match.\nExpected (%d):\n%+v\nGot (%d):\n%+v", len(expectedCallEdges), expectedCallEdges, len(factsResult.CallEdges), factsResult.CallEdges)
+	}
+
+	// Verify repeat-load determinism and duplicate-edge coverage (AC5)
+	factsResult2, err := goanalysis.LoadPackageFacts(root)
+	if err != nil {
+		t.Fatalf("unexpected error on repeated load: %v", err)
+	}
+	if !reflect.DeepEqual(factsResult.CallEdges, factsResult2.CallEdges) {
+		t.Errorf("expected CallEdges to be identical on repeated load.\nFirst load:\n%+v\nSecond load:\n%+v", factsResult.CallEdges, factsResult2.CallEdges)
 	}
 }
 
