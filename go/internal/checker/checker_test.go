@@ -1,6 +1,7 @@
 package checker_test
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 
@@ -1195,7 +1196,18 @@ func TestCheck_FR6_PurityNoMutation(t *testing.T) {
 		Policy: policy,
 	}
 
-	_ = checker.Check(in)
+	rep1 := checker.Check(in)
+	rep2 := checker.Check(in)
+
+	if !reflect.DeepEqual(rep1, rep2) {
+		t.Errorf("repeated calls to Check with identical inputs yielded different ConformanceReports:\nrep1: %+v\nrep2: %+v", rep1, rep2)
+	}
+
+	rendered1 := report.RenderText(rep1)
+	rendered2 := report.RenderText(rep2)
+	if rendered1 != rendered2 {
+		t.Errorf("repeated calls to Check with identical inputs yielded different rendered outputs:\nrendered1: %q\nrendered2: %q", rendered1, rendered2)
+	}
 
 	// Verify original policy maps are unmodified
 	if len(allowedMap) != 1 || !allowedMap["NETWORK"] || allowedMap["FILES"] || allowedMap["CGO"] {
@@ -1223,9 +1235,9 @@ func TestCheck_FR6_FeatureCompleteCompositeReport(t *testing.T) {
 		t.Errorf("expected clean report, got violations=%d, warnings=%d", len(repClean.Violations), len(repClean.Warnings))
 	}
 	renderedClean := report.RenderText(repClean)
-	expectedCleanMsg := `Component "mycomponent" conforms / ambient-authority-free`
-	if !strings.Contains(renderedClean, expectedCleanMsg) {
-		t.Errorf("expected clean report output to contain %q, got:\n%s", expectedCleanMsg, renderedClean)
+	expectedClean := "Component \"mycomponent\" conforms / ambient-authority-free\n"
+	if renderedClean != expectedClean {
+		t.Errorf("clean report output mismatch.\nexpected:\n%q\ngot:\n%q", expectedClean, renderedClean)
 	}
 
 	// 2. Non-conforming report with composite violations: boundary violation (FR5), and authority violation with evidence (FR6)
@@ -1287,19 +1299,16 @@ func TestCheck_FR6_FeatureCompleteCompositeReport(t *testing.T) {
 	}
 
 	renderedComposite := report.RenderText(repComp)
-	expectedSubstrings := []string{
-		"Component: mycomponent",
-		"Violations:",
-		"- [CALLS_UNDECLARED_INTERFACE] call from \"mycomponent/pkg1.Run\" to undeclared interface symbol \"github.com/dep1/pkg.PrivateFunc\" of dependency \"dep1\"",
-		"- [UNDECLARED_AUTHORITY] use of undeclared authority \"FILES\" in package \"mycomponent/pkg1\"",
-		"Evidence:",
-		"  - main.main at main.go:10",
-		"  - os.Open at os.go:20",
-	}
+	expectedComposite := `Component: mycomponent
 
-	for _, sub := range expectedSubstrings {
-		if !strings.Contains(renderedComposite, sub) {
-			t.Errorf("expected composite report output to contain %q, got:\n%s", sub, renderedComposite)
-		}
+Violations:
+- [CALLS_UNDECLARED_INTERFACE] call from "mycomponent/pkg1.Run" to undeclared interface symbol "github.com/dep1/pkg.PrivateFunc" of dependency "dep1"
+- [UNDECLARED_AUTHORITY] use of undeclared authority "FILES" in package "mycomponent/pkg1"
+  Evidence:
+    - main.main at main.go:10
+    - os.Open at os.go:20
+`
+	if renderedComposite != expectedComposite {
+		t.Errorf("composite report output mismatch.\nexpected:\n%s\ngot:\n%s", expectedComposite, renderedComposite)
 	}
 }
