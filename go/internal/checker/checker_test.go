@@ -580,7 +580,10 @@ func TestCheck_FR5_UndeclaredInterfaceCall(t *testing.T) {
 		},
 		Facts: facts.PackageFacts{
 			Packages: []facts.PackageFact{
-				{ImportPath: "mycomponent/pkg"},
+				{
+					ImportPath: "mycomponent/pkg",
+					Imports:    []string{"github.com/dep1/pkg"},
+				},
 			},
 			CallEdges: []facts.CallEdge{
 				{
@@ -622,7 +625,10 @@ func TestCheck_FR5_DeclaredInterfaceCall(t *testing.T) {
 		},
 		Facts: facts.PackageFacts{
 			Packages: []facts.PackageFact{
-				{ImportPath: "mycomponent/pkg"},
+				{
+					ImportPath: "mycomponent/pkg",
+					Imports:    []string{"github.com/dep1/pkg"},
+				},
 			},
 			CallEdges: []facts.CallEdge{
 				{
@@ -656,7 +662,10 @@ func TestCheck_FR5_Normalization(t *testing.T) {
 		},
 		Facts: facts.PackageFacts{
 			Packages: []facts.PackageFact{
-				{ImportPath: "mycomponent/pkg"},
+				{
+					ImportPath: "mycomponent/pkg",
+					Imports:    []string{"github.com/dep1/pkg"},
+				},
 			},
 			CallEdges: []facts.CallEdge{
 				{
@@ -690,7 +699,10 @@ func TestCheck_FR5_HigherOrderBoundaryCall(t *testing.T) {
 		},
 		Facts: facts.PackageFacts{
 			Packages: []facts.PackageFact{
-				{ImportPath: "mycomponent/pkg"},
+				{
+					ImportPath: "mycomponent/pkg",
+					Imports:    []string{"github.com/dep1/pkg"},
+				},
 			},
 			CallEdges: []facts.CallEdge{
 				{
@@ -784,5 +796,153 @@ func TestCheck_FR5_OutOfScope(t *testing.T) {
 	rep := checker.Check(in)
 	if len(rep.Violations) != 0 {
 		t.Errorf("expected 0 violations, got %d: %v", len(rep.Violations), rep.Violations)
+	}
+	if len(rep.Warnings) != 0 {
+		t.Errorf("expected 0 warnings, got %d: %v", len(rep.Warnings), rep.Warnings)
+	}
+}
+
+func TestCheck_FR5_FR3_FR4_Combined_And_Deterministic(t *testing.T) {
+	in := checker.Inputs{
+		Manifest: manifest.Manifest{
+			Name:           "mycomponent",
+			InterfaceFiles: []string{"pkg1/types.go"},
+			ComponentDependencies: []manifest.ComponentDependency{
+				{Name: "unused_dep"},
+				{Name: "dep_call_only"},
+				{Name: "dep_import_only"},
+				{Name: "dep_clean"},
+			},
+		},
+		Facts: facts.PackageFacts{
+			Packages: []facts.PackageFact{
+				{
+					ImportPath: "mycomponent/pkg1",
+					Imports: []string{
+						"github.com/dep_import_only/pkg",
+						"github.com/dep_clean/pkg",
+						"github.com/undeclared_dep/pkg",
+					},
+					ExportedSymbols: []facts.ExportedSymbol{
+						{
+							Name: "mycomponent/pkg1.DB",
+							File: "pkg1/types.go",
+							Kind: "type",
+						},
+						{
+							Name:     "(*mycomponent/pkg1.DB).Get",
+							File:     "pkg2/impl.go",
+							Kind:     "method",
+							Receiver: "(*mycomponent/pkg1.DB)",
+						},
+						{
+							Name: "init",
+							File: "pkg2/impl.go",
+							Kind: "init",
+						},
+					},
+				},
+			},
+			CallEdges: []facts.CallEdge{
+				{
+					Caller: "mycomponent/pkg1.Run",
+					Callee: "github.com/dep_clean/pkg.PublicFunc",
+				},
+				{
+					Caller:          "mycomponent/pkg1.Run",
+					Callee:          "github.com/dep_clean/pkg.PublicFunc",
+					PassesFuncValue: true,
+				},
+				{
+					Caller: "mycomponent/pkg1.Run",
+					Callee: "github.com/dep_clean/pkg.PrivateFunc",
+				},
+				{
+					Caller: "mycomponent/pkg1.Run",
+					Callee: "github.com/dep_call_only/pkg.PrivateFunc",
+				},
+			},
+		},
+		DepIfaces: []facts.DependencyInterface{
+			{
+				Component: "unused_dep",
+				Packages:  []string{"github.com/unused_dep/pkg"},
+			},
+			{
+				Component: "dep_call_only",
+				Packages:  []string{"github.com/dep_call_only/pkg"},
+				Symbols:   []capanalyzer.InterfaceSymbol{"github.com/dep_call_only/pkg.PublicFunc"},
+			},
+			{
+				Component: "dep_import_only",
+				Packages:  []string{"github.com/dep_import_only/pkg"},
+			},
+			{
+				Component: "dep_clean",
+				Packages:  []string{"github.com/dep_clean/pkg", "mycomponent/pkg1"},
+				Symbols:   []capanalyzer.InterfaceSymbol{"github.com/dep_clean/pkg.PublicFunc"},
+			},
+		},
+	}
+
+	// Run multiple times to assert deterministic ordering
+	for i := 0; i < 50; i++ {
+		rep := checker.Check(in)
+
+		// Assert exactly 6 violations
+		if len(rep.Violations) != 6 {
+			t.Fatalf("run %d: expected exactly 6 violations, got %d: %v", i, len(rep.Violations), rep.Violations)
+		}
+
+		// Verify violations are in expected alphabetical sorted order
+		v0 := rep.Violations[0]
+		if v0.Kind != report.CallsUndeclaredInterface || !strings.Contains(v0.Message, "dep_call_only") {
+			t.Errorf("expected CallsUndeclaredInterface for dep_call_only at index 0, got kind %s: %s", v0.Kind, v0.Message)
+		}
+
+		v1 := rep.Violations[1]
+		if v1.Kind != report.CallsUndeclaredInterface || !strings.Contains(v1.Message, "dep_clean") {
+			t.Errorf("expected CallsUndeclaredInterface for dep_clean at index 1, got kind %s: %s", v1.Kind, v1.Message)
+		}
+
+		v2 := rep.Violations[2]
+		if v2.Kind != report.InitOutsideInterface {
+			t.Errorf("expected InitOutsideInterface at index 2, got kind %s: %s", v2.Kind, v2.Message)
+		}
+
+		v3 := rep.Violations[3]
+		if v3.Kind != report.MethodOutsideInterface {
+			t.Errorf("expected MethodOutsideInterface at index 3, got kind %s: %s", v3.Kind, v3.Message)
+		}
+
+		v4 := rep.Violations[4]
+		if v4.Kind != report.UndeclaredDependency {
+			t.Errorf("expected UndeclaredDependency at index 4, got kind %s: %s", v4.Kind, v4.Message)
+		}
+
+		v5 := rep.Violations[5]
+		if v5.Kind != report.PackageOverlap {
+			t.Errorf("expected PackageOverlap at index 5, got kind %s: %s", v5.Kind, v5.Message)
+		}
+
+		// Assert exactly 3 warnings
+		if len(rep.Warnings) != 3 {
+			t.Fatalf("run %d: expected exactly 3 warnings, got %d: %v", i, len(rep.Warnings), rep.Warnings)
+		}
+
+		w0 := rep.Warnings[0]
+		if w0.Kind != report.UnusedDependency || !strings.Contains(w0.Message, "dep_call_only") {
+			t.Errorf("expected UnusedDependency warning for dep_call_only at index 0, got kind %s: %s", w0.Kind, w0.Message)
+		}
+
+		w1 := rep.Warnings[1]
+		if w1.Kind != report.UnusedDependency || !strings.Contains(w1.Message, "unused_dep") {
+			t.Errorf("expected UnusedDependency warning for unused_dep at index 1, got kind %s: %s", w1.Kind, w1.Message)
+		}
+
+		w2 := rep.Warnings[2]
+		if w2.Kind != report.HigherOrderBoundaryCall {
+			t.Errorf("expected HigherOrderBoundaryCall warning at index 2, got kind %s: %s", w2.Kind, w2.Message)
+		}
 	}
 }
