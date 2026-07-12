@@ -1,0 +1,37 @@
+syntax = "proto3";
+
+package archcontracts.v1;
+
+option go_package = "github.com/ono-sendai-labs/architectural-contracts/go/internal/manifest/gen;gen";
+
+// A component's manifest, stored as component.textproto at the COMPONENT ROOT.
+// The component consists of all Go packages under the manifest file's
+// directory (FR1 — no explicit package list); all paths below are relative to
+// that directory (C9). There is no contract field: the component's informal
+// contract is doc-comment prose in its interface files (FR10).
+message Component {
+  string name = 1;                          // logical component name
+  repeated string interface_files = 2;      // .go files holding the public surface, relative to the
+                                            // component root; multi-package components use subdir
+                                            // paths (store/api.go)
+  repeated ComponentDependency component_dependencies = 3;
+  repeated AbsorbedDependency  absorbed_dependencies  = 4;
+  repeated string declared_authority = 5;   // capability names, validated at parse time against the
+                                            // known capability set (C11); empty = ambient-authority-free
+}
+
+message ComponentDependency {
+  string name = 1;                          // referenced component's name; must match the `name`
+                                            // in the resolved manifest (C12)
+  string manifest = 2;                      // path to that component's manifest, relative to the
+                                            // DECLARING manifest's directory; the resolved manifest's
+                                            // own directory is the dependency's component root and the
+                                            // source of truth for its declared interface symbols
+                                            // (interface packages are DERIVED — packages containing
+                                            // interface files, C10)
+}
+
+message AbsorbedDependency {
+  string import_path = 1;                   // third-party/internal impl-detail package (may be a pattern)
+  optional string reason = 2;               // human note (why it's an impl detail)
+}
