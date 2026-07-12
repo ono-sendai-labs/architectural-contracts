@@ -225,18 +225,32 @@ func Hello() {
 
 	absTmpDir, manifestPath := createTempComponent(t, "absorbapp", manifest, files)
 
-	stdout, stderr, exitCode := runArcc([]string{"check", manifestPath})
+	stdout1, stderr1, exitCode1 := runArcc([]string{"check", manifestPath})
 
-	if exitCode != 1 {
-		t.Fatalf("expected exit code 1, got %d. Stderr: %s", exitCode, stderr)
+	if exitCode1 != 1 {
+		t.Fatalf("expected exit code 1, got %d. Stderr: %s", exitCode1, stderr1)
 	}
-	if stderr != "" {
-		t.Errorf("expected empty stderr, got %q", stderr)
+	if stderr1 != "" {
+		t.Errorf("expected empty stderr, got %q", stderr1)
+	}
+
+	stdout2, stderr2, exitCode2 := runArcc([]string{"check", manifestPath})
+
+	if exitCode2 != 1 {
+		t.Fatalf("expected exit code 1 on second run, got %d. Stderr: %s", exitCode2, stderr2)
+	}
+	if stderr2 != "" {
+		t.Errorf("expected empty stderr on second run, got %q", stderr2)
 	}
 
 	wd, _ := os.Getwd()
 	workspaceRoot, _ := filepath.Abs(filepath.Join(wd, "../../../"))
-	normalizedStdout := normalizeOutput(stdout, workspaceRoot, absTmpDir)
+	normalizedStdout1 := normalizeOutput(stdout1, workspaceRoot, absTmpDir)
+	normalizedStdout2 := normalizeOutput(stdout2, workspaceRoot, absTmpDir)
+
+	if normalizedStdout1 != normalizedStdout2 {
+		t.Errorf("outputs of repeated runs differ.\nRUN 1:\n%q\nRUN 2:\n%q", normalizedStdout1, normalizedStdout2)
+	}
 
 	// Verify against deterministic golden output to assert stability, finding order, and evidence call-paths.
 	want := `Component: absorbapp
@@ -247,8 +261,8 @@ Violations:
     - github.com/ono-sendai-labs/architectural-contracts/go/examples/csvtool/<TEMP_DIR_NAME>.Hello at :0
     - os.ReadFile at main.go:4
 `
-	if strings.TrimSpace(normalizedStdout) != strings.TrimSpace(want) {
-		t.Errorf("normalized stdout does not match golden output.\nGOT:\n%q\nWANT:\n%q", normalizedStdout, want)
+	if strings.TrimSpace(normalizedStdout1) != strings.TrimSpace(want) {
+		t.Errorf("normalized stdout does not match golden output.\nGOT:\n%q\nWANT:\n%q", normalizedStdout1, want)
 	}
 }
 
@@ -305,12 +319,22 @@ func TestIntegration_FormatJSON(t *testing.T) {
 	manifest := `
 name: "absorbapp"
 interface_files: "main.go"
+component_dependencies {
+	name: "toprow"
+	manifest: "../toprow/component.textproto"
+}
 `
 	files := map[string]string{
 		"main.go": `package main
-import "os"
+
+import (
+	"os"
+	"github.com/ono-sendai-labs/architectural-contracts/go/examples/csvtool/internal/parsecsv"
+)
+
 func Hello() {
 	_, _ = os.ReadFile("test.csv")
+	_, _ = parsecsv.Parse("")
 }
 `,
 	}
@@ -335,27 +359,64 @@ func Hello() {
 	if rep.Component != "absorbapp" {
 		t.Errorf("rep.Component = %q, want 'absorbapp'", rep.Component)
 	}
-	if len(rep.Violations) != 1 {
-		t.Fatalf("expected 1 violation, got %d", len(rep.Violations))
+
+	var vAuth, vDep *report.Finding
+	for idx, v := range rep.Violations {
+		if v.Kind == report.UndeclaredAuthority {
+			vAuth = &rep.Violations[idx]
+		} else if v.Kind == report.UndeclaredDependency {
+			vDep = &rep.Violations[idx]
+		}
 	}
 
-	v := rep.Violations[0]
-	if string(v.Kind) != "UNDECLARED_AUTHORITY" {
-		t.Errorf("v.Kind = %q, want 'UNDECLARED_AUTHORITY'", v.Kind)
+	if vAuth == nil {
+		t.Fatalf("expected to find UNDECLARED_AUTHORITY violation, got: %+v", rep.Violations)
 	}
-	if !strings.Contains(v.Message, `use of undeclared authority "FILES"`) {
-		t.Errorf("v.Message = %q, expected it to contain FILES use", v.Message)
-	}
-	if len(v.Evidence) != 2 {
-		t.Fatalf("expected 2 evidence entries, got %d: %v", len(v.Evidence), v.Evidence)
+	if vDep == nil {
+		t.Fatalf("expected to find UNDECLARED_DEPENDENCY violation, got: %+v", rep.Violations)
 	}
 
-	// Verify exact evidence ordering
-	if !strings.Contains(v.Evidence[0], ".Hello at :0") {
-		t.Errorf("v.Evidence[0] = %q, expected it to contain '.Hello at :0'", v.Evidence[0])
+	// Verify vAuth fields
+	if !strings.Contains(vAuth.Message, `use of undeclared authority "FILES"`) {
+		t.Errorf("vAuth.Message = %q, expected it to contain FILES", vAuth.Message)
 	}
-	if !strings.Contains(v.Evidence[1], "os.ReadFile at main.go:4") {
-		t.Errorf("v.Evidence[1] = %q, expected it to contain 'os.ReadFile at main.go:4'", v.Evidence[1])
+	if vAuth.Location.File != "" || vAuth.Location.Line != 0 {
+		t.Errorf("vAuth.Location = %+v, expected empty (zero-value)", vAuth.Location)
+	}
+	if len(vAuth.Evidence) != 2 {
+		t.Fatalf("expected 2 evidence entries for UNDECLARED_AUTHORITY, got %d: %v", len(vAuth.Evidence), vAuth.Evidence)
+	}
+	if !strings.Contains(vAuth.Evidence[0], ".Hello at :0") {
+		t.Errorf("vAuth.Evidence[0] = %q, expected it to contain '.Hello at :0'", vAuth.Evidence[0])
+	}
+	if !strings.Contains(vAuth.Evidence[1], "os.ReadFile at main.go:9") {
+		t.Errorf("vAuth.Evidence[1] = %q, expected it to contain 'os.ReadFile at main.go:9'", vAuth.Evidence[1])
+	}
+
+	// Verify vDep fields
+	if !strings.Contains(vDep.Message, `imports undeclared dependency "github.com/ono-sendai-labs/architectural-contracts/go/examples/csvtool/internal/parsecsv"`) {
+		t.Errorf("vDep.Message = %q, expected parsecsv undeclared dependency", vDep.Message)
+	}
+	if vDep.Location.File != "main.go" {
+		t.Errorf("vDep.Location.File = %q, expected 'main.go'", vDep.Location.File)
+	}
+	if vDep.Location.Line != 0 {
+		t.Errorf("vDep.Location.Line = %d, expected 0", vDep.Location.Line)
+	}
+
+	// Verify rep.Warnings fields
+	if len(rep.Warnings) != 1 {
+		t.Fatalf("expected 1 warning, got %d: %+v", len(rep.Warnings), rep.Warnings)
+	}
+	w := rep.Warnings[0]
+	if w.Kind != report.UnusedDependency {
+		t.Errorf("w.Kind = %q, expected UNUSED_DEPENDENCY", w.Kind)
+	}
+	if !strings.Contains(w.Message, `declared component dependency "toprow" is unused`) {
+		t.Errorf("w.Message = %q, expected 'declared component dependency \"toprow\" is unused'", w.Message)
+	}
+	if w.Location.File != "" || w.Location.Line != 0 {
+		t.Errorf("w.Location = %+v, expected empty for UNUSED_DEPENDENCY warning", w.Location)
 	}
 
 	// 2. Run in Default/Text format and compare semantics
@@ -375,7 +436,16 @@ func Hello() {
 	if !strings.Contains(normalizedStdoutText, `use of undeclared authority "FILES"`) {
 		t.Errorf("text output missing FILES violation: %s", normalizedStdoutText)
 	}
-	if !strings.Contains(normalizedStdoutText, "os.ReadFile at main.go:4") {
+	if !strings.Contains(normalizedStdoutText, "os.ReadFile at main.go:9") {
 		t.Errorf("text output missing evidence path: %s", normalizedStdoutText)
+	}
+	if !strings.Contains(normalizedStdoutText, `imports undeclared dependency "github.com/ono-sendai-labs/architectural-contracts/go/examples/csvtool/internal/parsecsv"`) {
+		t.Errorf("text output missing parsecsv undeclared dependency: %s", normalizedStdoutText)
+	}
+	if !strings.Contains(normalizedStdoutText, "at main.go:0") {
+		t.Errorf("text output missing location info: %s", normalizedStdoutText)
+	}
+	if !strings.Contains(normalizedStdoutText, `declared component dependency "toprow" is unused`) {
+		t.Errorf("text output missing unused dependency warning: %s", normalizedStdoutText)
 	}
 }
