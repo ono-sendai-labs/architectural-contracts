@@ -195,9 +195,6 @@ func Check(in Inputs) report.ConformanceReport {
 	for _, edge := range in.Facts.CallEdges {
 		calleePkg := ExtractPackagePath(string(edge.Callee))
 		if info, exists := pkgToDep[calleePkg]; exists {
-			// Mark dependency as matched/used since there's a call edge into it
-			compDepMatched[info.di.Component] = true
-
 			normCallee := NormalizeInterfaceSymbol(edge.Callee)
 			if !info.normSymbols[normCallee] {
 				// Undeclared call -> Violation
