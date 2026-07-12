@@ -23,11 +23,10 @@ func TestLoadPackageFacts_Success(t *testing.T) {
 		t.Fatalf("failed to get absolute path to testdata: %v", err)
 	}
 
-	loadRes, err := goanalysis.LoadPackageFacts(root)
+	factsResult, err := goanalysis.LoadPackageFacts(root)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	factsResult := loadRes.Facts
 
 	// We expect 2 packages under the root:
 	// 1. github.com/ono-sendai-labs/architectural-contracts/go/internal/goanalysis/testdata/success/a
@@ -120,11 +119,10 @@ func TestLoadPackageFacts_Success(t *testing.T) {
 
 func TestLoadPackageFacts_Errors(t *testing.T) {
 	// 1. Invalid component root (Scenario 3)
-	invalidLoadRes, err := goanalysis.LoadPackageFacts("/nonexistent/directory")
+	invalidFacts, err := goanalysis.LoadPackageFacts("/nonexistent/directory")
 	if err == nil {
 		t.Errorf("expected error on nonexistent component root, got nil")
 	}
-	invalidFacts := invalidLoadRes.Facts
 	if len(invalidFacts.Packages) != 0 || len(invalidFacts.CallEdges) != 0 {
 		t.Errorf("expected empty facts on invalid root error, got %+v", invalidFacts)
 	}
@@ -134,11 +132,10 @@ func TestLoadPackageFacts_Errors(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to get absolute path: %v", err)
 	}
-	brokenLoadRes, err := goanalysis.LoadPackageFacts(root)
+	brokenFacts, err := goanalysis.LoadPackageFacts(root)
 	if err == nil {
 		t.Fatalf("expected error on package load with broken syntax, got nil")
 	}
-	brokenFacts := brokenLoadRes.Facts
 	if len(brokenFacts.Packages) != 0 || len(brokenFacts.CallEdges) != 0 {
 		t.Errorf("expected empty facts on broken-package load error, got %+v", brokenFacts)
 	}
@@ -246,7 +243,7 @@ func TestVerticalSliceVerdict(t *testing.T) {
 	// 4. Pass real facts to checker.Check with empty capabilities / dependency interfaces
 	inputs := checker.Inputs{
 		Manifest:  testManifest,
-		Facts:     loadedFacts.Facts,
+		Facts:     loadedFacts,
 		DepIfaces: nil,
 		Caps:      nil,
 	}
@@ -279,12 +276,12 @@ Violations:
 	t.Log("======================================== DEMO START ========================================")
 	t.Logf("Component Root: %s", root)
 	t.Log("Loaded Package Imports:")
-	for _, p := range loadedFacts.Facts.Packages {
+	for _, p := range loadedFacts.Packages {
 		t.Logf("  Package %q imports: %v", p.ImportPath, p.Imports)
 	}
 
 	t.Log("\nExported Symbol-to-File Mappings:")
-	for _, p := range loadedFacts.Facts.Packages {
+	for _, p := range loadedFacts.Packages {
 		for _, sym := range p.ExportedSymbols {
 			t.Logf("  Symbol %q (Kind: %q) in File: %q", sym.Name, sym.Kind, sym.File)
 		}
@@ -351,4 +348,8 @@ func TestValidateInterfaceFiles_UsesCachedMembership(t *testing.T) {
 	} else if !strings.Contains(err.Error(), "does not belong to any loaded Go package") {
 		t.Errorf("expected error containing 'does not belong to any loaded Go package', got: %v", err)
 	}
+}
+
+func TestLoadPackageFacts_Signature(t *testing.T) {
+	var _ func(string) (facts.PackageFacts, error) = goanalysis.LoadPackageFacts
 }

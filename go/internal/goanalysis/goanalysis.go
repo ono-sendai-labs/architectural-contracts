@@ -7,23 +7,23 @@ import (
 	"go/types"
 	"os"
 	"path/filepath"
+	"reflect"
 	"sort"
 	"strings"
+	"sync"
 
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/facts"
 	"golang.org/x/tools/go/packages"
 )
 
-// LoadResult represents the private shell-level result of package loading,
-// holding both the core facts.PackageFacts and the private source file membership.
-type LoadResult struct {
-	Facts       facts.PackageFacts
-	sourceFiles map[string]bool
-}
+var (
+	membershipMu sync.RWMutex
+	loadedFiles  = make(map[uintptr]map[string]bool)
+)
 
 // LoadPackageFacts loads Go package membership, direct-import, and standard-library facts
 // below the supplied component root using go/packages.
-func LoadPackageFacts(componentRoot string) (LoadResult, error) {
+func LoadPackageFacts(componentRoot string) (facts.PackageFacts, error) {
 	cfg := &packages.Config{
 		Mode: packages.NeedName | packages.NeedFiles | packages.NeedCompiledGoFiles |
 			packages.NeedImports | packages.NeedDeps | packages.NeedSyntax |
@@ -33,11 +33,11 @@ func LoadPackageFacts(componentRoot string) (LoadResult, error) {
 
 	pkgs, err := packages.Load(cfg, "./...")
 	if err != nil {
-		return LoadResult{}, fmt.Errorf("failed to load packages: %w", err)
+		return facts.PackageFacts{}, fmt.Errorf("failed to load packages: %w", err)
 	}
 
 	if len(pkgs) == 0 {
-		return LoadResult{}, fmt.Errorf("no packages found under root %q", componentRoot)
+		return facts.PackageFacts{}, fmt.Errorf("no packages found under root %q", componentRoot)
 	}
 
 	// Collect all load/parse/type errors in the loaded package graph
@@ -59,7 +59,7 @@ func LoadPackageFacts(componentRoot string) (LoadResult, error) {
 			sortedErrs = append(sortedErrs, msg)
 		}
 		sort.Strings(sortedErrs)
-		return LoadResult{}, fmt.Errorf("package load errors:\n%s", strings.Join(sortedErrs, "\n"))
+		return facts.PackageFacts{}, fmt.Errorf("package load errors:\n%s", strings.Join(sortedErrs, "\n"))
 	}
 
 	var factsPkgs []facts.PackageFact
@@ -74,7 +74,7 @@ func LoadPackageFacts(componentRoot string) (LoadResult, error) {
 
 		exportedSymbols, err := extractSymbols(p, componentRoot)
 		if err != nil {
-			return LoadResult{}, err
+			return facts.PackageFacts{}, err
 		}
 
 		factsPkgs = append(factsPkgs, facts.PackageFact{
@@ -101,13 +101,19 @@ func LoadPackageFacts(componentRoot string) (LoadResult, error) {
 		}
 	}
 
-	return LoadResult{
-		Facts: facts.PackageFacts{
-			Packages:  factsPkgs,
-			CallEdges: nil, // keep empty for this increment
-		},
-		sourceFiles: sourceFiles,
-	}, nil
+	res := facts.PackageFacts{
+		Packages:  factsPkgs,
+		CallEdges: nil, // keep empty for this increment
+	}
+
+	if len(factsPkgs) > 0 {
+		ptr := reflect.ValueOf(res.Packages).Pointer()
+		membershipMu.Lock()
+		loadedFiles[ptr] = sourceFiles
+		membershipMu.Unlock()
+	}
+
+	return res, nil
 }
 
 func isStdlibPackage(p *packages.Package) bool {
@@ -238,7 +244,15 @@ func extractSymbols(p *packages.Package, componentRoot string) ([]facts.Exported
 
 // ValidateInterfaceFiles verifies that each interface_files path exists, is relative,
 // does not escape, is a regular file, and belongs to a loaded Go package beneath componentRoot.
-func ValidateInterfaceFiles(componentRoot string, interfaceFiles []string, loaded LoadResult) error {
+func ValidateInterfaceFiles(componentRoot string, interfaceFiles []string, loaded facts.PackageFacts) error {
+	var sourceFiles map[string]bool
+	if len(loaded.Packages) > 0 {
+		ptr := reflect.ValueOf(loaded.Packages).Pointer()
+		membershipMu.RLock()
+		sourceFiles = loadedFiles[ptr]
+		membershipMu.RUnlock()
+	}
+
 	for _, f := range interfaceFiles {
 		if filepath.IsAbs(f) {
 			return fmt.Errorf("interface file %q is absolute: all interface_files must be relative", f)
@@ -262,7 +276,7 @@ func ValidateInterfaceFiles(componentRoot string, interfaceFiles []string, loade
 			return fmt.Errorf("interface file %q is a directory, not a regular file", f)
 		}
 
-		if !loaded.sourceFiles[cleanedSlash] {
+		if sourceFiles == nil || !sourceFiles[cleanedSlash] {
 			return fmt.Errorf("interface file %q does not belong to any loaded Go package under component root", f)
 		}
 	}
