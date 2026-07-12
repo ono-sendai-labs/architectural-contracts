@@ -305,11 +305,14 @@ func isStdlib(importPath string) bool {
 }
 
 // cleanReceiverType strips parentheses and pointers from receiver type keys
-// to resolve the underlying type name (e.g. "(*example.com/store.DB)" -> "example.com/store.DB").
+// to resolve the underlying type name (e.g. "(*example.com/store.DB)" -> "example.com/store.DB",
+// or "(example.com/store.DB)" -> "example.com/store.DB").
 func cleanReceiverType(receiver string) string {
 	res := receiver
 	if strings.HasPrefix(res, "(*") && strings.HasSuffix(res, ")") {
 		res = res[2 : len(res)-1]
+	} else if strings.HasPrefix(res, "(") && strings.HasSuffix(res, ")") {
+		res = res[1 : len(res)-1]
 	}
 	return res
 }
