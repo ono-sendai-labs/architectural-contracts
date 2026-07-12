@@ -16,17 +16,6 @@ import (
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/report"
 )
 
-type mockLoader struct {
-	calledWith string
-	facts      facts.PackageFacts
-	err        error
-}
-
-func (m *mockLoader) Load(root string) (facts.PackageFacts, error) {
-	m.calledWith = root
-	return m.facts, m.err
-}
-
 type mockAnalyzer struct {
 	calledWith capanalyzer.AnalyzeRequest
 	findings   []capanalyzer.CapabilityFinding
@@ -78,6 +67,12 @@ func TestRunner_VersionAndHelp(t *testing.T) {
 			wantExit:   2,
 			wantStderr: "Usage:",
 		},
+		{
+			name:       "unknown option",
+			args:       []string{"check", "component.textproto", "--bogus"},
+			wantExit:   2,
+			wantStderr: "unknown option: --bogus",
+		},
 	}
 
 	for _, tt := range tests {
@@ -87,11 +82,23 @@ func TestRunner_VersionAndHelp(t *testing.T) {
 			if exitCode != tt.wantExit {
 				t.Errorf("Run() exitCode = %d, want %d", exitCode, tt.wantExit)
 			}
-			if tt.wantStdout != "" && !strings.Contains(stdout.String(), tt.wantStdout) {
-				t.Errorf("stdout = %q, want to contain %q", stdout.String(), tt.wantStdout)
+			if tt.wantStdout != "" {
+				if !strings.Contains(stdout.String(), tt.wantStdout) {
+					t.Errorf("stdout = %q, want to contain %q", stdout.String(), tt.wantStdout)
+				}
+			} else {
+				if stdout.Len() != 0 {
+					t.Errorf("stdout = %q, want empty", stdout.String())
+				}
 			}
-			if tt.wantStderr != "" && !strings.Contains(stderr.String(), tt.wantStderr) {
-				t.Errorf("stderr = %q, want to contain %q", stderr.String(), tt.wantStderr)
+			if tt.wantStderr != "" {
+				if !strings.Contains(stderr.String(), tt.wantStderr) {
+					t.Errorf("stderr = %q, want to contain %q", stderr.String(), tt.wantStderr)
+				}
+			} else {
+				if stderr.Len() != 0 {
+					t.Errorf("stderr = %q, want empty", stderr.String())
+				}
 			}
 		})
 	}
@@ -102,7 +109,8 @@ func createTempComponent(t *testing.T, name string, manifestContent string, file
 	tmpDir := t.TempDir()
 
 	// Write go.mod so packages load successfully
-	goMod := fmt.Sprintf("module example.com/temp/%s\n\ngo 1.21\n", name)
+	safeName := strings.ReplaceAll(name, " ", "-")
+	goMod := fmt.Sprintf("module example.com/temp/%s\n\ngo 1.21\n", safeName)
 	if err := os.WriteFile(filepath.Join(tmpDir, "go.mod"), []byte(goMod), 0644); err != nil {
 		t.Fatalf("failed to write go.mod: %v", err)
 	}
@@ -303,34 +311,67 @@ declared_authority: "FILES"
 }
 
 func TestRunner_Check_InterfaceValidationError(t *testing.T) {
-	manifestContent := `
+	tests := []struct {
+		name            string
+		manifestContent string
+		wantErrSub      string
+	}{
+		{
+			name: "missing_file",
+			manifestContent: `
 name: "test-comp"
 interface_files: "missing.go"
-`
-	files := map[string]string{
-		"api.go": "package main\n\nfunc Hello() {}\n",
-	}
-	_, manifestPath := createTempComponent(t, "missing-file", manifestContent, files)
-
-	loader := func(root string) (facts.PackageFacts, error) {
-		return goanalysis.LoadPackageFacts(root)
-	}
-
-	runner := &app.Runner{
-		Loader:   loader,
-		Analyzer: &mockAnalyzer{},
+`,
+			wantErrSub: "missing.go",
+		},
+		{
+			name: "escaping_file",
+			manifestContent: `
+name: "test-comp"
+interface_files: "../escaping.go"
+`,
+			wantErrSub: "escapes the component root",
+		},
 	}
 
-	var stdout, stderr bytes.Buffer
-	exitCode := runner.Run([]string{"check", manifestPath}, &stdout, &stderr)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			files := map[string]string{
+				"api.go": "package main\n\nfunc Hello() {}\n",
+			}
+			_, manifestPath := createTempComponent(t, "iface-val-"+tt.name, tt.manifestContent, files)
 
-	if exitCode != 2 {
-		t.Fatalf("Run() returned %d, want 2. Stdout: %s", exitCode, stdout.String())
-	}
+			loader := func(root string) (facts.PackageFacts, error) {
+				return goanalysis.LoadPackageFacts(root)
+			}
 
-	gotErr := stderr.String()
-	if !strings.Contains(gotErr, "missing.go") {
-		t.Errorf("stderr = %q, want to mention missing.go", gotErr)
+			analyzer := &mockAnalyzer{}
+			runner := &app.Runner{
+				Loader:   loader,
+				Analyzer: analyzer,
+			}
+
+			var stdout, stderr bytes.Buffer
+			exitCode := runner.Run([]string{"check", manifestPath}, &stdout, &stderr)
+
+			if exitCode != 2 {
+				t.Fatalf("Run() returned %d, want 2. Stdout: %s", exitCode, stdout.String())
+			}
+
+			gotErr := stderr.String()
+			if !strings.Contains(gotErr, tt.wantErrSub) {
+				t.Errorf("stderr = %q, want to contain %q", gotErr, tt.wantErrSub)
+			}
+
+			if stdout.Len() != 0 {
+				t.Errorf("stdout = %q, want empty", stdout.String())
+			}
+
+			// Assert that the analyzer was NOT called
+			if len(analyzer.calledWith.Packages) != 0 {
+				t.Errorf("analyzer was called despite interface validation error")
+			}
+		})
 	}
 }
 
@@ -363,6 +404,10 @@ interface_files: "api.go"
 	gotErr := stderr.String()
 	if !strings.Contains(gotErr, "injected loader error") {
 		t.Errorf("stderr = %q, want to mention injected loader error", gotErr)
+	}
+
+	if stdout.Len() != 0 {
+		t.Errorf("stdout = %q, want empty", stdout.String())
 	}
 }
 
@@ -398,5 +443,91 @@ interface_files: "api.go"
 	gotErr := stderr.String()
 	if !strings.Contains(gotErr, "injected analyzer error") {
 		t.Errorf("stderr = %q, want to mention injected analyzer error", gotErr)
+	}
+
+	if stdout.Len() != 0 {
+		t.Errorf("stdout = %q, want empty", stdout.String())
+	}
+}
+
+func TestRunner_Check_Success_MultiPackage(t *testing.T) {
+	manifestContent := `
+name: "test-comp-multi"
+interface_files: "api.go"
+`
+	files := map[string]string{
+		"api.go":           "package main\n\nfunc Hello() {}\n",
+		"subpkg/helper.go": "package subpkg\n\nfunc Help() {}\n",
+	}
+	_, manifestPath := createTempComponent(t, "multipackage", manifestContent, files)
+
+	loader := func(root string) (facts.PackageFacts, error) {
+		return goanalysis.LoadPackageFacts(root)
+	}
+
+	analyzer := &mockAnalyzer{}
+	runner := &app.Runner{
+		Loader:   loader,
+		Analyzer: analyzer,
+	}
+
+	var stdout, stderr bytes.Buffer
+	exitCode := runner.Run([]string{"check", manifestPath}, &stdout, &stderr)
+
+	if exitCode != 0 {
+		t.Fatalf("Run() returned %d, want 0. Stderr: %s", exitCode, stderr.String())
+	}
+
+	wantPkgs := []string{"example.com/temp/multipackage", "example.com/temp/multipackage/subpkg"}
+	if len(analyzer.calledWith.Packages) != 2 ||
+		analyzer.calledWith.Packages[0] != wantPkgs[0] ||
+		analyzer.calledWith.Packages[1] != wantPkgs[1] {
+		t.Errorf("analyzer called with packages %v, want %v", analyzer.calledWith.Packages, wantPkgs)
+	}
+	if len(analyzer.calledWith.PruneAt) != 0 {
+		t.Errorf("analyzer called with PruneAt %v, want empty", analyzer.calledWith.PruneAt)
+	}
+}
+
+func TestRunner_Check_Success_WarningsOnly(t *testing.T) {
+	manifestContent := `
+name: "test-comp-warn"
+interface_files: "api.go"
+component_dependencies: {
+  name: "unused-dep"
+  manifest: "unused-dep/component.textproto"
+}
+`
+	files := map[string]string{
+		"api.go": "package main\n\nfunc Hello() {}\n",
+	}
+	_, manifestPath := createTempComponent(t, "warnings-only", manifestContent, files)
+
+	loader := func(root string) (facts.PackageFacts, error) {
+		return goanalysis.LoadPackageFacts(root)
+	}
+
+	analyzer := &mockAnalyzer{}
+	runner := &app.Runner{
+		Loader:   loader,
+		Analyzer: analyzer,
+	}
+
+	var stdout, stderr bytes.Buffer
+	exitCode := runner.Run([]string{"check", manifestPath}, &stdout, &stderr)
+
+	if exitCode != 0 {
+		t.Fatalf("Run() returned %d, want 0. Stderr: %s", exitCode, stderr.String())
+	}
+
+	got := stdout.String()
+	if !strings.Contains(got, "Warnings:") {
+		t.Errorf("stdout = %q, want to contain 'Warnings:'", got)
+	}
+	if !strings.Contains(got, "declared component dependency \"unused-dep\" is unused") {
+		t.Errorf("stdout = %q, want warning about unused dependency", got)
+	}
+	if strings.Contains(got, "Violations:") {
+		t.Errorf("stdout = %q, should not contain violations", got)
 	}
 }
