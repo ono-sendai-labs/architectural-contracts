@@ -1,12 +1,54 @@
 package manifest
 
 import (
+	"errors"
 	"fmt"
 	"io"
 
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/manifest/gen"
 	"google.golang.org/protobuf/encoding/prototext"
 )
+
+var (
+	ErrEmptyName           = errors.New("manifest name cannot be empty")
+	ErrEmptyInterfaceFiles = errors.New("manifest must declare at least one interface file")
+)
+
+// DuplicateDeclarationError represents a duplicate declaration error.
+type DuplicateDeclarationError struct {
+	Kind  string // "interface file", "component dependency", "absorbed dependency", "declared authority"
+	Value string
+}
+
+func (e *DuplicateDeclarationError) Error() string {
+	return fmt.Sprintf("duplicate %s: %s", e.Kind, e.Value)
+}
+
+// KnownCapabilities is the set of known Capslock capabilities.
+var KnownCapabilities = map[string]bool{
+	"FILES":               true,
+	"NETWORK":             true,
+	"READ_SYSTEM_STATE":   true,
+	"MODIFY_SYSTEM_STATE": true,
+	"OPERATING_SYSTEM":    true,
+	"SYSTEM_CALLS":        true,
+	"EXEC":                true,
+	"RUNTIME":             true,
+	"ARBITRARY_EXECUTION": true,
+	"CGO":                 true,
+	"UNSAFE_POINTER":      true,
+	"REFLECT":             true,
+	"UNANALYZED":          true,
+}
+
+// UnknownCapabilityError represents an unknown capability error.
+type UnknownCapabilityError struct {
+	Capability string
+}
+
+func (e *UnknownCapabilityError) Error() string {
+	return fmt.Sprintf("unknown capability: %s", e.Capability)
+}
 
 // Manifest represents the native hand-written Go model for a component manifest,
 // shielding the rest of the application from protobuf definitions.
@@ -83,5 +125,47 @@ func Parse(r io.Reader) (Manifest, error) {
 
 // validate is a seam for task-03 to add syntactic validation rules.
 func validate(m Manifest) error {
+	if m.Name == "" {
+		return ErrEmptyName
+	}
+	if len(m.InterfaceFiles) == 0 {
+		return ErrEmptyInterfaceFiles
+	}
+
+	seenFiles := make(map[string]bool)
+	for _, file := range m.InterfaceFiles {
+		if seenFiles[file] {
+			return &DuplicateDeclarationError{Kind: "interface file", Value: file}
+		}
+		seenFiles[file] = true
+	}
+
+	seenDeps := make(map[string]bool)
+	for _, dep := range m.ComponentDependencies {
+		if seenDeps[dep.Name] {
+			return &DuplicateDeclarationError{Kind: "component dependency", Value: dep.Name}
+		}
+		seenDeps[dep.Name] = true
+	}
+
+	seenAbsDeps := make(map[string]bool)
+	for _, absDep := range m.AbsorbedDependencies {
+		if seenAbsDeps[absDep.ImportPath] {
+			return &DuplicateDeclarationError{Kind: "absorbed dependency", Value: absDep.ImportPath}
+		}
+		seenAbsDeps[absDep.ImportPath] = true
+	}
+
+	seenAuth := make(map[string]bool)
+	for _, auth := range m.DeclaredAuthority {
+		if seenAuth[auth] {
+			return &DuplicateDeclarationError{Kind: "declared authority", Value: auth}
+		}
+		seenAuth[auth] = true
+		if !KnownCapabilities[auth] {
+			return &UnknownCapabilityError{Capability: auth}
+		}
+	}
+
 	return nil
 }
