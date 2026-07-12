@@ -149,3 +149,113 @@ func TestParse_Failures(t *testing.T) {
 		}
 	})
 }
+
+func TestParse_Validation(t *testing.T) {
+	t.Run("EmptyName", func(t *testing.T) {
+		input := `interface_files: "file.go"`
+		r := bytes.NewReader([]byte(input))
+		got, err := manifest.Parse(r)
+		if err == nil {
+			t.Fatalf("expected error for empty name, got nil")
+		}
+		if !errors.Is(err, manifest.ErrEmptyName) {
+			t.Errorf("expected error %v, got %v", manifest.ErrEmptyName, err)
+		}
+		if got.Name != "" {
+			t.Errorf("expected empty manifest on error, got %+v", got)
+		}
+	})
+
+	t.Run("EmptyInterfaceFiles", func(t *testing.T) {
+		input := `name: "component"`
+		r := bytes.NewReader([]byte(input))
+		got, err := manifest.Parse(r)
+		if err == nil {
+			t.Fatalf("expected error for empty interface_files, got nil")
+		}
+		if !errors.Is(err, manifest.ErrEmptyInterfaceFiles) {
+			t.Errorf("expected error %v, got %v", manifest.ErrEmptyInterfaceFiles, err)
+		}
+		if got.Name != "" {
+			t.Errorf("expected empty manifest on error, got %+v", got)
+		}
+	})
+
+	t.Run("DuplicateInterfaceFiles", func(t *testing.T) {
+		input := `name: "component"
+interface_files: "file.go"
+interface_files: "file.go"
+`
+		r := bytes.NewReader([]byte(input))
+		_, err := manifest.Parse(r)
+		var dupErr *manifest.DuplicateDeclarationError
+		if !errors.As(err, &dupErr) || dupErr.Kind != "interface file" || dupErr.Value != "file.go" {
+			t.Fatalf("expected DuplicateDeclarationError for interface file 'file.go', got: %v", err)
+		}
+	})
+
+	t.Run("DuplicateComponentDependencies", func(t *testing.T) {
+		input := `name: "component"
+interface_files: "file.go"
+component_dependencies {
+  name: "dep1"
+  manifest: "path1"
+}
+component_dependencies {
+  name: "dep1"
+  manifest: "path2"
+}
+`
+		r := bytes.NewReader([]byte(input))
+		_, err := manifest.Parse(r)
+		var dupErr *manifest.DuplicateDeclarationError
+		if !errors.As(err, &dupErr) || dupErr.Kind != "component dependency" || dupErr.Value != "dep1" {
+			t.Fatalf("expected DuplicateDeclarationError for component dependency 'dep1', got: %v", err)
+		}
+	})
+
+	t.Run("DuplicateAbsorbedDependencies", func(t *testing.T) {
+		input := `name: "component"
+interface_files: "file.go"
+absorbed_dependencies {
+  import_path: "github.com/some/pkg"
+}
+absorbed_dependencies {
+  import_path: "github.com/some/pkg"
+}
+`
+		r := bytes.NewReader([]byte(input))
+		_, err := manifest.Parse(r)
+		var dupErr *manifest.DuplicateDeclarationError
+		if !errors.As(err, &dupErr) || dupErr.Kind != "absorbed dependency" || dupErr.Value != "github.com/some/pkg" {
+			t.Fatalf("expected DuplicateDeclarationError for absorbed dependency 'github.com/some/pkg', got: %v", err)
+		}
+	})
+
+	t.Run("DuplicateDeclaredAuthorities", func(t *testing.T) {
+		input := `name: "component"
+interface_files: "file.go"
+declared_authority: "FILES"
+declared_authority: "FILES"
+`
+		r := bytes.NewReader([]byte(input))
+		_, err := manifest.Parse(r)
+		var dupErr *manifest.DuplicateDeclarationError
+		if !errors.As(err, &dupErr) || dupErr.Kind != "declared authority" || dupErr.Value != "FILES" {
+			t.Fatalf("expected DuplicateDeclarationError for declared authority 'FILES', got: %v", err)
+		}
+	})
+
+	t.Run("UnknownCapability", func(t *testing.T) {
+		input := `name: "component"
+interface_files: "file.go"
+declared_authority: "FILE"
+`
+		r := bytes.NewReader([]byte(input))
+		_, err := manifest.Parse(r)
+		var unknownErr *manifest.UnknownCapabilityError
+		if !errors.As(err, &unknownErr) || unknownErr.Capability != "FILE" {
+			t.Fatalf("expected UnknownCapabilityError for capability 'FILE', got: %v", err)
+		}
+	})
+}
