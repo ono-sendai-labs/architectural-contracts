@@ -22,8 +22,8 @@ type Inputs struct {
 	Manifest  manifest.Manifest
 	Facts     facts.PackageFacts
 	DepIfaces []facts.DependencyInterface     // resolved direct component dependencies
-	Caps      []capanalyzer.CapabilityFinding // unused in this step, used in Step 5
-	Policy    capanalyzer.CapabilityPolicy    // unused in this step, used in Step 5
+	Caps      []capanalyzer.CapabilityFinding // injected capability findings (pre-pruned at boundaries)
+	Policy    capanalyzer.CapabilityPolicy    // capability check policy
 }
 
 // Check evaluates the injected inputs against architectural contracts and returns a ConformanceReport.
@@ -33,7 +33,11 @@ type Inputs struct {
 // - FR3 (dependency allowlist rules)
 // - FR4 (well-formedness rules: Method and Explicit Init rules)
 // - FR5 (cross-component call-boundary rule and higher-order boundary-call warning)
+// - FR6 (policy-aware ambient-authority rule, using StrictPolicy() merged with declared_authority)
 // - §5.5 (package-overlap check)
+//
+// Check is now feature-complete for all pure-core rules (FR3/FR4/FR5/FR6). Findings in Caps are pre-pruned
+// at dependency boundaries (Step 9) by the analyzer shell before being passed here.
 //
 // MVP matching is call-only. Real call edges and resolved interfaces are injected by the shell (Step 9).
 func Check(in Inputs) report.ConformanceReport {
@@ -234,6 +238,42 @@ func Check(in Inputs) report.ConformanceReport {
 		}
 	}
 
+	// 5b. FR6 Policy-aware ambient-authority rule (design §5.4)
+	effectivePolicy := deriveEffectivePolicy(in.Policy, in.Manifest.DeclaredAuthority)
+
+	for _, capFinding := range in.Caps {
+		decision := capanalyzer.Classify(capFinding.Capability, effectivePolicy)
+		switch decision {
+		case capanalyzer.DecisionViolation:
+			evidence := make([]string, len(capFinding.CallPath))
+			for idx, frame := range capFinding.CallPath {
+				evidence[idx] = fmt.Sprintf("%s at %s:%d", frame.Func, frame.File, frame.Line)
+			}
+			violations = append(violations, report.Finding{
+				Kind:     report.UndeclaredAuthority,
+				Message:  fmt.Sprintf("use of undeclared authority %q in package %q", capFinding.Capability, capFinding.Package),
+				Evidence: evidence,
+			})
+		case capanalyzer.DecisionWarn:
+			var kind report.Kind
+			if capFinding.Class == capanalyzer.AnalysisDefeating {
+				kind = report.AnalysisLimitation
+			} else {
+				kind = report.AllowedWithWarning
+			}
+			var msg string
+			if kind == report.AnalysisLimitation {
+				msg = fmt.Sprintf("capability %q in package %q is an analysis limitation", capFinding.Capability, capFinding.Package)
+			} else {
+				msg = fmt.Sprintf("capability %q in package %q allowed with warning", capFinding.Capability, capFinding.Package)
+			}
+			warnings = append(warnings, report.Finding{
+				Kind:    kind,
+				Message: msg,
+			})
+		}
+	}
+
 	// 6. Ensure deterministic sorting (sorted alphabetically by Message)
 	sort.Slice(violations, func(i, j int) bool {
 		return violations[i].Message < violations[j].Message
@@ -328,4 +368,20 @@ func ExtractPackagePath(sym string) string {
 		}
 	}
 	return ""
+}
+
+// deriveEffectivePolicy builds the effective policy by merging the manifest's declared authority
+// into Allowed, leaving the original Policy unchanged.
+func deriveEffectivePolicy(policy capanalyzer.CapabilityPolicy, declaredAuth []string) capanalyzer.CapabilityPolicy {
+	allowed := make(map[string]bool)
+	for k, v := range policy.Allowed {
+		allowed[k] = v
+	}
+	for _, auth := range declaredAuth {
+		allowed[auth] = true
+	}
+	return capanalyzer.CapabilityPolicy{
+		Allowed: allowed,
+		Warn:    policy.Warn,
+	}
 }

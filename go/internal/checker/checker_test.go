@@ -946,3 +946,360 @@ func TestCheck_FR5_FR3_FR4_Combined_And_Deterministic(t *testing.T) {
 		}
 	}
 }
+
+func TestCheck_FR6_UndeclaredAuthority(t *testing.T) {
+	in := checker.Inputs{
+		Manifest: manifest.Manifest{
+			Name: "mycomponent",
+		},
+		Facts: facts.PackageFacts{
+			Packages: []facts.PackageFact{
+				{ImportPath: "mycomponent/pkg1"},
+			},
+		},
+		Caps: []capanalyzer.CapabilityFinding{
+			{
+				Package:    "mycomponent/pkg1",
+				Capability: "FILES",
+				Class:      capanalyzer.TrueAuthority,
+				CallPath: []capanalyzer.Frame{
+					{Func: "main.main", File: "main.go", Line: 10},
+					{Func: "os.Open", File: "os.go", Line: 20},
+				},
+			},
+		},
+		Policy: capanalyzer.StrictPolicy(),
+	}
+
+	rep := checker.Check(in)
+	if len(rep.Violations) != 1 {
+		t.Fatalf("expected 1 violation, got %d", len(rep.Violations))
+	}
+
+	v := rep.Violations[0]
+	if v.Kind != report.UndeclaredAuthority {
+		t.Errorf("expected kind %s, got %s", report.UndeclaredAuthority, v.Kind)
+	}
+
+	expectedMsg := `use of undeclared authority "FILES" in package "mycomponent/pkg1"`
+	if v.Message != expectedMsg {
+		t.Errorf("expected message %q, got %q", expectedMsg, v.Message)
+	}
+
+	expectedEvidence := []string{
+		"main.main at main.go:10",
+		"os.Open at os.go:20",
+	}
+	if len(v.Evidence) != len(expectedEvidence) {
+		t.Fatalf("expected %d evidence frames, got %d", len(expectedEvidence), len(v.Evidence))
+	}
+	for i, ev := range v.Evidence {
+		if ev != expectedEvidence[i] {
+			t.Errorf("evidence frame %d: expected %q, got %q", i, expectedEvidence[i], ev)
+		}
+	}
+}
+
+func TestCheck_FR6_DeclaredAuthority(t *testing.T) {
+	in := checker.Inputs{
+		Manifest: manifest.Manifest{
+			Name:              "mycomponent",
+			DeclaredAuthority: []string{"FILES"},
+		},
+		Facts: facts.PackageFacts{
+			Packages: []facts.PackageFact{
+				{ImportPath: "mycomponent/pkg1"},
+			},
+		},
+		Caps: []capanalyzer.CapabilityFinding{
+			{
+				Package:    "mycomponent/pkg1",
+				Capability: "FILES",
+				Class:      capanalyzer.TrueAuthority,
+			},
+		},
+		Policy: capanalyzer.StrictPolicy(),
+	}
+
+	rep := checker.Check(in)
+	if len(rep.Violations) != 0 {
+		t.Errorf("expected 0 violations, got %d: %v", len(rep.Violations), rep.Violations)
+	}
+}
+
+func TestCheck_FR6_WarnSetCapability(t *testing.T) {
+	in := checker.Inputs{
+		Manifest: manifest.Manifest{
+			Name: "mycomponent",
+		},
+		Facts: facts.PackageFacts{
+			Packages: []facts.PackageFact{
+				{ImportPath: "mycomponent/pkg1"},
+			},
+		},
+		Caps: []capanalyzer.CapabilityFinding{
+			{
+				Package:    "mycomponent/pkg1",
+				Capability: "NETWORK",
+				Class:      capanalyzer.TrueAuthority,
+			},
+		},
+		Policy: capanalyzer.CapabilityPolicy{
+			Warn: map[string]bool{"NETWORK": true},
+		},
+	}
+
+	rep := checker.Check(in)
+	if len(rep.Violations) != 0 {
+		t.Errorf("expected 0 violations, got %d: %v", len(rep.Violations), rep.Violations)
+	}
+	if len(rep.Warnings) != 1 {
+		t.Fatalf("expected 1 warning, got %d", len(rep.Warnings))
+	}
+
+	w := rep.Warnings[0]
+	if w.Kind != report.AllowedWithWarning {
+		t.Errorf("expected kind %s, got %s", report.AllowedWithWarning, w.Kind)
+	}
+
+	expectedMsg := `capability "NETWORK" in package "mycomponent/pkg1" allowed with warning`
+	if w.Message != expectedMsg {
+		t.Errorf("expected message %q, got %q", expectedMsg, w.Message)
+	}
+}
+
+func TestCheck_FR6_AllowWinsOverWarn(t *testing.T) {
+	in := checker.Inputs{
+		Manifest: manifest.Manifest{
+			Name:              "mycomponent",
+			DeclaredAuthority: []string{"FILES"},
+		},
+		Facts: facts.PackageFacts{
+			Packages: []facts.PackageFact{
+				{ImportPath: "mycomponent/pkg1"},
+			},
+		},
+		Caps: []capanalyzer.CapabilityFinding{
+			{
+				Package:    "mycomponent/pkg1",
+				Capability: "FILES",
+				Class:      capanalyzer.TrueAuthority,
+			},
+		},
+		Policy: capanalyzer.CapabilityPolicy{
+			Warn: map[string]bool{"FILES": true},
+		},
+	}
+
+	rep := checker.Check(in)
+	if len(rep.Violations) != 0 {
+		t.Errorf("expected 0 violations, got %d", len(rep.Violations))
+	}
+	if len(rep.Warnings) != 0 {
+		t.Errorf("expected 0 warnings, got %d", len(rep.Warnings))
+	}
+}
+
+func TestCheck_FR6_ClassPreservedAndBothFailStrict(t *testing.T) {
+	in := checker.Inputs{
+		Manifest: manifest.Manifest{
+			Name: "mycomponent",
+		},
+		Facts: facts.PackageFacts{
+			Packages: []facts.PackageFact{
+				{ImportPath: "mycomponent/pkg1"},
+			},
+		},
+		Caps: []capanalyzer.CapabilityFinding{
+			{
+				Package:    "mycomponent/pkg1",
+				Capability: "FILES",
+				Class:      capanalyzer.TrueAuthority,
+			},
+			{
+				Package:    "mycomponent/pkg1",
+				Capability: "REFLECT",
+				Class:      capanalyzer.AnalysisDefeating,
+			},
+		},
+		Policy: capanalyzer.StrictPolicy(),
+	}
+
+	rep := checker.Check(in)
+	if len(rep.Violations) != 2 {
+		t.Fatalf("expected 2 violations, got %d", len(rep.Violations))
+	}
+
+	for _, v := range rep.Violations {
+		if v.Kind != report.UndeclaredAuthority {
+			t.Errorf("expected kind %s, got %s", report.UndeclaredAuthority, v.Kind)
+		}
+	}
+
+	// Under warn policy, check that class is preserved (TrueAuthority -> ALLOWED_WITH_WARNING, AnalysisDefeating -> ANALYSIS_LIMITATION)
+	in.Policy = capanalyzer.CapabilityPolicy{
+		Warn: map[string]bool{"FILES": true, "REFLECT": true},
+	}
+	rep2 := checker.Check(in)
+	if len(rep2.Violations) != 0 {
+		t.Errorf("expected 0 violations under warn policy, got %d", len(rep2.Violations))
+	}
+	if len(rep2.Warnings) != 2 {
+		t.Fatalf("expected 2 warnings, got %d", len(rep2.Warnings))
+	}
+
+	var gotAllowedWithWarn, gotAnalysisLimitation bool
+	for _, w := range rep2.Warnings {
+		if w.Kind == report.AllowedWithWarning {
+			gotAllowedWithWarn = true
+		} else if w.Kind == report.AnalysisLimitation {
+			gotAnalysisLimitation = true
+		}
+	}
+
+	if !gotAllowedWithWarn {
+		t.Errorf("expected to get an ALLOWED_WITH_WARNING warning")
+	}
+	if !gotAnalysisLimitation {
+		t.Errorf("expected to get an ANALYSIS_LIMITATION warning")
+	}
+}
+
+func TestCheck_FR6_PurityNoMutation(t *testing.T) {
+	allowedMap := map[string]bool{"NETWORK": true}
+	warnMap := map[string]bool{"FILES": true}
+	policy := capanalyzer.CapabilityPolicy{
+		Allowed: allowedMap,
+		Warn:    warnMap,
+	}
+
+	declAuthority := []string{"FILES", "CGO"}
+
+	in := checker.Inputs{
+		Manifest: manifest.Manifest{
+			Name:              "mycomponent",
+			DeclaredAuthority: declAuthority,
+		},
+		Facts: facts.PackageFacts{
+			Packages: []facts.PackageFact{
+				{ImportPath: "mycomponent/pkg1"},
+			},
+		},
+		Caps: []capanalyzer.CapabilityFinding{
+			{
+				Package:    "mycomponent/pkg1",
+				Capability: "CGO",
+				Class:      capanalyzer.TrueAuthority,
+			},
+		},
+		Policy: policy,
+	}
+
+	_ = checker.Check(in)
+
+	// Verify original policy maps are unmodified
+	if len(allowedMap) != 1 || !allowedMap["NETWORK"] || allowedMap["FILES"] || allowedMap["CGO"] {
+		t.Errorf("original policy.Allowed map was mutated: %v", allowedMap)
+	}
+	if len(warnMap) != 1 || !warnMap["FILES"] {
+		t.Errorf("original policy.Warn map was mutated: %v", warnMap)
+	}
+}
+
+func TestCheck_FR6_FeatureCompleteCompositeReport(t *testing.T) {
+	// 1. Conforming (empty) report case
+	inClean := checker.Inputs{
+		Manifest: manifest.Manifest{
+			Name: "mycomponent",
+		},
+		Facts: facts.PackageFacts{
+			Packages: []facts.PackageFact{
+				{ImportPath: "mycomponent/pkg1"},
+			},
+		},
+	}
+	repClean := checker.Check(inClean)
+	if len(repClean.Violations) != 0 || len(repClean.Warnings) != 0 {
+		t.Errorf("expected clean report, got violations=%d, warnings=%d", len(repClean.Violations), len(repClean.Warnings))
+	}
+	renderedClean := report.RenderText(repClean)
+	expectedCleanMsg := `Component "mycomponent" conforms / ambient-authority-free`
+	if !strings.Contains(renderedClean, expectedCleanMsg) {
+		t.Errorf("expected clean report output to contain %q, got:\n%s", expectedCleanMsg, renderedClean)
+	}
+
+	// 2. Non-conforming report with composite violations: boundary violation (FR5), and authority violation with evidence (FR6)
+	inComposite := checker.Inputs{
+		Manifest: manifest.Manifest{
+			Name: "mycomponent",
+			ComponentDependencies: []manifest.ComponentDependency{
+				{Name: "dep1"},
+			},
+		},
+		Facts: facts.PackageFacts{
+			Packages: []facts.PackageFact{
+				{
+					ImportPath: "mycomponent/pkg1",
+					Imports:    []string{"github.com/dep1/pkg"},
+				},
+			},
+			CallEdges: []facts.CallEdge{
+				{
+					Caller: "mycomponent/pkg1.Run",
+					Callee: "github.com/dep1/pkg.PrivateFunc", // Undeclared interface call -> FR5 violation
+				},
+			},
+		},
+		DepIfaces: []facts.DependencyInterface{
+			{
+				Component: "dep1",
+				Packages:  []string{"github.com/dep1/pkg"},
+				Symbols:   []capanalyzer.InterfaceSymbol{"github.com/dep1/pkg.PublicFunc"},
+			},
+		},
+		Caps: []capanalyzer.CapabilityFinding{
+			{
+				Package:    "mycomponent/pkg1",
+				Capability: "FILES",
+				Class:      capanalyzer.TrueAuthority,
+				CallPath: []capanalyzer.Frame{
+					{Func: "main.main", File: "main.go", Line: 10},
+					{Func: "os.Open", File: "os.go", Line: 20},
+				},
+			},
+		},
+		Policy: capanalyzer.StrictPolicy(),
+	}
+
+	repComp := checker.Check(inComposite)
+	if len(repComp.Violations) != 2 {
+		t.Fatalf("expected exactly 2 violations, got %d", len(repComp.Violations))
+	}
+
+	v1 := repComp.Violations[0]
+	if v1.Kind != report.CallsUndeclaredInterface {
+		t.Errorf("expected violation 1 kind %s, got %s", report.CallsUndeclaredInterface, v1.Kind)
+	}
+
+	v2 := repComp.Violations[1]
+	if v2.Kind != report.UndeclaredAuthority {
+		t.Errorf("expected violation 2 kind %s, got %s", report.UndeclaredAuthority, v2.Kind)
+	}
+
+	renderedComposite := report.RenderText(repComp)
+	expectedSubstrings := []string{
+		"Component: mycomponent",
+		"Violations:",
+		"- [CALLS_UNDECLARED_INTERFACE] call from \"mycomponent/pkg1.Run\" to undeclared interface symbol \"github.com/dep1/pkg.PrivateFunc\" of dependency \"dep1\"",
+		"- [UNDECLARED_AUTHORITY] use of undeclared authority \"FILES\" in package \"mycomponent/pkg1\"",
+		"Evidence:",
+		"  - main.main at main.go:10",
+		"  - os.Open at os.go:20",
+	}
+
+	for _, sub := range expectedSubstrings {
+		if !strings.Contains(renderedComposite, sub) {
+			t.Errorf("expected composite report output to contain %q, got:\n%s", sub, renderedComposite)
+		}
+	}
+}
