@@ -44,7 +44,7 @@ or orphaned code: every step ends by wiring its output into something runnable.
 - [x] **Step 1 — Project scaffold & developer tooling** (repo layout, `go/` module skeleton, `justfile`, CI workflow, `AGENTS.md`/`CLAUDE.md` — release workflow deferred to Step 11)
 - [x] **Step 2 — Manifest schema & parser** (`proto/`, codegen, `internal/manifest`)
 - [x] **Step 3 — Pure supporting types: `facts` data model, `capanalyzer` port/policy, `report` model & text rendering**
-- [ ] **Step 4 — Checker core I: dependency rule (FR3) + declared-interface & well-formedness (FR4)**
+- [x] **Step 4 — Checker core I: dependency rule (FR3) + declared-interface & well-formedness (FR4)**
 - [ ] **Step 5 — Checker core II: call-boundary rule (FR5) + policy-aware authority rule (FR6)** — pure core complete
 - [ ] **Step 6 — `goanalysis` loader I: imports + exported-symbol→file extraction** (first vertical slice)
 - [ ] **Step 7 — `capslockadapter`: Capslock-backed `CapabilityAnalyzer`**
