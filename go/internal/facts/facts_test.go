@@ -82,6 +82,10 @@ func TestFactsRoundTrip(t *testing.T) {
 	if s1.Name != "example.com/store.init" || s1.File != "init.go" || s1.Kind != "init" || s1.Receiver != "" {
 		t.Errorf("unexpected s1 fields: %+v", s1)
 	}
+	s2 := p.ExportedSymbols[2]
+	if s2.Name != "example.com/store.Read" || s2.File != "api.go" || s2.Kind != "func" || s2.Receiver != "" {
+		t.Errorf("unexpected s2 fields: %+v", s2)
+	}
 
 	if len(pkgFacts.CallEdges) != 1 {
 		t.Fatalf("expected 1 call edge, got %d", len(pkgFacts.CallEdges))
