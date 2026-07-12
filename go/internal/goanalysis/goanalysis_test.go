@@ -3,6 +3,7 @@
 package goanalysis_test
 
 import (
+	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -22,10 +23,11 @@ func TestLoadPackageFacts_Success(t *testing.T) {
 		t.Fatalf("failed to get absolute path to testdata: %v", err)
 	}
 
-	factsResult, err := goanalysis.LoadPackageFacts(root)
+	loadRes, err := goanalysis.LoadPackageFacts(root)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+	factsResult := loadRes.Facts
 
 	// We expect 2 packages under the root:
 	// 1. github.com/ono-sendai-labs/architectural-contracts/go/internal/goanalysis/testdata/success/a
@@ -118,10 +120,11 @@ func TestLoadPackageFacts_Success(t *testing.T) {
 
 func TestLoadPackageFacts_Errors(t *testing.T) {
 	// 1. Invalid component root (Scenario 3)
-	invalidFacts, err := goanalysis.LoadPackageFacts("/nonexistent/directory")
+	invalidLoadRes, err := goanalysis.LoadPackageFacts("/nonexistent/directory")
 	if err == nil {
 		t.Errorf("expected error on nonexistent component root, got nil")
 	}
+	invalidFacts := invalidLoadRes.Facts
 	if len(invalidFacts.Packages) != 0 || len(invalidFacts.CallEdges) != 0 {
 		t.Errorf("expected empty facts on invalid root error, got %+v", invalidFacts)
 	}
@@ -131,10 +134,11 @@ func TestLoadPackageFacts_Errors(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to get absolute path: %v", err)
 	}
-	brokenFacts, err := goanalysis.LoadPackageFacts(root)
+	brokenLoadRes, err := goanalysis.LoadPackageFacts(root)
 	if err == nil {
 		t.Fatalf("expected error on package load with broken syntax, got nil")
 	}
+	brokenFacts := brokenLoadRes.Facts
 	if len(brokenFacts.Packages) != 0 || len(brokenFacts.CallEdges) != 0 {
 		t.Errorf("expected empty facts on broken-package load error, got %+v", brokenFacts)
 	}
@@ -242,7 +246,7 @@ func TestVerticalSliceVerdict(t *testing.T) {
 	// 4. Pass real facts to checker.Check with empty capabilities / dependency interfaces
 	inputs := checker.Inputs{
 		Manifest:  testManifest,
-		Facts:     loadedFacts,
+		Facts:     loadedFacts.Facts,
 		DepIfaces: nil,
 		Caps:      nil,
 	}
@@ -253,28 +257,98 @@ func TestVerticalSliceVerdict(t *testing.T) {
 		t.Fatalf("expected 1 violation, got %d", len(conformanceReport.Violations))
 	}
 	v := conformanceReport.Violations[0]
+	if v.Kind != report.UndeclaredDependency {
+		t.Errorf("expected violation kind %s, got %s", report.UndeclaredDependency, v.Kind)
+	}
 	expectedImport := "github.com/ono-sendai-labs/architectural-contracts/go/internal/facts"
 	if !strings.Contains(v.Message, expectedImport) {
 		t.Errorf("expected violation to contain %q, got: %q", expectedImport, v.Message)
+	}
+
+	renderedReport := report.RenderText(conformanceReport)
+	expectedRendered := `Component: success-component
+
+Violations:
+- [UNDECLARED_DEPENDENCY] package "github.com/ono-sendai-labs/architectural-contracts/go/internal/goanalysis/testdata/success/a" imports undeclared dependency "github.com/ono-sendai-labs/architectural-contracts/go/internal/facts"
+`
+	if !strings.Contains(renderedReport, expectedRendered) {
+		t.Errorf("rendered report does not match expected pattern. Got:\n%s\nExpected to contain:\n%s", renderedReport, expectedRendered)
 	}
 
 	// 6. Print concise logged demo of imports, symbols, and report (runs when test is verbose)
 	t.Log("======================================== DEMO START ========================================")
 	t.Logf("Component Root: %s", root)
 	t.Log("Loaded Package Imports:")
-	for _, p := range loadedFacts.Packages {
+	for _, p := range loadedFacts.Facts.Packages {
 		t.Logf("  Package %q imports: %v", p.ImportPath, p.Imports)
 	}
 
 	t.Log("\nExported Symbol-to-File Mappings:")
-	for _, p := range loadedFacts.Packages {
+	for _, p := range loadedFacts.Facts.Packages {
 		for _, sym := range p.ExportedSymbols {
 			t.Logf("  Symbol %q (Kind: %q) in File: %q", sym.Name, sym.Kind, sym.File)
 		}
 	}
 
-	renderedReport := report.RenderText(conformanceReport)
 	t.Log("\nRendered Pillar-1 Conformance Report:")
 	t.Log(renderedReport)
 	t.Log("========================================  DEMO END  ========================================")
+}
+
+func TestValidateInterfaceFiles_UsesCachedMembership(t *testing.T) {
+	tmp := t.TempDir()
+
+	// Write simple go.mod and two Go files
+	goMod := "module tempcomp\n\ngo 1.20\n"
+	mainGo := "package tempcomp\n\nfunc Hello() {}\n"
+	extraGo := "package tempcomp\n\nfunc Extra() {}\n"
+
+	if err := os.WriteFile(filepath.Join(tmp, "go.mod"), []byte(goMod), 0644); err != nil {
+		t.Fatalf("failed to write go.mod: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(tmp, "main.go"), []byte(mainGo), 0644); err != nil {
+		t.Fatalf("failed to write main.go: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(tmp, "extra.go"), []byte(extraGo), 0644); err != nil {
+		t.Fatalf("failed to write extra.go: %v", err)
+	}
+
+	// Load facts (this populates cached membership with main.go and extra.go)
+	loaded, err := goanalysis.LoadPackageFacts(tmp)
+	if err != nil {
+		t.Fatalf("failed to load package facts: %v", err)
+	}
+
+	// Now modify the directory on disk:
+	// 1. Delete main.go (which is in the cache). Validation should reject it with "does not exist".
+	if err := os.Remove(filepath.Join(tmp, "main.go")); err != nil {
+		t.Fatalf("failed to remove main.go: %v", err)
+	}
+
+	// 2. Create other.go (which is NOT in the cache). Validation should reject it with "does not belong".
+	otherGo := "package tempcomp\n\nfunc Other() {}\n"
+	if err := os.WriteFile(filepath.Join(tmp, "other.go"), []byte(otherGo), 0644); err != nil {
+		t.Fatalf("failed to write other.go: %v", err)
+	}
+
+	// Prove that extra.go is STILL accepted because it exists on disk AND is in the cache
+	if err := goanalysis.ValidateInterfaceFiles(tmp, []string{"extra.go"}, loaded); err != nil {
+		t.Errorf("expected extra.go to be accepted, got: %v", err)
+	}
+
+	// Prove that main.go is rejected because it does not exist on disk
+	err = goanalysis.ValidateInterfaceFiles(tmp, []string{"main.go"}, loaded)
+	if err == nil {
+		t.Errorf("expected main.go to be rejected (does not exist), got nil")
+	} else if !strings.Contains(err.Error(), "does not exist") {
+		t.Errorf("expected error containing 'does not exist', got: %v", err)
+	}
+
+	// Prove that other.go is rejected because it was not in the original loaded membership
+	err = goanalysis.ValidateInterfaceFiles(tmp, []string{"other.go"}, loaded)
+	if err == nil {
+		t.Errorf("expected other.go to be rejected (not in loaded membership), got nil")
+	} else if !strings.Contains(err.Error(), "does not belong to any loaded Go package") {
+		t.Errorf("expected error containing 'does not belong to any loaded Go package', got: %v", err)
+	}
 }
