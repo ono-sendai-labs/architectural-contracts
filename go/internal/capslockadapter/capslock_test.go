@@ -198,3 +198,151 @@ func TestAdapter_Analyze(t *testing.T) {
 		t.Errorf("expected scope package NOT to report READ_SYSTEM_STATE capability from scope_test.go")
 	}
 }
+
+// TestAdapter_Analyze_EmptyPackages verifies that an empty package request is rejected with an error.
+func TestAdapter_Analyze_EmptyPackages(t *testing.T) {
+	adapter := NewAdapter()
+	req := capanalyzer.AnalyzeRequest{
+		Packages: []string{},
+	}
+	_, err := adapter.Analyze(req)
+	if err == nil {
+		t.Errorf("expected Analyze to fail on empty package request, but it succeeded")
+	}
+}
+
+// TestAdapter_Analyze_PruneAtError verifies that non-empty PruneAt is rejected with an error.
+func TestAdapter_Analyze_PruneAtError(t *testing.T) {
+	adapter := NewAdapter()
+	req := capanalyzer.AnalyzeRequest{
+		Packages: []string{"github.com/ono-sendai-labs/architectural-contracts/go/internal/capslockadapter/testdata/pure"},
+		PruneAt:  []capanalyzer.InterfaceSymbol{"some.Symbol"},
+	}
+	_, err := adapter.Analyze(req)
+	if err == nil {
+		t.Errorf("expected Analyze to fail when PruneAt is non-empty, but it succeeded")
+	}
+}
+
+// TestMapClass verifies that capability taxonomy mapping is handled safely and rejects unknown ones.
+func TestMapClass(t *testing.T) {
+	trueCaps := []string{
+		"FILES", "NETWORK", "READ_SYSTEM_STATE", "MODIFY_SYSTEM_STATE",
+		"OPERATING_SYSTEM", "SYSTEM_CALLS", "EXEC", "RUNTIME",
+	}
+	defeatingCaps := []string{
+		"ARBITRARY_EXECUTION", "CGO", "UNSAFE_POINTER", "REFLECT", "UNANALYZED",
+	}
+
+	for _, tc := range trueCaps {
+		class, err := mapClass(tc)
+		if err != nil {
+			t.Errorf("expected %q to map without error, got err: %v", tc, err)
+		}
+		if class != capanalyzer.TrueAuthority {
+			t.Errorf("expected %q to map to TrueAuthority, got %q", tc, class)
+		}
+	}
+
+	for _, dc := range defeatingCaps {
+		class, err := mapClass(dc)
+		if err != nil {
+			t.Errorf("expected %q to map without error, got err: %v", dc, err)
+		}
+		if class != capanalyzer.AnalysisDefeating {
+			t.Errorf("expected %q to map to AnalysisDefeating, got %q", dc, class)
+		}
+	}
+
+	unknownCaps := []string{"UNSPECIFIED", "SAFE", "SOMETHING_NEW", ""}
+	for _, uc := range unknownCaps {
+		_, err := mapClass(uc)
+		if err == nil {
+			t.Errorf("expected %q to be rejected with error, but it succeeded", uc)
+		}
+	}
+}
+
+// TestDeterministicSorting verifies that findings are sorted stably and deterministically.
+func TestDeterministicSorting(t *testing.T) {
+	findings := []capanalyzer.CapabilityFinding{
+		{
+			Package:    "pkgB",
+			Capability: "FILES",
+			Class:      capanalyzer.TrueAuthority,
+		},
+		{
+			Package:    "pkgA",
+			Capability: "NETWORK",
+			Class:      capanalyzer.TrueAuthority,
+		},
+		{
+			Package:    "pkgA",
+			Capability: "FILES",
+			Class:      capanalyzer.TrueAuthority,
+			CallPath: []capanalyzer.Frame{
+				{Func: "funcB", File: "b.go", Line: 10},
+			},
+		},
+		{
+			Package:    "pkgA",
+			Capability: "FILES",
+			Class:      capanalyzer.TrueAuthority,
+			CallPath: []capanalyzer.Frame{
+				{Func: "funcA", File: "a.go", Line: 5},
+			},
+		},
+	}
+
+	sortFindings(findings)
+
+	expected := []capanalyzer.CapabilityFinding{
+		{
+			Package:    "pkgA",
+			Capability: "FILES",
+			Class:      capanalyzer.TrueAuthority,
+			CallPath: []capanalyzer.Frame{
+				{Func: "funcA", File: "a.go", Line: 5},
+			},
+		},
+		{
+			Package:    "pkgA",
+			Capability: "FILES",
+			Class:      capanalyzer.TrueAuthority,
+			CallPath: []capanalyzer.Frame{
+				{Func: "funcB", File: "b.go", Line: 10},
+			},
+		},
+		{
+			Package:    "pkgA",
+			Capability: "NETWORK",
+			Class:      capanalyzer.TrueAuthority,
+		},
+		{
+			Package:    "pkgB",
+			Capability: "FILES",
+			Class:      capanalyzer.TrueAuthority,
+		},
+	}
+
+	if len(findings) != len(expected) {
+		t.Fatalf("expected %d findings, got %d", len(expected), len(findings))
+	}
+
+	for i, f := range findings {
+		exp := expected[i]
+		if f.Package != exp.Package || f.Capability != exp.Capability {
+			t.Errorf("at index %d: expected Package/Capability %s/%s, got %s/%s", i, exp.Package, exp.Capability, f.Package, f.Capability)
+		}
+		if len(f.CallPath) != len(exp.CallPath) {
+			t.Errorf("at index %d: expected CallPath length %d, got %d", i, len(exp.CallPath), len(f.CallPath))
+			continue
+		}
+		for j, fr := range f.CallPath {
+			expFr := exp.CallPath[j]
+			if fr.Func != expFr.Func || fr.File != expFr.File || fr.Line != expFr.Line {
+				t.Errorf("at index %d, frame %d: expected Frame %+v, got %+v", i, j, expFr, fr)
+			}
+		}
+	}
+}

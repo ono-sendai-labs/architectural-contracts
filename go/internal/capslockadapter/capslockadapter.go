@@ -2,6 +2,7 @@ package capslockadapter
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/google/capslock/analyzer"
@@ -51,17 +52,22 @@ func buildClassifier(pruneAt []capanalyzer.InterfaceSymbol) (analyzer.Classifier
 }
 
 // mapClass maps a Capslock capability name to its corresponding capanalyzer.Class.
-func mapClass(capName string) capanalyzer.Class {
+// It returns an error if the capability name is unknown or a control value.
+func mapClass(capName string) (capanalyzer.Class, error) {
 	switch capName {
 	case "ARBITRARY_EXECUTION", "CGO", "UNSAFE_POINTER", "REFLECT", "UNANALYZED":
-		return capanalyzer.AnalysisDefeating
+		return capanalyzer.AnalysisDefeating, nil
+	case "FILES", "NETWORK", "READ_SYSTEM_STATE", "MODIFY_SYSTEM_STATE", "OPERATING_SYSTEM", "SYSTEM_CALLS", "EXEC", "RUNTIME":
+		return capanalyzer.TrueAuthority, nil
 	default:
-		return capanalyzer.TrueAuthority
+		return "", fmt.Errorf("unsupported or unknown capability name: %q", capName)
 	}
 }
 
 // Adapter implements the capanalyzer.CapabilityAnalyzer interface using Capslock.
 type Adapter struct{}
+
+var _ capanalyzer.CapabilityAnalyzer = (*Adapter)(nil)
 
 // NewAdapter creates a new Capslock-backed capability analyzer adapter.
 func NewAdapter() *Adapter {
@@ -71,7 +77,11 @@ func NewAdapter() *Adapter {
 // Analyze loads the requested packages and performs capability analysis.
 func (a *Adapter) Analyze(req capanalyzer.AnalyzeRequest) ([]capanalyzer.CapabilityFinding, error) {
 	if len(req.Packages) == 0 {
-		return nil, nil
+		return nil, fmt.Errorf("package request is empty; at least one package path must be provided")
+	}
+
+	if len(req.PruneAt) > 0 {
+		return nil, fmt.Errorf("boundary pruning (PruneAt) is not supported before Step 9")
 	}
 
 	classifier, err := buildClassifier(req.PruneAt)
@@ -106,7 +116,7 @@ func (a *Adapter) Analyze(req capanalyzer.AnalyzeRequest) ([]capanalyzer.Capabil
 
 	cil := analyzer.GetCapabilityInfo(pkgs, queried, analyzerCfg)
 
-	var findings []capanalyzer.CapabilityFinding
+	findings := []capanalyzer.CapabilityFinding{}
 	for _, ci := range cil.GetCapabilityInfo() {
 		var callPath []capanalyzer.Frame
 		for _, fr := range ci.GetPath() {
@@ -118,13 +128,80 @@ func (a *Adapter) Analyze(req capanalyzer.AnalyzeRequest) ([]capanalyzer.Capabil
 			})
 		}
 
+		class, err := mapClass(ci.GetCapabilityName())
+		if err != nil {
+			return nil, err
+		}
+
 		findings = append(findings, capanalyzer.CapabilityFinding{
 			Package:    ci.GetPackageDir(),
 			Capability: ci.GetCapabilityName(),
-			Class:      mapClass(ci.GetCapabilityName()),
+			Class:      class,
 			CallPath:   callPath,
 		})
 	}
 
+	sortFindings(findings)
 	return findings, nil
+}
+
+// sortFindings sorts the slice of capability findings deterministically.
+func sortFindings(findings []capanalyzer.CapabilityFinding) {
+	sort.Slice(findings, func(i, j int) bool {
+		a, b := findings[i], findings[j]
+		if a.Package != b.Package {
+			return a.Package < b.Package
+		}
+		if a.Capability != b.Capability {
+			return a.Capability < b.Capability
+		}
+		if string(a.Class) != string(b.Class) {
+			return string(a.Class) < string(b.Class)
+		}
+		return compareCallPaths(a.CallPath, b.CallPath) < 0
+	})
+}
+
+// compareFrames compares two Frames and returns -1 if a < b, 1 if a > b, and 0 if a == b.
+func compareFrames(a, b capanalyzer.Frame) int {
+	if a.Func != b.Func {
+		if a.Func < b.Func {
+			return -1
+		}
+		return 1
+	}
+	if a.File != b.File {
+		if a.File < b.File {
+			return -1
+		}
+		return 1
+	}
+	if a.Line != b.Line {
+		if a.Line < b.Line {
+			return -1
+		}
+		return 1
+	}
+	return 0
+}
+
+// compareCallPaths compares two CallPaths and returns -1 if a < b, 1 if a > b, and 0 if a == b.
+func compareCallPaths(a, b []capanalyzer.Frame) int {
+	minLen := len(a)
+	if len(b) < minLen {
+		minLen = len(b)
+	}
+	for i := 0; i < minLen; i++ {
+		cmp := compareFrames(a[i], b[i])
+		if cmp != 0 {
+			return cmp
+		}
+	}
+	if len(a) < len(b) {
+		return -1
+	}
+	if len(a) > len(b) {
+		return 1
+	}
+	return 0
 }
