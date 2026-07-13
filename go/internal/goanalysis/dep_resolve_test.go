@@ -112,12 +112,39 @@ func TestResolveDependencyInterface_Errors(t *testing.T) {
 		},
 		{
 			name:         "root overlap - identical",
-			analyzedRoot: filepath.Dir(declaringRoot), // analyzed is parent (dep_resolve) which contains dep
+			analyzedRoot: filepath.Clean(filepath.Join(declaringRoot, "../dep")),
 			dep: manifest.ComponentDependency{
 				Name:     "dep",
-				Manifest: "../dep/component.textproto", // dep is also nested inside analyzed
+				Manifest: "../dep/component.textproto",
 			},
 			wantErr: "overlap",
+		},
+		{
+			name:         "malformed manifest",
+			analyzedRoot: declaringRoot,
+			dep: manifest.ComponentDependency{
+				Name:     "dep",
+				Manifest: "../dep/malformed.textproto",
+			},
+			wantErr: "failed to parse dependency manifest",
+		},
+		{
+			name:         "missing interface file",
+			analyzedRoot: declaringRoot,
+			dep: manifest.ComponentDependency{
+				Name:     "dep",
+				Manifest: "../dep/missing_interface.textproto",
+			},
+			wantErr: "does not exist",
+		},
+		{
+			name:         "escaping interface file",
+			analyzedRoot: declaringRoot,
+			dep: manifest.ComponentDependency{
+				Name:     "dep",
+				Manifest: "../dep/escaping_interface.textproto",
+			},
+			wantErr: "escapes the component root",
 		},
 		{
 			name:         "root overlap - analyzed nested in dependency",
