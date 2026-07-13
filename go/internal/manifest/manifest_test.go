@@ -3,8 +3,12 @@ package manifest_test
 import (
 	"bytes"
 	"errors"
+	"go/parser"
+	"go/token"
 	"os"
+	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/manifest"
@@ -261,15 +265,128 @@ declared_authority: "FILE"
 	})
 }
 
+func isStdlib(importPath string) bool {
+	if importPath == "C" {
+		return true
+	}
+	first := importPath
+	if idx := strings.Index(importPath, "/"); idx != -1 {
+		first = importPath[:idx]
+	}
+	return !strings.Contains(first, ".")
+}
+
+func importToComponent(imp string) (string, bool) {
+	const repoImportPrefix = "github.com/ono-sendai-labs/architectural-contracts/go/internal/"
+	if strings.HasPrefix(imp, repoImportPrefix) {
+		sub := imp[len(repoImportPrefix):]
+		parts := strings.Split(sub, "/")
+		if len(parts) > 0 {
+			return parts[0], true
+		}
+	}
+	return "", false
+}
+
+func isSubdirOrEqual(parent, child string) bool {
+	parentClean := filepath.Clean(parent)
+	childClean := filepath.Clean(child)
+	if parentClean == childClean {
+		return true
+	}
+	rel, err := filepath.Rel(parentClean, childClean)
+	if err != nil {
+		return false
+	}
+	return !strings.HasPrefix(rel, "..") && rel != "."
+}
+
+func getNonTestImports(t *testing.T, dir string) map[string]bool {
+	imports := make(map[string]bool)
+	files, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("failed to read dir %s: %v", dir, err)
+	}
+	fset := token.NewFileSet()
+	for _, file := range files {
+		if file.IsDir() || !strings.HasSuffix(file.Name(), ".go") || strings.HasSuffix(file.Name(), "_test.go") {
+			continue
+		}
+		filePath := filepath.Join(dir, file.Name())
+		f, err := parser.ParseFile(fset, filePath, nil, parser.ImportsOnly)
+		if err != nil {
+			t.Fatalf("failed to parse Go file %s: %v", filePath, err)
+		}
+		for _, imp := range f.Imports {
+			pathVal := strings.Trim(imp.Path.Value, `"`)
+			if !isStdlib(pathVal) {
+				imports[pathVal] = true
+			}
+		}
+	}
+	return imports
+}
+
 func TestSelfHostingManifests(t *testing.T) {
-	manifestPaths := []string{
-		"../capanalyzer/component.textproto",
-		"../facts/component.textproto",
-		"../report/component.textproto",
-		"../checker/component.textproto",
+	type expectedManifest struct {
+		name           string
+		interfaceFiles []string
+		dependencies   map[string]string // name -> manifest path
 	}
 
-	for _, p := range manifestPaths {
+	expected := map[string]expectedManifest{
+		"../capanalyzer/component.textproto": {
+			name:           "capanalyzer",
+			interfaceFiles: []string{"capanalyzer.go"},
+			dependencies:   map[string]string{},
+		},
+		"../facts/component.textproto": {
+			name:           "facts",
+			interfaceFiles: []string{"facts.go"},
+			dependencies: map[string]string{
+				"capanalyzer": "../capanalyzer/component.textproto",
+			},
+		},
+		"../report/component.textproto": {
+			name:           "report",
+			interfaceFiles: []string{"report.go"},
+			dependencies:   map[string]string{},
+		},
+		"../checker/component.textproto": {
+			name:           "checker",
+			interfaceFiles: []string{"checker.go"},
+			dependencies: map[string]string{
+				"capanalyzer": "../capanalyzer/component.textproto",
+				"facts":       "../facts/component.textproto",
+				"manifest":    "../manifest/component.textproto",
+				"report":      "../report/component.textproto",
+			},
+		},
+	}
+
+	// 1. Assert pairwise disjointness of roots
+	roots := make(map[string]string)
+	for p := range expected {
+		absPath, err := filepath.Abs(p)
+		if err != nil {
+			t.Fatalf("failed to get absolute path for %s: %v", p, err)
+		}
+		roots[p] = filepath.Dir(absPath)
+	}
+
+	for p1, r1 := range roots {
+		for p2, r2 := range roots {
+			if p1 == p2 {
+				continue
+			}
+			if isSubdirOrEqual(r1, r2) {
+				t.Errorf("manifest roots are not disjoint: root of %s (%s) is a subdirectory of or equal to root of %s (%s)", p1, r1, p2, r2)
+			}
+		}
+	}
+
+	// 2. Validate each manifest and its dependencies against package source
+	for p, exp := range expected {
 		t.Run(p, func(t *testing.T) {
 			content, err := os.ReadFile(p)
 			if err != nil {
@@ -279,14 +396,74 @@ func TestSelfHostingManifests(t *testing.T) {
 			if err != nil {
 				t.Fatalf("failed to parse manifest: %v", err)
 			}
-			if m.Name == "" {
-				t.Error("expected non-empty component name")
+
+			// Validate basic fields
+			if m.Name != exp.name {
+				t.Errorf("expected component name %q, got %q", exp.name, m.Name)
 			}
-			if len(m.InterfaceFiles) == 0 {
-				t.Error("expected at least one interface file")
-			}
+
 			if len(m.DeclaredAuthority) > 0 {
 				t.Errorf("expected empty declared authority, got %v", m.DeclaredAuthority)
+			}
+
+			if len(m.AbsorbedDependencies) > 0 {
+				t.Errorf("expected empty absorbed dependencies, got %v", m.AbsorbedDependencies)
+			}
+
+			// Validate interface files
+			if len(m.InterfaceFiles) != len(exp.interfaceFiles) {
+				t.Errorf("expected %d interface files, got %d", len(exp.interfaceFiles), len(m.InterfaceFiles))
+			} else {
+				for i, file := range exp.interfaceFiles {
+					if m.InterfaceFiles[i] != file {
+						t.Errorf("expected interface file at index %d to be %q, got %q", i, file, m.InterfaceFiles[i])
+					}
+					// Assert each named file exists beneath its manifest root
+					fullPath := filepath.Join(filepath.Dir(p), file)
+					if info, err := os.Stat(fullPath); err != nil {
+						t.Errorf("expected interface file %q to exist at %q: %v", file, fullPath, err)
+					} else if info.IsDir() {
+						t.Errorf("expected interface file %q to be a file, but it is a directory", fullPath)
+					}
+				}
+			}
+
+			// Validate component dependencies
+			if len(m.ComponentDependencies) != len(exp.dependencies) {
+				t.Errorf("expected %d component dependencies, got %d", len(exp.dependencies), len(m.ComponentDependencies))
+			} else {
+				for _, dep := range m.ComponentDependencies {
+					expectedPath, ok := exp.dependencies[dep.Name]
+					if !ok {
+						t.Errorf("unexpected declared component dependency %q", dep.Name)
+					} else if dep.Manifest != expectedPath {
+						t.Errorf("expected dependency %q manifest path %q, got %q", dep.Name, expectedPath, dep.Manifest)
+					}
+				}
+			}
+
+			// Compare component edges to core package's non-stdlib imports
+			manifestDir := filepath.Dir(p)
+			nonStdlibImports := getNonTestImports(t, manifestDir)
+
+			// Map imports to expected component dependencies
+			importedComps := make(map[string]bool)
+			for imp := range nonStdlibImports {
+				if compName, ok := importToComponent(imp); ok {
+					importedComps[compName] = true
+				}
+			}
+
+			// Assert exact match between actual imported components and declared dependencies
+			for compName := range importedComps {
+				if _, ok := exp.dependencies[compName]; !ok {
+					t.Errorf("package imports component %q but it is not declared as a dependency in the manifest", compName)
+				}
+			}
+			for compName := range exp.dependencies {
+				if !importedComps[compName] {
+					t.Errorf("manifest declares dependency on component %q but it is not imported by any non-test file", compName)
+				}
 			}
 		})
 	}
