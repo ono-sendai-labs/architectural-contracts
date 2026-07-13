@@ -1,3 +1,10 @@
+// Package capanalyzer defines the port/interface and types for analyzing capabilities of Go packages.
+//
+// Component Contract (FR10):
+// - What it does: Defines the abstract CapabilityAnalyzer port, finding structures, and capability policies.
+// - What it requires: The caller must provide valid AnalyzeRequest configurations (packages and prune symbols).
+// - What it provides: An injection seam for capability analysis and policy classification of identified findings.
+// - Ambient Authority: This component is guaranteed-pure and holds no ambient authority (no I/O, no filesystem, and no environment access).
 package capanalyzer
 
 // Class represents the taxonomy of a capability finding (TrueAuthority or AnalysisDefeating).

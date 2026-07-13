@@ -4,6 +4,12 @@
 // while the loading logic in `goanalysis` (a shell package, Steps 6/9) builds them
 // from the concrete Go packages. Dependencies point inward so that core components
 // never import the shell.
+//
+// Component Contract (FR10):
+// - What it does: Defines pure structs for packages, exported symbols, static call edges, and dependency interfaces.
+// - What it requires: Constructed by the shell from static analysis or tests; holds no active logic or behaviors.
+// - What it provides: The plain data representation of component facts used throughout the checker analysis.
+// - Ambient Authority: This component is guaranteed-pure and holds no ambient authority (performs no filesystem, process, environment, or network operations).
 package facts
 
 import (

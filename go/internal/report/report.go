@@ -1,3 +1,10 @@
+// Package report defines the conformance report data models and rendering logic.
+//
+// Component Contract (FR10):
+// - What it does: Defines the representation of architectural checker findings and renders them into deterministic, human-readable text.
+// - What it requires: Receives a ConformanceReport struct populated with violations and warnings from the checker.
+// - What it provides: RenderText for plain-text formatting. Avoids JSON marshaling internally to keep the package free of reflection.
+// - Ambient Authority: This component is guaranteed-pure and holds no ambient authority (performs no filesystem I/O, network, process execution, or reflection).
 package report
 
 import (

@@ -1,0 +1,6 @@
+name: "facts"
+interface_files: "facts.go"
+component_dependencies {
+  name: "capanalyzer"
+  manifest: "../capanalyzer/component.textproto"
+}

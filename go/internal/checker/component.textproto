@@ -1,0 +1,18 @@
+name: "checker"
+interface_files: "checker.go"
+component_dependencies {
+  name: "capanalyzer"
+  manifest: "../capanalyzer/component.textproto"
+}
+component_dependencies {
+  name: "facts"
+  manifest: "../facts/component.textproto"
+}
+component_dependencies {
+  name: "manifest"
+  manifest: "../manifest/component.textproto"
+}
+component_dependencies {
+  name: "report"
+  manifest: "../report/component.textproto"
+}

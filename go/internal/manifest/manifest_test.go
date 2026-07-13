@@ -3,6 +3,7 @@ package manifest_test
 import (
 	"bytes"
 	"errors"
+	"os"
 	"reflect"
 	"testing"
 
@@ -258,4 +259,35 @@ declared_authority: "FILE"
 			t.Fatalf("expected UnknownCapabilityError for capability 'FILE', got: %v", err)
 		}
 	})
+}
+
+func TestSelfHostingManifests(t *testing.T) {
+	manifestPaths := []string{
+		"../capanalyzer/component.textproto",
+		"../facts/component.textproto",
+		"../report/component.textproto",
+		"../checker/component.textproto",
+	}
+
+	for _, p := range manifestPaths {
+		t.Run(p, func(t *testing.T) {
+			content, err := os.ReadFile(p)
+			if err != nil {
+				t.Fatalf("failed to read manifest file %s: %v", p, err)
+			}
+			m, err := manifest.Parse(bytes.NewReader(content))
+			if err != nil {
+				t.Fatalf("failed to parse manifest: %v", err)
+			}
+			if m.Name == "" {
+				t.Error("expected non-empty component name")
+			}
+			if len(m.InterfaceFiles) == 0 {
+				t.Error("expected at least one interface file")
+			}
+			if len(m.DeclaredAuthority) > 0 {
+				t.Errorf("expected empty declared authority, got %v", m.DeclaredAuthority)
+			}
+		})
+	}
 }
