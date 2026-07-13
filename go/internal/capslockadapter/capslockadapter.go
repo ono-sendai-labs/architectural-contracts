@@ -38,9 +38,16 @@ var fileHandleUseMethods = []string{
 // 4. Wraps the result to exclude UNANALYZED helper leaves.
 func buildClassifier(pruneAt []capanalyzer.InterfaceSymbol) (analyzer.Classifier, error) {
 	var b strings.Builder
+	seen := make(map[string]bool)
+
 	for _, k := range fileHandleUseMethods {
+		if seen[k] {
+			continue
+		}
+		seen[k] = true
 		fmt.Fprintf(&b, "func %s CAPABILITY_SAFE\n", k)
 	}
+
 	for _, sym := range pruneAt {
 		s := string(sym)
 		if s == "" {
@@ -49,11 +56,20 @@ func buildClassifier(pruneAt []capanalyzer.InterfaceSymbol) (analyzer.Classifier
 		if strings.ContainsAny(s, "\r\n") {
 			return nil, fmt.Errorf("prune symbol key %q contains newline characters", s)
 		}
+
+		var funcKey string
 		if strings.HasPrefix(s, "func ") {
-			fmt.Fprintf(&b, "%s CAPABILITY_SAFE\n", s)
+			funcKey = strings.TrimPrefix(s, "func ")
 		} else {
-			fmt.Fprintf(&b, "func %s CAPABILITY_SAFE\n", s)
+			funcKey = s
 		}
+
+		if seen[funcKey] {
+			continue
+		}
+		seen[funcKey] = true
+
+		fmt.Fprintf(&b, "func %s CAPABILITY_SAFE\n", funcKey)
 	}
 	merged, err := interesting.LoadClassifier("arcc-ocap", strings.NewReader(b.String()), false /* excludeBuiltin */)
 	if err != nil {
