@@ -189,9 +189,11 @@ warnings-only → 0; JSON golden.
 **Integration.** Everything pure is now wired; the two shell fact-producers
 are stubs behind ports.
 
-**Demo.** `go run ./cmd/arcc check` against a synthetic world (test fixture
-wiring the stubs) prints a real report with real exit codes — the tool's UX
-is complete before any static analysis exists.
+**Demo.** The hermetic `app` test suite shows complete report/exit-code
+behavior end to end (fake analyzer + stub loaders), and the built `arcc`
+binary runs and fails gracefully with a clear "world loaders not yet wired"
+error — the tool's UX is complete before any static analysis exists (review
+F7: the production binary cannot be truthfully wired until Step 8).
 
 ## Step 8: `goanalysis` I — packages, imports, symbols, contract-file facts
 
@@ -210,8 +212,11 @@ methods, explicit `init`, missing/present contract files; `POST:facts-err` on
 a broken build.
 
 **Integration.** Swap the Step-7 stub `FactsLoader` for the real one in the
-CLI wiring (analyzer still `capfake` with an empty table ⇒ authority checks
-vacuously pass — flagged in `--help`/docs as not yet real).
+CLI wiring. The analyzer is still `capfake` with an empty table, so authority
+checks would *vacuously* pass — a silent false "conforms" (review F8). Until
+Step 10, the intermediate wiring must inject an unconditional
+`ANALYSIS_LIMITATION` warning ("capability analysis not yet wired") into
+every report so no run can be mistaken for a real authority check.
 
 **Demo.** `arcc check` on a real on-disk fixture project reports R1–R4 and
 R10 violations from actual source code.
@@ -270,7 +275,9 @@ showcase — composes csvfile yet authority-free). Each example component gets
 Tier-1 clauses, `component-contract.md` with its miniature rely-set, and a
 manifest designating it.
 
-**Tests.** E2E golden tests: conforming run of all four manifests; failing
+**Tests.** E2E golden tests: conforming run of all three manifested
+components (`toprow`, `csvfile`, `app` — the absorbed `parsecsv` deliberately
+has none, review F6); failing
 variants — absorb-instead-of-depend (R7), undeclared-interface call (R5),
 undeclared import (R1), missing contract file (R10) — each asserting exit
 code + rendered finding.
@@ -303,8 +310,8 @@ target) fails if any own-manifest check fails.
 the tool, contracts designated in its own manifests.
 
 **Demo.** One CI job output showing `arcc check` PASS for all eight arcc
-components + four example components — the self-hosting, contract-designating
-conformance run.
+components + three example components — the self-hosting,
+contract-designating conformance run.
 
 ---
 

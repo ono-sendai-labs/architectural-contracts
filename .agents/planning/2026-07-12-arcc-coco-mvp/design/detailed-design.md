@@ -1,7 +1,8 @@
 # Detailed Design — arcc MVP, coco-first variant
 
-> **Status: draft for user review** (produced autonomously per the Round-1
-> Q&A in `../idea-honing.md`; self-review pass recorded separately).
+> **Status: for user review** (produced autonomously per the Round-1 Q&A in
+> `../idea-honing.md`; self-review findings F1–F9 from `../design-review.md`
+> are folded in — the pre-review draft is the previous jj change).
 >
 > This is a **variant of the 2026-07-06 go-mvp design**
 > (`../../2026-07-06-arch-contracts-go-mvp/design/detailed-design.md`) that
@@ -210,7 +211,7 @@ flowchart BT
     report
     manifest
     checker --> facts & capanalyzer & manifest & report
-    goanalysis --> facts & capanalyzer & manifest
+    goanalysis --> facts & manifest
     capslockadapter --> capanalyzer & facts
     cli --> checker & goanalysis & capslockadapter & manifest & report & facts & capanalyzer
 ```
@@ -293,8 +294,8 @@ tests).
 
 | | |
 |---|---|
-| Packages | `internal/capanalyzer` |
-| Interface files | `capanalyzer.go` |
+| Packages | `internal/capanalyzer`, `internal/capanalyzer/capfake` |
+| Interface files | `capanalyzer.go`, `capfake/capfake.go` (review F5: the fake is deliberately part of the declared surface — other components' tests consume it, and it is a contracted behavioral subtype, not a private helper) |
 | Component deps | `facts` |
 | Absorbed deps | — |
 | Authority | none |
@@ -316,6 +317,8 @@ type AnalyzeRequest struct {
 type CapabilityAnalyzer interface {
     // Analyze reports the ambient-authority capabilities reachable from the
     // functions of req.Packages.
+    //   - PRE:pruneat-normal-form: req.PruneAt symbols are in the facts
+    //     normal form (INV:symbol-key-form).
     //   - POST:findings-scope: covers every function in req.Packages
     //     (exported or not, live or dead; _test.go excluded).
     //   - POST:findings-pruned: no finding's path passes through a symbol in
@@ -331,10 +334,11 @@ type CapabilityPolicy struct{ Allowed, Warn map[string]bool }
 func StrictPolicy() CapabilityPolicy
 ```
 
-**Tier-1 clauses.** As in the sketch: `POST:findings-scope`,
-`POST:findings-pruned`, `INV:minting-not-use`, `POST:findings-deterministic`,
-`POST:analyze-err`; plus `POST:policy-strict-default` (StrictPolicy has both
-sets empty ⇒ any finding is a violation).
+**Tier-1 clauses.** As in the sketch: `PRE:pruneat-normal-form`,
+`POST:findings-scope`, `POST:findings-pruned`, `INV:minting-not-use`,
+`POST:findings-deterministic`, `POST:analyze-err`; plus
+`POST:policy-strict-default` (StrictPolicy has both sets empty ⇒ any finding
+is a violation).
 
 **Tier 2.** Precise semantics of scope/pruning/minting (condensed from the
 spike); rely-set: `facts INV:symbol-key-form` (PruneAt matching is exact
@@ -345,10 +349,10 @@ fidelity: pointer to the shared contract suite (§9.4).
 
 | | |
 |---|---|
-| Packages | `internal/manifest` (+ generated `gen/` subpackage) |
+| Packages | `internal/manifest` (+ generated `gen/` subpackage — part of this component by directory membership, FR1) |
 | Interface files | `manifest.go` |
 | Component deps | — |
-| Absorbed deps | `google.golang.org/protobuf/...` (prototext), own `gen/` |
+| Absorbed deps | `google.golang.org/protobuf/...` (prototext runtime) |
 | Authority | `REFLECT` (declared; see rationale) |
 
 ```go
@@ -435,8 +439,10 @@ func Check(in Inputs) report.ConformanceReport
   `goanalysis POST:depiface-fr4`.
 - `PRE:caps-pruned` — `Caps` was produced with
   `PruneAt = union(DepIfaces[i].Symbols) + per-dep-package init keys`.
-- `PRE:keys-normal-form` — every symbol key in `Facts`/`DepIfaces`/`Caps` is
-  in `facts` normal form.
+- `PRE:keys-normal-form` — every symbol key in `Facts`/`DepIfaces` is in
+  `facts` normal form. (Capability findings carry no matched keys —
+  `Capability`/`Class` drive R7/R8 and `CallPath` is evidence prose; the
+  request-side obligation is the port's `PRE:pruneat-normal-form`. Review F4.)
 - `POST:report-complete` — the report contains a finding for **every** rule
   breach derivable from `Inputs` per the rule catalog (§6, R1–R10).
 - `POST:report-sound` — no finding without a justifying input (given true
@@ -465,7 +471,7 @@ equivalence note); rely-set:
 |---|---|
 | Packages | `internal/goanalysis` |
 | Interface files | `goanalysis.go` |
-| Component deps | `facts`, `capanalyzer`, `manifest` |
+| Component deps | `facts`, `manifest` (review F2: the go-mvp's `capanalyzer` edge is gone — ADR-2 moved the symbol vocabulary to `facts`) |
 | Absorbed deps | `golang.org/x/tools/...` (go/packages, SSA, VTA) |
 | Authority | `FILES`, `EXEC`, `READ_SYSTEM_STATE` |
 
@@ -481,9 +487,11 @@ equivalence note); rely-set:
 func LoadPackageFacts(componentRoot string, m manifest.Manifest) (facts.PackageFacts, error)
 
 // ResolveDependencyInterface resolves one declared component dependency.
-//   - POST:depiface-fr4: result is the dependency's FR4 symbol set —
+//   - POST:depiface-fr4: result carries the dependency's FR4 symbol set —
 //     interface-file declarations + concrete implementations of
-//     interface-file interface types + per-package init keys.
+//     interface-file interface types + per-package init keys — plus its
+//     package lists: all packages under the dep root (Packages) and the
+//     subset containing interface files (InterfacePackages, feeds R1).
 //   - POST:depiface-integrity: dep manifest loads, name matches, roots
 //     disjoint from analyzedRoot; otherwise error.
 func ResolveDependencyInterface(declaringRoot, analyzedRoot string, dep manifest.ComponentDependency) (facts.DependencyInterface, error)
@@ -519,8 +527,9 @@ spike-validated: CAPABILITY_SAFE terminates traversal; key formats
 (both receiver forms, bracket-free generic origins, `init`/`init#N`);
 whole-package backward search; `_test.go` exclusion; `sort.*`/`Once.Do`
 call-site rewriting. **A Capslock version bump invalidates this rely-set until
-the spike checklist is re-run** — recorded as a HIST-style maintenance note in
-the contract.
+the spike checklist is re-run** — recorded in the contract as an external-rely
+re-validation obligation (a process note, not a `HIST:` clause — history
+properties constrain runtime state trajectories, review F9).
 
 ### 5.8 `cli` — orchestration and I/O (shell)
 
@@ -549,7 +558,7 @@ or the fake) — making orchestration hermetically testable (ADR-5).
 | `PRE:facts-match-manifest` | root := manifest file's dir; `LoadPackageFacts(root, m)` (`POST:facts-complete`) |
 | `PRE:depifaces-resolved` | `ResolveDependencyInterface` per declared dep (`POST:depiface-fr4/-integrity`); resolution failure ⇒ exit 2 |
 | `PRE:caps-pruned` | `Analyze(req)` with `PruneAt` := exactly `union(DepIfaces.Symbols)+init keys` (`POST:findings-pruned`) |
-| `PRE:keys-normal-form` | all three producers promise normal-form keys (`facts-keys-normal`, `depiface-fr4`, port rely on `facts`) |
+| `PRE:keys-normal-form` | both fact producers promise normal-form keys (`facts-keys-normal`, `depiface-fr4`); cli meets the port's `PRE:pruneat-normal-form` by passing DepIfaces symbols through unchanged |
 
 ## 6. Conformance rule catalog (checker Tier-2; carried + FR11)
 
@@ -651,7 +660,12 @@ absorbed_dependencies { import_path: "example.com/csvtool/internal/parsecsv" rea
 shell (R10). Otherwise the go-mvp model carries over (`PackageFact`,
 `ExportedSymbol{Name, File, Kind, Receiver}`, `CallEdge{Caller, Callee,
 PassesFuncValue}`, `DependencyInterface{Component, Packages, Symbols}`) with
-`InterfaceSymbol` now owned by `facts`.
+`InterfaceSymbol` now owned by `facts`, and (review F3)
+`DependencyInterface` gaining `InterfacePackages []string` — the dependency's
+packages containing ≥ 1 of its interface files. R1's allowed-import set is
+derived from `InterfacePackages`, not from the full `Packages` list (which
+serves R5's "callee belongs to B" test); without the new field the checker
+could not compute R1 from its inputs.
 
 ## 9. Testing strategy (per `coco-contract-testing`)
 
@@ -746,8 +760,10 @@ architectural-contracts/           (this workspace, jj branch)
 ```
 
 Note: `capfake` under `capanalyzer/` joins that component by directory
-membership — deliberate: the fake is contractually part of the port component
-(same contract, shipped beside it), and stays ambient-authority-free.
+membership, and `capfake/capfake.go` is listed as an **interface file**
+(review F5) — the fake is contractually part of the port component's declared
+surface (same contract, shipped beside it, consumed by other components'
+tests), and stays ambient-authority-free.
 
 ## 12. The CSV example (FR9)
 
