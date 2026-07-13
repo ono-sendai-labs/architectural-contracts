@@ -449,3 +449,109 @@ func Hello() {
 		t.Errorf("text output missing unused dependency warning: %s", normalizedStdoutText)
 	}
 }
+
+func TestIntegration_PruningVsAbsorbedAuthority(t *testing.T) {
+	// 1. Create the authority-bearing dependency component "authdep"
+	depManifest := `
+name: "authdep"
+interface_files: "api.go"
+`
+	depFiles := map[string]string{
+		"api.go": `package authdep
+import "os"
+func ReadData() {
+	_, _ = os.ReadFile("foo.txt")
+}
+`,
+	}
+
+	depDir, depManifestPath := createTempComponent(t, "authdep", depManifest, depFiles)
+
+	absModuleRoot, err := filepath.Abs("../..")
+	if err != nil {
+		t.Fatalf("failed to get module root: %v", err)
+	}
+	relDepDir, err := filepath.Rel(absModuleRoot, depDir)
+	if err != nil {
+		t.Fatalf("failed to resolve relative path: %v", err)
+	}
+	depImportPath := "github.com/ono-sendai-labs/architectural-contracts/go/" + filepath.ToSlash(relDepDir)
+
+	// 2. Component Dependency Variant: caller imports and calls the dependency.
+	// Because authdep is a component dependency, the call to ReadData is pruned,
+	// and its internal use of "FILES" (os.ReadFile) is not attributed to caller-cd.
+	callerFilesCD := map[string]string{
+		"caller.go": fmt.Sprintf(`package main
+import dep "%s"
+func Hello() {
+	dep.ReadData()
+}
+`, depImportPath),
+	}
+
+	callerDirCD, callerManifestPathCD := createTempComponent(t, "caller-cd", "", callerFilesCD)
+
+	// Compute relative path from callerDirCD to depManifestPath
+	relManifestCD, err := filepath.Rel(callerDirCD, depManifestPath)
+	if err != nil {
+		t.Fatalf("failed to compute relative path: %v", err)
+	}
+	relManifestCD = filepath.ToSlash(relManifestCD)
+
+	// Now write the actual manifest with the correct relative path to depManifestPath
+	actualManifestCD := fmt.Sprintf(`
+name: "caller-cd"
+interface_files: "caller.go"
+component_dependencies {
+	name: "authdep"
+	manifest: "%s"
+}
+`, relManifestCD)
+	if err := os.WriteFile(callerManifestPathCD, []byte(actualManifestCD), 0644); err != nil {
+		t.Fatalf("failed to update manifest: %v", err)
+	}
+
+	stdoutCD, stderrCD, exitCodeCD := runArcc([]string{"check", callerManifestPathCD})
+	if exitCodeCD != 0 {
+		t.Fatalf("expected component-dependency variant to conform (exit 0), got %d. Stderr: %s\nStdout: %s", exitCodeCD, stderrCD, stdoutCD)
+	}
+	if stderrCD != "" {
+		t.Errorf("expected empty stderr for component-dependency variant, got %q", stderrCD)
+	}
+	if !strings.Contains(stdoutCD, `Component "caller-cd" conforms / ambient-authority-free`) {
+		t.Errorf("expected stdout to confirm conformance, got: %s", stdoutCD)
+	}
+
+	// 3. Absorbed Dependency Variant: caller imports and calls the dependency,
+	// but declares it as absorbed instead of a component dependency.
+	// Because it is absorbed, its internal use of "FILES" remains attributed to caller-abs
+	// and triggers an UNDECLARED_AUTHORITY violation.
+	callerManifestAbs := fmt.Sprintf(`
+name: "caller-abs"
+interface_files: "caller.go"
+absorbed_dependencies {
+	import_path: "%s"
+}
+`, depImportPath)
+	callerFilesAbs := map[string]string{
+		"caller.go": fmt.Sprintf(`package main
+import dep "%s"
+func Hello() {
+	dep.ReadData()
+}
+`, depImportPath),
+	}
+
+	_, callerManifestPathAbs := createTempComponent(t, "caller-abs", callerManifestAbs, callerFilesAbs)
+
+	stdoutAbs, stderrAbs, exitCodeAbs := runArcc([]string{"check", callerManifestPathAbs})
+	if exitCodeAbs != 1 {
+		t.Fatalf("expected absorbed-dependency variant to fail (exit 1), got %d. Stderr: %s\nStdout: %s", exitCodeAbs, stderrAbs, stdoutAbs)
+	}
+	if stderrAbs != "" {
+		t.Errorf("expected empty stderr for absorbed-dependency variant, got %q", stderrAbs)
+	}
+	if !strings.Contains(stdoutAbs, `use of undeclared authority "FILES"`) {
+		t.Errorf("expected absorbed-dependency variant to report FILES undeclared authority, got: %s", stdoutAbs)
+	}
+}

@@ -583,8 +583,11 @@ interface_files: "api.go"
 	if err := os.WriteFile(filepath.Join(depDir, "component.textproto"), []byte(depManifest), 0644); err != nil {
 		t.Fatalf("failed to write dep manifest: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(depDir, "api.go"), []byte("package depa\n\nfunc FetchData() {}\n"), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(depDir, "api.go"), []byte("package depa\n\nfunc FetchData() {}\nfunc HigherOrder(fn func()) {}\n"), 0644); err != nil {
 		t.Fatalf("failed to write dep api.go: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(depDir, "other.go"), []byte("package depa\n\nfunc UndeclaredFunc() {}\n"), 0644); err != nil {
+		t.Fatalf("failed to write dep other.go: %v", err)
 	}
 
 	// 2. Create the analyzed component
@@ -604,14 +607,14 @@ absorbed_dependencies: {
   import_path: "example.com/temp/absorbed-b"
 }
 `
-	if err := os.WriteFile(filepath.Join(analyzedDir, "go.mod"), []byte("module example.com/temp/analyzed\n\ngo 1.21\n"), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(analyzedDir, "go.mod"), []byte("module example.com/temp/analyzed\n\ngo 1.21\n\nrequire example.com/temp/dep-a v0.0.0\nreplace example.com/temp/dep-a => ../dep-a\n"), 0644); err != nil {
 		t.Fatalf("failed to write analyzed go.mod: %v", err)
 	}
 	manifestPath := filepath.Join(analyzedDir, "component.textproto")
 	if err := os.WriteFile(manifestPath, []byte(manifestContent), 0644); err != nil {
 		t.Fatalf("failed to write analyzed manifest: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(analyzedDir, "api.go"), []byte("package main\n\nfunc Hello() {}\n"), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(analyzedDir, "api.go"), []byte("package main\n\nimport \"example.com/temp/dep-a\"\n\nfunc myCallback() {}\n\nfunc Hello() {\n\tdepa.FetchData()\n\tdepa.UndeclaredFunc()\n\tdepa.HigherOrder(myCallback)\n}\n"), 0644); err != nil {
 		t.Fatalf("failed to write analyzed api.go: %v", err)
 	}
 
@@ -627,13 +630,29 @@ absorbed_dependencies: {
 
 	var stdout, stderr bytes.Buffer
 	exitCode := runner.Run([]string{"check", manifestPath}, &stdout, &stderr)
-	if exitCode != 0 {
-		t.Fatalf("Run() returned %d, want 0. Stderr: %s", exitCode, stderr.String())
+	if exitCode != 1 {
+		t.Fatalf("Run() returned %d, want 1. Stderr: %s\nStdout: %s", exitCode, stderr.String(), stdout.String())
+	}
+
+	// Assert that the boundary violations and warnings are emitted correctly in the output
+	gotOut := stdout.String()
+	if !strings.Contains(gotOut, "CALLS_UNDECLARED_INTERFACE") {
+		t.Errorf("expected stdout to contain CALLS_UNDECLARED_INTERFACE, got: %s", gotOut)
+	}
+	if !strings.Contains(gotOut, "HIGHER_ORDER_BOUNDARY_CALL") {
+		t.Errorf("expected stdout to contain HIGHER_ORDER_BOUNDARY_CALL, got: %s", gotOut)
+	}
+	if !strings.Contains(gotOut, `call from "example.com/temp/analyzed.Hello" to undeclared interface symbol "example.com/temp/dep-a.UndeclaredFunc" of dependency "dep-a"`) {
+		t.Errorf("expected stdout to contain the undeclared call violation message, got: %s", gotOut)
+	}
+	if !strings.Contains(gotOut, `higher-order boundary call from "example.com/temp/analyzed.Hello" to "example.com/temp/dep-a.HigherOrder" of dependency "dep-a" passes function value`) {
+		t.Errorf("expected stdout to contain the higher-order warning message, got: %s", gotOut)
 	}
 
 	// 3. Verify that PruneAt contains both dependency interface symbols and package init keys, sorted
 	expectedPruneAt := []string{
 		"example.com/temp/dep-a.FetchData",
+		"example.com/temp/dep-a.HigherOrder",
 		"func example.com/temp/dep-a.init",
 	}
 
