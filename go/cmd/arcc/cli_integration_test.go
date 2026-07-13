@@ -798,3 +798,56 @@ component_dependencies {
 		t.Errorf("expected stdout to contain callee ReadWithCallback warning message, got: %s", stdout)
 	}
 }
+
+func TestIntegration_PureCoreRegression_Failing_UndeclaredAuthority(t *testing.T) {
+	// Read the original manifest and source code of the pure core 'report' component
+	origManifest, err := os.ReadFile("../../internal/report/component.textproto")
+	if err != nil {
+		t.Fatalf("failed to read original report manifest: %v", err)
+	}
+
+	origCode, err := os.ReadFile("../../internal/report/report.go")
+	if err != nil {
+		t.Fatalf("failed to read original report code: %v", err)
+	}
+
+	// We create a temporary component that copies the original files,
+	// but we add a new file 'regression_authority.go' which introduces os.Open (FILES capability)
+	files := map[string]string{
+		"report.go": string(origCode),
+		"regression_authority.go": `package report
+
+import "os"
+
+func ViolateCorePurity() {
+	_, _ = os.Open("some_arbitrary_file.txt")
+}
+`,
+	}
+
+	_, manifestPath := createTempComponent(t, "pure-core-regression", string(origManifest), files)
+
+	// Run arcc on the mutated copy of the pure component
+	stdout, stderr, exitCode := runArcc([]string{"check", manifestPath})
+
+	if exitCode != 1 {
+		t.Fatalf("expected exit code 1 due to undeclared authority, got %d. Stderr: %s\nStdout: %s", exitCode, stderr, stdout)
+	}
+	if stderr != "" {
+		t.Errorf("expected empty stderr, got %q", stderr)
+	}
+
+	// Verify that the output lists the filesystem authority violation pointing to os.Open
+	if !strings.Contains(stdout, "UNDECLARED_AUTHORITY") {
+		t.Errorf("expected stdout to contain UNDECLARED_AUTHORITY, got: %s", stdout)
+	}
+	if !strings.Contains(stdout, `use of undeclared authority "FILES"`) {
+		t.Errorf("expected stdout to report FILES authority violation, got: %s", stdout)
+	}
+	if !strings.Contains(stdout, "ViolateCorePurity") {
+		t.Errorf("expected stdout evidence to reference ViolateCorePurity function, got: %s", stdout)
+	}
+	if !strings.Contains(stdout, "os.Open at regression_authority.go:") {
+		t.Errorf("expected stdout evidence to reference os.Open at regression_authority.go, got: %s", stdout)
+	}
+}
