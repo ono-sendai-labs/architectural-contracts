@@ -30,14 +30,19 @@ run *args:
 	cd {{go_dir}} && go run ./cmd/arcc {{args}}
 
 selfcheck:
-	cd {{go_dir}} && go run ./cmd/arcc check internal/checker/component.textproto
-	cd {{go_dir}} && go run ./cmd/arcc check internal/facts/component.textproto
-	cd {{go_dir}} && go run ./cmd/arcc check internal/report/component.textproto
-	cd {{go_dir}} && go run ./cmd/arcc check internal/capanalyzer/component.textproto
-	cd {{go_dir}} && go run ./cmd/arcc check internal/manifest/component.textproto
-	cd {{go_dir}} && go run ./cmd/arcc check internal/goanalysis/component.textproto
-	cd {{go_dir}} && go run ./cmd/arcc check internal/capslockadapter/component.textproto
-	cd {{go_dir}} && go run ./cmd/arcc check cmd/arcc/component.textproto
+	@echo "=== Building own arcc ==="
+	mkdir -p bin
+	cd {{go_dir}} && go build -o ../bin/arcc ./cmd/arcc
+	@echo "=== Running self-hosting checks (Pillar 3 authority-free core) ==="
+	cd {{go_dir}} && ../bin/arcc check internal/checker/component.textproto
+	cd {{go_dir}} && ../bin/arcc check internal/facts/component.textproto
+	cd {{go_dir}} && ../bin/arcc check internal/report/component.textproto
+	cd {{go_dir}} && ../bin/arcc check internal/capanalyzer/component.textproto
+	@echo "=== Running self-hosting checks (remaining components) ==="
+	cd {{go_dir}} && ../bin/arcc check internal/manifest/component.textproto
+	cd {{go_dir}} && ../bin/arcc check internal/goanalysis/component.textproto
+	cd {{go_dir}} && ../bin/arcc check internal/capslockadapter/component.textproto
+	cd {{go_dir}} && ../bin/arcc check cmd/arcc/component.textproto
 
 ci: gen-is-clean lint build test test-integration selfcheck
 
