@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/capanalyzer"
@@ -103,7 +104,37 @@ func (r *Runner) Run(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 
-	// 5. Pass all loaded component package import paths to the analyzer with empty PruneAt
+	// 5. Resolve direct component dependencies
+	var resolvedDeps []facts.DependencyInterface
+	for _, dep := range parsedManifest.ComponentDependencies {
+		depIface, err := goanalysis.ResolveDependencyInterface(componentRoot, componentRoot, dep)
+		if err != nil {
+			fmt.Fprintf(stderr, "error: failed to resolve dependency %q: %v\n", dep.Name, err)
+			return 2
+		}
+		resolvedDeps = append(resolvedDeps, depIface)
+	}
+
+	// 6. Build AnalyzeRequest.PruneAt from resolved dependencies
+	pruneSet := make(map[string]bool)
+	for _, di := range resolvedDeps {
+		for _, sym := range di.Symbols {
+			pruneSet[string(sym)] = true
+		}
+		for _, pkg := range di.Packages {
+			pruneSet["func "+pkg+".init"] = true
+		}
+	}
+
+	var pruneAt []capanalyzer.InterfaceSymbol
+	for k := range pruneSet {
+		pruneAt = append(pruneAt, capanalyzer.InterfaceSymbol(k))
+	}
+	sort.Slice(pruneAt, func(i, j int) bool {
+		return pruneAt[i] < pruneAt[j]
+	})
+
+	// 7. Pass all loaded component package import paths to the analyzer
 	var pkgs []string
 	for _, p := range loadedFacts.Packages {
 		pkgs = append(pkgs, p.ImportPath)
@@ -111,18 +142,18 @@ func (r *Runner) Run(args []string, stdout, stderr io.Writer) int {
 
 	findings, err := r.Analyzer.Analyze(capanalyzer.AnalyzeRequest{
 		Packages: pkgs,
-		PruneAt:  nil,
+		PruneAt:  pruneAt,
 	})
 	if err != nil {
 		fmt.Fprintf(stderr, "error: capability analysis failed: %v\n", err)
 		return 2
 	}
 
-	// 6. Start from capanalyzer.StrictPolicy, merging Manifest.DeclaredAuthority
+	// 8. Start from capanalyzer.StrictPolicy, merging Manifest.DeclaredAuthority
 	inputs := checker.Inputs{
 		Manifest:  parsedManifest,
 		Facts:     loadedFacts,
-		DepIfaces: nil, // Pass no DepIfaces until Step 9
+		DepIfaces: resolvedDeps,
 		Caps:      findings,
 		Policy:    capanalyzer.StrictPolicy(),
 	}

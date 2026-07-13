@@ -252,18 +252,19 @@ func TestAdapter_Analyze_EmptyPackages(t *testing.T) {
 	}
 }
 
-// TestAdapter_Analyze_PruneAtError verifies that non-empty PruneAt is rejected with a descriptive error.
-func TestAdapter_Analyze_PruneAtError(t *testing.T) {
+// TestAdapter_Analyze_PruneAt_Success verifies that non-empty PruneAt is supported and prunes findings.
+func TestAdapter_Analyze_PruneAt_Success(t *testing.T) {
 	adapter := NewAdapter()
 	req := capanalyzer.AnalyzeRequest{
-		Packages: []string{"github.com/ono-sendai-labs/architectural-contracts/go/internal/capslockadapter/testdata/pure"},
-		PruneAt:  []capanalyzer.InterfaceSymbol{"some.Symbol"},
+		Packages: []string{"github.com/ono-sendai-labs/architectural-contracts/go/internal/capslockadapter/testdata/filereader"},
+		PruneAt:  []capanalyzer.InterfaceSymbol{"github.com/ono-sendai-labs/architectural-contracts/go/internal/capslockadapter/testdata/filereader.ReadSomeFile"},
 	}
-	_, err := adapter.Analyze(req)
-	if err == nil {
-		t.Errorf("expected Analyze to fail when PruneAt is non-empty, but it succeeded")
-	} else if !strings.Contains(err.Error(), "boundary pruning (PruneAt) is not supported") {
-		t.Errorf("expected error message to contain %q, got: %q", "boundary pruning (PruneAt) is not supported", err.Error())
+	findings, err := adapter.Analyze(req)
+	if err != nil {
+		t.Fatalf("failed to analyze: %v", err)
+	}
+	if len(findings) != 0 {
+		t.Errorf("expected 0 findings because ReadSomeFile was pruned, got %d findings: %+v", len(findings), findings)
 	}
 }
 
