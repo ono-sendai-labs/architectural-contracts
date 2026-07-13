@@ -1,0 +1,3 @@
+package declaring
+
+func Stub() {}
