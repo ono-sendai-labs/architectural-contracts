@@ -490,18 +490,51 @@ interface_files: "api.go"
 }
 
 func TestRunner_Check_Success_WarningsOnly(t *testing.T) {
+	// 1. Create a parent directory and a dependency in a sibling directory
+	parentDir := t.TempDir()
+	depDir := filepath.Join(parentDir, "unused-dep")
+	if err := os.MkdirAll(depDir, 0755); err != nil {
+		t.Fatalf("failed to create dep dir: %v", err)
+	}
+
+	depManifest := `
+name: "unused-dep"
+interface_files: "api.go"
+`
+	if err := os.WriteFile(filepath.Join(depDir, "go.mod"), []byte("module example.com/temp/unused-dep\n\ngo 1.21\n"), 0644); err != nil {
+		t.Fatalf("failed to write dep go.mod: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(depDir, "component.textproto"), []byte(depManifest), 0644); err != nil {
+		t.Fatalf("failed to write dep manifest: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(depDir, "api.go"), []byte("package unused_dep\n\nfunc Unused() {}\n"), 0644); err != nil {
+		t.Fatalf("failed to write dep api.go: %v", err)
+	}
+
+	// 2. Create the analyzed component in a sibling directory
+	analyzedDir := filepath.Join(parentDir, "warnings-only")
+	if err := os.MkdirAll(analyzedDir, 0755); err != nil {
+		t.Fatalf("failed to create analyzed dir: %v", err)
+	}
+
 	manifestContent := `
 name: "test-comp-warn"
 interface_files: "api.go"
 component_dependencies: {
   name: "unused-dep"
-  manifest: "unused-dep/component.textproto"
+  manifest: "../unused-dep/component.textproto"
 }
 `
-	files := map[string]string{
-		"api.go": "package main\n\nfunc Hello() {}\n",
+	if err := os.WriteFile(filepath.Join(analyzedDir, "go.mod"), []byte("module example.com/temp/warnings-only\n\ngo 1.21\n"), 0644); err != nil {
+		t.Fatalf("failed to write analyzed go.mod: %v", err)
 	}
-	_, manifestPath := createTempComponent(t, "warnings-only", manifestContent, files)
+	manifestPath := filepath.Join(analyzedDir, "component.textproto")
+	if err := os.WriteFile(manifestPath, []byte(manifestContent), 0644); err != nil {
+		t.Fatalf("failed to write analyzed manifest: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(analyzedDir, "api.go"), []byte("package main\n\nfunc Hello() {}\n"), 0644); err != nil {
+		t.Fatalf("failed to write analyzed api.go: %v", err)
+	}
 
 	loader := func(root string) (facts.PackageFacts, error) {
 		return goanalysis.LoadPackageFacts(root)
@@ -529,5 +562,125 @@ component_dependencies: {
 	}
 	if strings.Contains(got, "Violations:") {
 		t.Errorf("stdout = %q, should not contain violations", got)
+	}
+}
+
+func TestRunner_Check_BoundaryWiring_PruningAndErrors(t *testing.T) {
+	// 1. Setup sibling directories inside parentDir
+	parentDir := t.TempDir()
+	depDir := filepath.Join(parentDir, "dep-a")
+	if err := os.MkdirAll(depDir, 0755); err != nil {
+		t.Fatalf("failed to create dep dir: %v", err)
+	}
+
+	depManifest := `
+name: "dep-a"
+interface_files: "api.go"
+`
+	if err := os.WriteFile(filepath.Join(depDir, "go.mod"), []byte("module example.com/temp/dep-a\n\ngo 1.21\n"), 0644); err != nil {
+		t.Fatalf("failed to write dep go.mod: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(depDir, "component.textproto"), []byte(depManifest), 0644); err != nil {
+		t.Fatalf("failed to write dep manifest: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(depDir, "api.go"), []byte("package depa\n\nfunc FetchData() {}\n"), 0644); err != nil {
+		t.Fatalf("failed to write dep api.go: %v", err)
+	}
+
+	// 2. Create the analyzed component
+	analyzedDir := filepath.Join(parentDir, "analyzed")
+	if err := os.MkdirAll(analyzedDir, 0755); err != nil {
+		t.Fatalf("failed to create analyzed dir: %v", err)
+	}
+
+	manifestContent := `
+name: "analyzed-comp"
+interface_files: "api.go"
+component_dependencies: {
+  name: "dep-a"
+  manifest: "../dep-a/component.textproto"
+}
+absorbed_dependencies: {
+  import_path: "example.com/temp/absorbed-b"
+}
+`
+	if err := os.WriteFile(filepath.Join(analyzedDir, "go.mod"), []byte("module example.com/temp/analyzed\n\ngo 1.21\n"), 0644); err != nil {
+		t.Fatalf("failed to write analyzed go.mod: %v", err)
+	}
+	manifestPath := filepath.Join(analyzedDir, "component.textproto")
+	if err := os.WriteFile(manifestPath, []byte(manifestContent), 0644); err != nil {
+		t.Fatalf("failed to write analyzed manifest: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(analyzedDir, "api.go"), []byte("package main\n\nfunc Hello() {}\n"), 0644); err != nil {
+		t.Fatalf("failed to write analyzed api.go: %v", err)
+	}
+
+	loader := func(root string) (facts.PackageFacts, error) {
+		return goanalysis.LoadPackageFacts(root)
+	}
+
+	analyzer := &mockAnalyzer{}
+	runner := &app.Runner{
+		Loader:   loader,
+		Analyzer: analyzer,
+	}
+
+	var stdout, stderr bytes.Buffer
+	exitCode := runner.Run([]string{"check", manifestPath}, &stdout, &stderr)
+	if exitCode != 0 {
+		t.Fatalf("Run() returned %d, want 0. Stderr: %s", exitCode, stderr.String())
+	}
+
+	// 3. Verify that PruneAt contains both dependency interface symbols and package init keys, sorted
+	expectedPruneAt := []string{
+		"example.com/temp/dep-a.FetchData",
+		"func example.com/temp/dep-a.init",
+	}
+
+	if len(analyzer.calledWith.PruneAt) != len(expectedPruneAt) {
+		t.Errorf("expected %d prune keys, got %v", len(expectedPruneAt), analyzer.calledWith.PruneAt)
+	}
+
+	for _, exp := range expectedPruneAt {
+		found := false
+		for _, got := range analyzer.calledWith.PruneAt {
+			if string(got) == exp {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("expected prune key %q not found in PruneAt: %v", exp, analyzer.calledWith.PruneAt)
+		}
+	}
+
+	// Verify deterministic alphabetical sorting of PruneAt
+	for i := 1; i < len(analyzer.calledWith.PruneAt); i++ {
+		if analyzer.calledWith.PruneAt[i] < analyzer.calledWith.PruneAt[i-1] {
+			t.Errorf("PruneAt is not sorted alphabetically: %v", analyzer.calledWith.PruneAt)
+		}
+	}
+
+	// 4. Test error case: dependency resolution failure yields exit code 2
+	badManifestContent := `
+name: "analyzed-comp"
+interface_files: "api.go"
+component_dependencies: {
+  name: "nonexistent-dep"
+  manifest: "../nonexistent/component.textproto"
+}
+`
+	badManifestPath := filepath.Join(analyzedDir, "bad_component.textproto")
+	if err := os.WriteFile(badManifestPath, []byte(badManifestContent), 0644); err != nil {
+		t.Fatalf("failed to write bad manifest: %v", err)
+	}
+
+	var stdoutBad, stderrBad bytes.Buffer
+	badExitCode := runner.Run([]string{"check", badManifestPath}, &stdoutBad, &stderrBad)
+	if badExitCode != 2 {
+		t.Errorf("expected exit code 2 on resolution failure, got %d. Stderr: %s", badExitCode, stderrBad.String())
+	}
+	if !strings.Contains(stderrBad.String(), "failed to resolve dependency") {
+		t.Errorf("expected stderr to contain error message about dependency resolution, got: %s", stderrBad.String())
 	}
 }

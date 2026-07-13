@@ -42,7 +42,18 @@ func buildClassifier(pruneAt []capanalyzer.InterfaceSymbol) (analyzer.Classifier
 		fmt.Fprintf(&b, "func %s CAPABILITY_SAFE\n", k)
 	}
 	for _, sym := range pruneAt {
-		fmt.Fprintf(&b, "func %s CAPABILITY_SAFE\n", string(sym))
+		s := string(sym)
+		if s == "" {
+			return nil, fmt.Errorf("empty prune symbol key")
+		}
+		if strings.ContainsAny(s, "\r\n") {
+			return nil, fmt.Errorf("prune symbol key %q contains newline characters", s)
+		}
+		if strings.HasPrefix(s, "func ") {
+			fmt.Fprintf(&b, "%s CAPABILITY_SAFE\n", s)
+		} else {
+			fmt.Fprintf(&b, "func %s CAPABILITY_SAFE\n", s)
+		}
 	}
 	merged, err := interesting.LoadClassifier("arcc-ocap", strings.NewReader(b.String()), false /* excludeBuiltin */)
 	if err != nil {
@@ -84,10 +95,6 @@ func NewAdapter() *Adapter {
 func (a *Adapter) Analyze(req capanalyzer.AnalyzeRequest) ([]capanalyzer.CapabilityFinding, error) {
 	if len(req.Packages) == 0 {
 		return nil, fmt.Errorf("package request is empty; at least one package path must be provided")
-	}
-
-	if len(req.PruneAt) > 0 {
-		return nil, fmt.Errorf("boundary pruning (PruneAt) is not supported before Step 9")
 	}
 
 	classifier, err := buildClassifier(req.PruneAt)
