@@ -3,11 +3,11 @@ name: Release
 on:
   push:
     tags:
-      - 'v[0-9]*.[0-9]*.[0-9]*'
+      - 'v[0-9]+.[0-9]+.[0-9]+-?*'
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Release tag (must match v[0-9]+.[0-9]+.[0-9]+-?*)'
+        description: 'Existing release tag to build (must match v[0-9]+.[0-9]+.[0-9]+-?*)'
         required: true
         type: string
 
@@ -25,29 +25,35 @@ jobs:
         os: [linux, darwin]
         arch: [amd64, arm64]
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Set up Go
-        uses: actions/setup-go@v5
-        with:
-          go-version-file: go/go.mod
-          cache-dependency-path: go/go.mod
-
       - name: Determine tag
         id: determine_tag
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          DISPATCH_TAG: ${{ github.event.inputs.tag }}
+          PUSH_TAG: ${{ github.ref_name }}
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            TAG="${{ github.event.inputs.tag }}"
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            TAG="$DISPATCH_TAG"
           else
-            TAG="${{ github.ref_name }}"
+            TAG="$PUSH_TAG"
           fi
           # Validate tag format strictly against v[0-9]+.[0-9]+.[0-9]+-?*
           if [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-.*)?$ ]]; then
             echo "Error: Tag '$TAG' does not match required format v[0-9]+.[0-9]+.[0-9]+-?*" >&2
             exit 1
           fi
-          echo "tag=$TAG" >> $GITHUB_OUTPUT
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: refs/tags/${{ steps.determine_tag.outputs.tag }}
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go/go.mod
+          cache-dependency-path: go/go.mod
 
       - name: Build binary
         working-directory: go
@@ -73,23 +79,29 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
       - name: Determine tag
         id: determine_tag
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          DISPATCH_TAG: ${{ github.event.inputs.tag }}
+          PUSH_TAG: ${{ github.ref_name }}
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            TAG="${{ github.event.inputs.tag }}"
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            TAG="$DISPATCH_TAG"
           else
-            TAG="${{ github.ref_name }}"
+            TAG="$PUSH_TAG"
           fi
           # Validate tag format strictly against v[0-9]+.[0-9]+.[0-9]+-?*
           if [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-.*)?$ ]]; then
             echo "Error: Tag '$TAG' does not match required format v[0-9]+.[0-9]+.[0-9]+-?*" >&2
             exit 1
           fi
-          echo "tag=$TAG" >> $GITHUB_OUTPUT
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: refs/tags/${{ steps.determine_tag.outputs.tag }}
 
       - name: Download all artifacts
         uses: actions/download-artifact@v4
