@@ -33,8 +33,13 @@ To compile and use the `arcc` tool, you need:
 - **Go 1.26 or later** (compatible with modern Go toolchains).
 - **`just`** (optional, recommended command-runner for building and linting).
 - **Protocol Buffer compiler (`protoc`)** (required to run the complete CI pipeline via `just ci`, or if you intend to modify the protobuf schema).
+- **`protoc-gen-go` Go plugin** (required by `protoc` for Go code generation during `just ci`). You can install it using:
+  ```bash
+  go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.36.11
+  ```
+  Ensure your Go binary installation directory (typically `$GOPATH/bin` or `$HOME/go/bin`) is in your system's `PATH`.
 
-*Note: If you do not have `protoc` installed, you can still build and run tests using `just` or Go directly without running the protobuf verification steps (see below).*
+*Note: If you do not have `protoc` or `protoc-gen-go` installed, you can still build and run tests using `just` or Go directly without running the protobuf verification steps (see below).*
 
 ---
 
@@ -51,11 +56,11 @@ just build
 Verify that everything builds, lints, and passes tests (including selfcheck):
 ```bash
 # Runs the full CI pipeline, which includes verifying that generated Go files
-# match the protobuf schema. Requires `protoc`.
+# match the protobuf schema. Requires `protoc` and `protoc-gen-go`.
 just ci
 ```
 
-If you do not have `protoc` installed, you can run all other verification checks (lint, build, unit/integration tests, and self-hosting checks) using:
+If you do not have `protoc` or `protoc-gen-go` installed, you can run all other verification checks (lint, build, unit/integration tests, and self-hosting checks) using:
 ```bash
 just lint build test test-integration selfcheck
 ```
@@ -283,13 +288,13 @@ The MVP implementation makes several engineering trade-offs and has known bounda
 Developers contributing to the Architectural Contracts project can use the provided tooling to ensure clean commits.
 
 ### Run the pipeline
-Make sure everything remains green before committing changes. If you have `protoc` installed, run:
+Make sure everything remains green before committing changes. If you have `protoc` and `protoc-gen-go` installed, run:
 ```bash
 just ci
 ```
-This runs lints, verifies that generated protobuf files are clean (using `protoc`), compiles the binaries, executes unit and integration tests, and runs the selfcheck.
+This runs lints, verifies that generated protobuf files are clean (using `protoc` and `protoc-gen-go`), compiles the binaries, executes unit and integration tests, and runs the selfcheck.
 
-If you do not have `protoc` installed, you can run all verification checks except the protobuf generation check using:
+If you do not have `protoc` or `protoc-gen-go` installed, you can run all verification checks except the protobuf generation check using:
 ```bash
 just lint build test test-integration selfcheck
 ```
