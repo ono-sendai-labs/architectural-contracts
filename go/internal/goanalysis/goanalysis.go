@@ -14,6 +14,7 @@ import (
 
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/capanalyzer"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/facts"
+	"github.com/ono-sendai-labs/architectural-contracts/go/internal/manifest"
 	"golang.org/x/tools/go/callgraph/vta"
 	"golang.org/x/tools/go/packages"
 	"golang.org/x/tools/go/ssa"
@@ -451,4 +452,256 @@ func passesFuncValue(site ssa.CallInstruction) bool {
 		}
 	}
 	return false
+}
+
+// ResolveDependencyInterface turns a component dependency into its derived facts.
+func ResolveDependencyInterface(
+	declaringRoot string,
+	analyzedRoot string,
+	dep manifest.ComponentDependency,
+) (facts.DependencyInterface, error) {
+	// 1. Resolve dep.Manifest relative to declaringRoot
+	manifestPath := filepath.Clean(filepath.Join(declaringRoot, dep.Manifest))
+	depRoot := filepath.Dir(manifestPath)
+
+	// 2. Reject unreadable/invalid manifests
+	f, err := os.Open(manifestPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return facts.DependencyInterface{}, fmt.Errorf("dependency manifest does not exist at %q: %w", manifestPath, err)
+		}
+		return facts.DependencyInterface{}, fmt.Errorf("failed to open dependency manifest at %q: %w", manifestPath, err)
+	}
+	defer f.Close()
+
+	depManifest, err := manifest.Parse(f)
+	if err != nil {
+		return facts.DependencyInterface{}, fmt.Errorf("failed to parse dependency manifest at %q: %w", manifestPath, err)
+	}
+
+	// 3. Reject dependency name mismatches
+	if depManifest.Name != dep.Name {
+		return facts.DependencyInterface{}, fmt.Errorf("dependency name mismatch: expected %q, got %q in manifest", dep.Name, depManifest.Name)
+	}
+
+	// 4. Reject roots overlapping the analyzed component as actionable tool errors
+	cleanAnalyzed := filepath.Clean(analyzedRoot)
+	cleanDepRoot := filepath.Clean(depRoot)
+	if cleanDepRoot == cleanAnalyzed ||
+		strings.HasPrefix(cleanDepRoot, cleanAnalyzed+string(filepath.Separator)) ||
+		strings.HasPrefix(cleanAnalyzed, cleanDepRoot+string(filepath.Separator)) {
+		return facts.DependencyInterface{}, fmt.Errorf("root overlap error: dependency root %q overlaps with analyzed root %q", cleanDepRoot, cleanAnalyzed)
+	}
+
+	// 5. Load all packages below the dependency root
+	cfg := &packages.Config{
+		Mode: packages.NeedName | packages.NeedFiles | packages.NeedCompiledGoFiles |
+			packages.NeedImports | packages.NeedDeps | packages.NeedSyntax |
+			packages.NeedTypes | packages.NeedTypesInfo | packages.NeedModule,
+		Dir: cleanDepRoot,
+	}
+
+	depPkgs, err := packages.Load(cfg, "./...")
+	if err != nil {
+		return facts.DependencyInterface{}, fmt.Errorf("failed to load dependency packages: %w", err)
+	}
+	if len(depPkgs) == 0 {
+		return facts.DependencyInterface{}, fmt.Errorf("no packages found under dependency root %q", cleanDepRoot)
+	}
+
+	// Check package load/parse/type errors
+	var errMsgs []string
+	packages.Visit(depPkgs, nil, func(p *packages.Package) {
+		for _, err := range p.Errors {
+			errMsgs = append(errMsgs, err.Msg)
+		}
+	})
+	if len(errMsgs) > 0 {
+		sort.Strings(errMsgs)
+		return facts.DependencyInterface{}, fmt.Errorf("dependency package load errors:\n%s", strings.Join(errMsgs, "\n"))
+	}
+
+	// 6. Collect package paths and source files
+	var pkgPaths []string
+	sourceFiles := make(map[string]bool)
+	for _, p := range depPkgs {
+		pkgPaths = append(pkgPaths, p.PkgPath)
+		for _, absFile := range p.GoFiles {
+			rel, err := filepath.Rel(cleanDepRoot, absFile)
+			if err != nil {
+				continue
+			}
+			sourceFiles[filepath.ToSlash(filepath.Clean(rel))] = true
+		}
+	}
+	sort.Strings(pkgPaths)
+
+	// 7. Collect package facts (extract symbols) and register in loadedFiles for ValidateInterfaceFiles
+	var factsPkgs []facts.PackageFact
+	for _, p := range depPkgs {
+		var imports []string
+		for impPath := range p.Imports {
+			imports = append(imports, impPath)
+		}
+		sort.Strings(imports)
+
+		isStd := isStdlibPackage(p)
+
+		exportedSymbols, err := extractSymbols(p, cleanDepRoot)
+		if err != nil {
+			return facts.DependencyInterface{}, err
+		}
+
+		factsPkgs = append(factsPkgs, facts.PackageFact{
+			ImportPath:      p.PkgPath,
+			IsStdlib:        isStd,
+			Imports:         imports,
+			ExportedSymbols: exportedSymbols,
+		})
+	}
+
+	sort.Slice(factsPkgs, func(i, j int) bool {
+		return factsPkgs[i].ImportPath < factsPkgs[j].ImportPath
+	})
+
+	depPackageFacts := facts.PackageFacts{
+		Packages: factsPkgs,
+	}
+	if len(factsPkgs) > 0 {
+		ptr := reflect.ValueOf(depPackageFacts.Packages).Pointer()
+		membershipMu.Lock()
+		loadedFiles[ptr] = sourceFiles
+		membershipMu.Unlock()
+	}
+
+	// 8. Validate interface files
+	err = ValidateInterfaceFiles(cleanDepRoot, depManifest.InterfaceFiles, depPackageFacts)
+	if err != nil {
+		return facts.DependencyInterface{}, fmt.Errorf("invalid interface files in dependency %q: %w", dep.Name, err)
+	}
+
+	// Map interface files for O(1) lookup
+	interfaceFilesMap := make(map[string]bool)
+	for _, f := range depManifest.InterfaceFiles {
+		interfaceFilesMap[filepath.ToSlash(filepath.Clean(f))] = true
+	}
+
+	// 9. Collect exported interface types declared in interface files
+	interfaceTypes := make(map[string]*types.Interface)
+	for _, p := range depPkgs {
+		for _, file := range p.Syntax {
+			if file == nil {
+				continue
+			}
+			pos := p.Fset.Position(file.Pos())
+			absPath := pos.Filename
+			if absPath == "" {
+				continue
+			}
+			relPath, err := filepath.Rel(cleanDepRoot, absPath)
+			if err != nil {
+				continue
+			}
+			relPath = filepath.ToSlash(relPath)
+			if !interfaceFilesMap[relPath] {
+				continue
+			}
+
+			for _, decl := range file.Decls {
+				genDecl, ok := decl.(*ast.GenDecl)
+				if !ok || genDecl.Tok != token.TYPE {
+					continue
+				}
+				for _, spec := range genDecl.Specs {
+					typeSpec, ok := spec.(*ast.TypeSpec)
+					if !ok || !ast.IsExported(typeSpec.Name.Name) {
+						continue
+					}
+					obj := p.Types.Scope().Lookup(typeSpec.Name.Name)
+					if obj == nil {
+						continue
+					}
+					typeName, ok := obj.(*types.TypeName)
+					if !ok {
+						continue
+					}
+					if iface, ok := typeName.Type().Underlying().(*types.Interface); ok {
+						interfaceTypes[typeName.Type().String()] = iface
+					}
+				}
+			}
+		}
+	}
+
+	// 10. Collect all concrete named types in the dependency packages
+	var concreteTypes []*types.Named
+	for _, p := range depPkgs {
+		scope := p.Types.Scope()
+		for _, name := range scope.Names() {
+			obj := scope.Lookup(name)
+			if obj == nil {
+				continue
+			}
+			typeName, ok := obj.(*types.TypeName)
+			if !ok {
+				continue
+			}
+			if named, ok := typeName.Type().(*types.Named); ok {
+				if _, isIface := named.Underlying().(*types.Interface); !isIface {
+					concreteTypes = append(concreteTypes, named)
+				}
+			}
+		}
+	}
+
+	// 11. Find concrete methods implementing those interface types
+	concreteMethods := make(map[string]bool)
+	for _, named := range concreteTypes {
+		ptrType := types.NewPointer(named)
+
+		for _, iface := range interfaceTypes {
+			if types.Implements(named, iface) || types.Implements(ptrType, iface) {
+				mset := types.NewMethodSet(ptrType)
+				for i := 0; i < mset.Len(); i++ {
+					m := mset.At(i)
+					methodName := m.Obj().Name()
+					formattedTypeName := stripGenericBrackets(types.TypeString(named, nil))
+
+					ptrKey := "(*" + formattedTypeName + ")." + methodName
+					valKey := "(" + formattedTypeName + ")." + methodName
+
+					concreteMethods[ptrKey] = true
+					concreteMethods[valKey] = true
+				}
+			}
+		}
+	}
+
+	// 12. Combine, deduplicate, and sort derived symbols
+	symbolSet := make(map[string]bool)
+	for _, p := range factsPkgs {
+		for _, sym := range p.ExportedSymbols {
+			if interfaceFilesMap[sym.File] {
+				symbolSet[sym.Name] = true
+			}
+		}
+	}
+
+	for key := range concreteMethods {
+		symbolSet[key] = true
+	}
+
+	var symbols []capanalyzer.InterfaceSymbol
+	for sym := range symbolSet {
+		symbols = append(symbols, capanalyzer.InterfaceSymbol(sym))
+	}
+	sort.Slice(symbols, func(i, j int) bool {
+		return symbols[i] < symbols[j]
+	})
+
+	return facts.DependencyInterface{
+		Component: dep.Name,
+		Packages:  pkgPaths,
+		Symbols:   symbols,
+	}, nil
 }

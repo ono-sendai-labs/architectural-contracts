@@ -1,0 +1,3 @@
+package subpkg
+
+func Subhello() {}

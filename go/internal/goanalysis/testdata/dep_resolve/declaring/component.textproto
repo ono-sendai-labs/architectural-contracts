@@ -1,0 +1,6 @@
+name: "declaring"
+interface_files: "declaring.go"
+component_dependencies {
+  name: "dep"
+  manifest: "../dep/component.textproto"
+}
