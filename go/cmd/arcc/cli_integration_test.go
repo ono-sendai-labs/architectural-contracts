@@ -662,3 +662,139 @@ func Hello() {
 		t.Errorf("expected absorbed-dependency variant to report FILES undeclared authority, got: %s", stdoutAbs)
 	}
 }
+
+func TestIntegration_App_Success(t *testing.T) {
+	stdout, stderr, exitCode := runArcc([]string{"check", "../../examples/csvtool/app/component.textproto"})
+
+	if exitCode != 0 {
+		t.Fatalf("expected exit code 0, got %d. Stderr: %s\nStdout: %s", exitCode, stderr, stdout)
+	}
+	if stderr != "" {
+		t.Errorf("expected empty stderr, got %q", stderr)
+	}
+
+	want := `Component "app" conforms / ambient-authority-free`
+	if !strings.Contains(stdout, want) {
+		t.Errorf("stdout = %q, want it to contain %q", stdout, want)
+	}
+}
+
+func TestIntegration_PrivateCall_Failure(t *testing.T) {
+	wd, _ := os.Getwd()
+	depManifestPath, err := filepath.Abs(filepath.Join(wd, "../../examples/csvtool/csvfile/component.textproto"))
+	if err != nil {
+		t.Fatalf("failed to get absolute path of csvfile manifest: %v", err)
+	}
+
+	files := map[string]string{
+		"app.go": `package main
+
+import "github.com/ono-sendai-labs/architectural-contracts/go/examples/csvtool/csvfile"
+
+func Run() {
+	csvfile.PrivateExportedHelper()
+}
+`,
+	}
+
+	callerDir, callerManifestPath := createTempComponent(t, "app-private-fail", "", files)
+
+	relManifest, err := filepath.Rel(callerDir, depManifestPath)
+	if err != nil {
+		t.Fatalf("failed to compute relative path: %v", err)
+	}
+	relManifest = filepath.ToSlash(relManifest)
+
+	actualManifest := fmt.Sprintf(`
+name: "app-private-fail"
+interface_files: "app.go"
+component_dependencies {
+	name: "csvfile"
+	manifest: "%s"
+}
+`, relManifest)
+
+	if err := os.WriteFile(callerManifestPath, []byte(actualManifest), 0644); err != nil {
+		t.Fatalf("failed to update manifest: %v", err)
+	}
+
+	stdout, stderr, exitCode := runArcc([]string{"check", callerManifestPath})
+
+	if exitCode != 1 {
+		t.Fatalf("expected exit code 1, got %d. Stderr: %s\nStdout: %s", exitCode, stderr, stdout)
+	}
+	if stderr != "" {
+		t.Errorf("expected empty stderr, got %q", stderr)
+	}
+
+	if !strings.Contains(stdout, "CALLS_UNDECLARED_INTERFACE") {
+		t.Errorf("expected stdout to contain CALLS_UNDECLARED_INTERFACE, got: %s", stdout)
+	}
+	if !strings.Contains(stdout, `call from "github.com/ono-sendai-labs/architectural-contracts/go/examples/csvtool/temp-integration-app-private-fail-`) {
+		t.Errorf("expected stdout to contain the caller signature, got: %s", stdout)
+	}
+	if !strings.Contains(stdout, `to undeclared interface symbol "github.com/ono-sendai-labs/architectural-contracts/go/examples/csvtool/csvfile.PrivateExportedHelper" of dependency "csvfile"`) {
+		t.Errorf("expected stdout to contain the callee PrivateExportedHelper, got: %s", stdout)
+	}
+}
+
+func TestIntegration_HigherOrderBoundaryCall_Warning(t *testing.T) {
+	wd, _ := os.Getwd()
+	depManifestPath, err := filepath.Abs(filepath.Join(wd, "../../examples/csvtool/csvfile/component.textproto"))
+	if err != nil {
+		t.Fatalf("failed to get absolute path of csvfile manifest: %v", err)
+	}
+
+	files := map[string]string{
+		"app.go": `package main
+
+import "github.com/ono-sendai-labs/architectural-contracts/go/examples/csvtool/csvfile"
+
+func Run() {
+	_ = csvfile.ReadWithCallback("test.csv", func(rows [][]string) {
+		// Callback implementation
+	})
+}
+`,
+	}
+
+	callerDir, callerManifestPath := createTempComponent(t, "app-higher-order", "", files)
+
+	relManifest, err := filepath.Rel(callerDir, depManifestPath)
+	if err != nil {
+		t.Fatalf("failed to compute relative path: %v", err)
+	}
+	relManifest = filepath.ToSlash(relManifest)
+
+	actualManifest := fmt.Sprintf(`
+name: "app-higher-order"
+interface_files: "app.go"
+component_dependencies {
+	name: "csvfile"
+	manifest: "%s"
+}
+`, relManifest)
+
+	if err := os.WriteFile(callerManifestPath, []byte(actualManifest), 0644); err != nil {
+		t.Fatalf("failed to update manifest: %v", err)
+	}
+
+	stdout, stderr, exitCode := runArcc([]string{"check", callerManifestPath})
+
+	if exitCode != 0 {
+		t.Fatalf("expected exit code 0 (warning is non-fatal), got %d. Stderr: %s\nStdout: %s", exitCode, stderr, stdout)
+	}
+	if stderr != "" {
+		t.Errorf("expected empty stderr, got %q", stderr)
+	}
+
+	if !strings.Contains(stdout, "HIGHER_ORDER_BOUNDARY_CALL") {
+		t.Errorf("expected stdout to contain HIGHER_ORDER_BOUNDARY_CALL, got: %s", stdout)
+	}
+	if !strings.Contains(stdout, `higher-order boundary call from "github.com/ono-sendai-labs/architectural-contracts/go/examples/csvtool/temp-integration-app-higher-order-`) {
+		t.Errorf("expected stdout to contain caller signature, got: %s", stdout)
+	}
+	if !strings.Contains(stdout, `to "github.com/ono-sendai-labs/architectural-contracts/go/examples/csvtool/csvfile.ReadWithCallback" of dependency "csvfile" passes function value`) {
+		t.Errorf("expected stdout to contain callee ReadWithCallback warning message, got: %s", stdout)
+	}
+}

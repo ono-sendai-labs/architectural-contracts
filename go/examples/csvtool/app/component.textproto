@@ -1,0 +1,10 @@
+name: "app"
+interface_files: "app.go"
+component_dependencies {
+  name: "csvfile"
+  manifest: "../csvfile/component.textproto"
+}
+component_dependencies {
+  name: "toprow"
+  manifest: "../toprow/component.textproto"
+}
