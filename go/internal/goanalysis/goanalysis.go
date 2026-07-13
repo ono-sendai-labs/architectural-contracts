@@ -1,3 +1,10 @@
+// Package goanalysis loads Go packages and extracts static facts including imports, exported symbols, and static callgraphs.
+//
+// Component Contract (FR10):
+// - What it does: Analyzes Go syntax trees and types to load package structures, validate interface file correctness, and build a static callgraph.
+// - What it requires: Directory paths on the local filesystem and package manifests to resolve dependency interfaces.
+// - What it provides: Structural package facts and dependency interface symbols for checking component boundaries.
+// - Ambient Authority: This component is a shell component and requires FILES, EXEC, READ_SYSTEM_STATE, OPERATING_SYSTEM, REFLECT, and UNSAFE_POINTER.
 package goanalysis
 
 import (

@@ -1,0 +1,35 @@
+name: "cli"
+interface_files: "main.go"
+interface_files: "app/app.go"
+component_dependencies {
+  name: "capanalyzer"
+  manifest: "../../internal/capanalyzer/component.textproto"
+}
+component_dependencies {
+  name: "capslockadapter"
+  manifest: "../../internal/capslockadapter/component.textproto"
+}
+component_dependencies {
+  name: "checker"
+  manifest: "../../internal/checker/component.textproto"
+}
+component_dependencies {
+  name: "facts"
+  manifest: "../../internal/facts/component.textproto"
+}
+component_dependencies {
+  name: "goanalysis"
+  manifest: "../../internal/goanalysis/component.textproto"
+}
+component_dependencies {
+  name: "manifest"
+  manifest: "../../internal/manifest/component.textproto"
+}
+component_dependencies {
+  name: "report"
+  manifest: "../../internal/report/component.textproto"
+}
+declared_authority: "FILES"
+declared_authority: "REFLECT"
+declared_authority: "READ_SYSTEM_STATE"
+declared_authority: "UNSAFE_POINTER"
