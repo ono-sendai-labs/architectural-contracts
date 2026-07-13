@@ -199,6 +199,15 @@ func Check(in Inputs) report.ConformanceReport {
 	for _, edge := range in.Facts.CallEdges {
 		calleePkg := ExtractPackagePath(string(edge.Callee))
 		if info, exists := pkgToDep[calleePkg]; exists {
+			// Skip package initializers since they are language-runtime-invoked and cannot be declared as interface symbols
+			calleeStr := string(edge.Callee)
+			if lastDot := strings.LastIndex(calleeStr, "."); lastDot != -1 {
+				funcName := calleeStr[lastDot+1:]
+				if funcName == "init" || strings.HasPrefix(funcName, "init#") {
+					continue
+				}
+			}
+
 			normCallee := NormalizeInterfaceSymbol(edge.Callee)
 			if !info.normSymbols[normCallee] {
 				// Undeclared call -> Violation
