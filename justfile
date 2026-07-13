@@ -6,6 +6,8 @@ default: ci
 
 build:
 	cd {{go_dir}} && go build ./...
+	mkdir -p bin
+	cd {{go_dir}} && go build -o ../bin/arcc ./cmd/arcc
 
 test:
 	cd {{go_dir}} && go test ./...

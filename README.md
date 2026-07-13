@@ -124,26 +124,35 @@ Component "<name>" conforms / ambient-authority-free
 ### Reproducing a Conformance Violation
 To see what a contract violation looks like, you can easily create a temporary failing component.
 
+While `app` successfully prunes authority by declaring `csvfile` as a `component_dependency`, we can see what happens when we *absorb* it instead. Absorbing a package transitively pulls its code and capabilities into the absorbing component's own contract boundaries.
+
 1. Create a temporary folder and files inside the `go/examples/csvtool/` directory:
 ```bash
 mkdir -p go/examples/csvtool/absorbapp
 ```
 
-2. Save the following manifest as `go/examples/csvtool/absorbapp/component.textproto`:
+2. Save the following manifest as `go/examples/csvtool/absorbapp/component.textproto`. Notice we list `csvfile` under `absorbed_dependencies` instead of `component_dependencies`:
 ```textproto
 name: "absorbapp"
 interface_files: "main.go"
+absorbed_dependencies {
+  import_path: "github.com/ono-sendai-labs/architectural-contracts/go/examples/csvtool/csvfile"
+  reason: "Absorbing csvfile instead of declaring it as a component dependency"
+}
 ```
 
 3. Save the following code as `go/examples/csvtool/absorbapp/main.go`:
 ```go
 package main
 
-import "os"
+import (
+	"github.com/ono-sendai-labs/architectural-contracts/go/examples/csvtool/csvfile"
+)
 
-func Hello() {
-    // This calls a capability-minting filesystem operation
-    _, _ = os.ReadFile("test.csv")
+func Run() {
+	// Calling csvfile.Read, which internally uses the FILES capability.
+	// Since csvfile is absorbed, its authority requirements bleed into ours.
+	_, _ = csvfile.Read("test.csv")
 }
 ```
 
@@ -153,7 +162,7 @@ cd go
 ../bin/arcc check examples/csvtool/absorbapp/component.textproto
 ```
 
-The output will clearly list the `UNDECLARED_AUTHORITY` violation, show the exact call path where the capability was minted, and return an exit code of `1`:
+The output will clearly list the `UNDECLARED_AUTHORITY` violation, show the exact call path where the capability was transitively minted, and return an exit code of `1`:
 
 ```
 Component: absorbapp
@@ -161,8 +170,9 @@ Component: absorbapp
 Violations:
 - [UNDECLARED_AUTHORITY] use of undeclared authority "FILES" in package "github.com/ono-sendai-labs/architectural-contracts/go/examples/csvtool/absorbapp"
   Evidence:
-    - github.com/ono-sendai-labs/architectural-contracts/go/examples/csvtool/absorbapp.Hello at :0
-    - os.ReadFile at main.go:6
+    - github.com/ono-sendai-labs/architectural-contracts/go/examples/csvtool/absorbapp.Run at :0
+    - github.com/ono-sendai-labs/architectural-contracts/go/examples/csvtool/csvfile.Read at main.go:10
+    - os.ReadFile at csvfile.go:22
 ```
 
 Using the JSON format:
@@ -183,8 +193,9 @@ Yields:
         "line": 0
       },
       "evidence": [
-        "github.com/ono-sendai-labs/architectural-contracts/go/examples/csvtool/absorbapp.Hello at :0",
-        "os.ReadFile at main.go:6"
+        "github.com/ono-sendai-labs/architectural-contracts/go/examples/csvtool/absorbapp.Run at :0",
+        "github.com/ono-sendai-labs/architectural-contracts/go/examples/csvtool/csvfile.Read at main.go:10",
+        "os.ReadFile at csvfile.go:22"
       ]
     }
   ],
@@ -206,7 +217,7 @@ All Go packages located in directories recursively under the manifest file's dir
 ### Schema Fields
 The manifest structure is defined by the following fields:
 - **`name`** (string): Sibling-unique logical name of the component.
-- **`interface_files`** (repeated string): Paths to Go files relative to the component root that declare the public surface (functions, types, vars, constants, receiver types). All exported receiver methods must be defined in these files.
+- **`interface_files`** (repeated string): Paths to Go files relative to the component root that declare the public surface (functions, types, vars, constants, receiver types). Exported methods whose receiver type is declared in an interface file must also be defined in an interface file.
 - **`component_dependencies`** (repeated): Dependencies on other first-class components.
   - `name` (string): Logical name of the dependent component.
   - `manifest` (string): Path to the dependent component's manifest, relative to the declaring manifest's folder.
