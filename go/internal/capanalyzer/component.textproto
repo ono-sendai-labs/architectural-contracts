@@ -1,0 +1,2 @@
+name: "capanalyzer"
+interface_files: "capanalyzer.go"

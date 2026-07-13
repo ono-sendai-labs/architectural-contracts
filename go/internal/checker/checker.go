@@ -3,6 +3,12 @@
 //
 // The core Check function is designed to be completely pure, having no side effects, no I/O, and
 // no dependencies on ambient authority.
+//
+// Component Contract (FR10):
+// - What it does: Evaluates Go packages against their declared manifests to verify dependency, interface boundary, and authority conformance.
+// - What it requires: Receives fully resolved inputs including parsed manifest, package facts, dependency interface symbols, and capability findings.
+// - What it provides: A deterministic ConformanceReport indicating compliance and detailing any architectural violations or warnings.
+// - Ambient Authority: This component is guaranteed-pure and holds no ambient authority (no filesystem I/O, no network, no reflection, and no process execution).
 package checker
 
 import (
