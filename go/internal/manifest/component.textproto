@@ -1,0 +1,20 @@
+name: "manifest"
+interface_files: "manifest.go"
+interface_files: "gen/component.pb.go"
+absorbed_dependencies {
+  import_path: "google.golang.org/protobuf/encoding/prototext"
+  reason: "protobuf parsing"
+}
+absorbed_dependencies {
+  import_path: "google.golang.org/protobuf/reflect/protoreflect"
+  reason: "protobuf reflection"
+}
+absorbed_dependencies {
+  import_path: "google.golang.org/protobuf/runtime/protoimpl"
+  reason: "protobuf generated runtime"
+}
+declared_authority: "READ_SYSTEM_STATE"
+declared_authority: "REFLECT"
+declared_authority: "RUNTIME"
+declared_authority: "SYSTEM_CALLS"
+declared_authority: "UNSAFE_POINTER"

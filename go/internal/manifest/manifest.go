@@ -1,3 +1,10 @@
+// Package manifest defines the component manifest parser and native model.
+//
+// Component Contract (FR10):
+// - What it does: Parses textproto component manifests into a hand-written Go-native Manifest model and validates its syntax.
+// - What it requires: An io.Reader representing the textproto manifest source (as an object capability).
+// - What it provides: A validated Manifest native model with syntactic correctness guaranteed.
+// - Ambient Authority: This component is clean of filesystem/network ambient authority but leverages REFLECT, RUNTIME, SYSTEM_CALLS, and UNSAFE_POINTER internally via protobuf unmarshaling.
 package manifest
 
 import (

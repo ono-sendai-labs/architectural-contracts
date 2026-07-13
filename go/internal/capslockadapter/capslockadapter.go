@@ -1,3 +1,10 @@
+// Package capslockadapter provides a Capslock-backed implementation of the CapabilityAnalyzer port.
+//
+// Component Contract (FR10):
+// - What it does: Runs capability analysis over Go packages and extracts findings pruned at component boundaries.
+// - What it requires: A request specifying packages to analyze and interface symbols to prune at.
+// - What it provides: Deterministic lists of CapabilityFindings associated with their transitive call paths.
+// - Ambient Authority: This component is a shell component and holds FILES, EXEC, READ_SYSTEM_STATE, OPERATING_SYSTEM, REFLECT, RUNTIME, SYSTEM_CALLS, and UNSAFE_POINTER.
 package capslockadapter
 
 import (

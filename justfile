@@ -29,7 +29,17 @@ gen-is-clean: gen
 run *args:
 	cd {{go_dir}} && go run ./cmd/arcc {{args}}
 
-ci: gen-is-clean lint build test test-integration
+selfcheck:
+	cd {{go_dir}} && go run ./cmd/arcc check internal/checker/component.textproto
+	cd {{go_dir}} && go run ./cmd/arcc check internal/facts/component.textproto
+	cd {{go_dir}} && go run ./cmd/arcc check internal/report/component.textproto
+	cd {{go_dir}} && go run ./cmd/arcc check internal/capanalyzer/component.textproto
+	cd {{go_dir}} && go run ./cmd/arcc check internal/manifest/component.textproto
+	cd {{go_dir}} && go run ./cmd/arcc check internal/goanalysis/component.textproto
+	cd {{go_dir}} && go run ./cmd/arcc check internal/capslockadapter/component.textproto
+	cd {{go_dir}} && go run ./cmd/arcc check cmd/arcc/component.textproto
+
+ci: gen-is-clean lint build test test-integration selfcheck
 
 clean:
 	cd {{go_dir}} && go clean ./...
