@@ -1,1 +1,277 @@
-# Architectural Contracts
+# Architectural Contracts MVP (Go)
+
+Architectural Contracts is a Go-based tool (`arcc`) for declaring, checking, and enforcing package structures, dependency boundaries, and ambient authority limits (capabilities) in software systems. 
+
+By defining declarative boundaries on top of your existing code, you gain durable intellectual control over your architecture. For more detailed discussion about the background, design space, and core rationales, please consult the [Rationale and Concepts Guide](docs/rationale-and-concepts.md).
+
+---
+
+## Table of Contents
+- [Overview](#overview)
+- [Prerequisites](#prerequisites)
+- [Building and Installation](#building-and-installation)
+- [CLI Reference and Exit Codes](#cli-reference-and-exit-codes)
+- [The CSV Tool Walkthrough](#the-csv-tool-walkthrough)
+- [Authoring a Component Manifest](#authoring-a-component-manifest)
+- [Limitations and Scope](#limitations-and-scope)
+- [Development and Contributing](#development-and-contributing)
+
+---
+
+## Overview
+
+Architectural Contracts is organized around three primary pillars:
+1. **Architecture as Code (Pillar 1):** Explicitly declaring how your codebase is partitioned into distinct components, specifying what files constitute their public interfaces, and verifying that internal package imports conform to declared component and implementation-detail dependencies.
+2. **Informal Contracts (Pillar 2):** Documenting in plain-prose comments in interface files what each component does, requires, and provides, facilitating modular human reasoning.
+3. **Ambient Authority and Capabilities (Pillar 3):** Tracking and restricting what system capabilities (such as filesystem access, network sockets, or binary execution) each component can touch, allowing for self-sandboxing.
+
+---
+
+## Prerequisites
+
+To compile and use the `arcc` tool, you need:
+- **Go 1.26 or later** (compatible with modern Go toolchains).
+- **`just`** (optional, recommended command-runner for building and linting).
+- **Protocol Buffer compiler (`protoc`)** (only if you intend to modify the protobuf schema).
+
+---
+
+## Building and Installation
+
+From a fresh clone of the repository, you can build the CLI binary and run all tests immediately.
+
+### Using `just` (Recommended)
+Compile the `arcc` binary into the `./bin` directory:
+```bash
+just build
+```
+
+Verify that everything builds, lints, and passes tests (including selfcheck):
+```bash
+just ci
+```
+
+### Using raw Go commands
+Alternatively, you can build directly using the Go toolchain:
+```bash
+# Navigate to the Go module directory
+cd go
+
+# Build the arcc CLI
+go build -o ../bin/arcc ./cmd/arcc
+```
+
+---
+
+## CLI Reference and Exit Codes
+
+The `arcc` tool provides a streamlined command-line interface for checking manifests:
+
+```
+arcc checks Go architectural component contracts.
+
+Usage:
+  arcc check <manifest>
+  arcc --version
+```
+
+### Exit Codes
+The `arcc` command adheres to a deterministic three-way exit code structure:
+- **`0`**: The component is fully conformant with its architectural contract and is either ambient-authority-free or only uses declared capabilities.
+- **`1`**: Architectural violations or non-conformance detected (e.g., undeclared imports, calls to non-interface boundary symbols, or undeclared ambient capabilities).
+- **`2`**: Tool or execution error (e.g., manifest syntax error, Go build failure, or missing files).
+
+### JSON Output
+For programmatic consumption and integration into continuous integration pipelines, pass the `--format=json` flag:
+```bash
+arcc check path/to/component.textproto --format=json
+```
+
+---
+
+## The CSV Tool Walkthrough
+
+The repository includes a complete, realistic example of a multi-package command-line application (a tool to sort and extract top rows from a CSV) located under `go/examples/csvtool/`.
+
+This example demonstrates how `arcc` tracks ambient authority, allows legitimate capabilities, and prunes analysis boundaries:
+
+1. **`toprow`** (Pure Logic): This component parses and sorts in-memory CSV data. It depends on an absorbed parser package, but performs no file or network I/O. Its manifest declares no authority, and checking it succeeds with `0` (ambient-authority-free).
+2. **`csvfile`** (High Authority): This component legitimately accesses the real filesystem to read files using `os.ReadFile`. It explicitly declares its requirement for `FILES` authority in its manifest. Checked on its own, it conforms.
+3. **`app`** (Composition Root): This component calls `csvfile` to load data and `toprow` to sort it. 
+   - **Boundary Pruning (FR5b) in action:** Because `app` depends on `csvfile` as a first-class **component dependency**, `arcc`'s capability analysis is pruned at `csvfile`'s declared public interface. Even though `app` orchestrates a file-reading component, the filesystem authority is owned by `csvfile` and does not bleed into `app`'s contract. Therefore, `app` checks as fully conformant and ambient-authority-free!
+
+### Running the Conforming Examples
+To verify these behaviors, execute the following checks from within the `go` directory:
+
+```bash
+cd go
+
+# 1. Check the pure sorting logic (conforms, authority-free)
+../bin/arcc check examples/csvtool/toprow/component.textproto
+
+# 2. Check the file reader (conforms, uses declared FILES authority)
+../bin/arcc check examples/csvtool/csvfile/component.textproto
+
+# 3. Check the composition root (conforms, authority-free via pruning)
+../bin/arcc check examples/csvtool/app/component.textproto
+```
+
+For all three commands, you will see a conforming output and an exit code of `0`:
+```
+Component "<name>" conforms / ambient-authority-free
+```
+
+### Reproducing a Conformance Violation
+To see what a contract violation looks like, you can easily create a temporary failing component.
+
+1. Create a temporary folder and files inside the `go/examples/csvtool/` directory:
+```bash
+mkdir -p go/examples/csvtool/absorbapp
+```
+
+2. Save the following manifest as `go/examples/csvtool/absorbapp/component.textproto`:
+```textproto
+name: "absorbapp"
+interface_files: "main.go"
+```
+
+3. Save the following code as `go/examples/csvtool/absorbapp/main.go`:
+```go
+package main
+
+import "os"
+
+func Hello() {
+    // This calls a capability-minting filesystem operation
+    _, _ = os.ReadFile("test.csv")
+}
+```
+
+4. Now, check this temporary component from inside the `go` directory:
+```bash
+cd go
+../bin/arcc check examples/csvtool/absorbapp/component.textproto
+```
+
+The output will clearly list the `UNDECLARED_AUTHORITY` violation, show the exact call path where the capability was minted, and return an exit code of `1`:
+
+```
+Component: absorbapp
+
+Violations:
+- [UNDECLARED_AUTHORITY] use of undeclared authority "FILES" in package "github.com/ono-sendai-labs/architectural-contracts/go/examples/csvtool/absorbapp"
+  Evidence:
+    - github.com/ono-sendai-labs/architectural-contracts/go/examples/csvtool/absorbapp.Hello at :0
+    - os.ReadFile at main.go:6
+```
+
+Using the JSON format:
+```bash
+../bin/arcc check examples/csvtool/absorbapp/component.textproto --format=json
+```
+
+Yields:
+```json
+{
+  "component": "absorbapp",
+  "violations": [
+    {
+      "kind": "UNDECLARED_AUTHORITY",
+      "message": "use of undeclared authority \"FILES\" in package \"github.com/ono-sendai-labs/architectural-contracts/go/examples/csvtool/absorbapp\"",
+      "location": {
+        "file": "",
+        "line": 0
+      },
+      "evidence": [
+        "github.com/ono-sendai-labs/architectural-contracts/go/examples/csvtool/absorbapp.Hello at :0",
+        "os.ReadFile at main.go:6"
+      ]
+    }
+  ],
+  "warnings": null
+}
+```
+
+*Note: Be sure to delete the temporary `absorbapp` directory when finished checking.*
+
+---
+
+## Authoring a Component Manifest
+
+A component's boundaries are described in a `component.textproto` manifest file, which must sit at the **component root**.
+
+### Directory-Based Membership
+All Go packages located in directories recursively under the manifest file's directory automatically belong to the component. Component roots must be disjoint: you cannot nest a component's root inside another's.
+
+### Schema Fields
+The manifest structure is defined by the following fields:
+- **`name`** (string): Sibling-unique logical name of the component.
+- **`interface_files`** (repeated string): Paths to Go files relative to the component root that declare the public surface (functions, types, vars, constants, receiver types). All exported receiver methods must be defined in these files.
+- **`component_dependencies`** (repeated): Dependencies on other first-class components.
+  - `name` (string): Logical name of the dependent component.
+  - `manifest` (string): Path to the dependent component's manifest, relative to the declaring manifest's folder.
+- **`absorbed_dependencies`** (repeated): Third-party or internal implementation-detail Go packages whose capabilities are transitively absorbed into this component's policy scope.
+  - `import_path` (string): Fully qualified import path (e.g. `github.com/foo/bar`).
+  - `reason` (string, optional): Prose explanation for why this is treated as an implementation detail.
+- **`declared_authority`** (repeated string): Capabilities from Capslock's classified set that this component is permitted to exercise. Leaving this empty makes the component ambient-authority-free.
+  - Known Capabilities: `FILES`, `NETWORK`, `READ_SYSTEM_STATE`, `MODIFY_SYSTEM_STATE`, `OPERATING_SYSTEM`, `SYSTEM_CALLS`, `EXEC`, `RUNTIME`, `ARBITRARY_EXECUTION`, `CGO`, `UNSAFE_POINTER`, `REFLECT`, `UNANALYZED`.
+
+### Complete Example Manifest
+Below is a valid, comprehensive `component.textproto` example matching the schema:
+
+```textproto
+name: "my_component"
+
+# Relative paths to Go files containing public API declarations
+interface_files: "api.go"
+interface_files: "types.go"
+
+# First-class dependent components that have their own manifests and prune authority
+component_dependencies {
+  name: "db_driver"
+  manifest: "../db_driver/component.textproto"
+}
+
+# Low-level package dependencies that are absorbed into our scope
+absorbed_dependencies {
+  import_path: "golang.org/x/crypto/sha3"
+  reason: "Cryptographic hashing implementation detail"
+}
+
+# Permitted ambient capabilities (validated at parse time)
+declared_authority: "FILES"
+declared_authority: "SYSTEM_CALLS"
+```
+
+---
+
+## Limitations and Scope
+
+The MVP implementation makes several engineering trade-offs and has known boundary conditions:
+
+1. **Call-Graph Precision (VTA Over-approximation):** Boundary analysis relies on static call graph analysis (Variable Type Analysis - VTA) matching Capslock. Because dynamic dispatch and reflection cause over-approximation of call edges, the analyzer can occasionally register call paths that are unreachable at runtime, potentially leading to false-positive violations.
+2. **Higher-Order Boundary Warnings (Leak):** When a component passes a function value or callback across a pruned boundary, the authority exercised when that callback is invoked might not attribute correctly to its source. The tool mitigates this by flagging a `HIGHER_ORDER_BOUNDARY_CALL` warning on func-valued arguments.
+3. **Call-Edge-Only Enforcement:** Only call edges are checked at boundaries. Reading exported struct fields, types, or accessing package-level variables across boundaries is outside the scope of MVP check coverage.
+4. **Compositional / Single-Component Checking:** Pruning depends on the honesty of dependencies' manifests. Therefore, security guarantees only hold if *every* component in the system is independently checked and conforms.
+5. **Generic Symbol Matching:** Generic SSA type parameter brackets are simplified for matching, which is conservative but can sometimes lead to loose checks (failing open on complex edge cases).
+6. **Go-only Scope:** The current implementation supports Go codebases only (layout is split under `go/` and schemas under `proto/` to permit future language extensions).
+
+---
+
+## Development and Contributing
+
+Developers contributing to the Architectural Contracts project can use the provided tooling to ensure clean commits.
+
+### Run the pipeline
+Make sure everything remains green before committing changes:
+```bash
+just ci
+```
+This runs lints, verifies that generated protobuf files are clean, compiles the binaries, executes unit and integration tests, and runs the selfcheck.
+
+### Self-Hosting Verification
+The tool is built recursively out of components and is checked against itself:
+```bash
+just selfcheck
+```
+This compiles the local `arcc` binary and runs it against each of its own components' manifests (`checker`, `facts`, `report`, `capanalyzer`, `manifest`, `goanalysis`, `capslockadapter`, and `cli`). This confirms the pure checking core remains entirely ambient-authority-free.
