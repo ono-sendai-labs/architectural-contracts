@@ -1,3 +1,10 @@
+// Package main is the entry point for the arcc CLI tool.
+//
+// Component Contract (FR10):
+// - What it does: Serves as the main entrypoint that launches the arcc CLI tool.
+// - What it requires: Command-line arguments specifying the check path and output format, as well as an environment for stdout/stderr output.
+// - What it provides: Actionable conformance reports and deterministic exit codes.
+// - Ambient Authority: This component is a shell component and holds FILES, REFLECT, READ_SYSTEM_STATE, and UNSAFE_POINTER.
 package main
 
 import (
