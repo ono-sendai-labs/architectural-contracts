@@ -1,0 +1,6 @@
+module(name = "spike_rules_arcc", version = "0.0.1")
+
+bazel_dep(name = "rules_go", version = "0.61.1")
+
+go_sdk = use_extension("@rules_go//go:extensions.bzl", "go_sdk")
+go_sdk.download(version = "1.24.5")
