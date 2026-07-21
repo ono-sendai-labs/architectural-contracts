@@ -536,6 +536,20 @@ func WithDriverEnv(layoutPath, workspaceDir string, fn func() error) error {
 	return err
 }
 
+// init serves the GOPACKAGESDRIVER self-exec protocol when this process was
+// spawned as the driver, then exits without returning to the caller.
+//
+// The dispatch is deliberately an init rather than a call from cmd/arcc's main.
+// WithDriverEnv points GOPACKAGESDRIVER at os.Executable(), so the driver
+// subprocess is whatever binary ran the check — and for the in-process
+// layout-mode integration tests that binary is the `go test` binary, whose main
+// belongs to the testing framework. An init is the only hook that runs before
+// it in both cases.
+//
+// Selection is keyed solely on the private ARCC_DRIVER_MODE marker, which
+// WithDriverEnv sets and restores, so driver mode can never be reached through
+// a user-facing subcommand. No blank import is needed to keep this alive:
+// cmd/arcc/app depends on this package directly.
 func init() {
 	if os.Getenv("ARCC_DRIVER_MODE") == "1" {
 		layoutPath := os.Getenv("ARCC_PACKAGE_LAYOUT")

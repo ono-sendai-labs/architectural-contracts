@@ -47,7 +47,15 @@ func TestMain(m *testing.M) {
 
 // runArcc runs the compiled arcc binary as a subprocess and returns its stdout, stderr, and exit code.
 func runArcc(args []string) (string, string, int) {
+	return runArccEnv(nil, args)
+}
+
+// runArccEnv is runArcc with an explicit environment for the subprocess. A nil
+// env inherits the test process's environment, which is what runArcc wants;
+// the layout-mode tests use it to withhold the Go toolchain.
+func runArccEnv(env []string, args []string) (string, string, int) {
 	cmd := exec.Command(arccBin, args...)
+	cmd.Env = env
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr

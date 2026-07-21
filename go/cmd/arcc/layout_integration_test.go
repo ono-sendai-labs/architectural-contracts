@@ -18,6 +18,33 @@ import (
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/packagelayout"
 )
 
+// runArccHermetic runs the compiled arcc binary with no Go toolchain reachable
+// on PATH, and is how every layout-mode subprocess test invokes arcc.
+//
+// A working directory without a go.mod is not on its own enough to establish
+// hermeticity: `go list std` succeeds perfectly well outside a module. So a
+// regression that let go/packages fall back from the self-exec driver to
+// `go list` — a driver that started reporting NotHandled for Capslock's nested
+// "std" query, say — would still satisfy every assertion in this file, and
+// would first surface under Bazel, where no Go toolchain is present at all.
+// Withholding `go` turns that silent fallback into a test failure here.
+func runArccHermetic(t *testing.T, args []string) (string, string, int) {
+	t.Helper()
+
+	var env []string
+	for _, kv := range os.Environ() {
+		if !strings.HasPrefix(kv, "PATH=") {
+			env = append(env, kv)
+		}
+	}
+	// An empty directory keeps PATH well-formed while resolving no binaries,
+	// so a fallback fails as "executable not found" rather than as a
+	// malformed-environment error that could mask the real cause.
+	env = append(env, "PATH="+t.TempDir())
+
+	return runArccEnv(env, args)
+}
+
 // createLayoutFixture creates a layout and manifest for testing layout mode.
 func createLayoutFixture(t *testing.T, name string, roots []string, manifestContent string, files map[string]string) (string, string, string) {
 	t.Helper()
@@ -357,7 +384,7 @@ func Hello() string {
 	}
 	defer os.Chdir(origWd)
 
-	stdout, stderr, exitCode := runArcc([]string{"check", manifestPath, "--package-layout=" + layoutPath})
+	stdout, stderr, exitCode := runArccHermetic(t, []string{"check", manifestPath, "--package-layout=" + layoutPath})
 
 	if exitCode != 0 {
 		t.Fatalf("expected exit code 0, got %d. Stderr: %s\nStdout: %s", exitCode, stderr, stdout)
@@ -412,7 +439,7 @@ func Trap() {
 	}
 	defer os.Chdir(origWd)
 
-	stdout, stderr, exitCode := runArcc([]string{"check", manifestPath, "--package-layout=" + layoutPath})
+	stdout, stderr, exitCode := runArccHermetic(t, []string{"check", manifestPath, "--package-layout=" + layoutPath})
 
 	if exitCode != 1 {
 		t.Fatalf("expected exit code 1, got %d. Stderr: %s\nStdout: %s", exitCode, stderr, stdout)
@@ -747,7 +774,7 @@ func Hello() {
 	}
 	defer os.Chdir(origWd)
 
-	stdout, stderr, exitCode := runArcc([]string{"check", primaryManifestPath, "--package-layout=" + primaryLayoutPath})
+	stdout, stderr, exitCode := runArccHermetic(t, []string{"check", primaryManifestPath, "--package-layout=" + primaryLayoutPath})
 
 	if exitCode != 0 {
 		t.Fatalf("expected exit code 0, got %d. Stderr: %s\nStdout: %s", exitCode, stderr, stdout)
@@ -790,7 +817,7 @@ func OpenSomething() {
 	}
 	defer os.Chdir(origWd)
 
-	stdout, stderr, exitCode := runArcc([]string{"check", manifestPath, "--package-layout=" + layoutPath})
+	stdout, stderr, exitCode := runArccHermetic(t, []string{"check", manifestPath, "--package-layout=" + layoutPath})
 
 	if exitCode != 1 {
 		t.Fatalf("expected exit code 1, got %d. Stderr: %s\nStdout: %s", exitCode, stderr, stdout)
@@ -845,7 +872,7 @@ func Hello() {}
 	}
 	defer os.Chdir(origWd)
 
-	stdout, stderr, exitCode := runArcc([]string{"check", manifestPath, "--package-layout=" + layoutPath})
+	stdout, stderr, exitCode := runArccHermetic(t, []string{"check", manifestPath, "--package-layout=" + layoutPath})
 
 	if exitCode != 2 {
 		t.Fatalf("expected exit code 2, got %d. Stderr: %s\nStdout: %s", exitCode, stderr, stdout)
