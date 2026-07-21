@@ -11,7 +11,7 @@ This is a brownfield change: the earliest steps touch arcc's Go core (the `--pac
 - [x] **Step 3:** `bazel_rules/` substrate — authority constants, providers, `_arcc_deps` aspect
 - [x] **Step 4:** `go_component` macro + `_go_component` rule — manifest & layout generation
 - [x] **Step 5a:** arcc-side stdlib resolution in the layout driver (Go)
-- [ ] **Step 5b:** `_arcc_check_test` — hermetic check wired end-to-end
+- [x] **Step 5b:** `_arcc_check_test` — hermetic check wired end-to-end
 - [ ] **Step 6:** Bazelified csvtool examples + golden manifest comparison
 - [ ] **Step 7:** `just ci` Bazel leg + consumer docs
 
@@ -121,7 +121,9 @@ Steps 1–4 alternated between the two sides of the seam; Step 5 turned out to n
 - Runfiles: `@rules_arcc//:arcc`, the transitive manifest and layout depsets, member/absorbed package srcs, and the rules_go SDK stdlib source named by the layout (§4.5, §4.6 finding 2).
 - Factor command construction into a helper shared with a future `_arcc_validation` action (R7). No `local`/`external` tags — the test is hermetic.
 
-**Tests.** A passing component's `.check` passes; an `absorbapp`-style violating component's `.check` fails with exit≠0 (script test) — the primary negative test (§8.3). Assert cache reuse (a second `bazel test` is cached).
+**Tests.** A passing component's `.check` passes; a violating component's `.check` fails (driven via the rule's `expect_violation`, so it is itself a passing test) — the primary negative test (§8.3). The positive fixture, `api_component.check`, exercises Step 5a's stdlib resolution end to end, because its closure imports `strings`.
+
+**Also done here (folded in per the orchestration report's Step 5b recommendation):** a fast Go integration test in `cmd/arcc` (`TestIntegration_LayoutMode_RealSDK`) that runs the hermetic harness against a genuine `$GOROOT/src` with a member-only layout — the automated form of the by-hand Step 5a demo. It isolates arcc's real-SDK path from the Bazel wiring, so a `.check` failure under Bazel is unambiguous. The prior SDK-facing suite proved AC5/AC6 only against a synthetic tree; this closes that gap. A Step 5a unit test that depended on `runtime.GOROOT()` was also guarded to skip under the rules_go placeholder GOROOT, which had been silently failing `bazel test //...`.
 
 **Integration.** First full-stack demo: rule → layout → arcc-via-driver → verdict, entirely under Bazel with no `go.mod` in the workspace.
 
@@ -150,7 +152,7 @@ Steps 1–4 alternated between the two sides of the seam; Step 5 turned out to n
 **Objective.** Fold the Bazel build/test into the project's CI and document consumption (§8.5, §9).
 
 **Guidance.**
-- Extend `just ci` to run `bazel build //...` and `bazel test //bazel_rules/... //go/examples/...`, **guarded** on Bazel being available so environments without Bazel still pass (§8.5).
+- **Done in Step 5b (pulled forward):** `just ci` runs a guarded `bazel-test` recipe (`bazel build //...` + `bazel test //...`, skipped cleanly when Bazel is absent). Wired in early so a green `just ci` means the Bazel targets are green too — otherwise a Bazel-only regression like Step 5a's `runtime.GOROOT()` test can land undetected. Remaining here: narrow the target patterns once Step 6 lands the example checks, if desired.
 - Consumer docs: load paths (`@rules_arcc//bazel_rules/go:defs.bzl`), the `go_component` API, and the `--@rules_go//go/config:pure` note (§4.1, Appendix A).
 
 **Tests.** `just ci` passes both with Bazel present (runs the leg) and absent (skips cleanly); a doc snippet/example is validated by Step 6's example targets.
