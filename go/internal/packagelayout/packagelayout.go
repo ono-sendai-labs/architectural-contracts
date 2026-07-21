@@ -50,6 +50,13 @@ func discoverStdlib(sdkRoot string) ([]*packages.Package, error) {
 		return nil, nil
 	}
 
+	bctx := build.Default
+	bctx.GOROOT = filepath.Dir(sdkRoot)
+	return discoverStdlibWithContext(sdkRoot, bctx)
+}
+
+func discoverStdlibWithContext(sdkRoot string, bctx build.Context) ([]*packages.Package, error) {
+
 	fi, err := os.Stat(sdkRoot)
 	if err != nil {
 		return nil, fmt.Errorf("accessing SDK root %q: %w", sdkRoot, err)
@@ -57,9 +64,6 @@ func discoverStdlib(sdkRoot string) ([]*packages.Package, error) {
 	if !fi.IsDir() {
 		return nil, fmt.Errorf("SDK root %q is not a directory", sdkRoot)
 	}
-
-	bctx := build.Default
-	bctx.GOROOT = filepath.Dir(sdkRoot)
 
 	var packageDirs []string
 	err = filepath.Walk(sdkRoot, func(path string, info os.FileInfo, err error) error {
@@ -101,16 +105,6 @@ func discoverStdlib(sdkRoot string) ([]*packages.Package, error) {
 	}
 	discovered := make([]discoveredPackage, 0, len(packageDirs)+1)
 
-	// Synthesize compiler-builtin "unsafe" package.
-	discovered = append(discovered, discoveredPackage{pkg: &packages.Package{
-		ID:              "unsafe",
-		Name:            "unsafe",
-		PkgPath:         "unsafe",
-		GoFiles:         nil,
-		CompiledGoFiles: nil,
-		Imports:         make(map[string]*packages.Package),
-	}})
-
 	for _, path := range packageDirs {
 		bpkg, err := bctx.ImportDir(path, 0)
 		if err != nil {
@@ -149,6 +143,25 @@ func discoverStdlib(sdkRoot string) ([]*packages.Package, error) {
 		})
 	}
 
+	// Older or reduced SDK source trees may omit unsafe even though it is a
+	// compiler builtin. Keep one synthetic record only when the source tree did
+	// not provide the real package; a complete SDK's unsafe.go is authoritative.
+	unsafeFound := false
+	for _, item := range discovered {
+		if item.pkg.PkgPath == "unsafe" {
+			unsafeFound = true
+			break
+		}
+	}
+	if !unsafeFound {
+		discovered = append(discovered, discoveredPackage{pkg: &packages.Package{
+			ID:      "unsafe",
+			Name:    "unsafe",
+			PkgPath: "unsafe",
+			Imports: make(map[string]*packages.Package),
+		}})
+	}
+
 	if len(discovered) <= 1 {
 		return nil, fmt.Errorf("invalid SDK root %q: structurally invalid (no standard-library packages discovered)", sdkRoot)
 	}
@@ -159,6 +172,10 @@ func discoverStdlib(sdkRoot string) ([]*packages.Package, error) {
 	}
 	for i := range discovered {
 		for _, imp := range discovered[i].imports {
+			// C is cgo's pseudo-package, not a package in the import graph.
+			if imp == "C" {
+				continue
+			}
 			resolved := imp
 			if !IsStdlib(resolved) {
 				vendorPath := "vendor/" + resolved

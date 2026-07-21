@@ -3,6 +3,7 @@ package packagelayout
 import (
 	"bytes"
 	"encoding/json"
+	"go/build"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -846,6 +847,100 @@ func TestDiscoverStdlib(t *testing.T) {
 		if !hasUnix || hasWindows {
 			t.Errorf("non-windows build constraint failed: GoFiles=%v", osPkg.GoFiles)
 		}
+	}
+}
+
+func TestDiscoverStdlib_DropsCgoPseudoImport(t *testing.T) {
+	tmpDir := t.TempDir()
+	sdkSrc := filepath.Join(tmpDir, "src")
+	cgoFile := filepath.Join(sdkSrc, "cgo", "cgo.go")
+	if err := os.MkdirAll(filepath.Dir(cgoFile), 0755); err != nil {
+		t.Fatalf("failed to create SDK directory: %v", err)
+	}
+	if err := os.WriteFile(cgoFile, []byte("package cgo\n/*\n#include <stdlib.h>\n*/\nimport \"C\"\n"), 0644); err != nil {
+		t.Fatalf("failed to write cgo fixture: %v", err)
+	}
+
+	bctx := build.Default
+	bctx.GOROOT = filepath.Dir(sdkSrc)
+	bctx.CgoEnabled = true
+	pkgs, err := discoverStdlibWithContext(sdkSrc, bctx)
+	if err != nil {
+		t.Fatalf("discoverStdlibWithContext failed: %v", err)
+	}
+
+	cgoPkg := packageByID(pkgs, "cgo")
+	if cgoPkg == nil {
+		t.Fatal("cgo fixture package was not discovered")
+	}
+	if _, ok := cgoPkg.Imports["C"]; ok {
+		t.Fatalf("cgo pseudo-package leaked into imports: %v", cgoPkg.Imports)
+	}
+}
+
+func TestDiscoverStdlib_RealSDK(t *testing.T) {
+	sdkSrc := filepath.Join(build.Default.GOROOT, "src")
+	info, err := os.Stat(sdkSrc)
+	if err != nil || !info.IsDir() {
+		t.Skipf("Go SDK source tree is unavailable at %q: %v", sdkSrc, err)
+	}
+
+	pkgs, err := discoverStdlib(sdkSrc)
+	if err != nil {
+		t.Fatalf("discoverStdlib against real SDK failed: %v", err)
+	}
+
+	byID := make(map[string]*packages.Package, len(pkgs))
+	byPath := make(map[string]*packages.Package, len(pkgs))
+	unsafeCount := 0
+	vendorCount := 0
+	for _, pkg := range pkgs {
+		if _, exists := byID[pkg.ID]; exists {
+			t.Fatalf("duplicate package ID %q", pkg.ID)
+		}
+		if _, exists := byPath[pkg.PkgPath]; exists {
+			t.Fatalf("duplicate package import path %q", pkg.PkgPath)
+		}
+		byID[pkg.ID] = pkg
+		byPath[pkg.PkgPath] = pkg
+		if pkg.PkgPath == "unsafe" {
+			unsafeCount++
+		}
+		if strings.HasPrefix(pkg.PkgPath, "vendor/") {
+			vendorCount++
+		}
+	}
+	if unsafeCount != 1 {
+		t.Fatalf("unsafe package count = %d, want exactly one", unsafeCount)
+	}
+	if vendorCount == 0 {
+		t.Fatal("real SDK did not expose any vendor-prefixed standard-library packages")
+	}
+	for _, pkg := range pkgs {
+		for importPath, imported := range pkg.Imports {
+			if importPath == "C" {
+				t.Fatalf("real SDK package %q contains cgo pseudo-import C", pkg.ID)
+			}
+			if imported == nil {
+				t.Fatalf("package %q has nil import reference for %q", pkg.ID, importPath)
+			}
+			if _, exists := byID[imported.ID]; !exists {
+				t.Fatalf("package %q imports undiscovered package %q", pkg.ID, imported.ID)
+			}
+		}
+	}
+
+	l := &Layout{
+		GoSDKRoot: sdkSrc,
+		Roots:     []string{"example.com/member"},
+		Packages: []*packages.Package{{
+			ID:      "example.com/member",
+			Name:    "member",
+			PkgPath: "example.com/member",
+		}},
+	}
+	if err := ValidateAndResolve(l, t.TempDir()); err != nil {
+		t.Fatalf("minimal layout with real SDK failed validation: %v", err)
 	}
 }
 
