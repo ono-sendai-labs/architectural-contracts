@@ -1,0 +1,3 @@
+load(":aspect_tests.bzl", "arcc_deps_aspect_test_suite")
+
+arcc_deps_aspect_test_suite(name = "arcc_deps_aspect_tests")

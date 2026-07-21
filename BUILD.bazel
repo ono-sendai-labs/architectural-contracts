@@ -4,6 +4,10 @@ load("@gazelle//:def.bzl", "gazelle")
 # the repo root is a Go package.
 # gazelle:prefix
 # gazelle:exclude proto
+# The Go sources under bazel_rules/ are hand-maintained rule-test fixtures, not
+# module packages; Gazelle would rewrite their BUILD files against the wrong
+# import prefix.
+# gazelle:exclude bazel_rules
 
 gazelle(name = "gazelle")
 

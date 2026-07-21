@@ -1,0 +1,27 @@
+load("@rules_go//go:def.bzl", "go_library")
+
+# Embedded into :core, and carrying the same import path — the case the
+# closure merge exists for. Its own dependency (//extradep) is reachable only
+# through this edge.
+go_library(
+    name = "core_extra",
+    srcs = ["extra_impl.go"],
+    importpath = "example.com/aspect/core",
+    visibility = ["//visibility:private"],
+    deps = ["//bazel_rules/go/tests/testdata/extradep"],
+)
+
+go_library(
+    name = "core",
+    srcs = [
+        "core.go",
+        "core_extra.go",
+    ],
+    embed = [":core_extra"],
+    importpath = "example.com/aspect/core",
+    visibility = ["//bazel_rules:__subpackages__"],
+    deps = [
+        "//bazel_rules/go/tests/testdata/lowlevel",
+        "//bazel_rules/go/tests/testdata/shared",
+    ],
+)

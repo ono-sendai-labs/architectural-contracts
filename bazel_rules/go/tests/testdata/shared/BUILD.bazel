@@ -1,0 +1,9 @@
+load("@rules_go//go:def.bzl", "go_library")
+
+# Reached from both //api and //core: the diamond.
+go_library(
+    name = "shared",
+    srcs = ["shared.go"],
+    importpath = "example.com/aspect/shared",
+    visibility = ["//bazel_rules:__subpackages__"],
+)

@@ -1,0 +1,9 @@
+load("@rules_go//go:def.bzl", "go_library")
+
+# Reachable only through //core's embedded library.
+go_library(
+    name = "extradep",
+    srcs = ["extradep.go"],
+    importpath = "example.com/aspect/extradep",
+    visibility = ["//bazel_rules:__subpackages__"],
+)

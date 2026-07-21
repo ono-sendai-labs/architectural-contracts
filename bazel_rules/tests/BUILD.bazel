@@ -1,10 +1,23 @@
 load("@rules_shell//shell:sh_test.bzl", "sh_test")
 
-# Tests for the Bazel side of arcc. The rule set itself lands in later steps;
-# for now this only guards the "arcc from source" wiring (Step 2).
+# Tests for the Bazel side of arcc that are not analysis tests of the rules
+# themselves (those live in //bazel_rules/go/tests).
 sh_test(
     name = "arcc_binary_test",
     srcs = ["arcc_binary_test.sh"],
     args = ["$(rootpath //:arcc)"],
     data = ["//:arcc"],
+)
+
+sh_test(
+    name = "authority_sync_test",
+    srcs = ["authority_sync_test.sh"],
+    args = [
+        "$(rootpath //bazel_rules:authority.bzl)",
+        "$(rootpath //go/internal/manifest:manifest.go)",
+    ],
+    data = [
+        "//bazel_rules:authority.bzl",
+        "//go/internal/manifest:manifest.go",
+    ],
 )

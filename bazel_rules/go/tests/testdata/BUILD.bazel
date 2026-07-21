@@ -1,0 +1,18 @@
+# Synthetic Go graph for the rule tests. Every awkward case the closure has to
+# get right is represented exactly once:
+#
+#   api ─deps→ core ─deps→ lowlevel   (imports stdlib "strings")
+#    │          │    ─deps→ shared ◄── diamond: also a direct dep of api
+#    │          └embed→ core_extra ─deps→ extradep   (embed-only transitive dep)
+#    └─deps→ shared
+#
+# The sources are not part of the `go/` Go module and are never built by
+# `go build ./...`; they exist only as inputs to the analysis tests.
+
+load("//bazel_rules/go/tests:probe.bzl", "arcc_closure_probe")
+
+arcc_closure_probe(
+    name = "api_closure",
+    interface = "//bazel_rules/go/tests/testdata/api",
+    visibility = ["//bazel_rules:__subpackages__"],
+)

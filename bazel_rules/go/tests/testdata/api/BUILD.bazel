@@ -1,0 +1,12 @@
+load("@rules_go//go:def.bzl", "go_library")
+
+go_library(
+    name = "api",
+    srcs = ["api.go"],
+    importpath = "example.com/aspect/api",
+    visibility = ["//bazel_rules:__subpackages__"],
+    deps = [
+        "//bazel_rules/go/tests/testdata/core",
+        "//bazel_rules/go/tests/testdata/shared",
+    ],
+)

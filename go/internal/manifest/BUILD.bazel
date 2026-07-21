@@ -1,5 +1,9 @@
 load("@rules_go//go:def.bzl", "go_library", "go_test")
 
+# keep: //bazel_rules/tests:authority_sync_test reads KnownCapabilities out of
+# the source to compare it with the Starlark authority taxonomy.
+exports_files(["manifest.go"])
+
 go_library(
     name = "manifest",
     srcs = ["manifest.go"],

@@ -1,0 +1,9 @@
+load("@rules_go//go:def.bzl", "go_library")
+
+# Imports stdlib ("strings"), which must not appear in the closure.
+go_library(
+    name = "lowlevel",
+    srcs = ["lowlevel.go"],
+    importpath = "example.com/aspect/lowlevel",
+    visibility = ["//bazel_rules:__subpackages__"],
+)
