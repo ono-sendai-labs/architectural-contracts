@@ -32,6 +32,7 @@ Architectural Contracts is organized around three primary pillars:
 To compile and use the `arcc` tool, you need:
 - **Go 1.26 or later** (compatible with modern Go toolchains).
 - **`just`** (optional, recommended command-runner for building and linting).
+- **Bazel 8 or later** (optional; only for the Bazel build described below — it downloads its own Go SDK, so no system Go is required for that path).
 - **Protocol Buffer compiler (`protoc`)** (required to run the complete CI pipeline via `just ci`, or if you intend to modify the protobuf schema).
 - **`protoc-gen-go` Go plugin** (required by `protoc` for Go code generation during `just ci`). You can install it using:
   ```bash
@@ -74,6 +75,32 @@ cd go
 # Build the arcc CLI
 go build -o ../bin/arcc ./cmd/arcc
 ```
+
+### Using Bazel
+
+The repository is also a Bazel module named `rules_arcc`, which builds arcc from
+source and exposes it under a stable label:
+
+```bash
+bazel build @rules_arcc//:arcc
+bazel run   @rules_arcc//:arcc -- --version
+```
+
+To consume it from another workspace, add it as a `bazel_dep` (a
+`git_override`/`archive_override` is needed until `rules_arcc` is published to
+the Bazel Central Registry):
+
+```python
+bazel_dep(name = "rules_arcc", version = "0.0.0")
+```
+
+arcc is pure Go, so nothing here needs a C compiler — but rules_go's default
+mode does. Build with `--@rules_go//go/config:pure` (this repo sets it in
+`.bazelrc`) or make sure a CC toolchain is configured.
+
+The Bazel build is additive: `just`, `go build` and `go test` are unaffected,
+and the generated `BUILD.bazel` files sit alongside the Go sources. Regenerate
+them with `bazel run //:gazelle` after adding or moving packages.
 
 ---
 
