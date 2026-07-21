@@ -8,10 +8,11 @@ This design adds Bazel integration to Architectural Contracts (`arcc`): a `go_co
 
 The check is a fully sandboxed, cacheable, remote-execution-safe action: arcc loads Go packages from the Bazel-emitted package layout through a self-exec `GOPACKAGESDRIVER` mode, with **no `go list` and no `go.mod`** in the consuming workspace. arcc's existing `go/packages`-based loaders (`goanalysis`, `capslockadapter`) run through the driver unchanged.
 
-Two spikes validate the load-bearing mechanics:
+Three spikes validate the load-bearing mechanics:
 
-- **Provider forwarding and the aspect** — validated on Bazel 9.2.0 / rules_go 0.61.1 (`../research/spike-findings.md`, runnable workspace in `../research/spike/`).
-- **Hermetic driver loading** — the self-exec `GOPACKAGESDRIVER` seam that makes the whole design hermetic: validated end to end (Capslock capability analysis from a Bazel-style layout with no `go.mod`), see `../research/spike-driver-findings.md` and `../research/spike-driver/`.
+- **Provider forwarding, closure enumeration, and the macro** — validated on Bazel 9.2.0 / rules_go 0.61.1 (`../research/spike-findings.md`, runnable workspace in `../research/spike/`).
+- **The `_arcc_deps` aspect (producer)** — the closure-with-edges reconstruction, including `embed` merge, diamond dedup, stdlib exclusion, and SDK-sourced stdlib set/source/`go_sdk_root`: validated on the same toolchain (`../research/spike-aspect-findings.md`, runnable workspace in `../research/spike-aspect/`).
+- **Hermetic driver loading (consumer)** — the self-exec `GOPACKAGESDRIVER` seam that makes the whole design hermetic: validated end to end (Capslock capability analysis from a Bazel-style layout with no `go.mod`), see `../research/spike-driver-findings.md` and `../research/spike-driver/`.
 
 An earlier draft phased delivery through a non-hermetic interim mode (`go list` against the real workspace). That mode is dropped: it requires the consuming workspace to also be a working Go module (`go.mod` present, module cache populated), which is not assumable for Bazel-only workspaces, and arcc is a pre-deployment PoC with no users needing an interim path. With the driver seam validated, the hermetic design is the whole design.
 
@@ -160,15 +161,17 @@ Macro attrs are typed (`configurable = False` where selects make no sense). `int
 
 ### 4.3 `_arcc_deps` aspect
 
-`GoArchiveData` does not expose per-package direct-dependency edges, so a small aspect propagates along `deps` (and `embed`) of `go_library` targets reachable from `interface`, `component_deps`, and `absorbed_deps`, collecting one struct per package:
+`GoArchiveData` does not expose per-package direct-dependency edges (its only edge data is the private, label-based `_dep_labels`), so a small aspect propagates along `deps` **and** `embed` of `go_library` targets reachable from `interface`, `component_deps`, and `absorbed_deps`, collecting one struct per package:
 
 ```python
 ArccPackageInfo = provider(fields = {
-    "packages": "depset of struct(label, importpath, dir, srcs, deps)",
+    "packages": "depset of struct(importpath, dir, srcs, deps)",
 })  # deps = tuple of direct-dependency importpaths
 ```
 
-This gives analysis-time access to the full closure **with edges**, enabling membership classification (§5.3), the consistency check (§6.1), and package-layout emission (§4.6). Stdlib does not appear in the aspect closure (spike, question B); the layout adds the SDK stdlib separately (§4.6) — stdlib authority remains entirely arcc's concern.
+Per node: `srcs = GoInfo.srcs` (rules_go has already merged embedded libs' sources in), `dir = srcs[0].dirname`, and `deps = sorted(a.data.importpath for a in GoArchive.direct if a.data.importpath != self)` — `GoArchive.direct` already excludes stdlib and the same-importpath embedded lib. This gives analysis-time access to the full closure **with edges**, enabling membership classification (§5.3), the consistency check (§6.1), and package-layout emission (§4.6). Stdlib does not appear in the aspect closure (spike, question B); the layout adds the SDK stdlib separately (§4.6) — stdlib authority remains entirely arcc's concern.
+
+**`embed` handling (the one non-obvious correctness rule; validated in `../research/spike-aspect-findings.md`).** The aspect must traverse `embed`, because an embed-only transitive dependency is otherwise never visited and its sources would be missing from the layout. But traversing `embed` also visits the embedded library as its own node carrying the **same import path** as its embedder. The rule therefore folds nodes **by import path**, unioning srcs and deps — a naïve last-write-wins map is an order-dependent bug. The union is safe because rules_go makes the embedder's `GoInfo.srcs`/`GoArchive.direct` a superset of the embedded lib's. Non-Go and no-importpath (`main`) nodes are guarded out; every projection is `sorted()` for deterministic, cache-stable output.
 
 ### 4.4 `_go_component` rule
 
@@ -205,8 +208,8 @@ arcc gains one new loading mode (additive; colocated non-Bazel manifests keep wo
 
 Constraints surfaced and validated by the driver spike (`../research/spike-driver-findings.md`), load-bearing for the layout emission:
 
-1. **The driver must serve the `"std"` meta-pattern.** Capslock issues its own `packages.Load(nil, "std")` deep in analysis, so the layout must enumerate the full standard library (from the SDK), and the driver must resolve `"std"` to it — not only the closure's imports.
-2. **Stdlib source is read at check time from the SDK's `GOROOT/src`,** declared as a rules_go toolchain input; hermetically satisfiable, but it must be wired into the check's inputs.
+1. **The driver must serve the `"std"` meta-pattern.** Capslock issues its own `packages.Load(nil, "std")` deep in analysis, so the layout must enumerate the full standard library (from the SDK), and the driver must resolve `"std"` to it — not only the closure's imports. The full stdlib import-path set is the rules_go toolchain's `sdk.package_list` file (`../research/spike-aspect-findings.md`, finding 4).
+2. **Stdlib source is read at check time from the SDK's `GOROOT/src`,** declared as a rules_go toolchain input; hermetically satisfiable, but it must be wired into the check's inputs. Concretely: `sdk.srcs` (the `GOROOT/src` `File`s) as declared inputs, and `go_sdk_root = sdk.root_file.dirname + "/src"` in the layout.
 3. **cgo is the hermeticity risk.** cgo packages' `CompiledGoFiles` are preprocessed sources that `go list` leaves in the build cache; the layout emission must obtain them as declared Bazel outputs (rules_go produces them) rather than referencing the cache. Pure-Go closures are unaffected.
 
 ## 5. Data Models
@@ -260,7 +263,7 @@ Note the ordering change from the earlier directory-based scheme: with explicit 
 }
 ```
 
-`roots` are the component's member packages (§5.3). The driver serves both exact-importpath queries and the `"std"` meta-pattern (§4.6, finding 1); `go_sdk_root` supplies the stdlib source tree. The consumer-side round-trip through `go/packages`' own driver JSON form is validated in `../research/spike-driver/`; the exact wire encoding is finalized with the arcc loading-mode implementation.
+`roots` are the component's member packages (§5.3). The driver serves both exact-importpath queries and the `"std"` meta-pattern (§4.6, finding 1); `go_sdk_root` supplies the stdlib source tree. The member/absorbed `packages` come from the `_arcc_deps` aspect (§4.3); the stdlib set (for `"std"`), the stdlib source, and `go_sdk_root` come from the rules_go toolchain's `sdk.package_list`, `sdk.srcs`, and `sdk.root_file` respectively (`../research/spike-aspect-findings.md`, finding 4). Producer emission is validated in `../research/spike-aspect/`; the consumer-side round-trip through `go/packages`' own driver JSON form in `../research/spike-driver/`; the exact wire encoding is finalized where the two meet (the arcc loading-mode implementation).
 
 ### 5.5 `authority.bzl`
 

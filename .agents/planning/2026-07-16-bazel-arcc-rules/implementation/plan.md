@@ -59,7 +59,7 @@ Core end-to-end functionality arrives in two stages: the **arcc-side** hermetic 
 
 **Guidance.**
 - `bazel_rules/authority.bzl` (constants + `ALL_AUTHORITIES`), `bazel_rules/providers.bzl` (`ArccComponentInfo`), `bazel_rules/go/providers.bzl` (`ArccPackageInfo`), and `bazel_rules/go/defs.bzl` re-exporting the authority constants (§5.5, §7.4).
-- `_arcc_deps` aspect propagating over `deps`/`embed`, emitting `struct(label, importpath, dir, srcs, deps)` per package (§4.3); stdlib excluded (spike, question B).
+- `_arcc_deps` aspect propagating over `deps`/`embed`, emitting `struct(importpath, dir, srcs, deps)` per package (§4.3); stdlib excluded. A validated reference implementation exists in `../research/spike-aspect/rules/defs.bzl` — port it, don't re-derive. Load-bearing details (`../research/spike-aspect-findings.md`): edges from `GoArchive.direct` projected to import paths (self excluded); `srcs` straight from `GoInfo.srcs` (already embed-merged); **must** traverse `embed` yet fold nodes by import path (union srcs+deps — last-write-wins is a bug); guard non-Go/`main` nodes; `sorted()` everything for determinism.
 - A CI consistency check keeping `authority.bzl` in sync with the Go capability set in `go/internal/manifest` (§5.5, §8.5).
 
 **Tests.** `rules_testing` analysis tests over a synthetic `go_library` graph asserting the aspect yields the expected packages and direct-dependency edges; the authority-sync check fails when a capability is added to the Go set but not `authority.bzl`.

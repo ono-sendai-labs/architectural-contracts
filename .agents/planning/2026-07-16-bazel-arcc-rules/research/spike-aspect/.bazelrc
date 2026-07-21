@@ -1,0 +1,4 @@
+build --@rules_go//go/config:pure
+build --experimental_convenience_symlinks=ignore
+build --action_env=BAZEL_DO_NOT_DETECT_CPP_TOOLCHAIN=1
+common --repo_env=BAZEL_DO_NOT_DETECT_CPP_TOOLCHAIN=1
