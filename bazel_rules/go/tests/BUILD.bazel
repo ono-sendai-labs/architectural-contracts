@@ -1,3 +1,23 @@
+load("@rules_shell//shell:sh_test.bzl", "sh_test")
 load(":aspect_tests.bzl", "arcc_deps_aspect_test_suite")
+load(":component_tests.bzl", "go_component_test_suite")
 
 arcc_deps_aspect_test_suite(name = "arcc_deps_aspect_tests")
+
+go_component_test_suite(name = "go_component_tests")
+
+sh_test(
+    name = "golden_test",
+    srcs = ["golden_test.sh"],
+    size = "small",
+    args = [
+        "$(rootpaths //bazel_rules/go/tests/testdata/api:api_component)",
+        "$(rootpath goldens/api_component.component.textproto)",
+        "$(rootpath goldens/api_component.package-layout.json)",
+    ],
+    data = [
+        "goldens/api_component.component.textproto",
+        "goldens/api_component.package-layout.json",
+        "//bazel_rules/go/tests/testdata/api:api_component",
+    ],
+)

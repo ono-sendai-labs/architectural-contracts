@@ -1,3 +1,4 @@
+load("@rules_arcc//bazel_rules/go:defs.bzl", "go_component")
 load("@rules_go//go:def.bzl", "go_library")
 
 # Reached from both //api and //core: the diamond.
@@ -5,5 +6,14 @@ go_library(
     name = "shared",
     srcs = ["shared.go"],
     importpath = "example.com/aspect/shared",
+    visibility = ["//bazel_rules:__subpackages__"],
+)
+
+# A component //api depends on, so that //api's closure has a covered package
+# in it. Declared through the public load path, which is also what a consumer
+# writes.
+go_component(
+    name = "shared_component",
+    interface = ":shared",
     visibility = ["//bazel_rules:__subpackages__"],
 )

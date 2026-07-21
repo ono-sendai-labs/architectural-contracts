@@ -1,4 +1,5 @@
-load("@rules_go//go:def.bzl", "go_library")
+load("@rules_arcc//bazel_rules/go:defs.bzl", "FILES", "go_component")
+load("@rules_go//go:def.bzl", "go_library", "go_test")
 
 go_library(
     name = "api",
@@ -9,4 +10,26 @@ go_library(
         "//bazel_rules/go/tests/testdata/core",
         "//bazel_rules/go/tests/testdata/shared",
     ],
+)
+
+# One component covering all three membership classes:
+#   covered  — example.com/aspect/shared, via //shared:shared_component
+#   absorbed — example.com/aspect/extradep, listed below
+#   member   — example.com/aspect/{api,core,lowlevel}
+go_component(
+    name = "api_component",
+    absorbed_deps = ["//bazel_rules/go/tests/testdata/extradep"],
+    component_deps = ["//bazel_rules/go/tests/testdata/shared:shared_component"],
+    contract = ["contract.md"],
+    declared_authority = [FILES],
+    interface = ":api",
+    visibility = ["//bazel_rules:__subpackages__"],
+)
+
+# The component target stands in for its interface library: a Go rule can
+# depend on it and get the same GoInfo/GoArchive.
+go_test(
+    name = "component_forwards_go_providers_test",
+    srcs = ["forwarding_test.go"],
+    deps = [":api_component"],
 )

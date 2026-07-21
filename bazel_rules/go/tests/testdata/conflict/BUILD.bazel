@@ -1,0 +1,14 @@
+load("@rules_arcc//bazel_rules/go:defs.bzl", "go_component")
+
+# Absorbs a package that a listed component_dep already covers. Coverage wins
+# over absorption, so this is a contradiction the rule has to reject rather
+# than resolve. `manual` keeps the deliberate analysis failure out of
+# `bazel build //...`; //bazel_rules/go/tests asserts on it.
+go_component(
+    name = "conflict_component",
+    absorbed_deps = ["//bazel_rules/go/tests/testdata/shared"],
+    component_deps = ["//bazel_rules/go/tests/testdata/shared:shared_component"],
+    interface = "//bazel_rules/go/tests/testdata/api",
+    tags = ["manual"],
+    visibility = ["//bazel_rules:__subpackages__"],
+)

@@ -1,0 +1,20 @@
+load("@rules_arcc//bazel_rules/go:defs.bzl", "go_component")
+load("@rules_go//go:def.bzl", "go_library")
+
+go_library(
+    name = "nested",
+    srcs = ["nested.go"],
+    importpath = "example.com/aspect/nested",
+    visibility = ["//bazel_rules:__subpackages__"],
+    deps = ["//bazel_rules/go/tests/testdata/nested/child"],
+)
+
+# Depends on a component rooted inside its own root, which arcc rejects as
+# overlapping roots. `manual`: the analysis failure is the point.
+go_component(
+    name = "nested_component",
+    component_deps = ["//bazel_rules/go/tests/testdata/nested/child:child_component"],
+    interface = ":nested",
+    tags = ["manual"],
+    visibility = ["//bazel_rules:__subpackages__"],
+)

@@ -1,0 +1,15 @@
+load("@rules_arcc//bazel_rules/go:defs.bzl", "go_component")
+load("@rules_go//go:def.bzl", "go_library")
+
+go_library(
+    name = "child",
+    srcs = ["child.go"],
+    importpath = "example.com/aspect/nested/child",
+    visibility = ["//bazel_rules:__subpackages__"],
+)
+
+go_component(
+    name = "child_component",
+    interface = ":child",
+    visibility = ["//bazel_rules:__subpackages__"],
+)

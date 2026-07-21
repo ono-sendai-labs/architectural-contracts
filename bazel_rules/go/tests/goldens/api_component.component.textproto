@@ -1,0 +1,10 @@
+name: "api_component"
+interface_files: "_main/bazel_rules/go/tests/testdata/api/api.go"
+component_dependencies {
+  name: "shared_component"
+  manifest: "../shared/shared_component.component.textproto"
+}
+absorbed_dependencies {
+  import_path: "example.com/aspect/extradep"
+}
+declared_authority: "FILES"
