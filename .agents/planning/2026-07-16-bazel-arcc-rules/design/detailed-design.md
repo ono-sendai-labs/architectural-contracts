@@ -1,34 +1,36 @@
 # Detailed Design: arcc as a Bazel Rule (`go_component`)
 
-Status: draft for review — 2026-07-16.
+Status: draft for review — 2026-07-16; revised hermetic-only — 2026-07-20.
 
 ## 1. Overview
 
-This design adds Bazel integration to Architectural Contracts (`arcc`): a `go_component` symbolic macro that attaches an architectural-component declaration to an existing rules_go `go_library`, generates the component's `component.textproto` manifest from Bazel's own dependency graph, and enforces the contract by running `arcc check` as a Bazel test.
+This design adds Bazel integration to Architectural Contracts (`arcc`): a `go_component` symbolic macro that attaches an architectural-component declaration to an existing rules_go `go_library`, generates the component's `component.textproto` manifest and a `package-layout.json` from Bazel's own dependency graph, and enforces the contract by running `arcc check` as a **hermetic** Bazel test.
 
-Delivery is phased:
+The check is a fully sandboxed, cacheable, remote-execution-safe action: arcc loads Go packages from the Bazel-emitted package layout through a self-exec `GOPACKAGESDRIVER` mode, with **no `go list` and no `go.mod`** in the consuming workspace. arcc's existing `go/packages`-based loaders (`goanalysis`, `capslockadapter`) run through the driver unchanged.
 
-- **Phase 1 (trial-ready):** manifest generation is a normal hermetic build action; the `arcc check` test runs **non-hermetically** (`tags = ["local"]`, unsandboxed) against the real source workspace using arcc's existing `go list`-based loading, plus one small arcc change: checking a manifest that is not colocated with the component's sources.
-- **Phase 2 (hermetic end state):** arcc gains a package-layout loading mode fed by Bazel-serialized package metadata, making the check a fully sandboxed, cacheable, remote-execution-safe action.
+Two spikes validate the load-bearing mechanics:
 
-All mechanics load-bearing for this design were validated in a running spike on Bazel 9.2.0 / rules_go 0.61.1 (`../research/spike-findings.md`, runnable workspace in `../research/spike/`).
+- **Provider forwarding and the aspect** — validated on Bazel 9.2.0 / rules_go 0.61.1 (`../research/spike-findings.md`, runnable workspace in `../research/spike/`).
+- **Hermetic driver loading** — the self-exec `GOPACKAGESDRIVER` seam that makes the whole design hermetic: validated end to end (Capslock capability analysis from a Bazel-style layout with no `go.mod`), see `../research/spike-driver-findings.md` and `../research/spike-driver/`.
+
+An earlier draft phased delivery through a non-hermetic interim mode (`go list` against the real workspace). That mode is dropped: it requires the consuming workspace to also be a working Go module (`go.mod` present, module cache populated), which is not assumable for Bazel-only workspaces, and arcc is a pre-deployment PoC with no users needing an interim path. With the driver seam validated, the hermetic design is the whole design.
 
 ## 2. Detailed Requirements
 
-Consolidated from `../idea-honing.md` (Q1–Q13):
+Consolidated from `../idea-honing.md` (Q1–Q13); three answers were revisited at design review (noted inline):
 
 | # | Requirement | Source |
 |---|---|---|
-| R1 | Phase 1 ships a non-hermetic local check test first (quick trial in a real project); Phase 2 commits to a hermetic package-layout loading mode. | Q1 |
+| R1 | Enforcement uses a **hermetic** package-layout loading mode; the `arcc check` runs as a sandboxed, cacheable Bazel test. (Revised from Q1's phased plan — the non-hermetic interim mode is dropped.) | Q1 |
 | R2 | The component rule **references** an existing user-written `go_library` (does not generate libraries). | Q2 |
 | R3 | `interface` takes **exactly one** `go_library`; its entire package is the public surface. The manifest keeps file-level `interface_files` (all srcs of the interface library are emitted); arcc core semantics are unchanged. | Q3, Q13 |
-| R4 | Phase 1 adds a component-root override to arcc (non-colocated manifests); directory-based membership (FR1) is retained in Phase 1. Explicit membership arrives with Phase 2. | Q4 |
-| R5 | Absorbed dependencies: **explicit direct, derived transitive** (provisional — see §7.3 alternative). Explicitly listed absorbed deps may carry reasons; unaccounted-for dependencies are an analysis-time error. | Q5 |
+| R4 | Membership is **explicit**, derived by the rule from the aspect closure and carried in the package layout; directory-based membership (FR1) is superseded under Bazel. (Revised from Q4, which retained directory membership for the dropped interim mode.) | Q4 |
+| R5 | Absorbed dependencies: **explicit direct label list, derived transitive**; no per-dep reasons; unaccounted-for dependencies are an analysis-time error. (Revised from Q5's dict-with-reasons; see §7.3.) | Q5 |
 | R6 | `contract` files are Bazel-only metadata (declared inputs, carried in the provider); the manifest schema and FR10 (contracts are doc-comment prose) are untouched. | Q6 |
 | R7 | Enforcement is a test target, factored so the same check action can later be exposed as a validation action. | Q7 |
 | R8 | `declared_authority` uses Starlark constants (`authority.bzl`) for load-time typo safety; rendered as strings into the manifest (arcc still validates at parse time). | Q8 |
 | R9 | The macro is named `go_component`; the component target forwards `GoInfo`/`GoArchive` so `deps = [":my_component"]` "just works" in any rules_go rule. | Q9, spike A |
-| R10 | Rules live in this repo under top-level `bazel_rules/`; the repo becomes a bzlmod module. | Q10 |
+| R10 | Rules live in this repo under top-level `bazel_rules/` (language-neutral pieces at `bazel_rules/`, Go rules under `bazel_rules/go/`); the repo becomes a bzlmod module. | Q10 |
 | R11 | A bazelified variant of the csvtool examples demonstrates the rules end to end. | Q10 |
 | R12 | Consumers obtain the arcc binary built **from source** via rules_go through the bzlmod dependency. | Q11 |
 | R13 | Target Bazel 8+ using symbolic macros (validated on 9.2). | Q12 |
@@ -45,8 +47,8 @@ graph TD
         GC["go_component :service_component"]
     end
     subgraph "expansion (symbolic macro)"
-        CR["_go_component rule<br/>:service_component<br/>generates manifest,<br/>forwards GoInfo/GoArchive,<br/>exports ArccComponentInfo"]
-        CT["_arcc_check_test<br/>:service_component.check<br/>runs arcc check"]
+        CR["_go_component rule<br/>:service_component<br/>generates manifest + layout,<br/>forwards GoInfo/GoArchive,<br/>exports ArccComponentInfo"]
+        CT["_arcc_check_test<br/>:service_component.check<br/>runs arcc check (hermetic)"]
     end
     OTHER["go_component //other:other_component"]
     TEST["go_test :service_test<br/>deps = [':service_component']"]
@@ -62,55 +64,65 @@ graph TD
     TEST -->|GoInfo forwarded| CR
 ```
 
-### 3.2 Phase 1 check data flow
+### 3.2 Hermetic check data flow
 
 ```mermaid
 sequenceDiagram
     participant BA as Bazel analysis
-    participant MG as manifest action (hermetic)
-    participant CT as check test (local, unsandboxed)
-    participant ARCC as arcc binary
-    participant WS as real workspace sources
+    participant MG as manifest + layout actions (hermetic)
+    participant CT as check test (sandboxed)
+    participant ARCC as arcc (+ self-exec driver)
 
-    BA->>BA: aspect walks go_library deps<br/>(importpath, dir, direct deps)
-    BA->>MG: ctx.actions.write(component.textproto)
+    BA->>BA: aspect walks go_library deps<br/>(importpath, dir, srcs, direct deps)
+    BA->>MG: ctx.actions.write(component.textproto)<br/>+ ctx.actions.write(package-layout.json)
     Note over BA: analysis-time consistency check:<br/>unaccounted deps = error
-    CT->>CT: realpath(interface src symlink)<br/>→ workspace root
-    CT->>ARCC: arcc check bazel-out/.../component.textproto<br/>--source-root=<workspace root>
-    ARCC->>WS: go/packages (go list) loads<br/>component + dep sources
+    CT->>ARCC: arcc check <manifest> --package-layout=<layout.json>
+    ARCC->>ARCC: set GOPACKAGESDRIVER=self;<br/>packages.Load answers from layout
+    Note over ARCC: no go list, no go.mod;<br/>stdlib source from the rules_go SDK
     ARCC-->>CT: exit 0 / 1 / 2
     CT-->>BA: test pass / fail / error
 ```
 
-### 3.3 Phase roadmap
+### 3.3 Delivery
 
-- **Phase 1:** `bazel_rules/` (macro, rule, aspect, check test, authority constants) + arcc `--source-root` / `component_root` support + bazelified csvtool examples + repo bzlmod-ification.
-- **Phase 2:** package-layout emission from the rule + arcc in-process `GOPACKAGESDRIVER` (or equivalent) loading mode + flip the check test to sandboxed/hermetic (drop `local` tag) + explicit membership in the manifest.
+A single hermetic delivery:
+
+- `bazel_rules/` (macro, rule, aspect, check test, authority constants, providers) with the layout **and** manifest emitted from the rule.
+- arcc gains one loading seam: a self-exec `GOPACKAGESDRIVER` mode (`arcc check --package-layout=...`) plus explicit-membership handling; the checker/facts/report/capanalyzer components are untouched.
+- Bazelified csvtool examples; repo bzlmod-ification.
 
 ## 4. Components and Interfaces
 
 ### 4.1 Repository / module layout
 
-The repo root gains a `MODULE.bazel` (module name **`rules_arcc`**) so external workspaces can `bazel_dep` on it. New top-level directory:
+The repo root gains a `MODULE.bazel` (module name **`rules_arcc`**) so external workspaces can `bazel_dep` on it. New top-level directory, split so language-neutral pieces sit at `bazel_rules/` and Go-specific rules sit under `bazel_rules/go/` (mirroring the repo's own `go/` Go-module directory), leaving room for `bazel_rules/rust/` etc. later:
 
 ```
 bazel_rules/
   BUILD.bazel
-  defs.bzl            # public: go_component (symbolic macro)
-  authority.bzl       # public: FILES, NETWORK, ... constants + ALL list
-  providers.bzl       # public: ArccComponentInfo (for rule authors/aspects)
-  private/
-    component.bzl     # _go_component rule + _arcc_deps aspect
-    check.bzl         # _arcc_check_test rule
-  examples/           # bazelified csvtool (see §8)
+  authority.bzl       # public, language-neutral: FILES, NETWORK, ... + ALL_AUTHORITIES
+  providers.bzl       # public, language-neutral: ArccComponentInfo (cross-language component contract)
+  go/
+    BUILD.bazel
+    defs.bzl          # public: go_component (symbolic macro); re-exports authority constants for one-load ergonomics
+    providers.bzl     # public: ArccPackageInfo (Go-specific: importpath, srcs, deps)
+    private/
+      component.bzl   # _go_component rule + _arcc_deps aspect
+      check.bzl       # _arcc_check_test rule
+    tests/            # Starlark unit tests (§8)
 ```
 
-Load surface for consumers (note: `//bazel_rules`, not the sketch's `//go`, because `go/` is the Go module directory — flagged for review):
+The bazelified csvtool lives with the existing Go examples at `go/examples/csvtool/` (BUILD files added in place; §8), not under `bazel_rules/`.
+
+Load surface for consumers — Go rules from `bazel_rules/go/`, shared authority taxonomy from `bazel_rules/`:
 
 ```python
-load("@rules_arcc//bazel_rules:defs.bzl", "go_component")
+load("@rules_arcc//bazel_rules/go:defs.bzl", "go_component", "FILES")   # FILES re-exported for one-load convenience
+# equivalently, straight from the shared, language-neutral location:
 load("@rules_arcc//bazel_rules:authority.bzl", "FILES")
 ```
+
+`go_component` is inherently Go-specific, but the authority taxonomy and the `ArccComponentInfo` contract are arcc-level and language-independent, so a future `rust_component` reuses them unchanged. `defs.bzl` re-exports the authority constants so a pure-Go consumer can load everything from one path.
 
 Supporting pieces:
 
@@ -127,10 +139,10 @@ go_component(
     component_deps = [                       # targets providing ArccComponentInfo
         "//path/to/other:other_component",
     ],
-    absorbed_deps = {                        # label → reason (R5)
-        "//third_party/csvparse": "impl detail: CSV parsing",
-        "@org_golang_x_crypto//sha3": "hashing impl detail",
-    },
+    absorbed_deps = [                        # plain label list (R5); no reasons
+        "//third_party/csvparse",            # (a BUILD comment suffices to note why)
+        "@org_golang_x_crypto//sha3",
+    ],
     contract = ["component-contract.md"],    # Bazel-only metadata (R6)
     declared_authority = [FILES],            # authority.bzl constants (R8)
     visibility = ["//visibility:public"],
@@ -141,14 +153,14 @@ Expansion (validated in spike, question C):
 
 | Target | Kind | Purpose |
 |---|---|---|
-| `name` | `_go_component` | generates manifest; forwards `GoInfo` + `GoArchive` from `interface`; exports `ArccComponentInfo` |
-| `name + ".check"` | `_arcc_check_test` | runs `arcc check` on the generated manifest; `size = "small"`; Phase 1: `tags = ["local", "external"]` |
+| `name` | `_go_component` | generates manifest + package layout; forwards `GoInfo` + `GoArchive` from `interface`; exports `ArccComponentInfo` |
+| `name + ".check"` | `_arcc_check_test` | runs `arcc check` on the generated manifest; `size = "small"`; hermetic (no special tags) |
 
-Macro attrs are typed (`configurable = False` where selects make no sense). `interface` is `attr.label` (single, mandatory); passing a list is a load-time error — this enforces R3 structurally.
+Macro attrs are typed (`configurable = False` where selects make no sense). `interface` is `attr.label` (single, mandatory); passing a list is a load-time error — this enforces R3 structurally. `absorbed_deps` is `attr.label_list` (R5).
 
 ### 4.3 `_arcc_deps` aspect
 
-`GoArchiveData` does not expose per-package direct-dependency edges, so a small aspect propagates along `deps` (and `embed`) of `go_library` targets reachable from `interface`, `component_deps`, and `absorbed_deps` keys, collecting one struct per package:
+`GoArchiveData` does not expose per-package direct-dependency edges, so a small aspect propagates along `deps` (and `embed`) of `go_library` targets reachable from `interface`, `component_deps`, and `absorbed_deps`, collecting one struct per package:
 
 ```python
 ArccPackageInfo = provider(fields = {
@@ -156,67 +168,68 @@ ArccPackageInfo = provider(fields = {
 })  # deps = tuple of direct-dependency importpaths
 ```
 
-This gives analysis-time access to the full closure **with edges**, enabling membership classification (§5.3), the consistency check (§6.1), and Phase 2 layout emission (§4.6). Stdlib does not appear (spike, question B) — stdlib authority remains entirely arcc's concern.
+This gives analysis-time access to the full closure **with edges**, enabling membership classification (§5.3), the consistency check (§6.1), and package-layout emission (§4.6). Stdlib does not appear in the aspect closure (spike, question B); the layout adds the SDK stdlib separately (§4.6) — stdlib authority remains entirely arcc's concern.
 
 ### 4.4 `_go_component` rule
 
-Implementation steps (all at analysis time; the only action is one `ctx.actions.write`):
+Implementation steps (all at analysis time; the actions are two `ctx.actions.write`s — manifest and layout):
 
-1. **Component root** := the directory of the BUILD package that declares the `go_component` target (i.e. `ctx.label.package`). Rationale: predictable, matches "manifest at the component root" mental model, and works with Q4's retained directory-based membership. Validation: every member package's `dir` must be under this root, and no component dep's root may be under it (roots disjoint, mirroring arcc's existing rule). Violations are analysis-time errors.
+1. **Component root** := the directory of the BUILD package that declares the `go_component` target (`ctx.label.package`). With explicit membership this is only the manifest's logical home and the anchor for the component-dependency disjointness check (no component dep's root may be under it, mirroring arcc's existing rule); it is **not** a membership boundary. Violations are analysis-time errors.
 2. **Membership classification** (§5.3) over the aspect-collected closure; run the **consistency check** (§6.1).
-3. **Manifest generation:** write `name.component.textproto` (schema §5.1) with all paths relativized from workspace-relative `short_path`s to component-root-relative ones (spike note 1); `component_dependencies.manifest` entries point at dep components' *generated* manifests, path-relativized against this manifest's output directory (both live in the same output tree, so relative paths are well-defined).
-4. **Providers returned:** `ArccComponentInfo` (§5.2), the interface library's `GoInfo` and `GoArchive` verbatim (R9), and `DefaultInfo(files = [manifest])`.
+3. **Manifest generation:** write `name.component.textproto` (schema §5.1); `component_dependencies.manifest` entries point at dep components' *generated* manifests, path-relativized against this manifest's output directory (both live in the same output tree, so relative paths are well-defined).
+4. **Layout generation:** write `name.package-layout.json` (§5.4) enumerating every member and absorbed package (importpath, srcs, direct deps) and marking the component's member packages as the load roots, plus the Go SDK stdlib source root (from the rules_go toolchain).
+5. **Providers returned:** `ArccComponentInfo` (§5.2), the interface library's `GoInfo` and `GoArchive` verbatim (R9), and `DefaultInfo(files = [manifest, layout])`.
 
-### 4.5 `_arcc_check_test` (Phase 1)
+### 4.5 `_arcc_check_test`
 
-A test rule whose action writes a small launcher script:
+A test rule whose action writes a small launcher script that execs:
 
-1. Recover the real workspace root: `realpath` of the interface library's first source file in runfiles, minus its known workspace-relative path (spike, question D).
-2. Exec `arcc check <runfiles path of manifest> --source-root=<workspace root> --format=json` (JSON kept for future tooling; human output passes through for the test log).
-3. Exit-code mapping is arcc's own: 0 pass, 1 violation (test failure), 2 tool error (also test failure, distinguishable in the log).
+```
+arcc check <runfiles manifest> --package-layout=<runfiles layout> --format=json
+```
 
-Runfiles: the arcc binary (`@rules_arcc//:arcc`), the transitive manifest depset, the interface srcs (for root recovery). Tags: `local` (no sandbox — needs real workspace + `go list`), `external` (results may depend on state outside declared inputs, e.g. `go.mod`/module cache; prevents stale cache hits). Phase 1 constraint, documented: **the consuming workspace must also be a working Go module** (`go.mod` present, module cache populated) — standard for Gazelle-managed repos.
+- Exit-code mapping is arcc's own: 0 pass, 1 violation (test failure), 2 tool error (also test failure, distinguishable in the log). JSON kept for future tooling; human output passes through for the test log.
+- Runfiles: the arcc binary (`@rules_arcc//:arcc`), the transitive manifest depset, the transitive layout depset, and the member/absorbed package srcs referenced by the layout. The rules_go Go SDK provides the stdlib source (its files are named by the layout).
+- **Hermetic:** no `local` tag, no workspace-root recovery, no `go.mod` requirement — the test is sandboxed and cacheable, and remote-execution-safe once the SDK stdlib and cgo-preprocessed sources are declared inputs (§4.6).
 
-Factoring for R7: the command construction lives in a helper shared between the test rule and a future `_arcc_validation` action so the validation-action variant (Phase 2+, once hermetic) reuses it unchanged.
+Factoring for R7: command construction lives in a helper shared between the test rule and a future `_arcc_validation` action, so the validation-action variant (failing `bazel build`) reuses it unchanged.
 
-### 4.6 arcc CLI & Phase 2 loading mode
+### 4.6 arcc CLI & loading mode
 
-**Phase 1 arcc changes (small):**
+arcc gains one new loading mode (additive; colocated non-Bazel manifests keep working exactly as today):
 
-- New flag `arcc check <manifest> --source-root=<dir>`.
-- New optional manifest field `component_root` (§5.1). When present, the component root is `<source-root>/<component_root>` instead of the manifest's directory; all `interface_files` and membership resolution are relative to that root. Applies recursively: a `component_dependencies.manifest` reference whose resolved manifest also carries `component_root` resolves against the same `--source-root`. Colocated manifests (no field) behave exactly as today, flag present or not.
+- **CLI:** `arcc check <manifest> --package-layout=<layout.json>`.
+- **Self-exec `GOPACKAGESDRIVER`:** when `--package-layout` is set, arcc points `GOPACKAGESDRIVER` at the arcc binary itself and a driver subcommand answers `go/packages` queries from the layout file. `goanalysis` and `capslockadapter` keep calling `packages.Load` unchanged — `go/packages` parses and type-checks from source in-process once the driver supplies file lists and the import graph. This is the least-invasive path through arcc's architecture (§7.2) and doubles as a general non-`go list` entry point for other build systems.
+- **Path resolution:** under `--package-layout`, `interface_files` and all package srcs are workspace-relative and resolved via the layout (not relative to the manifest's own directory), so the manifest need not be colocated with sources.
+- **Explicit membership:** the layout's designated load roots are the component's member packages, replacing directory-derivation under Bazel (R4).
 
-**Phase 2 (committed direction, implementation deferred):**
+Constraints surfaced and validated by the driver spike (`../research/spike-driver-findings.md`), load-bearing for the layout emission:
 
-- The rule additionally emits a `package layout` JSON (§5.4) enumerating every package in the closure (importpath, srcs, direct deps) plus the Go SDK stdlib source root (from the rules_go toolchain).
-- arcc gains an in-process **`GOPACKAGESDRIVER` self-exec mode**: `arcc check --package-layout=layout.json` sets `GOPACKAGESDRIVER` to the arcc binary itself; the driver subcommand answers `go/packages` queries from the layout file. `goanalysis` and `capslockadapter` keep calling `packages.Load` unchanged — `go/packages` parses and type-checks from source in-process once the driver supplies file lists and the import graph. This is the least-invasive path through arcc's architecture and doubles as a general non-`go list` entry point for other build systems.
-- Explicit membership lands here: the manifest (or layout) lists member packages, replacing directory-derivation under Bazel (R4).
-- The check test drops `local`/`external` and becomes a plain hermetic test; a validation-action variant becomes possible.
+1. **The driver must serve the `"std"` meta-pattern.** Capslock issues its own `packages.Load(nil, "std")` deep in analysis, so the layout must enumerate the full standard library (from the SDK), and the driver must resolve `"std"` to it — not only the closure's imports.
+2. **Stdlib source is read at check time from the SDK's `GOROOT/src`,** declared as a rules_go toolchain input; hermetically satisfiable, but it must be wired into the check's inputs.
+3. **cgo is the hermeticity risk.** cgo packages' `CompiledGoFiles` are preprocessed sources that `go list` leaves in the build cache; the layout emission must obtain them as declared Bazel outputs (rules_go produces them) rather than referencing the cache. Pure-Go closures are unaffected.
 
 ## 5. Data Models
 
-### 5.1 Manifest schema change (additive)
+### 5.1 Manifest schema
 
-```proto
-message Component {
-  // ... existing fields 1-5 unchanged ...
-  // If set, the component root is this path resolved against the checker's
-  // --source-root (instead of the manifest file's own directory). Enables
-  // manifests generated outside the source tree (e.g. by Bazel).
-  optional string component_root = 6;   // workspace-relative, e.g. "path/to/svc"
-}
-```
+No proto change is required for the hermetic mode; the existing `Component` message (`name`, `interface_files`, `component_dependencies`, `absorbed_dependencies`, `declared_authority`) is emitted as today. The differences are semantic, not schematic:
 
-Backward compatible: absent field ⇒ today's colocation semantics. `interface_files` remain component-root-relative (C9 unchanged in spirit; the root is just named explicitly).
+- `interface_files` are workspace-relative and resolved via the layout (§4.6) rather than relative to the manifest's directory. arcc is a pre-deployment PoC with no compatibility constraints, so this generalization needs no versioning gymnastics; colocated non-Bazel manifests keep their existing directory-relative semantics when `--package-layout` is absent.
+- Membership is not encoded in the manifest — it is the layout's load roots (§5.4). The manifest remains the human-facing contract (interface, dependencies, declared authority); the layout is the machine-facing load graph.
+
+`absorbed_dependencies` continue to carry the (already `optional`) `reason` field in the proto, but the rule never populates it (R5): absorbed deps are an implementation detail the component takes responsibility for and need not justify to consumers.
 
 ### 5.2 `ArccComponentInfo` provider
 
 ```python
 ArccComponentInfo = provider(fields = {
     "component_name":       "string, logical name (= target name)",
-    "component_root":       "string, workspace-relative root directory",
+    "component_root":       "string, workspace-relative root directory (manifest's logical home)",
     "manifest":             "File, generated component.textproto",
+    "layout":               "File, generated package-layout.json",
     "transitive_manifests": "depset[File], own + all component deps' manifests",
+    "transitive_layouts":   "depset[File], own + all component deps' layouts",
     "closure":              "depset[struct], this component's member+absorbed packages (for dependents' subtraction)",
     "contracts":            "depset[File], contract docs (Bazel-only, R6)",
 })
@@ -227,17 +240,19 @@ ArccComponentInfo = provider(fields = {
 For each package `P` in the interface library's closure (from the aspect), classified in this order:
 
 1. **Component-dep-covered:** `P` is in some `component_deps[i].closure` → excluded from this component; the dep covers it.
-2. **Member:** `P.dir` is under the component root → member (Phase 1: must also hold for arcc's directory-derived view, hence the §4.4 validation).
-3. **Absorbed:** `P` is a key of `absorbed_deps`, or in the closure of one → emitted as `absorbed_dependencies` (explicit keys keep their reason; derived closure members get `reason: "transitively absorbed via <label>"`).
-4. **Unaccounted** → analysis-time error (§6.1).
+2. **Absorbed:** `P` is a listed `absorbed_deps` label, or in the closure of one → emitted as `absorbed_dependencies` (no reason recorded, R5).
+3. **Member:** otherwise `P` is a member of this component (explicit — the aspect closure minus coverage and absorption); emitted as a load root in the layout.
 
-Diamond rule: coverage (1) wins over absorption (3); explicitly absorbing a package already covered by a listed component dep is an analysis-time error (conflicting declaration). A package covered by two component deps is fine.
+Diamond rule: coverage (1) wins over absorption (2); explicitly absorbing a package already covered by a listed component dep is an analysis-time error (conflicting declaration). A package covered by two component deps is fine.
 
-### 5.4 Package layout JSON (Phase 2)
+Note the ordering change from the earlier directory-based scheme: with explicit membership there is no "member vs. absorbed by directory" test and no "unaccounted" fall-through by geography — every closure package is covered, absorbed, or a member by construction. The one remaining analysis-time error is the diamond conflict (§6.1).
+
+### 5.4 Package layout JSON
 
 ```json
 {
   "go_sdk_root": "external/rules_go++go_sdk+.../src",
+  "roots": ["example.com/svc"],
   "packages": [
     {"importpath": "example.com/svc", "srcs": ["svc/api.go"], "deps": ["example.com/svc/internal"]},
     {"importpath": "example.com/svc/internal", "srcs": ["svc/internal/impl.go"], "deps": ["example.com/other"]}
@@ -245,11 +260,11 @@ Diamond rule: coverage (1) wins over absorption (3); explicitly absorbing a pack
 }
 ```
 
-(Exact schema finalized with the Phase 2 arcc work; shown here to fix the direction.)
+`roots` are the component's member packages (§5.3). The driver serves both exact-importpath queries and the `"std"` meta-pattern (§4.6, finding 1); `go_sdk_root` supplies the stdlib source tree. The consumer-side round-trip through `go/packages`' own driver JSON form is validated in `../research/spike-driver/`; the exact wire encoding is finalized with the arcc loading-mode implementation.
 
 ### 5.5 `authority.bzl`
 
-One string constant per capability in arcc's known set (`FILES`, `NETWORK`, `READ_SYSTEM_STATE`, `MODIFY_SYSTEM_STATE`, `OPERATING_SYSTEM`, `SYSTEM_CALLS`, `EXEC`, `RUNTIME`, `ARBITRARY_EXECUTION`, `CGO`, `UNSAFE_POINTER`, `REFLECT`, `UNANALYZED`) plus `ALL_AUTHORITIES` for tooling. The rule validates `declared_authority` values against this set at analysis time (belt) and arcc re-validates at parse time (suspenders). The Go source of truth is the capability list in `go/internal/manifest`; a CI check keeps `authority.bzl` in sync (§8).
+One string constant per capability in arcc's known set (`FILES`, `NETWORK`, `READ_SYSTEM_STATE`, `MODIFY_SYSTEM_STATE`, `OPERATING_SYSTEM`, `SYSTEM_CALLS`, `EXEC`, `RUNTIME`, `ARBITRARY_EXECUTION`, `CGO`, `UNSAFE_POINTER`, `REFLECT`, `UNANALYZED`) plus `ALL_AUTHORITIES` for tooling. The rule validates `declared_authority` values against this set at analysis time (belt) and arcc re-validates at parse time (suspenders). The Go source of truth is the capability list in `go/internal/manifest`; a CI check keeps `authority.bzl` in sync (§8). It lives at `bazel_rules/authority.bzl` (language-neutral) and is re-exported from `bazel_rules/go/defs.bzl`.
 
 ## 6. Error Handling
 
@@ -257,74 +272,74 @@ One string constant per capability in arcc's known set (`FILES`, `NETWORK`, `REA
 
 | Condition | Message sketch |
 |---|---|
-| Unaccounted dependency (§5.3 case 4) | `component "svc": package example.com/x (via //x:x) is neither a member, covered by a component_dep, nor absorbed. Add "//x:x" to absorbed_deps (with a reason) or add its component to component_deps.` |
-| Member package outside component root | `component "svc": member package example.com/util (dir tools/util) lies outside component root path/to/svc. Move it, or declare it as its own component.` |
 | Component roots nested | `component "svc": component_dep "other" has root path/to/svc/other, nested inside this component's root.` |
 | Absorb/covered conflict (§5.3 diamond rule) | `component "svc": //third_party/x is already covered by component_dep "other"; remove it from absorbed_deps.` |
 | Unknown authority string | `unknown declared_authority "FILE"; known: FILES, NETWORK, ...` (unreachable when constants are used) |
 | `interface` target lacks `GoInfo` | standard Bazel providers error via `attr.label(providers = [GoInfo, GoArchive])` |
 
+(The earlier "unaccounted dependency" and "member outside component root" errors are gone: explicit membership makes every closure package a member by construction unless covered or absorbed.)
+
 ### 6.2 Check-time errors (in `bazel test`)
 
 - arcc exit 1 (violations): test failure; arcc's human-readable violation report (call paths, evidence) is the test log.
-- arcc exit 2 (tool error — manifest syntax, Go build failure, missing files): test failure with the arcc error verbatim, prefixed by the launcher with context (`arcc check failed to run; is this workspace a Go module? (Phase 1 requires go.mod)`).
-- Workspace-root recovery failure (runfiles not symlinks — e.g. someone strips `local`): explicit launcher error naming the requirement rather than a confusing arcc failure.
+- arcc exit 2 (tool error — manifest syntax, layout inconsistency, missing source files): test failure with the arcc error verbatim.
+- Layout/driver errors (e.g. a package src named by the layout is not in runfiles) surface as a clear arcc tool error rather than a confusing `go/packages` failure.
 
 ### 6.3 Failure containment
 
-Manifest generation is hermetic and cheap; only the check test is non-hermetic in Phase 1. A broken Go module context therefore breaks `bazel test` of `.check` targets but never `bazel build //...`.
+Manifest and layout generation are hermetic and cheap; the check test is a normal sandboxed test. `bazel build //...` is never affected by check outcomes, and `bazel test` of `.check` targets is cacheable and reproducible.
 
 ## 7. Key Decisions and Alternatives
 
-### 7.1 Component root = BUILD package directory
-Simple, predictable, and compatible with Phase 1's directory-based membership. Alternative (rejected for now): common-prefix computation over member dirs — cleverer but surprising, and Phase 2's explicit membership removes the need.
+### 7.1 Component root = BUILD package directory (anchor, not boundary)
+With explicit membership, the component root is just the manifest's logical home and the anchor for the component-dependency disjointness check. It no longer constrains where member packages live, which removes the earlier "member outside root" machinery. Alternative (rejected): common-prefix computation over member dirs — unnecessary once membership is explicit.
 
-### 7.2 Self-exec `GOPACKAGESDRIVER` for Phase 2
-Keeps `goanalysis`/`capslockadapter` on the unmodified `packages.Load` path. Alternatives: hand-built `packages.Package` graphs (invasive in arcc), or synthesized module trees in the sandbox (rejected in research: fragile reverse-engineering of module layout).
+### 7.2 Self-exec `GOPACKAGESDRIVER` for hermetic loading
+Keeps `goanalysis`/`capslockadapter` on the unmodified `packages.Load` path; validated end to end (`../research/spike-driver-findings.md`). Alternatives: hand-built `packages.Package` graphs (invasive in arcc), or synthesized module trees in the sandbox (rejected in research: fragile reverse-engineering of module layout).
 
-### 7.3 ALTERNATIVE UNDER CONSIDERATION — fully derived absorption (Q5)
-The design specifies explicit-direct absorption (R5). The alternative: **everything not component-dep-covered is silently absorbed** (`absorbed_deps` attr optional, reasons optional, no unaccounted-dependency error). Effects: zero BUILD friction when adding deps; loses the deliberate-absorption declaration and per-dep reasons; the §6.1 "unaccounted" error class disappears (arcc still catches authority violations — but only authority, not undeclared-structure drift). Switch cost is small and localized (§5.3 case 4 becomes "absorbed with generated reason"; one attr becomes optional), so this decision can be flipped at review or even post-trial. **To be settled by the user at design review.**
+### 7.3 Absorbed dependencies: explicit label list, no reasons (Q5, settled)
+`absorbed_deps` is a plain label list; unaccounted structural drift is caught because every closure package must be covered, absorbed, or a member. Per-dep reasons are dropped: absorbed deps are an implementation detail the component takes responsibility for (and whose ambient authority it accounts for), so they need not justify themselves to consumers — a BUILD comment suffices where a note is wanted. The manifest's `AbsorbedDependency.reason` is already `optional`, so this is a BUILD-attr-only decision. Rejected alternatives: **dict with required reasons** (the earlier draft — needless friction); **fully derived / silently absorbed** (drops the deliberate-absorption declaration and the drift signal, leaving only arcc's authority check).
 
-### 7.4 Load path `@rules_arcc//bazel_rules:defs.bzl`
-The sketch's `@rules_arcc//go:def.bzl` collides with the `go/` Go-module directory in this repo (R10 keeps rules in-repo). If the ergonomics matter, a later split into a dedicated `rules_arcc` repo restores the conventional path; alternatively a top-level `go_component.bzl` re-export could shorten it. **Flagged for user review.**
+### 7.4 Rule layout: `bazel_rules/` (shared) + `bazel_rules/go/` (Go) (Q10, settled)
+Go-specific rules load from `@rules_arcc//bazel_rules/go:defs.bzl`; the language-neutral authority taxonomy and `ArccComponentInfo` contract sit at `bazel_rules/`, ready for a future `bazel_rules/rust/`. This resolves the earlier `//bazel_rules` vs `//go` collision (the sketch's `@rules_arcc//go:def.bzl` clashed with the `go/` Go-module directory) and mirrors the repo's own `go/` layout. A later split into a dedicated `rules_arcc` repo remains possible if adoption warrants.
 
 ## 8. Testing Strategy
 
-1. **Starlark unit tests** (`rules_testing`): membership classification, path relativization, diamond/conflict errors, authority validation — table-driven over synthetic `go_library` graphs under `bazel_rules/tests/`.
-2. **Bazelified csvtool examples as integration tests (R11):** BUILD files for `go/examples/csvtool/{toprow,csvfile,app}` declaring `go_component`s mirroring their existing manifests (toprow: no authority; csvfile: `[FILES]`; app: component deps prune authority). `bazel test //go/examples/...` must pass; the generated manifests are additionally golden-compared against the semantics of the checked-in colocated manifests (same interface files, deps, authority — modulo `component_root`).
-3. **Negative tests:** an `absorbapp`-style violating component whose `.check` is asserted to fail (wrapped in a script test expecting exit≠0), plus one analysis-failure test per §6.1 error class (`rules_testing` failure tests).
-4. **arcc Go tests:** unit/integration coverage for `--source-root` + `component_root` resolution (including dep-manifest chains), reusing the existing integration-test harness.
-5. **Consistency check in CI:** `authority.bzl` vs. the Go capability set; `just ci` extended with (or accompanied by) `bazel test //bazel_rules/... //go/examples/...` where Bazel is available.
-6. **Dogfood (stretch, Phase 1.5):** `go_component` declarations for arcc's own components, converging `just selfcheck` and the Bazel checks.
+1. **Starlark unit tests** (`rules_testing`, under `bazel_rules/go/tests/`): membership classification, layout emission, diamond/conflict errors, authority validation — table-driven over synthetic `go_library` graphs.
+2. **Bazelified csvtool examples as integration tests (R11):** BUILD files for `go/examples/csvtool/{toprow,csvfile,app}` declaring `go_component`s mirroring their existing manifests (toprow: no authority; csvfile: `[FILES]`; app: component deps prune authority). `bazel test //go/examples/...` must pass; the generated manifests are additionally golden-compared against the checked-in colocated manifests (same interface files, deps, authority).
+3. **Negative tests:** an `absorbapp`-style violating component whose `.check` is asserted to fail (script test expecting exit≠0), plus one analysis-failure test per §6.1 error class (`rules_testing` failure tests).
+4. **arcc Go tests:** unit/integration coverage for `--package-layout` loading (driver `std` handling, cgo `CompiledGoFiles`, stdlib-from-SDK resolution, explicit-membership roots), reusing the existing integration-test harness. The `../research/spike-driver/` spike is the seed for these.
+5. **Consistency check in CI:** `authority.bzl` vs. the Go capability set; **`just ci` extended to run `bazel build //...` and `bazel test //bazel_rules/... //go/examples/...`**, guarded on Bazel being available in the environment (the plain `go build` / `just ci` path stays green where Bazel is not provisioned).
+6. **Dogfood (stretch):** `go_component` declarations for arcc's own components, converging `just selfcheck` and the Bazel checks.
 
 ## 9. Integration with Existing System
 
-- **arcc core:** two additive changes in Phase 1 — the `component_root` proto field (regenerate `go/internal/manifest/gen`) and `--source-root` flag threading through `cli` → `manifest` → `goanalysis`. The checker/facts/report/capanalyzer components are untouched. Phase 2 adds the driver subcommand as a new leaf in `cli` plus a loading seam in `goanalysis`/`capslockadapter` (env-var setup only).
-- **Repo:** gains `MODULE.bazel`, Gazelle-managed BUILD files under `go/`, and `bazel_rules/`. `proto/` schema change is additive. The `structured-spec-to-code` / `just ci` workflow is unchanged; Bazel checks are an additional CI leg.
-- **Self-hosting story:** unchanged in Phase 1 (`just selfcheck` keeps using colocated manifests); §8.6 sketches convergence.
+- **arcc core:** one additive change — the `--package-layout` loading mode: a self-exec driver subcommand in `cli`, and a loading seam in `goanalysis`/`capslockadapter` that is env-var setup only (`packages.Load` calls unchanged) plus workspace-relative path resolution for `interface_files`. The checker/facts/report/capanalyzer components are untouched. No proto change (§5.1).
+- **Repo:** gains `MODULE.bazel`, Gazelle-managed BUILD files under `go/`, and `bazel_rules/`. The `structured-spec-to-code` / `just ci` workflow gains a Bazel leg (guarded).
+- **Self-hosting story:** unchanged (`just selfcheck` keeps using colocated manifests via the existing `go list` path); §8.6 sketches convergence.
 
 ## 10. Adherence to Established Conventions
 
-- FR1 (directory-based membership) retained in Phase 1 per Q4; explicitly superseded under Bazel in Phase 2 (documented departure, motivated by Bazel's explicit-enumeration model).
+- FR1 (directory-based membership) retained for colocated non-Bazel manifests; explicitly superseded under Bazel by explicit membership (documented departure, motivated by Bazel's explicit-enumeration model).
 - FR10 (no contract field in the manifest) upheld — `contract` never reaches the manifest (R6).
-- C9 (root-relative paths) generalized, not broken: `component_root` names the root explicitly; path semantics below the root are unchanged.
+- C9 (root-relative paths): under `--package-layout`, `interface_files` are workspace-relative and layout-resolved; colocated-manifest semantics are unchanged.
 - C12 (dep manifest `name` match) unchanged — the rule emits dep names from `ArccComponentInfo.component_name`, so matches hold by construction.
-- Proto changes follow the existing style (field comments documenting semantics and constraint references).
 
-## 11. Migration Strategy / Backward Compatibility
+## 11. Migration / Backward Compatibility
 
-- All arcc changes are additive: colocated manifests without `component_root` behave identically; `--source-root` is optional; exit codes and output formats unchanged. No existing manifest, example, or selfcheck needs modification in Phase 1.
-- Bazel adoption is incremental by design (R2): a repo can componentize one library at a time; non-componentized dependents keep working, and can even depend on component targets directly (R9).
-- Phase 1 → Phase 2 migration is transparent to BUILD files: same `go_component` API; the check test silently becomes hermetic. The only behavioural change is stricter membership (explicit list vs. directory) — flagged violations at that point are real declarations drifting from reality.
+arcc is a pre-deployment PoC with no external users, so backward compatibility is not a hard constraint — but the design happens to be additive anyway:
+
+- The `--package-layout` mode is additive; colocated manifests without it behave exactly as today, so no existing manifest, example, or selfcheck changes.
+- Bazel adoption is incremental (R2): a repo can componentize one library at a time; non-componentized dependents keep working and can depend on component targets directly (R9).
 
 ## Appendix A: Research Summary
 
 See `../research/` for full notes; key findings:
 
-- **`go/packages` cannot run in a Bazel sandbox** (shells out to `go list`; rules_go#1996). This forced the phasing and the Phase 2 driver design.
+- **`go/packages` cannot run in a Bazel sandbox** via its default `go list` driver (shells out to `go list`; rules_go#1996). This motivated the self-exec `GOPACKAGESDRIVER` design.
+- **Hermetic driver loading works end to end** (`spike-driver-findings.md`): Capslock capability analysis from a Bazel-style package layout, with no `go.mod` and no `go list`; negative control (driver off) fails as expected; only `GOROOT/src` is referenced (no build/module cache). Surfaced the `"std"`-pattern and cgo constraints (§4.6).
 - **`go_proto_library` precedent** proves provider forwarding; spike-confirmed with a passing `go_test` depending on a component target.
 - **`GoArchive.transitive`** provides the package closure (importpaths + srcs) at analysis time, excluding stdlib; per-package *edges* require the `_arcc_deps` aspect.
-- **`tags=["local"]` tests** see runfiles as symlinks into the real workspace — the Phase 1 keystone.
 - **No prior art** for Capslock-under-Bazel; validation actions and rules_lint surveyed for the enforcement-point decision.
 - Spike environment note: rules_go needs `--@rules_go//go/config:pure` (or a CC toolchain) — worth a line in consumer docs.
 
@@ -333,7 +348,8 @@ See `../research/` for full notes; key findings:
 | Choice | Rationale | Alternatives rejected |
 |---|---|---|
 | Symbolic macros (Bazel 8+) | typed attrs, clean `name`/`name.check` namespacing | legacy macros (wider compat, less hygiene) |
-| Test-target enforcement | matches CI norms, cacheable, sketch-compatible | validation action day-one (blunter, more Phase-1 work) — kept as future option |
+| Test-target enforcement | `arcc check` is heavy static analysis; kept off the build critical path and run as a cacheable test that presubmits/CI are relied on to execute | validation action day-one (blunter, adds build latency) — kept as future option (R7) |
+| Self-exec `GOPACKAGESDRIVER` loading | hermetic, sandboxable, cacheable; keeps arcc's `packages.Load` calls unchanged; validated by spike | non-hermetic `go list` against the real workspace (needs a `go.mod`, not sandboxable) |
 | Starlark authority constants | load-time typo safety, zero target boilerplate | label marker targets (boilerplate), bare strings (late errors) |
 | arcc from source via rules_go | version-matched, hermetic, trivially patchable | prebuilt SLSA release binaries (skew risk) — possible later toolchain option |
 | In-repo `bazel_rules/` | co-versioned with the moving manifest format | separate `rules_arcc` repo (ecosystem-standard, later) |
