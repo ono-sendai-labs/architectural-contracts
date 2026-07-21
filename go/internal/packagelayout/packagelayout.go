@@ -50,7 +50,7 @@ func discoverStdlib(sdkRoot string) ([]*packages.Package, error) {
 		return nil, nil
 	}
 
-	fi, err := osStat(sdkRoot)
+	fi, err := os.Stat(sdkRoot)
 	if err != nil {
 		return nil, fmt.Errorf("accessing SDK root %q: %w", sdkRoot, err)
 	}
@@ -58,42 +58,16 @@ func discoverStdlib(sdkRoot string) ([]*packages.Package, error) {
 		return nil, fmt.Errorf("SDK root %q is not a directory", sdkRoot)
 	}
 
-	// Check if the directory exists on the real filesystem.
-	// If it doesn't (i.e., we are in a mock test with non-existent paths),
-	// skip walking and return nil, nil since the test already provides the standard library.
-	if _, realErr := os.Stat(sdkRoot); realErr != nil {
-		if os.IsNotExist(realErr) {
-			return nil, nil
-		}
-	}
-
 	bctx := build.Default
 	bctx.GOROOT = filepath.Dir(sdkRoot)
 
-	var pkgs []*packages.Package
-
-	// Synthesize compiler-builtin "unsafe" package.
-	unsafePkg := &packages.Package{
-		ID:              "unsafe",
-		Name:            "unsafe",
-		PkgPath:         "unsafe",
-		GoFiles:         nil,
-		CompiledGoFiles: nil,
-		Imports:         make(map[string]*packages.Package),
-	}
-	pkgs = append(pkgs, unsafePkg)
-
+	var packageDirs []string
 	err = filepath.Walk(sdkRoot, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return fmt.Errorf("walking SDK root at %s: %w", path, err)
 		}
 
 		if info.IsDir() {
-			name := info.Name()
-			if name == "cmd" || name == "vendor" || name == "testdata" {
-				return filepath.SkipDir
-			}
-
 			rel, err := filepath.Rel(sdkRoot, path)
 			if err != nil {
 				return fmt.Errorf("failed to compute relative path of %s from SDK root: %w", path, err)
@@ -103,40 +77,14 @@ func discoverStdlib(sdkRoot string) ([]*packages.Package, error) {
 				return nil
 			}
 
-			bpkg, err := bctx.ImportDir(path, 0)
-			if err != nil {
-				var noGoErr *build.NoGoError
-				if errors.As(err, &noGoErr) {
-					return nil
-				}
-				return fmt.Errorf("inspecting standard-library package at %q: %w", path, err)
+			// go list std excludes the top-level cmd tree and every testdata
+			// directory, but includes the GOROOT-level vendor tree.
+			if importPath == "cmd" || importPath == "testdata" ||
+				strings.HasPrefix(importPath, "cmd/") || strings.HasSuffix(importPath, "/testdata") ||
+				strings.Contains(importPath, "/testdata/") {
+				return filepath.SkipDir
 			}
-
-			if bpkg.Name == "main" {
-				return nil
-			}
-
-			var goFiles []string
-			goFiles = append(goFiles, bpkg.GoFiles...)
-			goFiles = append(goFiles, bpkg.CgoFiles...)
-			sort.Strings(goFiles)
-
-			pkgPkg := &packages.Package{
-				ID:              importPath,
-				Name:            bpkg.Name,
-				PkgPath:         importPath,
-				GoFiles:         goFiles,
-				CompiledGoFiles: goFiles,
-				Imports:         make(map[string]*packages.Package),
-			}
-
-			for _, imp := range bpkg.Imports {
-				if IsStdlib(imp) {
-					pkgPkg.Imports[imp] = &packages.Package{ID: imp}
-				}
-			}
-
-			pkgs = append(pkgs, pkgPkg)
+			packageDirs = append(packageDirs, path)
 		}
 		return nil
 	})
@@ -145,10 +93,89 @@ func discoverStdlib(sdkRoot string) ([]*packages.Package, error) {
 		return nil, err
 	}
 
-	if len(pkgs) <= 1 {
+	sort.Strings(packageDirs)
+
+	type discoveredPackage struct {
+		pkg     *packages.Package
+		imports []string
+	}
+	discovered := make([]discoveredPackage, 0, len(packageDirs)+1)
+
+	// Synthesize compiler-builtin "unsafe" package.
+	discovered = append(discovered, discoveredPackage{pkg: &packages.Package{
+		ID:              "unsafe",
+		Name:            "unsafe",
+		PkgPath:         "unsafe",
+		GoFiles:         nil,
+		CompiledGoFiles: nil,
+		Imports:         make(map[string]*packages.Package),
+	}})
+
+	for _, path := range packageDirs {
+		bpkg, err := bctx.ImportDir(path, 0)
+		if err != nil {
+			var noGoErr *build.NoGoError
+			if errors.As(err, &noGoErr) {
+				continue
+			}
+			return nil, fmt.Errorf("inspecting standard-library package at %q: %w", path, err)
+		}
+
+		if bpkg.Name == "main" {
+			continue
+		}
+
+		rel, err := filepath.Rel(sdkRoot, path)
+		if err != nil {
+			return nil, fmt.Errorf("failed to compute relative path of %s from SDK root: %w", path, err)
+		}
+		importPath := filepath.ToSlash(rel)
+		goFiles := append([]string{}, bpkg.GoFiles...)
+		goFiles = append(goFiles, bpkg.CgoFiles...)
+		sort.Strings(goFiles)
+
+		imports := append([]string{}, bpkg.Imports...)
+		sort.Strings(imports)
+		discovered = append(discovered, discoveredPackage{
+			pkg: &packages.Package{
+				ID:              importPath,
+				Name:            bpkg.Name,
+				PkgPath:         importPath,
+				GoFiles:         goFiles,
+				CompiledGoFiles: append([]string{}, goFiles...),
+				Imports:         make(map[string]*packages.Package),
+			},
+			imports: imports,
+		})
+	}
+
+	if len(discovered) <= 1 {
 		return nil, fmt.Errorf("invalid SDK root %q: structurally invalid (no standard-library packages discovered)", sdkRoot)
 	}
 
+	known := make(map[string]bool, len(discovered))
+	for _, item := range discovered {
+		known[item.pkg.PkgPath] = true
+	}
+	for i := range discovered {
+		for _, imp := range discovered[i].imports {
+			resolved := imp
+			if !IsStdlib(resolved) {
+				vendorPath := "vendor/" + resolved
+				if !known[resolved] && known[vendorPath] {
+					resolved = vendorPath
+				}
+			}
+			if IsStdlib(resolved) {
+				discovered[i].pkg.Imports[resolved] = &packages.Package{ID: resolved}
+			}
+		}
+	}
+
+	pkgs := make([]*packages.Package, 0, len(discovered))
+	for _, item := range discovered {
+		pkgs = append(pkgs, item.pkg)
+	}
 	sort.Slice(pkgs, func(i, j int) bool {
 		return pkgs[i].ID < pkgs[j].ID
 	})
@@ -305,13 +332,6 @@ func ValidateAndResolve(l *Layout, workspaceDir string) error {
 		if !IsStdlib(p.PkgPath) {
 			fset := token.NewFileSet()
 			for _, file := range p.GoFiles {
-				// If the file does not exist on the real filesystem (e.g., in mock unit tests),
-				// skip parsing since the mock test environment already provides all package imports manually.
-				if _, realErr := os.Stat(file); realErr != nil {
-					if os.IsNotExist(realErr) {
-						continue
-					}
-				}
 				f, err := parser.ParseFile(fset, file, nil, parser.ImportsOnly)
 				if err != nil {
 					return fmt.Errorf("parsing source file %q of package %q: %w", file, p.ID, err)

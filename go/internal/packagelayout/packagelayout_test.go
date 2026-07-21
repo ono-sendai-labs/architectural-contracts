@@ -224,14 +224,27 @@ func TestParse_RoundTrip(t *testing.T) {
 }
 
 func TestValidateAndResolve_Valid(t *testing.T) {
-	defer setupMockStat([]string{
-		"/workspace/foo.go",
-		"/workspace/foo_compiled.go",
-		"/sdk/src/fmt/format.go",
-	})()
+	tmpDir := t.TempDir()
+	workspace := filepath.Join(tmpDir, "workspace")
+	sdkRoot := filepath.Join(tmpDir, "sdk", "src")
+	if err := os.MkdirAll(filepath.Join(sdkRoot, "fmt"), 0755); err != nil {
+		t.Fatalf("failed to create SDK fixture: %v", err)
+	}
+	if err := os.MkdirAll(workspace, 0755); err != nil {
+		t.Fatalf("failed to create workspace fixture: %v", err)
+	}
+	for path, content := range map[string]string{
+		filepath.Join(workspace, "foo.go"):          "package foo",
+		filepath.Join(workspace, "foo_compiled.go"): "package foo",
+		filepath.Join(sdkRoot, "fmt", "format.go"):  "package fmt",
+	} {
+		if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+			t.Fatalf("failed to write fixture %q: %v", path, err)
+		}
+	}
 
 	l := &Layout{
-		GoSDKRoot: "/sdk/src",
+		GoSDKRoot: sdkRoot,
 		Roots:     []string{"example.com/foo"},
 		Packages: []*packages.Package{
 			{
@@ -253,23 +266,23 @@ func TestValidateAndResolve_Valid(t *testing.T) {
 		},
 	}
 
-	err := ValidateAndResolve(l, "/workspace")
+	err := ValidateAndResolve(l, workspace)
 	if err != nil {
 		t.Fatalf("unexpected validation error: %v", err)
 	}
 
 	// Verify path resolutions
 	fooPkg := l.Packages[0]
-	if fooPkg.GoFiles[0] != "/workspace/foo.go" {
-		t.Errorf("expected workspace relative path resolved to /workspace/foo.go, got %q", fooPkg.GoFiles[0])
+	if fooPkg.GoFiles[0] != filepath.Join(workspace, "foo.go") {
+		t.Errorf("expected workspace relative path resolved to %q, got %q", filepath.Join(workspace, "foo.go"), fooPkg.GoFiles[0])
 	}
-	if fooPkg.CompiledGoFiles[0] != "/workspace/foo_compiled.go" {
-		t.Errorf("expected compiled file resolved to /workspace/foo_compiled.go, got %q", fooPkg.CompiledGoFiles[0])
+	if fooPkg.CompiledGoFiles[0] != filepath.Join(workspace, "foo_compiled.go") {
+		t.Errorf("expected compiled file resolved to %q, got %q", filepath.Join(workspace, "foo_compiled.go"), fooPkg.CompiledGoFiles[0])
 	}
 
 	fmtPkg := l.Packages[1]
-	if fmtPkg.GoFiles[0] != "/sdk/src/fmt/format.go" {
-		t.Errorf("expected stdlib file resolved to /sdk/src/fmt/format.go, got %q", fmtPkg.GoFiles[0])
+	if fmtPkg.GoFiles[0] != filepath.Join(sdkRoot, "fmt", "format.go") {
+		t.Errorf("expected stdlib file resolved to %q, got %q", filepath.Join(sdkRoot, "fmt", "format.go"), fmtPkg.GoFiles[0])
 	}
 }
 
@@ -654,6 +667,12 @@ func TestHandleDriverRequest(t *testing.T) {
 }
 
 func TestRunDriver_Integration(t *testing.T) {
+	workspaceDir := t.TempDir()
+	workspaceFile := filepath.Join(workspaceDir, "foo.go")
+	if err := os.WriteFile(workspaceFile, []byte("package foo"), 0644); err != nil {
+		t.Fatalf("failed to create workspace source: %v", err)
+	}
+
 	// Write a temp layout file
 	tmpFile, err := os.CreateTemp("", "layout-test-*.json")
 	if err != nil {
@@ -683,12 +702,10 @@ func TestRunDriver_Integration(t *testing.T) {
 	}
 	tmpFile.Close()
 
-	defer setupMockStat([]string{"/workspace/foo.go"})()
-
 	stdin := strings.NewReader(`{"Mode": 0}`)
 	var stdout bytes.Buffer
 
-	err = RunDriver(tmpFile.Name(), "/workspace", []string{"example.com/foo"}, stdin, &stdout)
+	err = RunDriver(tmpFile.Name(), workspaceDir, []string{"example.com/foo"}, stdin, &stdout)
 	if err != nil {
 		t.Fatalf("RunDriver returned error: %v", err)
 	}
@@ -706,8 +723,8 @@ func TestRunDriver_Integration(t *testing.T) {
 		t.Errorf("unexpected packages in response: %v", resp.Packages)
 	}
 
-	if resp.Packages[0].GoFiles[0] != "/workspace/foo.go" {
-		t.Errorf("expected resolved path in package returned, got %q", resp.Packages[0].GoFiles[0])
+	if resp.Packages[0].GoFiles[0] != workspaceFile {
+		t.Errorf("expected resolved path %q in package returned, got %q", workspaceFile, resp.Packages[0].GoFiles[0])
 	}
 }
 
@@ -792,8 +809,8 @@ func TestDiscoverStdlib(t *testing.T) {
 	if _, ok := found["cmd/go"]; ok {
 		t.Error("expected cmd/go package to be excluded")
 	}
-	if _, ok := found["vendor/somepkg"]; ok {
-		t.Error("expected vendor/somepkg package to be excluded")
+	if _, ok := found["vendor/somepkg"]; !ok {
+		t.Error("expected vendor/somepkg package to be included")
 	}
 	if _, ok := found["testdata"]; ok {
 		t.Error("expected testdata to be excluded")
@@ -1037,15 +1054,18 @@ func TestDriverQueries_EndToEnd(t *testing.T) {
 	// Create a valid mock SDK structure with dependencies:
 	// errors/errors.go
 	// io/io.go
-	// os/file.go (imports errors and io, and uses build constraint selection)
-	// os/file_unix.go (unix build constraints)
-	// os/file_windows.go (windows build constraints)
+	// net/net.go (imports a package only available under vendor/)
+	// vendor/golang.org/x/net/dns/dnsmessage/message.go
+	// example.com/component/component.go (the minimal layout root)
 	files := map[string]string{
-		"src/errors/errors.go":   "package errors",
-		"src/io/io.go":           "package io",
-		"src/os/file.go":         "package os\nimport \"errors\"\nimport \"io\"",
-		"src/os/file_unix.go":    "//go:build !windows\npackage os",
-		"src/os/file_windows.go": "//go:build windows\npackage os",
+		"src/errors/errors.go":    "package errors",
+		"src/io/io.go":            "package io",
+		"src/net/net.go":          "package net\nimport \"golang.org/x/net/dns/dnsmessage\"",
+		"src/net/file_unix.go":    "//go:build !windows\npackage net",
+		"src/net/file_windows.go": "//go:build windows\npackage net",
+		"src/vendor/golang.org/x/net/dns/dnsmessage/message.go": "package dnsmessage\nimport \"golang.org/x/net/internal/helper\"",
+		"src/vendor/golang.org/x/net/internal/helper/helper.go": "package helper",
+		"workspace/component.go":                                "package component\nimport \"net\"",
 	}
 
 	for rel, content := range files {
@@ -1061,11 +1081,18 @@ func TestDriverQueries_EndToEnd(t *testing.T) {
 	// Create a minimal layout
 	l := &Layout{
 		GoSDKRoot: sdkSrc,
-		Roots:     []string{"os"},
-		Packages:  []*packages.Package{}, // empty, completely rely on discovery!
+		Roots:     []string{"example.com/component"},
+		Packages: []*packages.Package{
+			{
+				ID:      "example.com/component",
+				Name:    "component",
+				PkgPath: "example.com/component",
+				GoFiles: []string{"component.go"},
+			},
+		},
 	}
 
-	err := ValidateAndResolve(l, "")
+	err := ValidateAndResolve(l, filepath.Join(tmpDir, "workspace"))
 	if err != nil {
 		t.Fatalf("ValidateAndResolve failed: %v", err)
 	}
@@ -1076,29 +1103,29 @@ func TestDriverQueries_EndToEnd(t *testing.T) {
 		found[p.ID] = p
 	}
 
-	// 1. Assert packages found (including unsafe, errors, io, os)
-	for _, id := range []string{"unsafe", "errors", "io", "os"} {
+	// 1. Assert packages found, including the vendored standard-library target.
+	for _, id := range []string{"unsafe", "errors", "io", "net", "vendor/golang.org/x/net/dns/dnsmessage", "vendor/golang.org/x/net/internal/helper"} {
 		if _, ok := found[id]; !ok {
 			t.Errorf("expected package %q to be discovered", id)
 		}
 	}
 
-	// 2. Assert CompiledGoFiles exists and equals GoFiles
-	osPkg, ok := found["os"]
+	// 2. Assert CompiledGoFiles exists and equals GoFiles.
+	netPkg, ok := found["net"]
 	if !ok {
-		t.Fatal("os package not found")
+		t.Fatal("net package not found")
 	}
-	if len(osPkg.CompiledGoFiles) == 0 {
+	if len(netPkg.CompiledGoFiles) == 0 {
 		t.Error("expected CompiledGoFiles to be populated")
 	}
-	if !reflect.DeepEqual(osPkg.CompiledGoFiles, osPkg.GoFiles) {
-		t.Errorf("expected CompiledGoFiles to equal GoFiles, got %v vs %v", osPkg.CompiledGoFiles, osPkg.GoFiles)
+	if !reflect.DeepEqual(netPkg.CompiledGoFiles, netPkg.GoFiles) {
+		t.Errorf("expected CompiledGoFiles to equal GoFiles, got %v vs %v", netPkg.CompiledGoFiles, netPkg.GoFiles)
 	}
 
 	// 3. Assert Unix vs. Windows filtering
 	hasUnix := false
 	hasWindows := false
-	for _, f := range osPkg.GoFiles {
+	for _, f := range netPkg.GoFiles {
 		base := filepath.Base(f)
 		if base == "file_unix.go" {
 			hasUnix = true
@@ -1108,36 +1135,51 @@ func TestDriverQueries_EndToEnd(t *testing.T) {
 	}
 	if runtime.GOOS == "windows" {
 		if !hasWindows || hasUnix {
-			t.Errorf("windows build constraint filtering failed, files: %v", osPkg.GoFiles)
+			t.Errorf("windows build constraint filtering failed, files: %v", netPkg.GoFiles)
 		}
 	} else {
 		if !hasUnix || hasWindows {
-			t.Errorf("non-windows build constraint filtering failed, files: %v", osPkg.GoFiles)
+			t.Errorf("non-windows build constraint filtering failed, files: %v", netPkg.GoFiles)
 		}
 	}
 
-	// 4. Assert direct/transitive standard-library edges (os imports errors and io)
-	if osPkg.Imports == nil {
-		t.Fatal("expected Imports map in os package, got nil")
+	// 4. Assert that the SDK vendor rule rewrites the source import path.
+	vendorPath := "vendor/golang.org/x/net/dns/dnsmessage"
+	if netPkg.Imports == nil {
+		t.Fatal("expected Imports map in net package, got nil")
 	}
-	if _, ok := osPkg.Imports["errors"]; !ok {
-		t.Error("expected os to import errors")
+	if _, ok := netPkg.Imports[vendorPath]; !ok {
+		t.Errorf("expected net to import %q, got %v", vendorPath, netPkg.Imports)
 	}
-	if _, ok := osPkg.Imports["io"]; !ok {
-		t.Error("expected os to import io")
+	if _, ok := netPkg.Imports["golang.org/x/net/dns/dnsmessage"]; ok {
+		t.Error("expected source vendor import path to be rewritten")
+	}
+	vendorPkg := found[vendorPath]
+	if _, ok := vendorPkg.Imports["vendor/golang.org/x/net/internal/helper"]; !ok {
+		t.Errorf("expected vendored package edge to be rewritten, got %v", vendorPkg.Imports)
+	}
+	componentPkg := found["example.com/component"]
+	if _, ok := componentPkg.Imports["net"]; !ok {
+		t.Errorf("expected component to retain its layout-resolved net import, got %v", componentPkg.Imports)
+	}
+	if _, ok := componentPkg.Imports[vendorPath]; ok {
+		t.Error("component imports must not be rewritten through SDK vendor resolution")
 	}
 
 	// 5. Test Driver Queries exact-import and "std" meta-pattern
 	t.Run("exact-query-and-std", func(t *testing.T) {
 		req := &packages.DriverRequest{}
 
-		// Query exact
-		resp1, err := HandleDriverRequest(l, req, []string{"os"})
+		// Query exact.
+		resp1, err := HandleDriverRequest(l, req, []string{"net"})
 		if err != nil {
-			t.Fatalf("HandleDriverRequest for exact 'os' failed: %v", err)
+			t.Fatalf("HandleDriverRequest for exact 'net' failed: %v", err)
 		}
-		if !reflect.DeepEqual(resp1.Roots, []string{"os"}) {
+		if !reflect.DeepEqual(resp1.Roots, []string{"net"}) {
 			t.Errorf("unexpected roots for exact query: %v", resp1.Roots)
+		}
+		if _, err := HandleDriverRequest(l, req, []string{vendorPath}); err != nil {
+			t.Fatalf("HandleDriverRequest for exact vendor package failed: %v", err)
 		}
 
 		// Query std
@@ -1145,8 +1187,8 @@ func TestDriverQueries_EndToEnd(t *testing.T) {
 		if err != nil {
 			t.Fatalf("HandleDriverRequest for 'std' failed: %v", err)
 		}
-		// Expect roots to be sorted: errors, io, os, unsafe
-		expectedRoots := []string{"errors", "io", "os", "unsafe"}
+		// Expect roots to be sorted and include the vendored package.
+		expectedRoots := []string{"errors", "io", "net", "unsafe", vendorPath, "vendor/golang.org/x/net/internal/helper"}
 		if !reflect.DeepEqual(resp2.Roots, expectedRoots) {
 			t.Errorf("unexpected roots for std query: %v", resp2.Roots)
 		}
