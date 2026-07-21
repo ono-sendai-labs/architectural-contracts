@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"runtime"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -1206,4 +1207,169 @@ func TestDriverQueries_EndToEnd(t *testing.T) {
 			t.Error("JSON serialization of response is not byte-stable")
 		}
 	})
+}
+
+func TestValidateAndResolve_ImportRecovery_Focused(t *testing.T) {
+	tmpDir := t.TempDir()
+	sdkSrc := filepath.Join(tmpDir, "sdk", "src")
+	workspace := filepath.Join(tmpDir, "workspace")
+	for rel, content := range map[string]string{
+		filepath.Join("fmt", "fmt.go"): "package fmt",
+		filepath.Join("os", "os.go"):   "package os",
+	} {
+		path := filepath.Join(sdkSrc, rel)
+		if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+			t.Fatalf("create SDK directory: %v", err)
+		}
+		if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+			t.Fatalf("write SDK file: %v", err)
+		}
+	}
+	if err := os.MkdirAll(workspace, 0755); err != nil {
+		t.Fatalf("create workspace directory: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(workspace, "api.go"), []byte("package api\nimport (\n\t\"fmt\"\n\t\"os\"\n)\n"), 0644); err != nil {
+		t.Fatalf("write workspace file: %v", err)
+	}
+
+	l := &Layout{
+		GoSDKRoot: sdkSrc,
+		Roots:     []string{"example.com/api"},
+		Packages: []*packages.Package{{
+			ID:      "example.com/api",
+			Name:    "api",
+			PkgPath: "example.com/api",
+			GoFiles: []string{"api.go"},
+		}},
+	}
+	if err := ValidateAndResolve(l, workspace); err != nil {
+		t.Fatalf("ValidateAndResolve failed: %v", err)
+	}
+
+	api := packageByID(l.Packages, "example.com/api")
+	if api == nil {
+		t.Fatal("recovered package is missing")
+	}
+	if got := sortedImportIDs(api); !reflect.DeepEqual(got, []string{"fmt", "os"}) {
+		t.Fatalf("recovered imports = %v, want [fmt os]", got)
+	}
+}
+
+func TestValidateAndResolve_LayoutPrecedence_Focused(t *testing.T) {
+	tmpDir := t.TempDir()
+	sdkSrc := filepath.Join(tmpDir, "sdk", "src")
+	workspace := filepath.Join(tmpDir, "workspace")
+	for _, root := range []string{filepath.Join(sdkSrc, "fmt"), workspace} {
+		if err := os.MkdirAll(root, 0755); err != nil {
+			t.Fatalf("create fixture directory: %v", err)
+		}
+	}
+	for path, content := range map[string]string{
+		filepath.Join(sdkSrc, "fmt", "stdlib.go"):          "package fmt",
+		filepath.Join(sdkSrc, "fmt", "layout.go"):          "package fmt",
+		filepath.Join(sdkSrc, "fmt", "layout_compiled.go"): "package fmt",
+	} {
+		if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+			t.Fatalf("write fixture file: %v", err)
+		}
+	}
+
+	l := &Layout{
+		GoSDKRoot: sdkSrc,
+		Roots:     []string{"layout-fmt"},
+		Packages: []*packages.Package{{
+			ID:              "layout-fmt",
+			Name:            "fmt",
+			PkgPath:         "fmt",
+			GoFiles:         []string{"layout.go"},
+			CompiledGoFiles: []string{"layout_compiled.go"},
+			Dir:             "layout-authority",
+		}},
+	}
+	if err := ValidateAndResolve(l, workspace); err != nil {
+		t.Fatalf("ValidateAndResolve failed: %v", err)
+	}
+
+	fmtPkg := packageByID(l.Packages, "layout-fmt")
+	if fmtPkg == nil {
+		t.Fatal("layout-provided fmt package is missing")
+	}
+	if got := filepath.Base(fmtPkg.GoFiles[0]); got != "layout.go" {
+		t.Fatalf("layout-provided GoFiles = %q, want layout.go", got)
+	}
+	if got := filepath.Base(fmtPkg.CompiledGoFiles[0]); got != "layout_compiled.go" {
+		t.Fatalf("layout-provided CompiledGoFiles = %q, want layout_compiled.go", got)
+	}
+	if fmtPkg.Dir != "layout-authority" {
+		t.Fatalf("layout-provided metadata was replaced: Dir=%q", fmtPkg.Dir)
+	}
+	if got := countPackagesByPath(l.Packages, "fmt"); got != 1 {
+		t.Fatalf("found %d packages with import path fmt, want one", got)
+	}
+}
+
+func TestHandleDriverRequest_DeterministicOutput_Focused(t *testing.T) {
+	l := &Layout{Packages: []*packages.Package{
+		{ID: "z.example/root", Name: "root", PkgPath: "z.example/root", Imports: map[string]*packages.Package{
+			"os": {ID: "os"},
+		}},
+		{ID: "os", Name: "os", PkgPath: "os"},
+		{ID: "fmt", Name: "fmt", PkgPath: "fmt"},
+	}}
+	req := &packages.DriverRequest{}
+	resp, err := HandleDriverRequest(l, req, []string{"z.example/root", "std"})
+	if err != nil {
+		t.Fatalf("HandleDriverRequest failed: %v", err)
+	}
+	if got, want := resp.Roots, []string{"fmt", "os", "z.example/root"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("roots = %v, want %v", got, want)
+	}
+	ids := make([]string, len(resp.Packages))
+	for i, pkg := range resp.Packages {
+		ids[i] = pkg.ID
+	}
+	if want := []string{"fmt", "os", "z.example/root"}; !reflect.DeepEqual(ids, want) {
+		t.Fatalf("response package IDs = %v, want %v", ids, want)
+	}
+	first, err := json.Marshal(resp)
+	if err != nil {
+		t.Fatalf("marshal first response: %v", err)
+	}
+	second, err := json.Marshal(resp)
+	if err != nil {
+		t.Fatalf("marshal second response: %v", err)
+	}
+	if !bytes.Equal(first, second) {
+		t.Fatal("repeated response serialization is not byte-stable")
+	}
+}
+
+func packageByID(pkgs []*packages.Package, id string) *packages.Package {
+	for _, pkg := range pkgs {
+		if pkg.ID == id {
+			return pkg
+		}
+	}
+	return nil
+}
+
+func sortedImportIDs(pkg *packages.Package) []string {
+	ids := make([]string, 0, len(pkg.Imports))
+	for path, imported := range pkg.Imports {
+		if imported != nil {
+			ids = append(ids, path)
+		}
+	}
+	sort.Strings(ids)
+	return ids
+}
+
+func countPackagesByPath(pkgs []*packages.Package, path string) int {
+	count := 0
+	for _, pkg := range pkgs {
+		if pkg.PkgPath == path {
+			count++
+		}
+	}
+	return count
 }
