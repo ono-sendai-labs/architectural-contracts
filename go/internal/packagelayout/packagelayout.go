@@ -39,19 +39,64 @@ func IsStdlib(importPath string) bool {
 	return !strings.Contains(first, ".")
 }
 
-// Parse parses a Layout from JSON data.
+// Parse parses a Layout from JSON data and requires EOF after the decoded layout to prevent trailing garbage.
 func Parse(r io.Reader) (*Layout, error) {
 	var l Layout
 	dec := json.NewDecoder(r)
 	if err := dec.Decode(&l); err != nil {
 		return nil, fmt.Errorf("malformed layout JSON: %w", err)
 	}
+	if t, err := dec.Token(); err == nil {
+		return nil, fmt.Errorf("trailing garbage after layout JSON: %v", t)
+	} else if !errors.Is(err, io.EOF) {
+		return nil, fmt.Errorf("trailing garbage after layout JSON: %w", err)
+	}
 	return &l, nil
+}
+
+// MarshalJSON serializes the Layout with deterministic canonical ordering of Roots and Packages
+// without mutating the original caller-owned data.
+func (l *Layout) MarshalJSON() ([]byte, error) {
+	var roots []string
+	if l.Roots != nil {
+		roots = make([]string, len(l.Roots))
+		copy(roots, l.Roots)
+		sort.Strings(roots)
+	} else {
+		roots = []string{}
+	}
+
+	var pkgs []*packages.Package
+	if l.Packages != nil {
+		pkgs = make([]*packages.Package, len(l.Packages))
+		copy(pkgs, l.Packages)
+		sort.Slice(pkgs, func(i, j int) bool {
+			return pkgs[i].ID < pkgs[j].ID
+		})
+	} else {
+		pkgs = []*packages.Package{}
+	}
+
+	return json.Marshal(&struct {
+		GoSDKRoot string              `json:"go_sdk_root"`
+		Roots     []string            `json:"roots"`
+		Packages  []*packages.Package `json:"packages"`
+	}{
+		GoSDKRoot: l.GoSDKRoot,
+		Roots:     roots,
+		Packages:  pkgs,
+	})
 }
 
 // ValidateAndResolve validates the layout's structural consistency and resolves
 // all workspace-relative and SDK-relative source paths, checking that each file exists.
 func ValidateAndResolve(l *Layout, workspaceDir string) error {
+	for idx, p := range l.Packages {
+		if p == nil {
+			return fmt.Errorf("package entry at index %d is null", idx)
+		}
+	}
+
 	if l.GoSDKRoot == "" {
 		// GoSDKRoot is required if standard library packages are present.
 		// To be safe, we make it required if any stdlib package is referenced.
@@ -149,11 +194,25 @@ func resolveAndCheckFiles(p *packages.Package, files []string, sdkRoot, workspac
 		} else {
 			// Resolve relative to workspaceDir.
 			if filepath.IsAbs(f) {
-				path = f
-			} else if workspaceDir != "" {
-				path = filepath.Join(workspaceDir, f)
+				return nil, fmt.Errorf("package %q contains absolute source file path: %q", p.ID, f)
+			}
+
+			cleanedF := filepath.Clean(f)
+			if strings.HasPrefix(cleanedF, ".."+string(filepath.Separator)) || cleanedF == ".." || strings.HasPrefix(cleanedF, "../") {
+				return nil, fmt.Errorf("package %q contains source file path escaping workspace: %q", p.ID, f)
+			}
+
+			if workspaceDir != "" {
+				path = filepath.Join(workspaceDir, cleanedF)
+				rel, err := filepath.Rel(workspaceDir, path)
+				if err != nil {
+					return nil, fmt.Errorf("failed to compute relative path: %w", err)
+				}
+				if strings.HasPrefix(rel, ".."+string(filepath.Separator)) || rel == ".." || strings.HasPrefix(rel, "../") {
+					return nil, fmt.Errorf("package %q contains source file path escaping workspace: %q", p.ID, f)
+				}
 			} else {
-				path = f
+				path = cleanedF
 			}
 		}
 
@@ -222,15 +281,17 @@ func HandleDriverRequest(l *Layout, req *packages.DriverRequest, patterns []stri
 	sort.Strings(roots)
 
 	// Ensure the response Packages list is also deterministic by sorting by ID.
-	sort.Slice(l.Packages, func(i, j int) bool {
-		return l.Packages[i].ID < l.Packages[j].ID
+	pkgsCopy := make([]*packages.Package, len(l.Packages))
+	copy(pkgsCopy, l.Packages)
+	sort.Slice(pkgsCopy, func(i, j int) bool {
+		return pkgsCopy[i].ID < pkgsCopy[j].ID
 	})
 
 	resp := &packages.DriverResponse{
 		Compiler: "gc",
 		Arch:     runtime.GOARCH,
 		Roots:    roots,
-		Packages: l.Packages,
+		Packages: pkgsCopy,
 	}
 	return resp, nil
 }
