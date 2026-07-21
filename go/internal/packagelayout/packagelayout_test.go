@@ -3,6 +3,7 @@ package packagelayout
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"go/build"
 	"os"
 	"path/filepath"
@@ -1506,8 +1507,14 @@ func TestValidateAndResolve_ImportRecovery_Comprehensive(t *testing.T) {
 				PkgPath: "example.com/api",
 				GoFiles: []string{"api1.go", "api2.go", "api_bad.go"},
 				Imports: map[string]*packages.Package{
-					"fmt": {ID: "fmt"}, // already-provided stdlib edge
+					"fmt": {ID: "layout-fmt"}, // already-provided stdlib edge targeting a distinct ID
 				},
+			},
+			{
+				ID:      "layout-fmt",
+				Name:    "fmt",
+				PkgPath: "fmt",
+				GoFiles: []string{"format.go"},
 			},
 		},
 	}
@@ -1523,9 +1530,12 @@ func TestValidateAndResolve_ImportRecovery_Comprehensive(t *testing.T) {
 		t.Fatal("api package not found in layout")
 	}
 
-	// fmt was already-provided, so it should be preserved
-	if _, ok := apiPkg.Imports["fmt"]; !ok {
+	// fmt was already-provided with a custom ID, so it should be preserved unchanged
+	fmtImport, ok := apiPkg.Imports["fmt"]
+	if !ok {
 		t.Error("expected already-provided import 'fmt' to be preserved")
+	} else if fmtImport.ID != "layout-fmt" {
+		t.Errorf("expected already-provided import 'fmt' to preserve custom ID 'layout-fmt', got %q", fmtImport.ID)
 	}
 	// os got recovered from blank import
 	if _, ok := apiPkg.Imports["os"]; !ok {
@@ -1581,7 +1591,7 @@ func TestValidateAndResolve_ImportRecovery_Errors(t *testing.T) {
 		if err == nil {
 			t.Fatal("expected error for malformed source syntax, got nil")
 		}
-		if !strings.Contains(err.Error(), "parsing source file") || !strings.Contains(err.Error(), "api_malformed.go") {
+		if !strings.Contains(err.Error(), "parsing source file") || !strings.Contains(err.Error(), "api_malformed.go") || !strings.Contains(err.Error(), "example.com/api") {
 			t.Errorf("unexpected error message: %v", err)
 		}
 	})
@@ -1612,8 +1622,120 @@ func TestValidateAndResolve_ImportRecovery_Errors(t *testing.T) {
 		if err == nil {
 			t.Fatal("expected error for malformed import literal, got nil")
 		}
-		if !strings.Contains(err.Error(), "api_bad_import.go") {
+		if !strings.Contains(err.Error(), "parsing source file") || !strings.Contains(err.Error(), "api_bad_import.go") || !strings.Contains(err.Error(), "example.com/api") {
 			t.Errorf("unexpected error message: %v", err)
 		}
 	})
+}
+
+func TestValidateAndResolve_ImportRecovery_IncompleteGraph(t *testing.T) {
+	tests := []struct {
+		name        string
+		importPath  string
+		expectError string
+	}{
+		{
+			name:        "dotted third-party import",
+			importPath:  "example.com/missing",
+			expectError: "no metadata for example.com/missing",
+		},
+		{
+			name:        "SDK-absent standard-library-shaped import",
+			importPath:  "missingstd",
+			expectError: "no metadata for missingstd",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tmpDir := t.TempDir()
+			sdkSrc := filepath.Join(runtime.GOROOT(), "src")
+			workspace := filepath.Join(tmpDir, "workspace")
+
+			if err := os.MkdirAll(workspace, 0755); err != nil {
+				t.Fatalf("failed to create workspace: %v", err)
+			}
+
+			// Write workspace source that imports and uses the test path
+			srcName := filepath.Base(tt.importPath)
+			srcContent := fmt.Sprintf("package api\nimport %q\nfunc F() {\n\t%s.Foo()\n}\n", tt.importPath, srcName)
+			if err := os.WriteFile(filepath.Join(workspace, "api.go"), []byte(srcContent), 0644); err != nil {
+				t.Fatalf("failed to write source file: %v", err)
+			}
+
+			l := &Layout{
+				GoSDKRoot: sdkSrc,
+				Roots:     []string{"example.com/api"},
+				Packages: []*packages.Package{
+					{
+						ID:              "example.com/api",
+						Name:            "api",
+						PkgPath:         "example.com/api",
+						GoFiles:         []string{"api.go"},
+						CompiledGoFiles: []string{"api.go"},
+					},
+				},
+			}
+
+			// Marshal layout to a temporary JSON file BEFORE we run ValidateAndResolve (which mutates in-place to absolute paths)
+			layoutFile := filepath.Join(tmpDir, "layout.json")
+			layoutData, err := json.Marshal(l)
+			if err != nil {
+				t.Fatalf("failed to marshal layout: %v", err)
+			}
+			if err := os.WriteFile(layoutFile, layoutData, 0644); err != nil {
+				t.Fatalf("failed to write layout file: %v", err)
+			}
+
+			err = ValidateAndResolve(l, workspace)
+			if err != nil {
+				t.Fatalf("unexpected error during ValidateAndResolve: %v", err)
+			}
+
+			// Verify the import is NOT synthesized in l.Packages[0].Imports
+			apiPkg := l.Packages[0]
+			if apiPkg.Imports != nil {
+				if _, exists := apiPkg.Imports[tt.importPath]; exists {
+					t.Errorf("unwanted synthesized import for path %q", tt.importPath)
+				}
+			}
+
+			// Run packages.Load inside WithDriverEnv to collect load/type errors
+			var loadErr error
+			err = WithDriverEnv(layoutFile, workspace, func() error {
+				cfg := &packages.Config{
+					Mode: packages.NeedName | packages.NeedFiles | packages.NeedCompiledGoFiles |
+						packages.NeedImports | packages.NeedDeps | packages.NeedSyntax |
+						packages.NeedTypes | packages.NeedTypesInfo | packages.NeedModule,
+					Dir: workspace,
+				}
+				pkgs, err := packages.Load(cfg, "example.com/api")
+				if err != nil {
+					return err
+				}
+				var errMsgs []string
+				packages.Visit(pkgs, nil, func(p *packages.Package) {
+					for _, err := range p.Errors {
+						errMsgs = append(errMsgs, err.Msg)
+					}
+				})
+				if len(errMsgs) > 0 {
+					loadErr = fmt.Errorf("package load errors:\n%s", strings.Join(errMsgs, "\n"))
+				}
+				return nil
+			})
+
+			if err != nil {
+				t.Fatalf("driver env callback error: %v", err)
+			}
+
+			if loadErr == nil {
+				t.Fatal("expected package load errors, got nil")
+			}
+
+			if !strings.Contains(loadErr.Error(), tt.expectError) {
+				t.Errorf("expected load error to contain %q, got:\n%v", tt.expectError, loadErr)
+			}
+		})
+	}
 }
