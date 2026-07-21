@@ -1650,6 +1650,13 @@ func TestValidateAndResolve_ImportRecovery_IncompleteGraph(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			tmpDir := t.TempDir()
 			sdkSrc := filepath.Join(runtime.GOROOT(), "src")
+			// This case needs a real SDK source tree to discover the stdlib
+			// against. `go test` has one via runtime.GOROOT(); the rules_go
+			// test environment points GOROOT at a non-existent placeholder, so
+			// skip there rather than fail.
+			if info, err := os.Stat(sdkSrc); err != nil || !info.IsDir() {
+				t.Skipf("no Go SDK source tree at %s; skipping", sdkSrc)
+			}
 			workspace := filepath.Join(tmpDir, "workspace")
 
 			if err := os.MkdirAll(workspace, 0755); err != nil {
