@@ -4,23 +4,65 @@ import (
 	"bytes"
 	"encoding/json"
 	"os"
+	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"golang.org/x/tools/go/packages"
 )
 
-// setupMockStat configures a mock file system where only the specified paths exist.
+type mockFileInfo struct {
+	name  string
+	isDir bool
+}
+
+func (m mockFileInfo) Name() string { return m.name }
+func (m mockFileInfo) Size() int64  { return 0 }
+func (m mockFileInfo) Mode() os.FileMode {
+	if m.isDir {
+		return os.ModeDir
+	}
+	return 0
+}
+func (m mockFileInfo) ModTime() time.Time { return time.Time{} }
+func (m mockFileInfo) IsDir() bool        { return m.isDir }
+func (m mockFileInfo) Sys() any           { return nil }
+
+// setupMockStat configures a mock file system where the specified paths and their parents exist.
 func setupMockStat(existingPaths []string) func() {
 	orig := osStat
-	existing := make(map[string]bool)
-	for _, p := range existingPaths {
-		existing[p] = true
+	existing := make(map[string]os.FileInfo)
+
+	paths := append([]string{}, existingPaths...)
+	paths = append(paths, "/sdk", "/sdk/src")
+
+	for _, p := range paths {
+		isDir := false
+		if p == "/sdk" || p == "/sdk/src" || p == "/" {
+			isDir = true
+		}
+		existing[p] = mockFileInfo{name: filepath.Base(p), isDir: isDir}
+		// Add all parent directories
+		dir := filepath.Dir(p)
+		for dir != "." && dir != "/" {
+			if _, ok := existing[dir]; !ok {
+				existing[dir] = mockFileInfo{name: filepath.Base(dir), isDir: true}
+			}
+			parent := filepath.Dir(dir)
+			if parent == dir {
+				break
+			}
+			dir = parent
+		}
+		// Add root "/"
+		existing["/"] = mockFileInfo{name: "/", isDir: true}
 	}
 	osStat = func(name string) (os.FileInfo, error) {
-		if existing[name] {
-			return nil, nil // Nil file info is sufficient since we only check existence
+		if fi, ok := existing[name]; ok {
+			return fi, nil
 		}
 		return nil, os.ErrNotExist
 	}
@@ -692,5 +734,237 @@ func TestRunDriver_NullPackageEntry(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "package entry at index 0 is null") {
 		t.Errorf("expected error containing 'package entry at index 0 is null', got %v", err)
+	}
+}
+
+func TestDiscoverStdlib(t *testing.T) {
+	tmpDir := t.TempDir()
+	sdkSrc := filepath.Join(tmpDir, "src")
+
+	// Create SDK structure
+	files := map[string]string{
+		"fmt/format.go":          "package fmt",
+		"os/file_unix.go":        "//go:build !windows\npackage os",
+		"os/file_windows.go":     "//go:build windows\npackage os",
+		"cmd/go/main.go":         "package main",
+		"vendor/somepkg/some.go": "package somepkg",
+		"testdata/test.go":       "package testdata",
+		"internal/poll/poll.go":  "package poll",
+		"nonpackage/doc.txt":     "some text",
+	}
+
+	for rel, content := range files {
+		path := filepath.Join(sdkSrc, rel)
+		if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+			t.Fatalf("failed to create directory: %v", err)
+		}
+		if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+			t.Fatalf("failed to write file: %v", err)
+		}
+	}
+
+	pkgs, err := discoverStdlib(sdkSrc)
+	if err != nil {
+		t.Fatalf("discoverStdlib failed: %v", err)
+	}
+
+	// Verify packages found
+	found := make(map[string]*packages.Package)
+	for _, p := range pkgs {
+		found[p.ID] = p
+	}
+
+	// Check required standard packages
+	if _, ok := found["unsafe"]; !ok {
+		t.Error("expected synthetic unsafe package to be present")
+	}
+	if _, ok := found["fmt"]; !ok {
+		t.Error("expected fmt package to be present")
+	}
+	if _, ok := found["os"]; !ok {
+		t.Error("expected os package to be present")
+	}
+	if _, ok := found["internal/poll"]; !ok {
+		t.Error("expected internal/poll package to be present")
+	}
+
+	// Check excluded packages/dirs
+	if _, ok := found["cmd/go"]; ok {
+		t.Error("expected cmd/go package to be excluded")
+	}
+	if _, ok := found["vendor/somepkg"]; ok {
+		t.Error("expected vendor/somepkg package to be excluded")
+	}
+	if _, ok := found["testdata"]; ok {
+		t.Error("expected testdata to be excluded")
+	}
+	if _, ok := found["nonpackage"]; ok {
+		t.Error("expected nonpackage directory to be ignored")
+	}
+
+	// Check build constraint filtering for os package
+	osPkg, ok := found["os"]
+	if !ok {
+		t.Fatal("os package not found")
+	}
+
+	hasUnix := false
+	hasWindows := false
+	for _, f := range osPkg.GoFiles {
+		base := filepath.Base(f)
+		if base == "file_unix.go" {
+			hasUnix = true
+		} else if base == "file_windows.go" {
+			hasWindows = true
+		}
+	}
+
+	// Let's use runtime.GOOS to verify build constraint selection
+	if runtime.GOOS == "windows" {
+		if !hasWindows || hasUnix {
+			t.Errorf("windows build constraint failed: GoFiles=%v", osPkg.GoFiles)
+		}
+	} else {
+		if !hasUnix || hasWindows {
+			t.Errorf("non-windows build constraint failed: GoFiles=%v", osPkg.GoFiles)
+		}
+	}
+}
+
+func TestValidateAndResolve_ImportRecovery(t *testing.T) {
+	tmpDir := t.TempDir()
+	sdkSrc := filepath.Join(tmpDir, "src")
+	workspace := filepath.Join(tmpDir, "workspace")
+
+	// Create mock standard library and workspace files
+	files := map[string]string{
+		"src/fmt/format.go": "package fmt",
+		"src/os/file.go":    "package os",
+		"workspace/api.go":  "package api\nimport \"fmt\"\nimport \"os\"",
+	}
+
+	for rel, content := range files {
+		path := filepath.Join(tmpDir, rel)
+		if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+			t.Fatalf("failed to create directory: %v", err)
+		}
+		if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+			t.Fatalf("failed to write file: %v", err)
+		}
+	}
+
+	l := &Layout{
+		GoSDKRoot: sdkSrc,
+		Roots:     []string{"example.com/api"},
+		Packages: []*packages.Package{
+			{
+				ID:      "example.com/api",
+				Name:    "api",
+				PkgPath: "example.com/api",
+				GoFiles: []string{"api.go"},
+				Imports: map[string]*packages.Package{}, // empty imports
+			},
+		},
+	}
+
+	err := ValidateAndResolve(l, workspace)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Verify api package's imports got recovered
+	var apiPkg *packages.Package
+	for _, p := range l.Packages {
+		if p.ID == "example.com/api" {
+			apiPkg = p
+			break
+		}
+	}
+
+	if apiPkg == nil {
+		t.Fatal("api package not found in layout")
+	}
+
+	if _, ok := apiPkg.Imports["fmt"]; !ok {
+		t.Error("expected recovered import 'fmt'")
+	}
+	if _, ok := apiPkg.Imports["os"]; !ok {
+		t.Error("expected recovered import 'os'")
+	}
+
+	// Verify standard library packages are merged in
+	fmtFound := false
+	osFound := false
+	for _, p := range l.Packages {
+		if p.ID == "fmt" {
+			fmtFound = true
+		} else if p.ID == "os" {
+			osFound = true
+		}
+	}
+
+	if !fmtFound {
+		t.Error("expected merged fmt package in layout")
+	}
+	if !osFound {
+		t.Error("expected merged os package in layout")
+	}
+}
+
+func TestValidateAndResolve_LayoutWinsOnCollision(t *testing.T) {
+	tmpDir := t.TempDir()
+	sdkSrc := filepath.Join(tmpDir, "src")
+	workspace := filepath.Join(tmpDir, "workspace")
+
+	files := map[string]string{
+		"src/fmt/format.go": "package fmt",
+		"src/fmt/fmt.go":    "package fmt\n// customized",
+	}
+
+	for rel, content := range files {
+		path := filepath.Join(tmpDir, rel)
+		if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+			t.Fatalf("failed to create directory: %v", err)
+		}
+		if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+			t.Fatalf("failed to write file: %v", err)
+		}
+	}
+
+	l := &Layout{
+		GoSDKRoot: sdkSrc,
+		Roots:     []string{"fmt"},
+		Packages: []*packages.Package{
+			{
+				ID:      "fmt",
+				Name:    "fmt",
+				PkgPath: "fmt",
+				GoFiles: []string{"fmt.go"}, // layout-provided version
+			},
+		},
+	}
+
+	err := ValidateAndResolve(l, workspace)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Verify layout-provided package is unchanged and wins
+	var fmtPkg *packages.Package
+	for _, p := range l.Packages {
+		if p.ID == "fmt" {
+			if fmtPkg != nil {
+				t.Fatal("found duplicate fmt package")
+			}
+			fmtPkg = p
+		}
+	}
+
+	if fmtPkg == nil {
+		t.Fatal("fmt package not found")
+	}
+
+	if len(fmtPkg.GoFiles) != 1 || filepath.Base(fmtPkg.GoFiles[0]) != "fmt.go" {
+		t.Errorf("expected layout-provided fmt package to win, got GoFiles=%v", fmtPkg.GoFiles)
 	}
 }
