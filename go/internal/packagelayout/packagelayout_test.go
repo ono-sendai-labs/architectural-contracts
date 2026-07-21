@@ -369,6 +369,25 @@ func TestValidateAndResolve_Errors(t *testing.T) {
 			wantError: "package \"foo\" imports path \"example.com/missing\" with ID \"bar\", but target package import path is \"example.com/bar\"",
 		},
 		{
+			name: "multiple malformed imports sorted lexicographically first",
+			layout: &Layout{
+				GoSDKRoot: "/sdk",
+				Roots:     []string{"foo"},
+				Packages: []*packages.Package{
+					{
+						ID:      "foo",
+						Name:    "foo",
+						PkgPath: "foo",
+						Imports: map[string]*packages.Package{
+							"example.com/z_bad": {ID: "missing_z"},
+							"example.com/a_bad": {ID: "missing_a"},
+						},
+					},
+				},
+			},
+			wantError: "package \"foo\" imports unknown package ID \"missing_a\"",
+		},
+		{
 			name: "empty source file path",
 			layout: &Layout{
 				GoSDKRoot: "/sdk",

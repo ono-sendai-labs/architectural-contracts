@@ -149,7 +149,14 @@ func ValidateAndResolve(l *Layout, workspaceDir string) error {
 	// Validate imports and resolve source paths.
 	for _, p := range l.Packages {
 		// Validate that every imported package ID exists in the layout.
-		for impPath, impID := range p.Imports {
+		var impPaths []string
+		for impPath := range p.Imports {
+			impPaths = append(impPaths, impPath)
+		}
+		sort.Strings(impPaths)
+
+		for _, impPath := range impPaths {
+			impID := p.Imports[impPath]
 			if impPath == "" {
 				return fmt.Errorf("package %q has empty import path key in Imports map", p.ID)
 			}
