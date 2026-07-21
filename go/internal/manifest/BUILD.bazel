@@ -1,0 +1,23 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "manifest",
+    srcs = ["manifest.go"],
+    importpath = "github.com/ono-sendai-labs/architectural-contracts/go/internal/manifest",
+    visibility = ["//go:__subpackages__"],
+    deps = [
+        "//go/internal/manifest/gen",
+        "@org_golang_google_protobuf//encoding/prototext",
+    ],
+)
+
+go_test(
+    name = "manifest_test",
+    srcs = ["manifest_test.go"],
+    # keep: TestSelfHostingManifests walks the checked-in source tree by
+    # relative path (sibling manifests, their interface files and imports), so
+    # it needs the working copy rather than a runfiles tree. It runs under
+    # `just ci`'s `go test ./...`; `manual` keeps it out of `bazel test //...`.
+    tags = ["manual"],
+    deps = [":manifest"],
+)

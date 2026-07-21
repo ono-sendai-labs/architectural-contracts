@@ -1,0 +1,25 @@
+load("@rules_go//go:def.bzl", "go_binary", "go_library", "go_test")
+
+go_library(
+    name = "arcc_lib",
+    srcs = ["main.go"],
+    importpath = "github.com/ono-sendai-labs/architectural-contracts/go/cmd/arcc",
+    visibility = ["//visibility:private"],
+    deps = [
+        "//go/cmd/arcc/app",
+        "//go/internal/capslockadapter",
+        "//go/internal/goanalysis",
+    ],
+)
+
+go_binary(
+    name = "arcc",
+    embed = [":arcc_lib"],
+    visibility = ["//visibility:public"],
+)
+
+go_test(
+    name = "arcc_test",
+    srcs = ["main_test.go"],
+    embed = [":arcc_lib"],
+)

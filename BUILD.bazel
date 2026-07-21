@@ -1,0 +1,16 @@
+load("@gazelle//:def.bzl", "gazelle")
+
+# The Go module lives in go/, which carries its own prefix directive; nothing at
+# the repo root is a Go package.
+# gazelle:prefix
+# gazelle:exclude proto
+
+gazelle(name = "gazelle")
+
+# Stable name for the arcc binary. The check rule (Step 5) and external
+# consumers depend on @rules_arcc//:arcc, never on the layout of go/.
+alias(
+    name = "arcc",
+    actual = "//go/cmd/arcc",
+    visibility = ["//visibility:public"],
+)

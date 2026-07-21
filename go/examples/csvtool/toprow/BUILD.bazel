@@ -1,0 +1,15 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "toprow",
+    srcs = ["toprow.go"],
+    importpath = "github.com/ono-sendai-labs/architectural-contracts/go/examples/csvtool/toprow",
+    visibility = ["//visibility:public"],
+    deps = ["//go/examples/csvtool/internal/parsecsv"],
+)
+
+go_test(
+    name = "toprow_test",
+    srcs = ["toprow_test.go"],
+    embed = [":toprow"],
+)

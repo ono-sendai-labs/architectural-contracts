@@ -1,0 +1,18 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "csvfile",
+    srcs = [
+        "csvfile.go",
+        "private.go",
+    ],
+    importpath = "github.com/ono-sendai-labs/architectural-contracts/go/examples/csvtool/csvfile",
+    visibility = ["//visibility:public"],
+    deps = ["//go/examples/csvtool/internal/parsecsv"],
+)
+
+go_test(
+    name = "csvfile_test",
+    srcs = ["csvfile_test.go"],
+    embed = [":csvfile"],
+)

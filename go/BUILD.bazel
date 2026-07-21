@@ -1,0 +1,7 @@
+# gazelle:prefix github.com/ono-sendai-labs/architectural-contracts/go
+
+# testdata trees are fixtures for the Go tests (some deliberately do not
+# compile); they are never Bazel packages.
+# gazelle:exclude **/testdata
+
+exports_files(["go.mod"])

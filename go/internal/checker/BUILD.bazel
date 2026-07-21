@@ -1,0 +1,26 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "checker",
+    srcs = ["checker.go"],
+    importpath = "github.com/ono-sendai-labs/architectural-contracts/go/internal/checker",
+    visibility = ["//go:__subpackages__"],
+    deps = [
+        "//go/internal/capanalyzer",
+        "//go/internal/facts",
+        "//go/internal/manifest",
+        "//go/internal/report",
+    ],
+)
+
+go_test(
+    name = "checker_test",
+    srcs = ["checker_test.go"],
+    deps = [
+        ":checker",
+        "//go/internal/capanalyzer",
+        "//go/internal/facts",
+        "//go/internal/manifest",
+        "//go/internal/report",
+    ],
+)

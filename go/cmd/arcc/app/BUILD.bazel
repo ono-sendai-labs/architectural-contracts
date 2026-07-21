@@ -1,0 +1,34 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "app",
+    srcs = ["app.go"],
+    importpath = "github.com/ono-sendai-labs/architectural-contracts/go/cmd/arcc/app",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//go/internal/capanalyzer",
+        "//go/internal/checker",
+        "//go/internal/facts",
+        "//go/internal/goanalysis",
+        "//go/internal/manifest",
+        "//go/internal/packagelayout",
+        "//go/internal/report",
+    ],
+)
+
+go_test(
+    name = "app_test",
+    srcs = ["app_test.go"],
+    # keep: these tests drive the colocated (non-hermetic) loading path, which
+    # shells out to `go list` and so needs a Go toolchain on PATH — the very
+    # thing the Bazel rules exist to avoid. They run under `just ci`'s
+    # `go test ./...`; `manual` keeps them out of `bazel test //...`.
+    tags = ["manual"],
+    deps = [
+        ":app",
+        "//go/internal/capanalyzer",
+        "//go/internal/facts",
+        "//go/internal/goanalysis",
+        "//go/internal/report",
+    ],
+)

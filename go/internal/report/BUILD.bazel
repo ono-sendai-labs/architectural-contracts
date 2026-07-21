@@ -1,0 +1,14 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "report",
+    srcs = ["report.go"],
+    importpath = "github.com/ono-sendai-labs/architectural-contracts/go/internal/report",
+    visibility = ["//go:__subpackages__"],
+)
+
+go_test(
+    name = "report_test",
+    srcs = ["report_test.go"],
+    deps = [":report"],
+)

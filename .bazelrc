@@ -1,0 +1,12 @@
+# arcc and its dependencies are pure Go. Building in pure mode (cgo off) and
+# suppressing C++ toolchain autodetection keeps `bazel build //...` working on
+# machines with no C compiler installed. Consumers of @rules_arcc want the same
+# `--@rules_go//go/config:pure` flag unless they have a CC toolchain configured
+# — see README.
+build --@rules_go//go/config:pure
+common --repo_env=BAZEL_DO_NOT_DETECT_CPP_TOOLCHAIN=1
+
+test --test_output=errors
+
+# Machine-local overrides (e.g. `build --repo_env=CC=clang`); not checked in.
+try-import %workspace%/user.bazelrc

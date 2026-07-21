@@ -1,0 +1,18 @@
+load("@rules_go//go:def.bzl", "go_library")
+
+go_library(
+    name = "goanalysis",
+    srcs = ["goanalysis.go"],
+    importpath = "github.com/ono-sendai-labs/architectural-contracts/go/internal/goanalysis",
+    visibility = ["//go:__subpackages__"],
+    deps = [
+        "//go/internal/capanalyzer",
+        "//go/internal/facts",
+        "//go/internal/manifest",
+        "//go/internal/packagelayout",
+        "@org_golang_x_tools//go/callgraph/vta",
+        "@org_golang_x_tools//go/packages",
+        "@org_golang_x_tools//go/ssa",
+        "@org_golang_x_tools//go/ssa/ssautil",
+    ],
+)

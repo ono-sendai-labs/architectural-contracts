@@ -25,8 +25,10 @@ fmt:
 gen:
 	protoc --proto_path=proto --go_out=go --go_opt=module=github.com/ono-sendai-labs/architectural-contracts/go proto/archcontracts/v1/component.proto
 
+# Scoped to the protoc outputs: gen/ also holds a Gazelle-generated BUILD file,
+# which is not produced by `just gen`.
 gen-is-clean: gen
-	test -z "$(jj diff -- go/internal/manifest/gen/)"
+	test -z "$(jj diff -- 'glob:go/internal/manifest/gen/**/*.pb.go')"
 
 run *args:
 	cd {{go_dir}} && go run ./cmd/arcc {{args}}

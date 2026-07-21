@@ -1,0 +1,18 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "facts",
+    srcs = ["facts.go"],
+    importpath = "github.com/ono-sendai-labs/architectural-contracts/go/internal/facts",
+    visibility = ["//go:__subpackages__"],
+    deps = ["//go/internal/capanalyzer"],
+)
+
+go_test(
+    name = "facts_test",
+    srcs = ["facts_test.go"],
+    deps = [
+        ":facts",
+        "//go/internal/capanalyzer",
+    ],
+)

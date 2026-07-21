@@ -1,0 +1,8 @@
+load("@rules_go//go:def.bzl", "go_library")
+
+go_library(
+    name = "parsecsv",
+    srcs = ["parsecsv.go"],
+    importpath = "github.com/ono-sendai-labs/architectural-contracts/go/examples/csvtool/internal/parsecsv",
+    visibility = ["//go/examples/csvtool:__subpackages__"],
+)
