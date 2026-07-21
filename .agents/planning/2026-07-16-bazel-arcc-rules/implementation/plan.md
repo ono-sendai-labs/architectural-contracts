@@ -10,7 +10,7 @@ This is a brownfield change: the earliest steps touch arcc's Go core (the `--pac
 - [x] **Step 2:** Repo bzlmod-ification + arcc built from source under Bazel (`@rules_arcc//:arcc`)
 - [x] **Step 3:** `bazel_rules/` substrate — authority constants, providers, `_arcc_deps` aspect
 - [x] **Step 4:** `go_component` macro + `_go_component` rule — manifest & layout generation
-- [ ] **Step 5a:** arcc-side stdlib resolution in the layout driver (Go)
+- [x] **Step 5a:** arcc-side stdlib resolution in the layout driver (Go)
 - [ ] **Step 5b:** `_arcc_check_test` — hermetic check wired end-to-end
 - [ ] **Step 6:** Bazelified csvtool examples + golden manifest comparison
 - [ ] **Step 7:** `just ci` Bazel leg + consumer docs

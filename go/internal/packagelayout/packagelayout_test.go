@@ -1468,3 +1468,152 @@ func countPackagesByPath(pkgs []*packages.Package, path string) int {
 	}
 	return count
 }
+
+func TestValidateAndResolve_ImportRecovery_Comprehensive(t *testing.T) {
+	tmpDir := t.TempDir()
+	sdkSrc := filepath.Join(tmpDir, "sdk", "src")
+	workspace := filepath.Join(tmpDir, "workspace")
+
+	// Create mock standard library and workspace files
+	files := map[string]string{
+		"sdk/src/fmt/format.go":      "package fmt",
+		"sdk/src/os/file.go":         "package os",
+		"sdk/src/strings/strings.go": "package strings",
+
+		// Multiple files in api package
+		"workspace/api1.go":    "package api\nimport \"fmt\"\nimport _ \"os\"\n",
+		"workspace/api2.go":    "package api\nimport . \"strings\"\nimport str \"strings\"\n",
+		"workspace/api_bad.go": "package api\nimport \"non_stdlib_pkg\"\n", // non-stdlib import
+	}
+
+	for rel, content := range files {
+		path := filepath.Join(tmpDir, rel)
+		if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+			t.Fatalf("failed to create directory: %v", err)
+		}
+		if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+			t.Fatalf("failed to write file: %v", err)
+		}
+	}
+
+	l := &Layout{
+		GoSDKRoot: sdkSrc,
+		Roots:     []string{"example.com/api"},
+		Packages: []*packages.Package{
+			{
+				ID:      "example.com/api",
+				Name:    "api",
+				PkgPath: "example.com/api",
+				GoFiles: []string{"api1.go", "api2.go", "api_bad.go"},
+				Imports: map[string]*packages.Package{
+					"fmt": {ID: "fmt"}, // already-provided stdlib edge
+				},
+			},
+		},
+	}
+
+	err := ValidateAndResolve(l, workspace)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Verify api package's imports got recovered correctly
+	apiPkg := packageByID(l.Packages, "example.com/api")
+	if apiPkg == nil {
+		t.Fatal("api package not found in layout")
+	}
+
+	// fmt was already-provided, so it should be preserved
+	if _, ok := apiPkg.Imports["fmt"]; !ok {
+		t.Error("expected already-provided import 'fmt' to be preserved")
+	}
+	// os got recovered from blank import
+	if _, ok := apiPkg.Imports["os"]; !ok {
+		t.Error("expected recovered blank import 'os'")
+	}
+	// strings got recovered from dot/aliased imports
+	if _, ok := apiPkg.Imports["strings"]; !ok {
+		t.Error("expected recovered aliased/dot import 'strings'")
+	}
+	// non_stdlib_pkg should NOT be recovered (leave non-standard missing imports)
+	if _, ok := apiPkg.Imports["non_stdlib_pkg"]; ok {
+		t.Error("non_stdlib_pkg should NOT be synthesized/recovered")
+	}
+}
+
+func TestValidateAndResolve_ImportRecovery_Errors(t *testing.T) {
+	tmpDir := t.TempDir()
+	sdkSrc := filepath.Join(tmpDir, "sdk", "src")
+	workspace := filepath.Join(tmpDir, "workspace")
+
+	if err := os.MkdirAll(filepath.Join(sdkSrc, "fmt"), 0755); err != nil {
+		t.Fatalf("failed to create SDK: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(sdkSrc, "fmt", "fmt.go"), []byte("package fmt"), 0644); err != nil {
+		t.Fatalf("failed to write SDK fmt: %v", err)
+	}
+	if err := os.MkdirAll(workspace, 0755); err != nil {
+		t.Fatalf("failed to create workspace: %v", err)
+	}
+
+	t.Run("malformed source syntax", func(t *testing.T) {
+		badSource := "packge api\n" // misspelled package keyword in imports-only mode
+		filePath := filepath.Join(workspace, "api_malformed.go")
+		if err := os.WriteFile(filePath, []byte(badSource), 0644); err != nil {
+			t.Fatalf("failed to write file: %v", err)
+		}
+		defer os.Remove(filePath)
+
+		l := &Layout{
+			GoSDKRoot: sdkSrc,
+			Roots:     []string{"example.com/api"},
+			Packages: []*packages.Package{
+				{
+					ID:      "example.com/api",
+					Name:    "api",
+					PkgPath: "example.com/api",
+					GoFiles: []string{"api_malformed.go"},
+				},
+			},
+		}
+
+		err := ValidateAndResolve(l, workspace)
+		if err == nil {
+			t.Fatal("expected error for malformed source syntax, got nil")
+		}
+		if !strings.Contains(err.Error(), "parsing source file") || !strings.Contains(err.Error(), "api_malformed.go") {
+			t.Errorf("unexpected error message: %v", err)
+		}
+	})
+
+	t.Run("malformed import literal", func(t *testing.T) {
+		// Import with invalid escape sequence or token
+		badImport := "package api\nimport \"fmt\\x\"\n"
+		filePath := filepath.Join(workspace, "api_bad_import.go")
+		if err := os.WriteFile(filePath, []byte(badImport), 0644); err != nil {
+			t.Fatalf("failed to write file: %v", err)
+		}
+		defer os.Remove(filePath)
+
+		l := &Layout{
+			GoSDKRoot: sdkSrc,
+			Roots:     []string{"example.com/api"},
+			Packages: []*packages.Package{
+				{
+					ID:      "example.com/api",
+					Name:    "api",
+					PkgPath: "example.com/api",
+					GoFiles: []string{"api_bad_import.go"},
+				},
+			},
+		}
+
+		err := ValidateAndResolve(l, workspace)
+		if err == nil {
+			t.Fatal("expected error for malformed import literal, got nil")
+		}
+		if !strings.Contains(err.Error(), "api_bad_import.go") {
+			t.Errorf("unexpected error message: %v", err)
+		}
+	})
+}

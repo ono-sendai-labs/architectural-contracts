@@ -78,7 +78,7 @@ func createLayoutFixture(t *testing.T, name string, roots []string, manifestCont
 		}
 	}
 
-	// Create a mock Go SDK under absTmpDir for testing standard library packages like syscall and os
+	// Create a mock Go SDK under absTmpDir for testing standard library packages like syscall, os and strings
 	sdkRoot := filepath.Join(absTmpDir, "mock_sdk")
 	syscallDir := filepath.Join(sdkRoot, "syscall")
 	if err := os.MkdirAll(syscallDir, 0755); err != nil {
@@ -98,6 +98,7 @@ func Open(path string, mode int, perm uint32) (fd int, err error) {
 		t.Fatalf("failed to create mock os dir: %v", err)
 	}
 	osContent := `package os
+var DevNull = "/dev/null"
 func Open(name string) (file *File, err error) {
 	return nil, nil
 }
@@ -105,6 +106,19 @@ type File struct{}
 `
 	if err := os.WriteFile(filepath.Join(osDir, "file.go"), []byte(osContent), 0644); err != nil {
 		t.Fatalf("failed to write mock file.go: %v", err)
+	}
+
+	stringsDir := filepath.Join(sdkRoot, "strings")
+	if err := os.MkdirAll(stringsDir, 0755); err != nil {
+		t.Fatalf("failed to create mock strings dir: %v", err)
+	}
+	stringsContent := `package strings
+func ToLower(s string) string {
+	return s
+}
+`
+	if err := os.WriteFile(filepath.Join(stringsDir, "strings.go"), []byte(stringsContent), 0644); err != nil {
+		t.Fatalf("failed to write mock strings.go: %v", err)
 	}
 
 	// Build the package-layout JSON
@@ -141,12 +155,6 @@ type File struct{}
 		if _, ok := files["dep/impl.go"]; ok {
 			p.Imports["example.com/dep"] = "example.com/dep"
 		}
-		if strings.Contains(files["member/api.go"], `"os"`) {
-			p.Imports["os"] = "os"
-		}
-		if strings.Contains(files["member/api.go"], `"syscall"`) {
-			p.Imports["syscall"] = "syscall"
-		}
 		lay.Packages = append(lay.Packages, p)
 	}
 
@@ -159,34 +167,8 @@ type File struct{}
 			CompiledGoFiles: []string{"dep/impl.go"},
 			Imports:         make(map[string]string),
 		}
-		if strings.Contains(files["dep/impl.go"], `"syscall"`) {
-			p.Imports["syscall"] = "syscall"
-		}
-		if strings.Contains(files["dep/impl.go"], `"os"`) {
-			p.Imports["os"] = "os"
-		}
 		lay.Packages = append(lay.Packages, p)
 	}
-
-	// Add syscall standard library package
-	lay.Packages = append(lay.Packages, pkg{
-		ID:              "syscall",
-		Name:            "syscall",
-		PkgPath:         "syscall",
-		GoFiles:         []string{"syscall.go"},
-		CompiledGoFiles: []string{"syscall.go"},
-		Imports:         make(map[string]string),
-	})
-
-	// Add os standard library package
-	lay.Packages = append(lay.Packages, pkg{
-		ID:              "os",
-		Name:            "os",
-		PkgPath:         "os",
-		GoFiles:         []string{"file.go"},
-		CompiledGoFiles: []string{"file.go"},
-		Imports:         make(map[string]string),
-	})
 
 	layoutData, err := json.MarshalIndent(lay, "", "  ")
 	if err != nil {
@@ -234,7 +216,7 @@ func createLayoutFixtureInModule(t *testing.T, name string, roots []string, mani
 		}
 	}
 
-	// Create a mock Go SDK under absTmpDir for testing standard library packages like syscall and os
+	// Create a mock Go SDK under absTmpDir for testing standard library packages like syscall, os and strings
 	sdkRoot := filepath.Join(absTmpDir, "mock_sdk")
 	syscallDir := filepath.Join(sdkRoot, "syscall")
 	if err := os.MkdirAll(syscallDir, 0755); err != nil {
@@ -254,6 +236,7 @@ func Open(path string, mode int, perm uint32) (fd int, err error) {
 		t.Fatalf("failed to create mock os dir: %v", err)
 	}
 	osContent := `package os
+var DevNull = "/dev/null"
 func Open(name string) (file *File, err error) {
 	return nil, nil
 }
@@ -261,6 +244,19 @@ type File struct{}
 `
 	if err := os.WriteFile(filepath.Join(osDir, "file.go"), []byte(osContent), 0644); err != nil {
 		t.Fatalf("failed to write mock file.go: %v", err)
+	}
+
+	stringsDir := filepath.Join(sdkRoot, "strings")
+	if err := os.MkdirAll(stringsDir, 0755); err != nil {
+		t.Fatalf("failed to create mock strings dir: %v", err)
+	}
+	stringsContent := `package strings
+func ToLower(s string) string {
+	return s
+}
+`
+	if err := os.WriteFile(filepath.Join(stringsDir, "strings.go"), []byte(stringsContent), 0644); err != nil {
+		t.Fatalf("failed to write mock strings.go: %v", err)
 	}
 
 	// Build the package-layout JSON
@@ -297,12 +293,6 @@ type File struct{}
 		if _, ok := files["dep/impl.go"]; ok {
 			p.Imports["example.com/dep"] = "example.com/dep"
 		}
-		if strings.Contains(files["member/api.go"], `"os"`) {
-			p.Imports["os"] = "os"
-		}
-		if strings.Contains(files["member/api.go"], `"syscall"`) {
-			p.Imports["syscall"] = "syscall"
-		}
 		lay.Packages = append(lay.Packages, p)
 	}
 
@@ -315,34 +305,8 @@ type File struct{}
 			CompiledGoFiles: []string{"dep/impl.go"},
 			Imports:         make(map[string]string),
 		}
-		if strings.Contains(files["dep/impl.go"], `"syscall"`) {
-			p.Imports["syscall"] = "syscall"
-		}
-		if strings.Contains(files["dep/impl.go"], `"os"`) {
-			p.Imports["os"] = "os"
-		}
 		lay.Packages = append(lay.Packages, p)
 	}
-
-	// Add syscall standard library package
-	lay.Packages = append(lay.Packages, pkg{
-		ID:              "syscall",
-		Name:            "syscall",
-		PkgPath:         "syscall",
-		GoFiles:         []string{"syscall.go"},
-		CompiledGoFiles: []string{"syscall.go"},
-		Imports:         make(map[string]string),
-	})
-
-	// Add os standard library package
-	lay.Packages = append(lay.Packages, pkg{
-		ID:              "os",
-		Name:            "os",
-		PkgPath:         "os",
-		GoFiles:         []string{"file.go"},
-		CompiledGoFiles: []string{"file.go"},
-		Imports:         make(map[string]string),
-	})
 
 	layoutData, err := json.MarshalIndent(lay, "", "  ")
 	if err != nil {
@@ -365,8 +329,14 @@ interface_files: "member/api.go"
 	files := map[string]string{
 		"member/api.go": `package member
 
+import (
+	"os"
+	"strings"
+)
+
 func Hello() string {
-	return "Hello, Layout Mode!"
+	_ = os.DevNull
+	return strings.ToLower("Hello, Layout Mode!")
 }
 `,
 	}
@@ -797,9 +767,13 @@ interface_files: "member/api.go"
 	files := map[string]string{
 		"member/api.go": `package member
 
-import "os"
+import (
+	"os"
+	"strings"
+)
 
 func OpenSomething() {
+	_ = strings.ToLower("FOO")
 	_, _ = os.Open("foo.txt")
 }
 `,

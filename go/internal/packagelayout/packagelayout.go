@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -258,11 +259,17 @@ func ValidateAndResolve(l *Layout, workspaceDir string) error {
 		}
 	}
 
+	stdPkgIDs := make(map[string]bool)
+
 	// First, discover and merge standard library packages if GoSDKRoot is set.
 	if l.GoSDKRoot != "" {
 		stdPkgs, err := discoverStdlib(l.GoSDKRoot)
 		if err != nil {
 			return fmt.Errorf("discovering standard library: %w", err)
+		}
+		for _, p := range stdPkgs {
+			stdPkgIDs[p.ID] = true
+			stdPkgIDs[p.PkgPath] = true
 		}
 		existing := make(map[string]bool)
 		for _, p := range l.Packages {
@@ -348,20 +355,41 @@ func ValidateAndResolve(l *Layout, workspaceDir string) error {
 	for _, p := range l.Packages {
 		if !IsStdlib(p.PkgPath) {
 			fset := token.NewFileSet()
-			for _, file := range p.GoFiles {
+			sortedFiles := make([]string, len(p.GoFiles))
+			copy(sortedFiles, p.GoFiles)
+			sort.Strings(sortedFiles)
+
+			importMap := make(map[string]bool)
+			for _, file := range sortedFiles {
 				f, err := parser.ParseFile(fset, file, nil, parser.ImportsOnly)
 				if err != nil {
 					return fmt.Errorf("parsing source file %q of package %q: %w", file, p.ID, err)
 				}
 				for _, impSpec := range f.Imports {
-					impPath := strings.Trim(impSpec.Path.Value, `"`)
-					if IsStdlib(impPath) {
-						if p.Imports == nil {
-							p.Imports = make(map[string]*packages.Package)
-						}
-						if _, exists := p.Imports[impPath]; !exists {
-							p.Imports[impPath] = &packages.Package{ID: impPath}
-						}
+					if impSpec.Path == nil {
+						continue
+					}
+					impPath, err := strconv.Unquote(impSpec.Path.Value)
+					if err != nil {
+						return fmt.Errorf("invalid import literal %s in source file %q of package %q: %w", impSpec.Path.Value, file, p.ID, err)
+					}
+					importMap[impPath] = true
+				}
+			}
+
+			var sortedImports []string
+			for impPath := range importMap {
+				sortedImports = append(sortedImports, impPath)
+			}
+			sort.Strings(sortedImports)
+
+			for _, impPath := range sortedImports {
+				if IsStdlib(impPath) && stdPkgIDs[impPath] {
+					if p.Imports == nil {
+						p.Imports = make(map[string]*packages.Package)
+					}
+					if _, exists := p.Imports[impPath]; !exists {
+						p.Imports[impPath] = &packages.Package{ID: impPath}
 					}
 				}
 			}
