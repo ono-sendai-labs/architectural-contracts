@@ -41,44 +41,66 @@ func (r *Runner) Run(args []string, stdout, stderr io.Writer) int {
 	packagelayout.CheckMu.Lock()
 	defer packagelayout.CheckMu.Unlock()
 
-	var packageLayoutPath string
-	var formatJSON bool
-	var cleanArgs []string
-
-	for _, arg := range args {
-		if strings.HasPrefix(arg, "--package-layout=") {
-			packageLayoutPath = strings.TrimPrefix(arg, "--package-layout=")
-		} else if arg == "--format=json" {
-			formatJSON = true
-		} else if strings.HasPrefix(arg, "-") && arg != "--version" && arg != "--help" && arg != "-h" {
-			fmt.Fprintf(stderr, "unknown option: %s\n", arg)
-			printUsage(stderr)
-			return 2
-		} else {
-			cleanArgs = append(cleanArgs, arg)
-		}
-	}
-
-	if len(cleanArgs) == 1 && cleanArgs[0] == "--version" {
-		fmt.Fprintf(stdout, "arcc %s\n", version)
-		return 0
-	}
-
-	if len(cleanArgs) == 0 || cleanArgs[0] == "help" || cleanArgs[0] == "--help" || cleanArgs[0] == "-h" {
+	if len(args) == 0 || args[0] == "help" || args[0] == "--help" || args[0] == "-h" {
 		printUsage(stdout)
 		return 0
 	}
 
-	if cleanArgs[0] != "check" {
-		fmt.Fprintf(stderr, "unknown command: %s\n", cleanArgs[0])
+	if len(args) == 1 && args[0] == "--version" {
+		fmt.Fprintf(stdout, "arcc %s\n", version)
+		return 0
+	}
+
+	if args[0] != "check" {
+		fmt.Fprintf(stderr, "unknown command: %s\n", args[0])
 		printUsage(stderr)
 		return 2
 	}
 
-	if len(cleanArgs) != 2 {
+	if len(args) < 2 {
 		fmt.Fprintln(stderr, "error: check command requires exactly one argument")
 		printUsage(stderr)
 		return 2
+	}
+
+	manifestPath := args[1]
+	var packageLayoutPath string
+	var formatJSON bool
+	var hasLayout, hasFormat bool
+
+	for i := 2; i < len(args); i++ {
+		arg := args[i]
+		if arg == "--format=json" {
+			if hasFormat {
+				fmt.Fprintln(stderr, "error: duplicate option: --format=json")
+				return 2
+			}
+			formatJSON = true
+			hasFormat = true
+		} else if strings.HasPrefix(arg, "--package-layout=") {
+			if hasLayout {
+				fmt.Fprintln(stderr, "error: duplicate option: --package-layout")
+				return 2
+			}
+			val := strings.TrimPrefix(arg, "--package-layout=")
+			if val == "" {
+				fmt.Fprintln(stderr, "error: empty package layout value")
+				return 2
+			}
+			packageLayoutPath = val
+			hasLayout = true
+		} else if strings.HasPrefix(arg, "--package-layout") {
+			fmt.Fprintln(stderr, "error: missing package layout value")
+			return 2
+		} else if strings.HasPrefix(arg, "-") {
+			fmt.Fprintf(stderr, "unknown option: %s\n", arg)
+			printUsage(stderr)
+			return 2
+		} else {
+			fmt.Fprintln(stderr, "error: check command requires exactly one argument")
+			printUsage(stderr)
+			return 2
+		}
 	}
 
 	if packageLayoutPath != "" {
@@ -95,7 +117,7 @@ func (r *Runner) Run(args []string, stdout, stderr io.Writer) int {
 
 		var exitCode int
 		err = packagelayout.WithDriverEnv(absLayoutPath, workspaceDir, func() error {
-			exitCode = r.runCheck(cleanArgs, formatJSON, stdout, stderr)
+			exitCode = r.runCheck(manifestPath, formatJSON, stdout, stderr)
 			return nil
 		})
 		if err != nil {
@@ -105,12 +127,10 @@ func (r *Runner) Run(args []string, stdout, stderr io.Writer) int {
 		return exitCode
 	}
 
-	return r.runCheck(cleanArgs, formatJSON, stdout, stderr)
+	return r.runCheck(manifestPath, formatJSON, stdout, stderr)
 }
 
-func (r *Runner) runCheck(cleanArgs []string, formatJSON bool, stdout, stderr io.Writer) int {
-	manifestPath := cleanArgs[1]
-
+func (r *Runner) runCheck(manifestPath string, formatJSON bool, stdout, stderr io.Writer) int {
 	// 1. Open and parse manifest
 	manifestFile, err := os.Open(manifestPath)
 	if err != nil {
@@ -225,6 +245,6 @@ func printUsage(w io.Writer) {
 	fmt.Fprintln(w, "arcc checks Go architectural component contracts.")
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "Usage:")
-	fmt.Fprintln(w, "  arcc check <manifest>")
+	fmt.Fprintln(w, "  arcc check <manifest> [--package-layout=<layout>] [--format=json]")
 	fmt.Fprintln(w, "  arcc --version")
 }

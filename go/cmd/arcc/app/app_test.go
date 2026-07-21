@@ -73,6 +73,36 @@ func TestRunner_VersionAndHelp(t *testing.T) {
 			wantExit:   2,
 			wantStderr: "unknown option: --bogus",
 		},
+		{
+			name:       "empty layout value",
+			args:       []string{"check", "component.textproto", "--package-layout="},
+			wantExit:   2,
+			wantStderr: "empty package layout value",
+		},
+		{
+			name:       "missing layout value (no equals)",
+			args:       []string{"check", "component.textproto", "--package-layout"},
+			wantExit:   2,
+			wantStderr: "missing package layout value",
+		},
+		{
+			name:       "duplicate layout",
+			args:       []string{"check", "component.textproto", "--package-layout=a.json", "--package-layout=b.json"},
+			wantExit:   2,
+			wantStderr: "duplicate option: --package-layout",
+		},
+		{
+			name:       "duplicate format",
+			args:       []string{"check", "component.textproto", "--format=json", "--format=json"},
+			wantExit:   2,
+			wantStderr: "duplicate option: --format=json",
+		},
+		{
+			name:       "unexpected extra positional argument",
+			args:       []string{"check", "component.textproto", "extra-arg"},
+			wantExit:   2,
+			wantStderr: "error: check command requires exactly one argument",
+		},
 	}
 
 	for _, tt := range tests {

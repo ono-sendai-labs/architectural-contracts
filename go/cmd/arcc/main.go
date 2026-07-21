@@ -14,6 +14,7 @@ import (
 	"github.com/ono-sendai-labs/architectural-contracts/go/cmd/arcc/app"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/capslockadapter"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/goanalysis"
+	_ "github.com/ono-sendai-labs/architectural-contracts/go/internal/packagelayout"
 )
 
 func main() {

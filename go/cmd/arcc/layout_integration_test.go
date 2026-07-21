@@ -51,7 +51,7 @@ func createLayoutFixture(t *testing.T, name string, roots []string, manifestCont
 		}
 	}
 
-	// Create a mock Go SDK under absTmpDir for testing standard library packages like syscall
+	// Create a mock Go SDK under absTmpDir for testing standard library packages like syscall and os
 	sdkRoot := filepath.Join(absTmpDir, "mock_sdk")
 	syscallDir := filepath.Join(sdkRoot, "syscall")
 	if err := os.MkdirAll(syscallDir, 0755); err != nil {
@@ -64,6 +64,20 @@ func Open(path string, mode int, perm uint32) (fd int, err error) {
 `
 	if err := os.WriteFile(filepath.Join(syscallDir, "syscall.go"), []byte(syscallContent), 0644); err != nil {
 		t.Fatalf("failed to write mock syscall.go: %v", err)
+	}
+
+	osDir := filepath.Join(sdkRoot, "os")
+	if err := os.MkdirAll(osDir, 0755); err != nil {
+		t.Fatalf("failed to create mock os dir: %v", err)
+	}
+	osContent := `package os
+func Open(name string) (file *File, err error) {
+	return nil, nil
+}
+type File struct{}
+`
+	if err := os.WriteFile(filepath.Join(osDir, "file.go"), []byte(osContent), 0644); err != nil {
+		t.Fatalf("failed to write mock file.go: %v", err)
 	}
 
 	// Build the package-layout JSON
@@ -88,7 +102,6 @@ func Open(path string, mode int, perm uint32) (fd int, err error) {
 	}
 
 	// Let's dynamically add the packages from files
-	// For example, if "member/api.go" is in files, we can add "example.com/member"
 	if _, ok := files["member/api.go"]; ok {
 		p := pkg{
 			ID:              "example.com/member",
@@ -100,6 +113,12 @@ func Open(path string, mode int, perm uint32) (fd int, err error) {
 		}
 		if _, ok := files["dep/impl.go"]; ok {
 			p.Imports["example.com/dep"] = "example.com/dep"
+		}
+		if strings.Contains(files["member/api.go"], `"os"`) {
+			p.Imports["os"] = "os"
+		}
+		if strings.Contains(files["member/api.go"], `"syscall"`) {
+			p.Imports["syscall"] = "syscall"
 		}
 		lay.Packages = append(lay.Packages, p)
 	}
@@ -113,7 +132,12 @@ func Open(path string, mode int, perm uint32) (fd int, err error) {
 			CompiledGoFiles: []string{"dep/impl.go"},
 			Imports:         make(map[string]string),
 		}
-		p.Imports["syscall"] = "syscall"
+		if strings.Contains(files["dep/impl.go"], `"syscall"`) {
+			p.Imports["syscall"] = "syscall"
+		}
+		if strings.Contains(files["dep/impl.go"], `"os"`) {
+			p.Imports["os"] = "os"
+		}
 		lay.Packages = append(lay.Packages, p)
 	}
 
@@ -124,6 +148,16 @@ func Open(path string, mode int, perm uint32) (fd int, err error) {
 		PkgPath:         "syscall",
 		GoFiles:         []string{"syscall.go"},
 		CompiledGoFiles: []string{"syscall.go"},
+		Imports:         make(map[string]string),
+	})
+
+	// Add os standard library package
+	lay.Packages = append(lay.Packages, pkg{
+		ID:              "os",
+		Name:            "os",
+		PkgPath:         "os",
+		GoFiles:         []string{"file.go"},
+		CompiledGoFiles: []string{"file.go"},
 		Imports:         make(map[string]string),
 	})
 
@@ -173,7 +207,7 @@ func createLayoutFixtureInModule(t *testing.T, name string, roots []string, mani
 		}
 	}
 
-	// Create a mock Go SDK under absTmpDir for testing standard library packages like syscall
+	// Create a mock Go SDK under absTmpDir for testing standard library packages like syscall and os
 	sdkRoot := filepath.Join(absTmpDir, "mock_sdk")
 	syscallDir := filepath.Join(sdkRoot, "syscall")
 	if err := os.MkdirAll(syscallDir, 0755); err != nil {
@@ -186,6 +220,20 @@ func Open(path string, mode int, perm uint32) (fd int, err error) {
 `
 	if err := os.WriteFile(filepath.Join(syscallDir, "syscall.go"), []byte(syscallContent), 0644); err != nil {
 		t.Fatalf("failed to write mock syscall.go: %v", err)
+	}
+
+	osDir := filepath.Join(sdkRoot, "os")
+	if err := os.MkdirAll(osDir, 0755); err != nil {
+		t.Fatalf("failed to create mock os dir: %v", err)
+	}
+	osContent := `package os
+func Open(name string) (file *File, err error) {
+	return nil, nil
+}
+type File struct{}
+`
+	if err := os.WriteFile(filepath.Join(osDir, "file.go"), []byte(osContent), 0644); err != nil {
+		t.Fatalf("failed to write mock file.go: %v", err)
 	}
 
 	// Build the package-layout JSON
@@ -222,6 +270,12 @@ func Open(path string, mode int, perm uint32) (fd int, err error) {
 		if _, ok := files["dep/impl.go"]; ok {
 			p.Imports["example.com/dep"] = "example.com/dep"
 		}
+		if strings.Contains(files["member/api.go"], `"os"`) {
+			p.Imports["os"] = "os"
+		}
+		if strings.Contains(files["member/api.go"], `"syscall"`) {
+			p.Imports["syscall"] = "syscall"
+		}
 		lay.Packages = append(lay.Packages, p)
 	}
 
@@ -234,7 +288,12 @@ func Open(path string, mode int, perm uint32) (fd int, err error) {
 			CompiledGoFiles: []string{"dep/impl.go"},
 			Imports:         make(map[string]string),
 		}
-		p.Imports["syscall"] = "syscall"
+		if strings.Contains(files["dep/impl.go"], `"syscall"`) {
+			p.Imports["syscall"] = "syscall"
+		}
+		if strings.Contains(files["dep/impl.go"], `"os"`) {
+			p.Imports["os"] = "os"
+		}
 		lay.Packages = append(lay.Packages, p)
 	}
 
@@ -245,6 +304,16 @@ func Open(path string, mode int, perm uint32) (fd int, err error) {
 		PkgPath:         "syscall",
 		GoFiles:         []string{"syscall.go"},
 		CompiledGoFiles: []string{"syscall.go"},
+		Imports:         make(map[string]string),
+	})
+
+	// Add os standard library package
+	lay.Packages = append(lay.Packages, pkg{
+		ID:              "os",
+		Name:            "os",
+		PkgPath:         "os",
+		GoFiles:         []string{"file.go"},
+		CompiledGoFiles: []string{"file.go"},
 		Imports:         make(map[string]string),
 	})
 
@@ -690,5 +759,102 @@ func Hello() {
 	want := `Component "primary" conforms / ambient-authority-free`
 	if !strings.Contains(stdout, want) {
 		t.Errorf("stdout = %q, want it to contain %q", stdout, want)
+	}
+}
+
+func TestIntegration_LayoutMode_FILES_Violation(t *testing.T) {
+	manifest := `
+name: "violatingfiles"
+interface_files: "member/api.go"
+`
+	files := map[string]string{
+		"member/api.go": `package member
+
+import "os"
+
+func OpenSomething() {
+	_, _ = os.Open("foo.txt")
+}
+`,
+	}
+
+	absTmpDir, manifestPath, layoutPath := createLayoutFixture(t, "violatingfiles", []string{"example.com/member"}, manifest, files)
+
+	origWd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("failed to get current working directory: %v", err)
+	}
+
+	if err := os.Chdir(absTmpDir); err != nil {
+		t.Fatalf("failed to change directory: %v", err)
+	}
+	defer os.Chdir(origWd)
+
+	stdout, stderr, exitCode := runArcc([]string{"check", manifestPath, "--package-layout=" + layoutPath})
+
+	if exitCode != 1 {
+		t.Fatalf("expected exit code 1, got %d. Stderr: %s\nStdout: %s", exitCode, stderr, stdout)
+	}
+	if stderr != "" {
+		t.Errorf("expected empty stderr, got %q", stderr)
+	}
+
+	if !strings.Contains(stdout, "UNDECLARED_AUTHORITY") {
+		t.Errorf("expected UNDECLARED_AUTHORITY in stdout: %s", stdout)
+	}
+	if !strings.Contains(stdout, `use of undeclared authority "FILES"`) {
+		t.Errorf("expected FILES violation in stdout: %s", stdout)
+	}
+	if !strings.Contains(stdout, "OpenSomething") {
+		t.Errorf("expected evidence call path in stdout: %s", stdout)
+	}
+}
+
+func TestIntegration_LayoutMode_MissingSource_Exit2(t *testing.T) {
+	manifest := `
+name: "missingsource"
+interface_files: "member/api.go"
+`
+	files := map[string]string{
+		"member/api.go": `package member
+func Hello() {}
+`,
+	}
+
+	absTmpDir, manifestPath, layoutPath := createLayoutFixture(t, "missingsource", []string{"example.com/member"}, manifest, files)
+
+	// Mutate layout to point to a nonexistent file
+	layoutBytes, err := os.ReadFile(layoutPath)
+	if err != nil {
+		t.Fatalf("failed to read layout: %v", err)
+	}
+
+	// We replace "member/api.go" with "member/nonexistent.go" in layout json to trigger missing source error
+	mutatedLayout := strings.ReplaceAll(string(layoutBytes), "member/api.go", "member/nonexistent.go")
+	if err := os.WriteFile(layoutPath, []byte(mutatedLayout), 0644); err != nil {
+		t.Fatalf("failed to write mutated layout: %v", err)
+	}
+
+	origWd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("failed to get current working directory: %v", err)
+	}
+
+	if err := os.Chdir(absTmpDir); err != nil {
+		t.Fatalf("failed to change directory: %v", err)
+	}
+	defer os.Chdir(origWd)
+
+	stdout, stderr, exitCode := runArcc([]string{"check", manifestPath, "--package-layout=" + layoutPath})
+
+	if exitCode != 2 {
+		t.Fatalf("expected exit code 2, got %d. Stderr: %s\nStdout: %s", exitCode, stderr, stdout)
+	}
+
+	if !strings.Contains(stderr, "nonexistent.go") {
+		t.Errorf("expected stderr to report nonexistent.go, got %q", stderr)
+	}
+	if !strings.Contains(stderr, "example.com/member") {
+		t.Errorf("expected stderr to report package example.com/member, got %q", stderr)
 	}
 }
