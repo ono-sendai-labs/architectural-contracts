@@ -48,21 +48,12 @@ selfcheck:
 	cd {{go_dir}} && ../bin/arcc check internal/capslockadapter/component.textproto
 	cd {{go_dir}} && ../bin/arcc check cmd/arcc/component.textproto
 
-# Bazel build + test leg. Guarded on Bazel being installed so environments
-# without it still pass `just ci` on the Go leg alone; where Bazel is present
-# this catches rules/Starlark and hermetic-check regressions the Go tests
-# cannot see (design §8.5). Step 7 finalizes the CI story; wired in early so a
-# green `just ci` means the Bazel targets are green too.
+# Bazel build + test leg. Catches rules/Starlark and hermetic-check
+# regressions the Go tests cannot see (design §8.5). It fails loudly if Bazel
+# is missing rather than skipping, so a CI environment that is meant to have
+# Bazel cannot quietly pass a partial `just ci`.
 bazel-test:
-	#!/usr/bin/env bash
-	set -euo pipefail
-	if ! command -v bazel >/dev/null 2>&1; then
-		echo "=== Bazel not found on PATH; skipping the Bazel leg ==="
-		exit 0
-	fi
-	echo "=== bazel build //... ==="
 	bazel build //...
-	echo "=== bazel test //... ==="
 	bazel test //...
 
 ci: gen-is-clean lint build test test-integration selfcheck bazel-test
