@@ -7,6 +7,7 @@ statement; they are equally available from their language-neutral home,
 `@rules_arcc//bazel_rules:authority.bzl`.
 """
 
+load("//bazel_rules/go/private:check.bzl", "arcc_check_test")
 load("//bazel_rules/go/private:component.bzl", "go_component_rule")
 load(
     "//bazel_rules:authority.bzl",
@@ -42,12 +43,26 @@ UNANALYZED = _UNANALYZED
 ALL_AUTHORITIES = _ALL_AUTHORITIES
 
 def _go_component_impl(name, visibility, **kwargs):
+    # Unset inherited attributes arrive as None; the rule wants its own
+    # defaults for those, not a null.
+    set_kwargs = {key: value for key, value in kwargs.items() if value != None}
     go_component_rule(
         name = name,
         visibility = visibility,
-        # Unset inherited attributes arrive as None; the rule wants its own
-        # defaults for those, not a null.
-        **{key: value for key, value in kwargs.items() if value != None}
+        **set_kwargs
+    )
+
+    # Every component gets a hermetic `.check` (design §4.2). It inherits the
+    # component's `tags` and `testonly`, so a component tagged `manual` — the
+    # deliberate analysis-failure fixtures — keeps its check out of
+    # `bazel test //...` too, and never fails there for reasons the component
+    # target already covers.
+    check_kwargs = {key: set_kwargs[key] for key in ("tags", "testonly") if key in set_kwargs}
+    arcc_check_test(
+        name = name + ".check",
+        component = ":" + name,
+        visibility = visibility,
+        **check_kwargs
     )
 
 go_component = macro(
@@ -89,6 +104,8 @@ Expands to:
   * `name` — generates `name.component.textproto` and
     `name.package-layout.json`, and forwards the interface library's Go
     providers, so the component target can be used as a `deps` entry.
+  * `name.check` — a hermetic test that runs `arcc check` on the generated
+    manifest and layout. `bazel test` it to enforce the component's contract.
 
 Example:
 

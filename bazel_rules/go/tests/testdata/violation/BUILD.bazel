@@ -1,0 +1,20 @@
+load("@rules_arcc//bazel_rules/go:defs.bzl", "go_component")
+load("@rules_go//go:def.bzl", "go_library")
+
+go_library(
+    name = "violation",
+    srcs = ["violation.go"],
+    importpath = "example.com/aspect/violation",
+    visibility = ["//bazel_rules:__subpackages__"],
+)
+
+# Uses FILES (os.Open) but declares nothing, so the auto-generated
+# `violation_component.check` would fail. `manual` keeps that check out of
+# `bazel test //...`; //bazel_rules/go/tests drives the negative assertion
+# explicitly with expect_violation = True.
+go_component(
+    name = "violation_component",
+    interface = ":violation",
+    tags = ["manual"],
+    visibility = ["//bazel_rules:__subpackages__"],
+)

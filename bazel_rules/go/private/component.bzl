@@ -13,22 +13,9 @@ load("//bazel_rules:authority.bzl", "ALL_AUTHORITIES")
 load("//bazel_rules:providers.bzl", "ArccComponentInfo")
 load("//bazel_rules/go:providers.bzl", "ArccPackageInfo")
 load(":aspect.bzl", "arcc_deps_aspect", "merge_by_importpath")
+load(":paths.bzl", "runfiles_path")
 
 GO_TOOLCHAIN = "@rules_go//go:toolchain"
-
-def _runfiles_path(ctx, file):
-    """Path of `file` relative to the runfiles root.
-
-    Every path in the manifest and the layout is expressed in this coordinate
-    system, because the check runs with the runfiles root as its working
-    directory. It is the one frame in which a main-repo source and an
-    external-repo source can both be named without `..` segments — which arcc
-    rejects as escaping the workspace.
-    """
-    short_path = file.short_path
-    if short_path.startswith("../"):
-        return short_path[len("../"):]
-    return ctx.workspace_name + "/" + short_path
 
 def _relativize(target_path, base_dir):
     """`target_path` as seen from the directory `base_dir`."""
@@ -84,7 +71,7 @@ def _manifest_content(ctx, interface_files, component_deps, absorbed, declared_a
         # manifest's own directory, and derives the dependency's layout from
         # that path by convention. Both files sit in the same output tree, so
         # the relative path is well defined.
-        manifest_path = _relativize(_runfiles_path(ctx, info.manifest), manifest_dir)
+        manifest_path = _relativize(runfiles_path(ctx, info.manifest), manifest_dir)
         lines.append("  manifest: " + _textproto_string(manifest_path))
         lines.append("}")
 
@@ -107,7 +94,7 @@ def _layout_content(ctx, merged, roots, go_sdk_root):
     for importpath in sorted(merged.keys()):
         pkg = merged[importpath]
         go_files = [
-            _runfiles_path(ctx, src)
+            runfiles_path(ctx, src)
             for src in pkg.srcs
             if src.extension == "go"
         ]
@@ -233,7 +220,7 @@ def _go_component_impl(ctx):
     layout = ctx.actions.declare_file(ctx.label.name + ".package-layout.json")
 
     interface_files = sorted([
-        _runfiles_path(ctx, src)
+        runfiles_path(ctx, src)
         for src in interface[GoInfo].srcs
         if src.extension == "go"
     ])
@@ -245,7 +232,7 @@ def _go_component_impl(ctx):
             component_deps = ctx.attr.component_deps,
             absorbed = absorbed,
             declared_authority = ctx.attr.declared_authority,
-            manifest_dir = _dirname(_runfiles_path(ctx, manifest)),
+            manifest_dir = _dirname(runfiles_path(ctx, manifest)),
         ),
     )
 
@@ -256,7 +243,7 @@ def _go_component_impl(ctx):
             ctx,
             merged = merged,
             roots = members,
-            go_sdk_root = _dirname(_runfiles_path(ctx, sdk.root_file)) + "/src",
+            go_sdk_root = _dirname(runfiles_path(ctx, sdk.root_file)) + "/src",
         ),
     )
 

@@ -1,10 +1,23 @@
 load("@rules_shell//shell:sh_test.bzl", "sh_test")
+load("//bazel_rules/go/private:check.bzl", "arcc_check_test")
 load(":aspect_tests.bzl", "arcc_deps_aspect_test_suite")
 load(":component_tests.bzl", "go_component_test_suite")
 
 arcc_deps_aspect_test_suite(name = "arcc_deps_aspect_tests")
 
 go_component_test_suite(name = "go_component_tests")
+
+# The positive check is the macro-generated
+# //bazel_rules/go/tests/testdata/api:api_component.check, which runs the
+# stdlib-resolving path end to end (its closure imports "strings"). This is the
+# negative: a component that uses FILES without declaring it must fail its
+# check. The fixture's own auto `.check` is `manual`; this drives it explicitly.
+arcc_check_test(
+    name = "violation_component_check_fails_test",
+    size = "small",
+    component = "//bazel_rules/go/tests/testdata/violation:violation_component",
+    expect_violation = True,
+)
 
 sh_test(
     name = "golden_test",
