@@ -181,7 +181,7 @@ Implementation steps (all at analysis time; the actions are two `ctx.actions.wri
 1. **Component root** := the directory of the BUILD package that declares the `go_component` target (`ctx.label.package`). With explicit membership this is only the manifest's logical home and the anchor for the component-dependency disjointness check (no component dep's root may be under it, mirroring arcc's existing rule); it is **not** a membership boundary. Violations are analysis-time errors.
 2. **Membership classification** (§5.3) over the aspect-collected closure; run the **consistency check** (§6.1).
 3. **Manifest generation:** write `name.component.textproto` (schema §5.1); `component_dependencies.manifest` entries point at dep components' *generated* manifests, path-relativized against this manifest's output directory (both live in the same output tree, so relative paths are well-defined).
-4. **Layout generation:** write `name.package-layout.json` (§5.4) enumerating every member and absorbed package (importpath, srcs, direct deps) and marking the component's member packages as the load roots, plus the Go SDK stdlib source root (from the rules_go toolchain).
+4. **Layout generation:** write `name.package-layout.json` (§5.4) enumerating every package in the closure (importpath, srcs, direct deps) and marking the component's member packages as the load roots, plus the Go SDK stdlib source root (from the rules_go toolchain). All paths are runfiles-root-relative (§5.4).
 5. **Providers returned:** `ArccComponentInfo` (§5.2), the interface library's `GoInfo` and `GoArchive` verbatim (R9), and `DefaultInfo(files = [manifest, layout])`.
 
 ### 4.5 `_arcc_check_test`
@@ -204,12 +204,12 @@ arcc gains one new loading mode (additive; colocated non-Bazel manifests keep wo
 
 - **CLI:** `arcc check <manifest> --package-layout=<layout.json>`.
 - **Self-exec `GOPACKAGESDRIVER`:** when `--package-layout` is set, arcc points `GOPACKAGESDRIVER` at the arcc binary itself and a driver subcommand answers `go/packages` queries from the layout file. `goanalysis` and `capslockadapter` keep calling `packages.Load` unchanged — `go/packages` parses and type-checks from source in-process once the driver supplies file lists and the import graph. This is the least-invasive path through arcc's architecture (§7.2) and doubles as a general non-`go list` entry point for other build systems.
-- **Path resolution:** under `--package-layout`, `interface_files` and all package srcs are workspace-relative and resolved via the layout (not relative to the manifest's own directory), so the manifest need not be colocated with sources.
+- **Path resolution:** under `--package-layout`, `interface_files` and all package srcs are resolved against arcc's own working directory via the layout (not relative to the manifest's own directory), so the manifest need not be colocated with sources. Which directory that is, and hence what the paths mean, is the emitter's choice; §5.4 fixes it for the Bazel rules.
 - **Explicit membership:** the layout's designated load roots are the component's member packages, replacing directory-derivation under Bazel (R4).
 
 Constraints surfaced and validated by the driver spike (`../research/spike-driver-findings.md`), load-bearing for the layout emission:
 
-1. **The driver must serve the `"std"` meta-pattern.** Capslock issues its own `packages.Load(nil, "std")` deep in analysis, so the layout must enumerate the full standard library (from the SDK), and the driver must resolve `"std"` to it — not only the closure's imports. The full stdlib import-path set is the rules_go toolchain's `sdk.package_list` file (`../research/spike-aspect-findings.md`, finding 4).
+1. **The driver must serve the `"std"` meta-pattern.** Capslock issues its own `packages.Load(nil, "std")` deep in analysis, so the driver must resolve `"std"` to the full standard library, not only the closure's imports. The driver enumerates that set itself from `go_sdk_root` rather than having it emitted into the layout (§5.4, "Standard-library edges"; plan Step 5a).
 2. **Stdlib source is read at check time from the SDK's `GOROOT/src`,** declared as a rules_go toolchain input; hermetically satisfiable, but it must be wired into the check's inputs. Concretely: `sdk.srcs` (the `GOROOT/src` `File`s) as declared inputs, and `go_sdk_root = sdk.root_file.dirname + "/src"` in the layout.
 3. **cgo is the hermeticity risk.** cgo packages' `CompiledGoFiles` are preprocessed sources that `go list` leaves in the build cache; the layout emission must obtain them as declared Bazel outputs (rules_go produces them) rather than referencing the cache. Pure-Go closures are unaffected.
 
@@ -219,7 +219,7 @@ Constraints surfaced and validated by the driver spike (`../research/spike-drive
 
 No proto change is required for the hermetic mode; the existing `Component` message (`name`, `interface_files`, `component_dependencies`, `absorbed_dependencies`, `declared_authority`) is emitted as today. The differences are semantic, not schematic:
 
-- `interface_files` are workspace-relative and resolved via the layout (§4.6) rather than relative to the manifest's directory. arcc is a pre-deployment PoC with no compatibility constraints, so this generalization needs no versioning gymnastics; colocated non-Bazel manifests keep their existing directory-relative semantics when `--package-layout` is absent.
+- `interface_files` are resolved via the layout, in the layout's path frame (§4.6, §5.4), rather than relative to the manifest's directory. arcc is a pre-deployment PoC with no compatibility constraints, so this generalization needs no versioning gymnastics; colocated non-Bazel manifests keep their existing directory-relative semantics when `--package-layout` is absent.
 - Membership is not encoded in the manifest — it is the layout's load roots (§5.4). The manifest remains the human-facing contract (interface, dependencies, declared authority); the layout is the machine-facing load graph.
 
 `absorbed_dependencies` continue to carry the (already `optional`) `reason` field in the proto, but the rule never populates it (R5): absorbed deps are an implementation detail the component takes responsibility for and need not justify to consumers.
@@ -255,16 +255,36 @@ Note the ordering change from the earlier directory-based scheme: with explicit 
 
 ```json
 {
-  "go_sdk_root": "external/rules_go++go_sdk+.../src",
+  "go_sdk_root": "rules_go++go_sdk+main___download_0_linux_amd64/src",
   "roots": ["example.com/svc"],
   "packages": [
-    {"importpath": "example.com/svc", "srcs": ["svc/api.go"], "deps": ["example.com/svc/internal"]},
-    {"importpath": "example.com/svc/internal", "srcs": ["svc/internal/impl.go"], "deps": ["example.com/other"]}
+    {
+      "ID": "example.com/svc",
+      "Name": "svc",
+      "PkgPath": "example.com/svc",
+      "GoFiles": ["_main/svc/api.go"],
+      "CompiledGoFiles": ["_main/svc/api.go"],
+      "Imports": {"example.com/svc/internal": "example.com/svc/internal"}
+    }
   ]
 }
 ```
 
-`roots` are the component's member packages (§5.3). The driver serves both exact-importpath queries and the `"std"` meta-pattern (§4.6, finding 1); `go_sdk_root` supplies the stdlib source tree. The member/absorbed `packages` come from the `_arcc_deps` aspect (§4.3); the stdlib set (for `"std"`), the stdlib source, and `go_sdk_root` come from the rules_go toolchain's `sdk.package_list`, `sdk.srcs`, and `sdk.root_file` respectively (`../research/spike-aspect-findings.md`, finding 4). Producer emission is validated in `../research/spike-aspect/`; the consumer-side round-trip through `go/packages`' own driver JSON form in `../research/spike-driver/`; the exact wire encoding is finalized where the two meet (the arcc loading-mode implementation).
+The per-package encoding is `go/packages`' own driver "flat" form (`packages.Package`'s JSON), settled where Step 1 and Step 4 met: arcc parses the layout straight into `[]*packages.Package`, so the schema is whatever that type marshals. Package IDs are import paths — the closure is folded by import path, so they are unique — which is why every `Imports` value equals its key. `CompiledGoFiles` differs from `GoFiles` only for cgo packages, which the rule currently refuses (§4.6, finding 3).
+
+**Path frame: runfiles-root-relative — decided in Step 4.** Every path the rules emit — package `GoFiles`/`CompiledGoFiles`, the manifest's `interface_files`, and `go_sdk_root` — is relative to the **runfiles root**, the directory the check test runs in (§4.5). Under bzlmod that means main-repository sources are named `_main/go/…` and external-repository sources `<canonical_repo_name>/…`.
+
+The earlier "workspace-relative" wording does not survive contact with external repositories: an external source's workspace-relative name is `../<repo>/…`, and arcc rejects a layout path with `..` segments as escaping the workspace. The runfiles root is the one frame in which a main-repo and an external-repo source both have a `..`-free name, which matters as soon as a component absorbs a third-party library. Concretely, the rule computes `File.short_path`, stripping the leading `../` for external files and prefixing `ctx.workspace_name` otherwise.
+
+Two things are deliberately *not* in this frame, because arcc resolves them differently: `component_dependencies.manifest` stays relative to the declaring manifest's own directory (arcc's existing rule, and how it locates a dependency's layout by convention), and stdlib file paths resolve under `go_sdk_root` rather than the working directory.
+
+**Standard-library edges — open point, surfaced by the Step 4 implementation.** The aspect closure excludes stdlib (`GoArchive.direct` never carries it), so a member package that imports `os` gets *no* `os` entry in its layout `Imports` map, and the layout enumerates no stdlib packages at all. Under a driver, `go/packages` resolves every import through that map and type-checks dependencies from source, so both the edges and the stdlib packages (with build-constraint-filtered file lists) have to be reachable. Neither is derivable at analysis time from `sdk.package_list` (import paths only) or `sdk.srcs` (unfiltered file tree).
+
+**Resolved: arcc's driver enumerates the stdlib itself** from `go_sdk_root` using `go/build` (which applies build constraints without a `go list` subprocess or a `go` binary), and recovers member packages' stdlib edges by parsing the layout's own sources with `parser.ImportsOnly`. Layouts stay per-component small (~5 KB), no extra Bazel action is needed, and the layout format stays free of data a build system cannot produce — which is what keeps it usable by build systems other than Bazel. This lands in arcc as plan Step 5a.
+
+The alternative — a Bazel action running the SDK's `go list -deps -json std` once per SDK, merged into every component layout — is equally hermetic but costs ~500 KB per layout and a merge tool, and would have to be rebuilt for each new build system. Rejected on that basis.
+
+`roots` are the component's member packages (§5.3) and are what scopes the check; `packages` is the **whole** aspect closure, covered packages included, because a member cannot be type-checked without the sources of what it imports, whoever else covers them. The driver serves both exact-importpath queries and the `"std"` meta-pattern (§4.6, finding 1); `go_sdk_root` supplies the stdlib source tree. The `packages` come from the `_arcc_deps` aspect (§4.3); the stdlib source and `go_sdk_root` come from the rules_go toolchain's `sdk.srcs` and `sdk.root_file` (the stdlib *set* is no longer emitted from `sdk.package_list`: arcc enumerates it, per the resolution above) (`../research/spike-aspect-findings.md`, finding 4). Producer emission is validated in `../research/spike-aspect/`; the consumer-side round-trip through `go/packages`' own driver JSON form in `../research/spike-driver/`; the exact wire encoding is finalized where the two meet (the arcc loading-mode implementation).
 
 ### 5.5 `authority.bzl`
 

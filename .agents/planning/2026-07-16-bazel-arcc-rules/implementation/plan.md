@@ -9,12 +9,15 @@ This is a brownfield change: the earliest steps touch arcc's Go core (the `--pac
 - [x] **Step 1:** arcc `--package-layout` hermetic loading mode (self-exec `GOPACKAGESDRIVER`)
 - [x] **Step 2:** Repo bzlmod-ification + arcc built from source under Bazel (`@rules_arcc//:arcc`)
 - [x] **Step 3:** `bazel_rules/` substrate — authority constants, providers, `_arcc_deps` aspect
-- [ ] **Step 4:** `go_component` macro + `_go_component` rule — manifest & layout generation
-- [ ] **Step 5:** `_arcc_check_test` — hermetic check wired end-to-end
+- [x] **Step 4:** `go_component` macro + `_go_component` rule — manifest & layout generation
+- [ ] **Step 5a:** arcc-side stdlib resolution in the layout driver (Go)
+- [ ] **Step 5b:** `_arcc_check_test` — hermetic check wired end-to-end
 - [ ] **Step 6:** Bazelified csvtool examples + golden manifest comparison
 - [ ] **Step 7:** `just ci` Bazel leg + consumer docs
 
-Core end-to-end functionality arrives in two stages: the **arcc-side** hermetic check is demoable at **Step 1** (checking a fixture layout with no `go.mod`); the **full Bazel** end-to-end (`bazel test //…:component.check`) lands at **Step 5**.
+Core end-to-end functionality arrives in two stages: the **arcc-side** hermetic check is demoable at **Step 1** (checking a fixture layout with no `go.mod`); the **full Bazel** end-to-end (`bazel test //…:component.check`) lands at **Step 5b**.
+
+Steps 1–4 alternated between the two sides of the seam; Step 5 turned out to need both, so it is split by codebase. **Step 5a is Go work in `go/internal/packagelayout`** — self-contained, test-first, and the only remaining arcc change the design calls for. **Step 5b is Starlark** and consumes it.
 
 ---
 
@@ -87,12 +90,33 @@ Core end-to-end functionality arrives in two stages: the **arcc-side** hermetic 
 
 ---
 
-## Step 5: `_arcc_check_test` — hermetic check end-to-end
+## Step 5a: arcc-side stdlib resolution in the layout driver
 
-**Objective.** `name.check` runs `arcc check <manifest> --package-layout=<layout>` hermetically, tying Step 4's generated layout to Step 1's arcc loading mode — the full sandboxed, cacheable enforcement path (§4.5).
+**Objective.** arcc's package-layout driver resolves the Go standard library itself from the layout's `go_sdk_root`, so a layout that names only a component's own packages loads and type-checks. This closes the gap Step 4 surfaced (§5.4, "Standard-library edges") and is the last arcc change the design calls for.
+
+**Guidance.**
+- The gap: the `_arcc_deps` aspect closure excludes stdlib (`GoArchive.direct` never carries it), so a Bazel-emitted layout has no stdlib packages and a member package that imports `os` has no `os` entry in its `Imports` map. Under a driver, `go/packages` resolves every import through that map and type-checks dependencies from source; Capslock separately issues `packages.Load(nil, "std")` (§4.6, finding 1). Build-constraint-filtered stdlib file lists are not derivable at Bazel analysis time, which is why this lands in arcc rather than in the rules.
+- **Enumerate the stdlib from `go_sdk_root`** using `go/build` — `build.Context{GOROOT: …}` with `ImportDir` applies build constraints (GOOS/GOARCH/tags) with no `go list` subprocess and no `go` binary, so the check stays hermetic. Walk the SDK source tree for package directories; skip what is not importable (`cmd/…`, `vendor/`, `testdata/`), keep `internal/…` (stdlib packages import it).
+- **Serve `"std"` from that enumeration** rather than requiring the layout to carry it, and resolve exact stdlib import paths the same way.
+- **Recover member packages' stdlib edges** by parsing each layout package's `GoFiles` with `parser.ImportsOnly` and adding any import the layout's `Imports` map lacks that `IsStdlib` accepts. Cheap, deterministic, and it keeps the layout format free of data a build system cannot produce.
+- **Layout-provided entries win.** A layout that already enumerates stdlib packages (Step 1's fixtures, and any `go list`-derived layout) must keep working unchanged; SDK enumeration fills gaps rather than replacing what is there.
+- Keep everything sorted: enumeration order, recovered imports, and the driver's response must stay byte-stable for cache-stable checks.
+
+**Tests.** Go unit tests in `internal/packagelayout`: build-constraint filtering (a GOOS-suffixed file is excluded for other platforms), non-package directories skipped, import recovery adding only missing stdlib edges, layout-provided stdlib entries left untouched. Integration test in `cmd/arcc` layout mode, run through the existing `runArccHermetic` harness (no Go toolchain on `PATH`): a component whose member imports `os` and `strings` checks clean against a layout naming **only** the member packages, and a `FILES`-minting member still reports its finding with a call path.
+
+**Integration.** Confined to `internal/packagelayout`; `goanalysis`, `capslockadapter`, and the CLI are unchanged, as is colocated (non-layout) mode. Unblocks Step 5b, which is what first exercises it under Bazel.
+
+**Demo.** From a directory with no `go.mod` and no `go` on `PATH`: `arcc check svc.component.textproto --package-layout=svc.package-layout.json`, where the layout lists only `svc`'s own package and points `go_sdk_root` at a Go SDK, prints a correct verdict including the `os.Open` `FILES` finding.
+
+---
+
+## Step 5b: `_arcc_check_test` — hermetic check end-to-end
+
+**Objective.** `name.check` runs `arcc check <manifest> --package-layout=<layout>` hermetically, tying Step 4's generated layout to Step 1's arcc loading mode and Step 5a's stdlib resolution — the full sandboxed, cacheable enforcement path (§4.5).
 
 **Guidance.**
 - `check.bzl` test rule + launcher script exec'ing arcc with `--format=json`; exit-code mapping is arcc's (§4.5, §6.2).
+- The launcher must run arcc **from the runfiles root**: every path in the manifest and layout is relative to it (§5.4, "Path frame").
 - Runfiles: `@rules_arcc//:arcc`, the transitive manifest and layout depsets, member/absorbed package srcs, and the rules_go SDK stdlib source named by the layout (§4.5, §4.6 finding 2).
 - Factor command construction into a helper shared with a future `_arcc_validation` action (R7). No `local`/`external` tags — the test is hermetic.
 
@@ -114,7 +138,7 @@ Core end-to-end functionality arrives in two stages: the **arcc-side** hermetic 
 
 **Tests.** `bazel test //go/examples/csvtool/...` all pass, including each `.check`; the golden comparison passes; app's authority is correctly pruned by its component deps.
 
-**Integration.** Exercises the entire stack (Steps 1–5) on existing, non-synthetic code; validates parity with the hand-written manifests.
+**Integration.** Exercises the entire stack (Steps 1–5b) on existing, non-synthetic code; validates parity with the hand-written manifests.
 
 **Demo.** `bazel test //go/examples/csvtool/...` is green; show `csvfile` reporting `[FILES]` and `app` pruned to none.
 
