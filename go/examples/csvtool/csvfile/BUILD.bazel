@@ -1,3 +1,4 @@
+load("@rules_arcc//bazel_rules/go:defs.bzl", "FILES", "go_component")
 load("@rules_go//go:def.bzl", "go_library", "go_test")
 
 go_library(
@@ -16,3 +17,17 @@ go_test(
     srcs = ["csvfile_test.go"],
     embed = [":csvfile"],
 )
+
+# Mirrors the checked-in csvfile/component.textproto: declares FILES (it reads a
+# named file via os.ReadFile) and absorbs parsecsv. Only csvfile.go is the
+# interface; private.go stays architecture-private.
+go_component(
+    name = "csvfile_component",
+    absorbed_deps = ["//go/examples/csvtool/internal/parsecsv"],
+    declared_authority = [FILES],
+    interface = ":csvfile",
+    visibility = ["//visibility:public"],
+)
+
+# The checked-in manifest, referenced by //go/examples/csvtool/app's parity test.
+exports_files(["component.textproto"])

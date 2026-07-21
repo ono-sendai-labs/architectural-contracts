@@ -1,4 +1,5 @@
-load("@rules_go//go:def.bzl", "go_library")
+load("@rules_arcc//bazel_rules/go:defs.bzl", "go_component")
+load("@rules_go//go:def.bzl", "go_library", "go_test")
 
 go_library(
     name = "app",
@@ -9,4 +10,50 @@ go_library(
         "//go/examples/csvtool/csvfile",
         "//go/examples/csvtool/toprow",
     ],
+)
+
+# Mirrors the checked-in app/component.textproto: no declared authority. app
+# composes csvfile (which holds FILES) as a *component dependency*, so arcc
+# prunes traversal at csvfile's interface and does not re-attribute FILES to
+# app — the FR5b showcase. Its `.check` conforms only if that pruning works.
+go_component(
+    name = "app_component",
+    component_deps = [
+        "//go/examples/csvtool/csvfile:csvfile_component",
+        "//go/examples/csvtool/toprow:toprow_component",
+    ],
+    interface = ":app",
+    visibility = ["//visibility:public"],
+)
+
+exports_files(["component.textproto"])
+
+# Golden parity: the manifests the go_component rule generates must agree
+# semantically with the hand-written colocated manifests — same interface files,
+# absorbed deps, declared authority, and component-dependency structure (R11,
+# design §8.2). Homed here, at the composition root that pulls in all three
+# components. The test parses both forms with //go/internal/manifest and
+# normalizes away what differs by construction (the `_component` target-name
+# suffix, absorbed-dependency `reason` text, and the path frame). It skips under
+# plain `go test`, which passes it no manifests.
+go_test(
+    name = "manifest_parity_test",
+    srcs = ["manifest_parity_test.go"],
+    args = [
+        "$(rootpaths //go/examples/csvtool/toprow:toprow_component)",
+        "$(rootpaths //go/examples/csvtool/csvfile:csvfile_component)",
+        "$(rootpaths //go/examples/csvtool/app:app_component)",
+        "$(rootpath //go/examples/csvtool/toprow:component.textproto)",
+        "$(rootpath //go/examples/csvtool/csvfile:component.textproto)",
+        "$(rootpath :component.textproto)",
+    ],
+    data = [
+        "component.textproto",
+        "//go/examples/csvtool/app:app_component",
+        "//go/examples/csvtool/csvfile:component.textproto",
+        "//go/examples/csvtool/csvfile:csvfile_component",
+        "//go/examples/csvtool/toprow:component.textproto",
+        "//go/examples/csvtool/toprow:toprow_component",
+    ],
+    deps = ["//go/internal/manifest"],
 )
