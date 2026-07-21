@@ -7,6 +7,7 @@ statement; they are equally available from their language-neutral home,
 `@rules_arcc//bazel_rules:authority.bzl`.
 """
 
+load("//bazel_rules/go/private:component.bzl", "go_component_rule")
 load(
     "//bazel_rules:authority.bzl",
     _ALL_AUTHORITIES = "ALL_AUTHORITIES",
@@ -39,3 +40,65 @@ UNSAFE_POINTER = _UNSAFE_POINTER
 REFLECT = _REFLECT
 UNANALYZED = _UNANALYZED
 ALL_AUTHORITIES = _ALL_AUTHORITIES
+
+def _go_component_impl(name, visibility, **kwargs):
+    go_component_rule(
+        name = name,
+        visibility = visibility,
+        # Unset inherited attributes arrive as None; the rule wants its own
+        # defaults for those, not a null.
+        **{key: value for key, value in kwargs.items() if value != None}
+    )
+
+go_component = macro(
+    implementation = _go_component_impl,
+    inherit_attrs = "common",
+    attrs = {
+        "interface": attr.label(
+            mandatory = True,
+            configurable = False,
+            doc = "The single go_library holding the component's public surface. " +
+                  "A component has exactly one interface library; passing a list is an error.",
+        ),
+        "component_deps": attr.label_list(
+            configurable = False,
+            doc = "Other go_component targets this component depends on. Their packages are " +
+                  "covered by them, and so are neither members of this component nor absorbed.",
+        ),
+        "absorbed_deps": attr.label_list(
+            configurable = False,
+            doc = "Libraries this component absorbs as implementation details, taking " +
+                  "responsibility for their ambient authority. No reasons are recorded: " +
+                  "a BUILD comment is the place for a note.",
+        ),
+        "contract": attr.label_list(
+            allow_files = True,
+            configurable = False,
+            doc = "Contract documents. Bazel-only metadata: arcc never reads them.",
+        ),
+        "declared_authority": attr.string_list(
+            configurable = False,
+            doc = "The ambient authority this component declares, as constants from this file " +
+                  "(FILES, NETWORK, ...). Empty means the component claims to be authority-free.",
+        ),
+    },
+    doc = """Declares a checkable arcc component around a Go interface library.
+
+Expands to:
+
+  * `name` — generates `name.component.textproto` and
+    `name.package-layout.json`, and forwards the interface library's Go
+    providers, so the component target can be used as a `deps` entry.
+
+Example:
+
+    go_component(
+        name = "svc_component",
+        interface = ":svc",
+        component_deps = ["//other:other_component"],
+        absorbed_deps = ["//third_party/csvparse"],
+        declared_authority = [FILES],
+        visibility = ["//visibility:public"],
+    )
+""",
+)
