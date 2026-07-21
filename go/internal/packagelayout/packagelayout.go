@@ -156,8 +156,12 @@ func ValidateAndResolve(l *Layout, workspaceDir string) error {
 			if impID == nil {
 				return fmt.Errorf("package %q imports nil package reference for path %q", p.ID, impPath)
 			}
-			if _, ok := byID[impID.ID]; !ok {
+			target, ok := byID[impID.ID]
+			if !ok {
 				return fmt.Errorf("package %q imports unknown package ID %q", p.ID, impID.ID)
+			}
+			if target.PkgPath != impPath {
+				return fmt.Errorf("package %q imports path %q with ID %q, but target package import path is %q", p.ID, impPath, target.ID, target.PkgPath)
 			}
 		}
 

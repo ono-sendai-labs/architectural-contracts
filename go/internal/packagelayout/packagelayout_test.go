@@ -346,6 +346,29 @@ func TestValidateAndResolve_Errors(t *testing.T) {
 			wantError: "imports unknown package ID \"bar_id_nonexistent\"",
 		},
 		{
+			name: "mismatched import key",
+			layout: &Layout{
+				GoSDKRoot: "/sdk",
+				Roots:     []string{"foo"},
+				Packages: []*packages.Package{
+					{
+						ID:      "foo",
+						Name:    "foo",
+						PkgPath: "foo",
+						Imports: map[string]*packages.Package{
+							"example.com/missing": {ID: "bar"},
+						},
+					},
+					{
+						ID:      "bar",
+						Name:    "bar",
+						PkgPath: "example.com/bar",
+					},
+				},
+			},
+			wantError: "package \"foo\" imports path \"example.com/missing\" with ID \"bar\", but target package import path is \"example.com/bar\"",
+		},
+		{
 			name: "empty source file path",
 			layout: &Layout{
 				GoSDKRoot: "/sdk",
