@@ -1,0 +1,4 @@
+# Implementation of the Go component rules. Not part of the public API: load
+# //bazel_rules/go:defs.bzl instead. Visible to the rules' own tests.
+
+package(default_visibility = ["//bazel_rules:__subpackages__"])

@@ -1,0 +1,8 @@
+# Language-neutral arcc rule substrate. Go-specific rules live in go/.
+
+package(default_visibility = ["//visibility:public"])
+
+exports_files([
+    "authority.bzl",
+    "providers.bzl",
+])
