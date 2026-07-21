@@ -19,12 +19,15 @@ The Bazel dependency aspect deliberately excludes standard-library archives, so 
 ## Technical Requirements
 1. Add a standard-library discovery seam in `go/internal/packagelayout` that walks the SDK source tree rooted at `Layout.GoSDKRoot` and uses `go/build.Context` with that GOROOT to identify importable packages and their build-selected Go source files without subprocesses.
 2. Apply the active build context's GOOS, GOARCH, compiler, cgo, release tags, and build tags consistently; include only files accepted by `go/build`, with focused coverage proving that a source file for a different GOOS is excluded.
-3. Exclude non-importable trees such as `cmd`, `vendor`, and `testdata`, while retaining importable `internal` packages. Ignore ordinary non-package directories, but return actionable errors for SDK access or package-inspection failures that make the discovered graph incomplete.
+3. Reproduce the package set `go list std` reports: exclude the top-level `cmd` tree and any `testdata` directory, while retaining importable `internal` packages. Ignore ordinary non-package directories, but return actionable errors for SDK access or package-inspection failures that make the discovered graph incomplete.
+3a. Enumerate `$GOROOT/src/vendor/…` as part of the standard library, since `go list std` does and `net`, `crypto/tls` and `net/http` cannot be type-checked without it. Derive each import path from the path relative to `$GOROOT/src`, which yields the `vendor/`-prefixed form used by the go command. `$GOROOT/src/cmd/vendor/…` stays out of scope only because `cmd` does.
+3b. Apply the go command's GOROOT vendor rule to SDK import edges: `go/build` reports the source import (`golang.org/x/net/dns/dnsmessage`), which must be rewritten to the vendored package's `vendor/`-prefixed path when that package exists under `$GOROOT/src/vendor`. Unrewritten, such an import is neither classified as standard library nor discoverable, and the importing package's graph is silently incomplete.
 4. Convert each discovered package into the flat `packages.Package` representation used by the existing driver, including deterministic ID/import-path/name/file data and direct standard-library import references sufficient for source type-checking.
 5. Merge discovered packages into the parsed layout before structural validation and path resolution. Layout-provided package records must win by ID/import path, so Step 1 fixtures and other fully enumerated layouts keep their existing source lists and metadata unchanged.
 6. Permit a layout with a valid `go_sdk_root` and no embedded standard-library records to validate and serve exact standard-library import paths and `std`; retain clear failures for an absent, unreadable, or invalid SDK root.
 7. Sort directory traversal results, package records, file lists, import processing, roots, and response packages so repeated driver responses are byte-stable.
 8. Add unit tests in `go/internal/packagelayout` for build-constraint filtering, skipped and retained directory classes, exact-import and `std` queries, transitive stdlib edges, layout-entry precedence, deterministic output, and malformed or unavailable SDK roots.
+9. Cover the vendor rule with a real-SDK-shaped fixture: a package under `src/` importing a `golang.org/…` path that exists only under `src/vendor/`, asserting the edge is rewritten and the target is discovered. The fixture used for the minimal-layout test must contain such a dependency, so the case cannot pass vacuously the way a vendor-free fixture does.
 
 ## Dependencies
 - Step 1's package-layout schema, validation, path resolution, and driver request handling in `go/internal/packagelayout`.
@@ -50,10 +53,15 @@ The Bazel dependency aspect deliberately excludes standard-library archives, so 
    - When standard-library packages are enumerated with the active build context
    - Then accepted files are included and the other-platform files are excluded from `GoFiles` and `CompiledGoFiles`.
 
-3. **Only importable SDK package trees are exposed**
-   - Given SDK fixtures under ordinary, `internal`, `cmd`, `vendor`, `testdata`, and non-package directories
+3. **The exposed SDK package set matches `go list std`**
+   - Given SDK fixtures under ordinary, `internal`, `vendor`, `cmd`, `testdata`, and non-package directories
    - When enumeration completes
-   - Then ordinary and internal packages are available, while command, vendor, testdata, and non-package directories are absent.
+   - Then ordinary, internal, and `src/vendor` packages are available — the latter under `vendor/`-prefixed import paths — while command, testdata, and non-package directories are absent.
+
+3a. **Vendored standard-library edges resolve**
+   - Given an SDK fixture whose `src/` package imports a `golang.org/…` path present only under `src/vendor/`
+   - When enumeration completes
+   - Then the importing package's edge names the `vendor/`-prefixed import path, the vendored package is present in the graph under that path, and the graph passes import validation.
 
 4. **Exact and meta-pattern queries use the discovered graph**
    - Given a layout that does not embed standard-library records
