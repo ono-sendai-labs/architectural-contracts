@@ -1,0 +1,10 @@
+load("@rules_shell//shell:sh_test.bzl", "sh_test")
+
+# Tests for the Bazel side of arcc. The rule set itself lands in later steps;
+# for now this only guards the "arcc from source" wiring (Step 2).
+sh_test(
+    name = "arcc_binary_test",
+    srcs = ["arcc_binary_test.sh"],
+    args = ["$(rootpath //:arcc)"],
+    data = ["//:arcc"],
+)
