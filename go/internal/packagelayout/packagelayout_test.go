@@ -293,10 +293,10 @@ func TestValidateAndResolve_Errors(t *testing.T) {
 		{
 			name: "empty roots",
 			layout: &Layout{
-				GoSDKRoot: "/sdk",
+				GoSDKRoot: "",
 				Roots:     []string{},
 				Packages: []*packages.Package{
-					{ID: "foo", Name: "foo", PkgPath: "foo"},
+					{ID: "example.com/foo", Name: "foo", PkgPath: "example.com/foo"},
 				},
 			},
 			wantError: "roots list cannot be empty",
@@ -304,10 +304,10 @@ func TestValidateAndResolve_Errors(t *testing.T) {
 		{
 			name: "empty package ID",
 			layout: &Layout{
-				GoSDKRoot: "/sdk",
-				Roots:     []string{"foo"},
+				GoSDKRoot: "",
+				Roots:     []string{"example.com/foo"},
 				Packages: []*packages.Package{
-					{ID: "", Name: "foo", PkgPath: "foo"},
+					{ID: "", Name: "foo", PkgPath: "example.com/foo"},
 				},
 			},
 			wantError: "package has empty ID",
@@ -315,10 +315,10 @@ func TestValidateAndResolve_Errors(t *testing.T) {
 		{
 			name: "empty package PkgPath",
 			layout: &Layout{
-				GoSDKRoot: "/sdk",
-				Roots:     []string{"foo"},
+				GoSDKRoot: "",
+				Roots:     []string{"example.com/foo"},
 				Packages: []*packages.Package{
-					{ID: "foo", Name: "foo", PkgPath: ""},
+					{ID: "example.com/foo", Name: "foo", PkgPath: ""},
 				},
 			},
 			wantError: "has empty import path",
@@ -326,10 +326,10 @@ func TestValidateAndResolve_Errors(t *testing.T) {
 		{
 			name: "empty package Name",
 			layout: &Layout{
-				GoSDKRoot: "/sdk",
-				Roots:     []string{"foo"},
+				GoSDKRoot: "",
+				Roots:     []string{"example.com/foo"},
 				Packages: []*packages.Package{
-					{ID: "foo", Name: "", PkgPath: "foo"},
+					{ID: "example.com/foo", Name: "", PkgPath: "example.com/foo"},
 				},
 			},
 			wantError: "has empty name",
@@ -337,34 +337,34 @@ func TestValidateAndResolve_Errors(t *testing.T) {
 		{
 			name: "duplicate ID",
 			layout: &Layout{
-				GoSDKRoot: "/sdk",
-				Roots:     []string{"foo"},
+				GoSDKRoot: "",
+				Roots:     []string{"example.com/foo"},
 				Packages: []*packages.Package{
-					{ID: "foo", Name: "foo", PkgPath: "foo"},
-					{ID: "foo", Name: "bar", PkgPath: "bar"},
+					{ID: "example.com/foo", Name: "foo", PkgPath: "example.com/foo"},
+					{ID: "example.com/foo", Name: "bar", PkgPath: "example.com/bar"},
 				},
 			},
-			wantError: "duplicate package ID: foo",
+			wantError: "duplicate package ID: example.com/foo",
 		},
 		{
 			name: "duplicate PkgPath",
 			layout: &Layout{
-				GoSDKRoot: "/sdk",
-				Roots:     []string{"foo"},
+				GoSDKRoot: "",
+				Roots:     []string{"example.com/foo"},
 				Packages: []*packages.Package{
-					{ID: "foo", Name: "foo", PkgPath: "foo"},
-					{ID: "bar", Name: "bar", PkgPath: "foo"},
+					{ID: "example.com/foo", Name: "foo", PkgPath: "example.com/foo"},
+					{ID: "example.com/bar", Name: "bar", PkgPath: "example.com/foo"},
 				},
 			},
-			wantError: "duplicate package import path: foo",
+			wantError: "duplicate package import path: example.com/foo",
 		},
 		{
 			name: "unknown root",
 			layout: &Layout{
-				GoSDKRoot: "/sdk",
+				GoSDKRoot: "",
 				Roots:     []string{"nonexistent"},
 				Packages: []*packages.Package{
-					{ID: "foo", Name: "foo", PkgPath: "foo"},
+					{ID: "example.com/foo", Name: "foo", PkgPath: "example.com/foo"},
 				},
 			},
 			wantError: "unknown root: nonexistent",
@@ -372,15 +372,15 @@ func TestValidateAndResolve_Errors(t *testing.T) {
 		{
 			name: "unknown import ID",
 			layout: &Layout{
-				GoSDKRoot: "/sdk",
-				Roots:     []string{"foo"},
+				GoSDKRoot: "",
+				Roots:     []string{"example.com/foo"},
 				Packages: []*packages.Package{
 					{
-						ID:      "foo",
+						ID:      "example.com/foo",
 						Name:    "foo",
-						PkgPath: "foo",
+						PkgPath: "example.com/foo",
 						Imports: map[string]*packages.Package{
-							"bar": {ID: "bar_id_nonexistent"},
+							"example.com/bar": {ID: "bar_id_nonexistent"},
 						},
 					},
 				},
@@ -390,36 +390,36 @@ func TestValidateAndResolve_Errors(t *testing.T) {
 		{
 			name: "mismatched import key",
 			layout: &Layout{
-				GoSDKRoot: "/sdk",
-				Roots:     []string{"foo"},
+				GoSDKRoot: "",
+				Roots:     []string{"example.com/foo"},
 				Packages: []*packages.Package{
 					{
-						ID:      "foo",
+						ID:      "example.com/foo",
 						Name:    "foo",
-						PkgPath: "foo",
+						PkgPath: "example.com/foo",
 						Imports: map[string]*packages.Package{
-							"example.com/missing": {ID: "bar"},
+							"example.com/missing": {ID: "example.com/bar"},
 						},
 					},
 					{
-						ID:      "bar",
+						ID:      "example.com/bar",
 						Name:    "bar",
 						PkgPath: "example.com/bar",
 					},
 				},
 			},
-			wantError: "package \"foo\" imports path \"example.com/missing\" with ID \"bar\", but target package import path is \"example.com/bar\"",
+			wantError: "package \"example.com/foo\" imports path \"example.com/missing\" with ID \"example.com/bar\", but target package import path is \"example.com/bar\"",
 		},
 		{
 			name: "multiple malformed imports sorted lexicographically first",
 			layout: &Layout{
-				GoSDKRoot: "/sdk",
-				Roots:     []string{"foo"},
+				GoSDKRoot: "",
+				Roots:     []string{"example.com/foo"},
 				Packages: []*packages.Package{
 					{
-						ID:      "foo",
+						ID:      "example.com/foo",
 						Name:    "foo",
-						PkgPath: "foo",
+						PkgPath: "example.com/foo",
 						Imports: map[string]*packages.Package{
 							"example.com/z_bad": {ID: "missing_z"},
 							"example.com/a_bad": {ID: "missing_a"},
@@ -427,15 +427,15 @@ func TestValidateAndResolve_Errors(t *testing.T) {
 					},
 				},
 			},
-			wantError: "package \"foo\" imports unknown package ID \"missing_a\"",
+			wantError: "package \"example.com/foo\" imports unknown package ID \"missing_a\"",
 		},
 		{
 			name: "empty source file path",
 			layout: &Layout{
-				GoSDKRoot: "/sdk",
-				Roots:     []string{"foo"},
+				GoSDKRoot: "",
+				Roots:     []string{"example.com/foo"},
 				Packages: []*packages.Package{
-					{ID: "foo", Name: "foo", PkgPath: "foo", GoFiles: []string{""}},
+					{ID: "example.com/foo", Name: "foo", PkgPath: "example.com/foo", GoFiles: []string{""}},
 				},
 			},
 			wantError: "contains empty source file path",
@@ -443,7 +443,7 @@ func TestValidateAndResolve_Errors(t *testing.T) {
 		{
 			name: "missing source file",
 			layout: &Layout{
-				GoSDKRoot: "/sdk",
+				GoSDKRoot: "",
 				Roots:     []string{"example.com/foo"},
 				Packages: []*packages.Package{
 					{ID: "example.com/foo", Name: "foo", PkgPath: "example.com/foo", GoFiles: []string{"foo.go"}},
@@ -454,8 +454,8 @@ func TestValidateAndResolve_Errors(t *testing.T) {
 		{
 			name: "null package entry",
 			layout: &Layout{
-				GoSDKRoot: "/sdk",
-				Roots:     []string{"foo"},
+				GoSDKRoot: "",
+				Roots:     []string{"example.com/foo"},
 				Packages: []*packages.Package{
 					nil,
 				},
@@ -465,7 +465,7 @@ func TestValidateAndResolve_Errors(t *testing.T) {
 		{
 			name: "workspace absolute path rejected",
 			layout: &Layout{
-				GoSDKRoot: "/sdk",
+				GoSDKRoot: "",
 				Roots:     []string{"example.com/foo"},
 				Packages: []*packages.Package{
 					{
@@ -481,7 +481,7 @@ func TestValidateAndResolve_Errors(t *testing.T) {
 		{
 			name: "workspace path traversal escape direct",
 			layout: &Layout{
-				GoSDKRoot: "/sdk",
+				GoSDKRoot: "",
 				Roots:     []string{"example.com/foo"},
 				Packages: []*packages.Package{
 					{
@@ -497,7 +497,7 @@ func TestValidateAndResolve_Errors(t *testing.T) {
 		{
 			name: "workspace path traversal escape via subdir",
 			layout: &Layout{
-				GoSDKRoot: "/sdk",
+				GoSDKRoot: "",
 				Roots:     []string{"example.com/foo"},
 				Packages: []*packages.Package{
 					{
@@ -662,7 +662,7 @@ func TestRunDriver_Integration(t *testing.T) {
 	defer os.Remove(tmpFile.Name())
 
 	layoutData := &Layout{
-		GoSDKRoot: "/sdk",
+		GoSDKRoot: "",
 		Roots:     []string{"example.com/foo"},
 		Packages: []*packages.Package{
 			{
@@ -719,7 +719,7 @@ func TestRunDriver_NullPackageEntry(t *testing.T) {
 	defer os.Remove(tmpFile.Name())
 
 	// Write a layout with a null package entry
-	layoutData := `{"go_sdk_root": "/sdk", "roots": ["foo"], "packages": [null]}`
+	layoutData := `{"go_sdk_root": "", "roots": ["foo"], "packages": [null]}`
 	if _, err := tmpFile.WriteString(layoutData); err != nil {
 		t.Fatalf("failed to write to temp file: %v", err)
 	}
@@ -967,4 +967,201 @@ func TestValidateAndResolve_LayoutWinsOnCollision(t *testing.T) {
 	if len(fmtPkg.GoFiles) != 1 || filepath.Base(fmtPkg.GoFiles[0]) != "fmt.go" {
 		t.Errorf("expected layout-provided fmt package to win, got GoFiles=%v", fmtPkg.GoFiles)
 	}
+}
+
+func TestDiscoverStdlib_FailureClasses(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	t.Run("absent", func(t *testing.T) {
+		nonexistent := filepath.Join(tmpDir, "does-not-exist")
+		_, err := discoverStdlib(nonexistent)
+		if err == nil {
+			t.Error("expected error for nonexistent SDK root, got nil")
+		}
+		if !strings.Contains(err.Error(), "accessing SDK root") {
+			t.Errorf("expected error message containing 'accessing SDK root', got %v", err)
+		}
+	})
+
+	t.Run("non-directory", func(t *testing.T) {
+		filePath := filepath.Join(tmpDir, "regular-file.go")
+		if err := os.WriteFile(filePath, []byte("package main"), 0644); err != nil {
+			t.Fatalf("failed to write file: %v", err)
+		}
+		_, err := discoverStdlib(filePath)
+		if err == nil {
+			t.Error("expected error for non-directory SDK root, got nil")
+		}
+		if !strings.Contains(err.Error(), "is not a directory") {
+			t.Errorf("expected error message containing 'is not a directory', got %v", err)
+		}
+	})
+
+	t.Run("empty-or-invalid", func(t *testing.T) {
+		emptyDir := filepath.Join(tmpDir, "empty-dir")
+		if err := os.MkdirAll(emptyDir, 0755); err != nil {
+			t.Fatalf("failed to create dir: %v", err)
+		}
+		_, err := discoverStdlib(emptyDir)
+		if err == nil {
+			t.Error("expected error for empty SDK root, got nil")
+		}
+		if !strings.Contains(err.Error(), "structurally invalid") && !strings.Contains(err.Error(), "no standard-library packages discovered") {
+			t.Errorf("expected error message containing 'structurally invalid' or 'no standard-library packages discovered', got %v", err)
+		}
+	})
+
+	t.Run("unreadable", func(t *testing.T) {
+		if runtime.GOOS == "windows" {
+			t.Skip("skip permissions check on Windows")
+		}
+		unreadableDir := filepath.Join(tmpDir, "unreadable-dir")
+		if err := os.MkdirAll(unreadableDir, 0755); err != nil {
+			t.Fatalf("failed to create dir: %v", err)
+		}
+		defer os.Chmod(unreadableDir, 0755)
+		if err := os.Chmod(unreadableDir, 0000); err != nil {
+			t.Fatalf("failed to chmod dir: %v", err)
+		}
+		_, err := discoverStdlib(unreadableDir)
+		if err == nil {
+			t.Error("expected error for unreadable directory, got nil")
+		}
+	})
+}
+
+func TestDriverQueries_EndToEnd(t *testing.T) {
+	tmpDir := t.TempDir()
+	sdkSrc := filepath.Join(tmpDir, "src")
+
+	// Create a valid mock SDK structure with dependencies:
+	// errors/errors.go
+	// io/io.go
+	// os/file.go (imports errors and io, and uses build constraint selection)
+	// os/file_unix.go (unix build constraints)
+	// os/file_windows.go (windows build constraints)
+	files := map[string]string{
+		"src/errors/errors.go":   "package errors",
+		"src/io/io.go":           "package io",
+		"src/os/file.go":         "package os\nimport \"errors\"\nimport \"io\"",
+		"src/os/file_unix.go":    "//go:build !windows\npackage os",
+		"src/os/file_windows.go": "//go:build windows\npackage os",
+	}
+
+	for rel, content := range files {
+		path := filepath.Join(tmpDir, rel)
+		if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+			t.Fatalf("failed to create directory: %v", err)
+		}
+		if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+			t.Fatalf("failed to write file: %v", err)
+		}
+	}
+
+	// Create a minimal layout
+	l := &Layout{
+		GoSDKRoot: sdkSrc,
+		Roots:     []string{"os"},
+		Packages:  []*packages.Package{}, // empty, completely rely on discovery!
+	}
+
+	err := ValidateAndResolve(l, "")
+	if err != nil {
+		t.Fatalf("ValidateAndResolve failed: %v", err)
+	}
+
+	// Verify standard packages are discovered
+	found := make(map[string]*packages.Package)
+	for _, p := range l.Packages {
+		found[p.ID] = p
+	}
+
+	// 1. Assert packages found (including unsafe, errors, io, os)
+	for _, id := range []string{"unsafe", "errors", "io", "os"} {
+		if _, ok := found[id]; !ok {
+			t.Errorf("expected package %q to be discovered", id)
+		}
+	}
+
+	// 2. Assert CompiledGoFiles exists and equals GoFiles
+	osPkg, ok := found["os"]
+	if !ok {
+		t.Fatal("os package not found")
+	}
+	if len(osPkg.CompiledGoFiles) == 0 {
+		t.Error("expected CompiledGoFiles to be populated")
+	}
+	if !reflect.DeepEqual(osPkg.CompiledGoFiles, osPkg.GoFiles) {
+		t.Errorf("expected CompiledGoFiles to equal GoFiles, got %v vs %v", osPkg.CompiledGoFiles, osPkg.GoFiles)
+	}
+
+	// 3. Assert Unix vs. Windows filtering
+	hasUnix := false
+	hasWindows := false
+	for _, f := range osPkg.GoFiles {
+		base := filepath.Base(f)
+		if base == "file_unix.go" {
+			hasUnix = true
+		} else if base == "file_windows.go" {
+			hasWindows = true
+		}
+	}
+	if runtime.GOOS == "windows" {
+		if !hasWindows || hasUnix {
+			t.Errorf("windows build constraint filtering failed, files: %v", osPkg.GoFiles)
+		}
+	} else {
+		if !hasUnix || hasWindows {
+			t.Errorf("non-windows build constraint filtering failed, files: %v", osPkg.GoFiles)
+		}
+	}
+
+	// 4. Assert direct/transitive standard-library edges (os imports errors and io)
+	if osPkg.Imports == nil {
+		t.Fatal("expected Imports map in os package, got nil")
+	}
+	if _, ok := osPkg.Imports["errors"]; !ok {
+		t.Error("expected os to import errors")
+	}
+	if _, ok := osPkg.Imports["io"]; !ok {
+		t.Error("expected os to import io")
+	}
+
+	// 5. Test Driver Queries exact-import and "std" meta-pattern
+	t.Run("exact-query-and-std", func(t *testing.T) {
+		req := &packages.DriverRequest{}
+
+		// Query exact
+		resp1, err := HandleDriverRequest(l, req, []string{"os"})
+		if err != nil {
+			t.Fatalf("HandleDriverRequest for exact 'os' failed: %v", err)
+		}
+		if !reflect.DeepEqual(resp1.Roots, []string{"os"}) {
+			t.Errorf("unexpected roots for exact query: %v", resp1.Roots)
+		}
+
+		// Query std
+		resp2, err := HandleDriverRequest(l, req, []string{"std"})
+		if err != nil {
+			t.Fatalf("HandleDriverRequest for 'std' failed: %v", err)
+		}
+		// Expect roots to be sorted: errors, io, os, unsafe
+		expectedRoots := []string{"errors", "io", "os", "unsafe"}
+		if !reflect.DeepEqual(resp2.Roots, expectedRoots) {
+			t.Errorf("unexpected roots for std query: %v", resp2.Roots)
+		}
+
+		// Check byte-stability of repeated JSON serialization
+		data1, err := json.Marshal(resp2)
+		if err != nil {
+			t.Fatalf("failed to marshal response: %v", err)
+		}
+		data2, err := json.Marshal(resp2)
+		if err != nil {
+			t.Fatalf("failed to marshal response: %v", err)
+		}
+		if !bytes.Equal(data1, data2) {
+			t.Error("JSON serialization of response is not byte-stable")
+		}
+	})
 }

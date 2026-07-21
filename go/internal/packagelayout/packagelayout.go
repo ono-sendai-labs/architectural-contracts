@@ -145,6 +145,10 @@ func discoverStdlib(sdkRoot string) ([]*packages.Package, error) {
 		return nil, err
 	}
 
+	if len(pkgs) <= 1 {
+		return nil, fmt.Errorf("invalid SDK root %q: structurally invalid (no standard-library packages discovered)", sdkRoot)
+	}
+
 	sort.Slice(pkgs, func(i, j int) bool {
 		return pkgs[i].ID < pkgs[j].ID
 	})
