@@ -6,7 +6,7 @@ This is a brownfield change: the earliest steps touch arcc's Go core (the `--pac
 
 ## Progress Checklist
 
-- [ ] **Step 1:** arcc `--package-layout` hermetic loading mode (self-exec `GOPACKAGESDRIVER`)
+- [x] **Step 1:** arcc `--package-layout` hermetic loading mode (self-exec `GOPACKAGESDRIVER`)
 - [ ] **Step 2:** Repo bzlmod-ification + arcc built from source under Bazel (`@rules_arcc//:arcc`)
 - [ ] **Step 3:** `bazel_rules/` substrate — authority constants, providers, `_arcc_deps` aspect
 - [ ] **Step 4:** `go_component` macro + `_go_component` rule — manifest & layout generation
