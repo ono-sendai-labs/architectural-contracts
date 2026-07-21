@@ -108,7 +108,8 @@ bazel_rules/
     defs.bzl          # public: go_component (symbolic macro); re-exports authority constants for one-load ergonomics
     providers.bzl     # public: ArccPackageInfo (Go-specific: importpath, srcs, deps)
     private/
-      component.bzl   # _go_component rule + _arcc_deps aspect
+      aspect.bzl      # _arcc_deps aspect + the by-importpath closure merge
+      component.bzl   # _go_component rule
       check.bzl       # _arcc_check_test rule
     tests/            # Starlark unit tests (§8)
 ```
