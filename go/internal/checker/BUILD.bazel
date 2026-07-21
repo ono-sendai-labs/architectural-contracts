@@ -15,6 +15,7 @@ go_library(
 
 go_test(
     name = "checker_test",
+    size = "small",
     srcs = ["checker_test.go"],
     deps = [
         ":checker",

@@ -9,6 +9,7 @@ go_library(
 
 go_test(
     name = "capanalyzer_test",
+    size = "small",
     srcs = ["capanalyzer_test.go"],
     deps = [":capanalyzer"],
 )

@@ -17,6 +17,7 @@ go_library(
 
 go_test(
     name = "manifest_test",
+    size = "small",
     srcs = ["manifest_test.go"],
     # keep: TestSelfHostingManifests walks the checked-in source tree by
     # relative path (sibling manifests, their interface files and imports), so

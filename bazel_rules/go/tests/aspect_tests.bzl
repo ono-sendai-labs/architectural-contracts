@@ -22,6 +22,7 @@ def _closure_is_the_whole_graph_minus_stdlib_test(name):
         name = name,
         target = _PROBE,
         impl = _closure_is_the_whole_graph_minus_stdlib_impl,
+        attr_values = {"size": "small"},
     )
 
 def _closure_is_the_whole_graph_minus_stdlib_impl(env, target):
@@ -41,6 +42,7 @@ def _edges_are_direct_importpaths_test(name):
         name = name,
         target = _PROBE,
         impl = _edges_are_direct_importpaths_impl,
+        attr_values = {"size": "small"},
     )
 
 def _edges_are_direct_importpaths_impl(env, target):
@@ -68,6 +70,7 @@ def _embedded_srcs_merge_into_the_embedder_test(name):
         name = name,
         target = _PROBE,
         impl = _embedded_srcs_merge_into_the_embedder_impl,
+        attr_values = {"size": "small"},
     )
 
 def _embedded_srcs_merge_into_the_embedder_impl(env, target):
@@ -89,6 +92,7 @@ def _embed_only_dependency_is_reached_test(name):
         name = name,
         target = _PROBE,
         impl = _embed_only_dependency_is_reached_impl,
+        attr_values = {"size": "small"},
     )
 
 def _embed_only_dependency_is_reached_impl(env, target):
@@ -105,6 +109,7 @@ def _no_cgo_in_a_pure_go_closure_test(name):
         name = name,
         target = _PROBE,
         impl = _no_cgo_in_a_pure_go_closure_impl,
+        attr_values = {"size": "small"},
     )
 
 def _no_cgo_in_a_pure_go_closure_impl(env, target):

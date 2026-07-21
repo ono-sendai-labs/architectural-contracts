@@ -61,6 +61,9 @@ def _go_component_impl(name, visibility, **kwargs):
     arcc_check_test(
         name = name + ".check",
         component = ":" + name,
+        # The check runs in a few seconds; "small" keeps Bazel from warning that
+        # the default "medium" size overshoots its runtime (design §4.2).
+        size = "small",
         visibility = visibility,
         **check_kwargs
     )

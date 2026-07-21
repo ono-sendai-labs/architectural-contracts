@@ -18,6 +18,7 @@ go_library(
 
 go_test(
     name = "app_test",
+    size = "small",
     srcs = ["app_test.go"],
     # keep: these tests drive the colocated (non-hermetic) loading path, which
     # shells out to `go list` and so needs a Go toolchain on PATH — the very

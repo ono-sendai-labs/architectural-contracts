@@ -20,6 +20,7 @@ go_binary(
 
 go_test(
     name = "arcc_test",
+    size = "small",
     srcs = ["main_test.go"],
     embed = [":arcc_lib"],
 )

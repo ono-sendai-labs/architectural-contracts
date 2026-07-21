@@ -11,6 +11,7 @@ go_library(
 
 go_test(
     name = "toprow_test",
+    size = "small",
     srcs = ["toprow_test.go"],
     embed = [":toprow"],
 )

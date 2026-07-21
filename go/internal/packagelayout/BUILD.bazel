@@ -10,6 +10,7 @@ go_library(
 
 go_test(
     name = "packagelayout_test",
+    size = "small",
     srcs = ["packagelayout_test.go"],
     embed = [":packagelayout"],
     deps = ["@org_golang_x_tools//go/packages"],

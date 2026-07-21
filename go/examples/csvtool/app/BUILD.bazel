@@ -36,8 +36,14 @@ exports_files(["component.textproto"])
 # normalizes away what differs by construction (the `_component` target-name
 # suffix, absorbed-dependency `reason` text, and the path frame). It skips under
 # plain `go test`, which passes it no manifests.
+# This test is hand-maintained (its args/data are the point) and its name is
+# not gazelle's convention for this package, so gazelle would otherwise generate
+# a duplicate `app_test` for the same source. Exclude the file from gazelle;
+# deps below are maintained by hand.
+# gazelle:exclude manifest_parity_test.go
 go_test(
     name = "manifest_parity_test",
+    size = "small",
     srcs = ["manifest_parity_test.go"],
     args = [
         "$(rootpaths //go/examples/csvtool/toprow:toprow_component)",

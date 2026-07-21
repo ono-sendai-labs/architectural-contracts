@@ -5,6 +5,7 @@ load("@rules_shell//shell:sh_test.bzl", "sh_test")
 sh_test(
     name = "arcc_binary_test",
     srcs = ["arcc_binary_test.sh"],
+    size = "small",
     args = ["$(rootpath //:arcc)"],
     data = ["//:arcc"],
 )

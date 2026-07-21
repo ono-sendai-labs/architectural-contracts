@@ -30,6 +30,7 @@ go_component(
 # depend on it and get the same GoInfo/GoArchive.
 go_test(
     name = "component_forwards_go_providers_test",
+    size = "small",
     srcs = ["forwarding_test.go"],
     deps = [":api_component"],
 )

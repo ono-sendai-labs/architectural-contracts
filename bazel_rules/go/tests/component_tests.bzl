@@ -17,6 +17,7 @@ def _membership_classification_test(name):
         name = name,
         target = _API_COMPONENT,
         impl = _membership_classification_impl,
+        attr_values = {"size": "small"},
     )
 
 def _membership_classification_impl(env, target):
@@ -40,6 +41,7 @@ def _generated_files_test(name):
         name = name,
         target = _API_COMPONENT,
         impl = _generated_files_impl,
+        attr_values = {"size": "small"},
     )
 
 def _generated_files_impl(env, target):
@@ -60,6 +62,7 @@ def _transitive_files_test(name):
         name = name,
         target = _API_COMPONENT,
         impl = _transitive_files_impl,
+        attr_values = {"size": "small"},
     )
 
 def _transitive_files_impl(env, target):
@@ -91,6 +94,7 @@ def _absorb_covered_conflict_fails_test(name):
         name = name,
         target = "//bazel_rules/go/tests/testdata/conflict:conflict_component",
         impl = _absorb_covered_conflict_fails_impl,
+        attr_values = {"size": "small"},
         expect_failure = True,
     )
 
@@ -104,6 +108,7 @@ def _nested_component_root_fails_test(name):
         name = name,
         target = "//bazel_rules/go/tests/testdata/nested:nested_component",
         impl = _nested_component_root_fails_impl,
+        attr_values = {"size": "small"},
         expect_failure = True,
     )
 
