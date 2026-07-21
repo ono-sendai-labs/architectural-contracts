@@ -544,42 +544,62 @@ func ResolveDependencyInterface(
 	// 5. Load all packages below the dependency root
 	var loadDir string
 	var patterns []string
+	var depPkgs []*packages.Package
+
 	if packagelayout.IsLayoutMode() {
 		loadDir = packagelayout.GetActiveWorkspaceDir()
 		// Try to find the dependency's package-layout JSON
 		depLayoutPath := strings.TrimSuffix(manifestPath, ".component.textproto") + ".package-layout.json"
-		f, err := os.Open(depLayoutPath)
-		if err != nil {
+		f, errOpen := os.Open(depLayoutPath)
+		if errOpen != nil {
 			// fallback/alternative name check
 			depLayoutPath2 := filepath.Join(depRoot, "package-layout.json")
-			f, err = os.Open(depLayoutPath2)
-			if err != nil {
-				return facts.DependencyInterface{}, fmt.Errorf("failed to open dependency package-layout: %w", err)
+			f, errOpen = os.Open(depLayoutPath2)
+			if errOpen != nil {
+				return facts.DependencyInterface{}, fmt.Errorf("failed to open dependency package-layout: %w", errOpen)
 			}
+			depLayoutPath = depLayoutPath2
 		}
-		defer f.Close()
 
-		depLayout, err := packagelayout.Parse(f)
-		if err != nil {
-			return facts.DependencyInterface{}, fmt.Errorf("failed to parse dependency package-layout: %w", err)
+		depLayout, errParse := packagelayout.Parse(f)
+		f.Close()
+		if errParse != nil {
+			return facts.DependencyInterface{}, fmt.Errorf("failed to parse dependency package-layout: %w", errParse)
 		}
 		patterns = depLayout.Roots
+
+		cfg := &packages.Config{
+			Mode: packages.NeedName | packages.NeedFiles | packages.NeedCompiledGoFiles |
+				packages.NeedImports | packages.NeedDeps | packages.NeedSyntax |
+				packages.NeedTypes | packages.NeedTypesInfo | packages.NeedModule,
+			Dir: loadDir,
+		}
+
+		err = packagelayout.WithTemporaryLayout(depLayoutPath, func() error {
+			var loadErr error
+			depPkgs, loadErr = packages.Load(cfg, patterns...)
+			return loadErr
+		})
+		if err != nil {
+			return facts.DependencyInterface{}, fmt.Errorf("failed to load dependency packages in layout mode: %w", err)
+		}
 	} else {
 		loadDir = cleanDepRoot
 		patterns = []string{"./..."}
+
+		cfg := &packages.Config{
+			Mode: packages.NeedName | packages.NeedFiles | packages.NeedCompiledGoFiles |
+				packages.NeedImports | packages.NeedDeps | packages.NeedSyntax |
+				packages.NeedTypes | packages.NeedTypesInfo | packages.NeedModule,
+			Dir: loadDir,
+		}
+
+		depPkgs, err = packages.Load(cfg, patterns...)
+		if err != nil {
+			return facts.DependencyInterface{}, fmt.Errorf("failed to load dependency packages: %w", err)
+		}
 	}
 
-	cfg := &packages.Config{
-		Mode: packages.NeedName | packages.NeedFiles | packages.NeedCompiledGoFiles |
-			packages.NeedImports | packages.NeedDeps | packages.NeedSyntax |
-			packages.NeedTypes | packages.NeedTypesInfo | packages.NeedModule,
-		Dir: loadDir,
-	}
-
-	depPkgs, err := packages.Load(cfg, patterns...)
-	if err != nil {
-		return facts.DependencyInterface{}, fmt.Errorf("failed to load dependency packages: %w", err)
-	}
 	if len(depPkgs) == 0 {
 		return facts.DependencyInterface{}, fmt.Errorf("no packages found under dependency root %q", cleanDepRoot)
 	}

@@ -356,29 +356,97 @@ func RunDriver(layoutPath string, workspaceDir string, patterns []string, stdin 
 
 var (
 	envMu              sync.Mutex
+	activeMu           sync.RWMutex
 	activeLayout       *Layout
 	activeLayoutPath   string
 	activeWorkspaceDir string
+	// CheckMu is a global mutex to serialize all concurrent check executions
+	// in the same process, protecting against environment and global state races.
+	CheckMu sync.Mutex
 )
 
 // IsLayoutMode reports whether package-layout mode is currently active.
 func IsLayoutMode() bool {
+	activeMu.RLock()
+	defer activeMu.RUnlock()
 	return activeLayout != nil
 }
 
 // GetActiveLayout returns the active package layout, or nil if not in layout mode.
 func GetActiveLayout() *Layout {
+	activeMu.RLock()
+	defer activeMu.RUnlock()
 	return activeLayout
 }
 
 // GetActiveLayoutPath returns the path to the active package layout file.
 func GetActiveLayoutPath() string {
+	activeMu.RLock()
+	defer activeMu.RUnlock()
 	return activeLayoutPath
 }
 
 // GetActiveWorkspaceDir returns the active workspace directory.
 func GetActiveWorkspaceDir() string {
+	activeMu.RLock()
+	defer activeMu.RUnlock()
 	return activeWorkspaceDir
+}
+
+// WithTemporaryLayout temporarily overrides the active layout and environment variables
+// for dependency resolution, and restores them afterwards.
+func WithTemporaryLayout(layoutPath string, fn func() error) error {
+	activeMu.Lock()
+	if activeLayout == nil {
+		activeMu.Unlock()
+		return errors.New("not in layout mode")
+	}
+
+	f, err := os.Open(layoutPath)
+	if err != nil {
+		activeMu.Unlock()
+		return fmt.Errorf("opening dependency layout file: %w", err)
+	}
+	defer f.Close()
+
+	layout, err := Parse(f)
+	if err != nil {
+		activeMu.Unlock()
+		return fmt.Errorf("parsing dependency layout file: %w", err)
+	}
+
+	if err := ValidateAndResolve(layout, activeWorkspaceDir); err != nil {
+		activeMu.Unlock()
+		return fmt.Errorf("validating dependency layout file: %w", err)
+	}
+
+	// Capture original layout state and env
+	origLayoutPath := activeLayoutPath
+	origLayout := activeLayout
+	origEnvLayout, hasEnvLayout := os.LookupEnv("ARCC_PACKAGE_LAYOUT")
+
+	// Set temporary layout
+	activeLayoutPath = layoutPath
+	activeLayout = layout
+	os.Setenv("ARCC_PACKAGE_LAYOUT", layoutPath)
+
+	activeMu.Unlock()
+
+	// Run callback
+	err = fn()
+
+	activeMu.Lock()
+	// Restore original layout state and env
+	activeLayoutPath = origLayoutPath
+	activeLayout = origLayout
+	if !hasEnvLayout {
+		os.Unsetenv("ARCC_PACKAGE_LAYOUT")
+	} else {
+		os.Setenv("ARCC_PACKAGE_LAYOUT", origEnvLayout)
+	}
+	activeMu.Unlock()
+
+	return err
 }
 
 // WithDriverEnv configures GOPACKAGESDRIVER to point to the current executable
@@ -403,18 +471,20 @@ func WithDriverEnv(layoutPath, workspaceDir string, fn func() error) error {
 		return fmt.Errorf("validating layout file: %w", err)
 	}
 
-	// Capture original environment
-	origDriver := os.Getenv("GOPACKAGESDRIVER")
-	origLayout := os.Getenv("ARCC_PACKAGE_LAYOUT")
-	origWorkspace := os.Getenv("ARCC_WORKSPACE_DIR")
-	origDriverMode := os.Getenv("ARCC_DRIVER_MODE")
+	// Capture original environment presence and values
+	origDriver, hasDriver := os.LookupEnv("GOPACKAGESDRIVER")
+	origLayout, hasLayout := os.LookupEnv("ARCC_PACKAGE_LAYOUT")
+	origWorkspace, hasWorkspace := os.LookupEnv("ARCC_WORKSPACE_DIR")
+	origDriverMode, hasDriverMode := os.LookupEnv("ARCC_DRIVER_MODE")
 
+	activeMu.Lock()
 	origActiveLayout := activeLayout
 	origActiveLayoutPath := activeLayoutPath
 	origActiveWorkspaceDir := activeWorkspaceDir
 
 	executable, err := os.Executable()
 	if err != nil {
+		activeMu.Unlock()
 		return fmt.Errorf("getting executable path: %w", err)
 	}
 
@@ -427,30 +497,32 @@ func WithDriverEnv(layoutPath, workspaceDir string, fn func() error) error {
 	activeLayout = layout
 	activeLayoutPath = layoutPath
 	activeWorkspaceDir = workspaceDir
+	activeMu.Unlock()
 
 	// Run the callback
 	err = fn()
 
+	activeMu.Lock()
 	// Restore original environment and variables
-	if origDriver == "" {
+	if !hasDriver {
 		os.Unsetenv("GOPACKAGESDRIVER")
 	} else {
 		os.Setenv("GOPACKAGESDRIVER", origDriver)
 	}
 
-	if origLayout == "" {
+	if !hasLayout {
 		os.Unsetenv("ARCC_PACKAGE_LAYOUT")
 	} else {
 		os.Setenv("ARCC_PACKAGE_LAYOUT", origLayout)
 	}
 
-	if origWorkspace == "" {
+	if !hasWorkspace {
 		os.Unsetenv("ARCC_WORKSPACE_DIR")
 	} else {
 		os.Setenv("ARCC_WORKSPACE_DIR", origWorkspace)
 	}
 
-	if origDriverMode == "" {
+	if !hasDriverMode {
 		os.Unsetenv("ARCC_DRIVER_MODE")
 	} else {
 		os.Setenv("ARCC_DRIVER_MODE", origDriverMode)
@@ -459,6 +531,7 @@ func WithDriverEnv(layoutPath, workspaceDir string, fn func() error) error {
 	activeLayout = origActiveLayout
 	activeLayoutPath = origActiveLayoutPath
 	activeWorkspaceDir = origActiveWorkspaceDir
+	activeMu.Unlock()
 
 	return err
 }

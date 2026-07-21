@@ -38,6 +38,9 @@ type Runner struct {
 
 // Run executes the application logic based on the provided CLI arguments.
 func (r *Runner) Run(args []string, stdout, stderr io.Writer) int {
+	packagelayout.CheckMu.Lock()
+	defer packagelayout.CheckMu.Unlock()
+
 	var packageLayoutPath string
 	var formatJSON bool
 	var cleanArgs []string
