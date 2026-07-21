@@ -102,6 +102,63 @@ The Bazel build is additive: `just`, `go build` and `go test` are unaffected,
 and the generated `BUILD.bazel` files sit alongside the Go sources. Regenerate
 them with `bazel run //:gazelle` after adding or moving packages.
 
+### Declaring and checking components with `go_component`
+
+`rules_arcc` exposes a `go_component` rule that generates a component's manifest
+from its Go build graph and checks it hermetically — no `component.textproto`
+to hand-write and keep in sync, and no `go.mod` or Go toolchain needed at check
+time. Load it, and the authority constants, from one path:
+
+```python
+load("@rules_arcc//bazel_rules/go:defs.bzl", "go_component", "FILES")
+
+go_library(
+    name = "csvfile",
+    srcs = ["csvfile.go", "private.go"],
+    importpath = "example.com/csvtool/csvfile",
+    deps = ["//csvtool/internal/parsecsv"],
+)
+
+go_component(
+    name = "csvfile_component",
+    interface = ":csvfile",                       # exactly one go_library — the public surface
+    absorbed_deps = ["//csvtool/internal/parsecsv"],  # implementation details this component owns
+    declared_authority = [FILES],                 # ambient authority it is permitted to use
+    visibility = ["//visibility:public"],
+)
+```
+
+The attributes mirror the manifest schema below:
+
+- **`interface`** — the single `go_library` holding the component's public API. Passing a list is a load-time error.
+- **`component_deps`** — other `go_component` targets this one depends on. Their packages are covered by them, so arcc prunes authority at their interfaces (the `app` example checks authority-free this way).
+- **`absorbed_deps`** — libraries absorbed as implementation details, whose ambient authority this component takes responsibility for. (Use a BUILD comment where a reason is worth noting; the rule records none.)
+- **`declared_authority`** — authority constants from `defs.bzl` (`FILES`, `NETWORK`, …). Empty means the component claims to be authority-free.
+- **`contract`** — optional contract documents; Bazel-only metadata arcc never reads.
+
+`go_component` expands to two targets:
+
+| Target | What it is |
+|---|---|
+| `csvfile_component` | generates `csvfile_component.component.textproto` + `csvfile_component.package-layout.json`, and forwards the interface library's Go providers, so it can be used as a `deps` entry |
+| `csvfile_component.check` | a hermetic test that runs `arcc check` on the generated manifest |
+
+Enforce a component's contract by testing its `.check`:
+
+```bash
+bazel test //csvtool/csvfile:csvfile_component.check   # fails (exit ≠ 0) if the contract is violated
+bazel test //csvtool/...                               # every component's .check at once
+```
+
+Because the check is sandboxed and cacheable, a green `bazel test` means the
+contract holds with no reliance on the host Go toolchain. The authority
+taxonomy is equally available from its language-neutral home,
+`@rules_arcc//bazel_rules:authority.bzl`.
+
+Worked BUILD files live under [`go/examples/csvtool/`](go/examples/csvtool/):
+`toprow` (no authority), `csvfile` (`[FILES]`), and `app` (authority pruned by
+its component dependencies).
+
 ---
 
 ## CLI Reference and Exit Codes

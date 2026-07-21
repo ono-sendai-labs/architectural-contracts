@@ -12,8 +12,8 @@ This is a brownfield change: the earliest steps touch arcc's Go core (the `--pac
 - [x] **Step 4:** `go_component` macro + `_go_component` rule — manifest & layout generation
 - [x] **Step 5a:** arcc-side stdlib resolution in the layout driver (Go)
 - [x] **Step 5b:** `_arcc_check_test` — hermetic check wired end-to-end
-- [ ] **Step 6:** Bazelified csvtool examples + golden manifest comparison
-- [ ] **Step 7:** `just ci` Bazel leg + consumer docs
+- [x] **Step 6:** Bazelified csvtool examples + golden manifest comparison
+- [x] **Step 7:** `just ci` Bazel leg + consumer docs
 
 Core end-to-end functionality arrives in two stages: the **arcc-side** hermetic check is demoable at **Step 1** (checking a fixture layout with no `go.mod`); the **full Bazel** end-to-end (`bazel test //…:component.check`) lands at **Step 5b**.
 
@@ -152,8 +152,8 @@ Steps 1–4 alternated between the two sides of the seam; Step 5 turned out to n
 **Objective.** Fold the Bazel build/test into the project's CI and document consumption (§8.5, §9).
 
 **Guidance.**
-- **Done in Step 5b (pulled forward):** `just ci` runs a guarded `bazel-test` recipe (`bazel build //...` + `bazel test //...`, skipped cleanly when Bazel is absent). Wired in early so a green `just ci` means the Bazel targets are green too — otherwise a Bazel-only regression like Step 5a's `runtime.GOROOT()` test can land undetected. Remaining here: narrow the target patterns once Step 6 lands the example checks, if desired.
-- Consumer docs: load paths (`@rules_arcc//bazel_rules/go:defs.bzl`), the `go_component` API, and the `--@rules_go//go/config:pure` note (§4.1, Appendix A).
+- **CI leg (pulled forward into Step 5b):** `just ci` runs a guarded `bazel-test` recipe (`bazel build //...` + `bazel test //...`, skipped cleanly when Bazel is absent). Wired in early so a green `just ci` means the Bazel targets are green too — otherwise a Bazel-only regression like Step 5a's `runtime.GOROOT()` test can land undetected. Kept as `//...` (broader than the design's `//bazel_rules/... //go/examples/...`) so the gazelle-generated Go tests run under Bazel too; the two example-bearing trees are a subset of it.
+- **Consumer docs (done):** README "Declaring and checking components with `go_component`" — the `@rules_arcc//bazel_rules/go:defs.bzl` load path, the full `go_component` attribute reference, the `name`/`name.check` expansion, and how to enforce a contract with `bazel test`. The `--@rules_go//go/config:pure` note and the module/gazelle setup were already in the README's "Using Bazel" section (Step 2), and `.bazelrc` sets the flag by default.
 
 **Tests.** `just ci` passes both with Bazel present (runs the leg) and absent (skips cleanly); a doc snippet/example is validated by Step 6's example targets.
 
