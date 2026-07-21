@@ -22,6 +22,7 @@ import (
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/capanalyzer"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/facts"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/manifest"
+	"github.com/ono-sendai-labs/architectural-contracts/go/internal/packagelayout"
 	"golang.org/x/tools/go/callgraph/vta"
 	"golang.org/x/tools/go/packages"
 	"golang.org/x/tools/go/ssa"
@@ -36,14 +37,25 @@ var (
 // LoadPackageFacts loads Go package membership, direct-import, and standard-library facts
 // below the supplied component root using go/packages.
 func LoadPackageFacts(componentRoot string) (facts.PackageFacts, error) {
+	var dir string
+	var patterns []string
+
+	if packagelayout.IsLayoutMode() {
+		dir = packagelayout.GetActiveWorkspaceDir()
+		patterns = packagelayout.GetActiveLayout().Roots
+	} else {
+		dir = componentRoot
+		patterns = []string{"./..."}
+	}
+
 	cfg := &packages.Config{
 		Mode: packages.NeedName | packages.NeedFiles | packages.NeedCompiledGoFiles |
 			packages.NeedImports | packages.NeedDeps | packages.NeedSyntax |
 			packages.NeedTypes | packages.NeedTypesInfo | packages.NeedModule,
-		Dir: componentRoot,
+		Dir: dir,
 	}
 
-	pkgs, err := packages.Load(cfg, "./...")
+	pkgs, err := packages.Load(cfg, patterns...)
 	if err != nil {
 		return facts.PackageFacts{}, fmt.Errorf("failed to load packages: %w", err)
 	}
@@ -74,8 +86,22 @@ func LoadPackageFacts(componentRoot string) (facts.PackageFacts, error) {
 		return facts.PackageFacts{}, fmt.Errorf("package load errors:\n%s", strings.Join(sortedErrs, "\n"))
 	}
 
+	compPkgPaths := make(map[string]bool)
+	if packagelayout.IsLayoutMode() {
+		for _, r := range packagelayout.GetActiveLayout().Roots {
+			compPkgPaths[r] = true
+		}
+	} else {
+		for _, p := range pkgs {
+			compPkgPaths[p.PkgPath] = true
+		}
+	}
+
 	var factsPkgs []facts.PackageFact
 	for _, p := range pkgs {
+		if packagelayout.IsLayoutMode() && !compPkgPaths[p.PkgPath] && !compPkgPaths[p.ID] {
+			continue
+		}
 		var imports []string
 		for impPath := range p.Imports {
 			imports = append(imports, impPath)
@@ -84,7 +110,13 @@ func LoadPackageFacts(componentRoot string) (facts.PackageFacts, error) {
 
 		isStd := isStdlibPackage(p)
 
-		exportedSymbols, err := extractSymbols(p, componentRoot)
+		var analysisRoot string
+		if packagelayout.IsLayoutMode() {
+			analysisRoot = packagelayout.GetActiveWorkspaceDir()
+		} else {
+			analysisRoot = componentRoot
+		}
+		exportedSymbols, err := extractSymbols(p, analysisRoot)
 		if err != nil {
 			return facts.PackageFacts{}, err
 		}
@@ -104,8 +136,17 @@ func LoadPackageFacts(componentRoot string) (facts.PackageFacts, error) {
 
 	sourceFiles := make(map[string]bool)
 	for _, p := range pkgs {
+		if packagelayout.IsLayoutMode() && !compPkgPaths[p.PkgPath] && !compPkgPaths[p.ID] {
+			continue
+		}
 		for _, absFile := range p.GoFiles {
-			rel, err := filepath.Rel(componentRoot, absFile)
+			var rel string
+			var err error
+			if packagelayout.IsLayoutMode() {
+				rel, err = filepath.Rel(packagelayout.GetActiveWorkspaceDir(), absFile)
+			} else {
+				rel, err = filepath.Rel(componentRoot, absFile)
+			}
 			if err != nil {
 				continue
 			}
@@ -119,11 +160,6 @@ func LoadPackageFacts(componentRoot string) (facts.PackageFacts, error) {
 
 	allFuncs := ssautil.AllFunctions(prog)
 	cg := vta.CallGraph(allFuncs, nil)
-
-	compPkgPaths := make(map[string]bool)
-	for _, p := range pkgs {
-		compPkgPaths[p.PkgPath] = true
-	}
 
 	type edgeKey struct {
 		caller string
@@ -340,6 +376,11 @@ func ValidateInterfaceFiles(componentRoot string, interfaceFiles []string, loade
 		membershipMu.RUnlock()
 	}
 
+	root := componentRoot
+	if packagelayout.IsLayoutMode() {
+		root = packagelayout.GetActiveWorkspaceDir()
+	}
+
 	for _, f := range interfaceFiles {
 		if filepath.IsAbs(f) {
 			return fmt.Errorf("interface file %q is absolute: all interface_files must be relative", f)
@@ -351,7 +392,7 @@ func ValidateInterfaceFiles(componentRoot string, interfaceFiles []string, loade
 		}
 		cleanedSlash := filepath.ToSlash(cleaned)
 
-		absPath := filepath.Join(componentRoot, cleaned)
+		absPath := filepath.Join(root, cleaned)
 		info, err := os.Stat(absPath)
 		if err != nil {
 			if os.IsNotExist(err) {
@@ -501,14 +542,41 @@ func ResolveDependencyInterface(
 	}
 
 	// 5. Load all packages below the dependency root
+	var loadDir string
+	var patterns []string
+	if packagelayout.IsLayoutMode() {
+		loadDir = packagelayout.GetActiveWorkspaceDir()
+		// Try to find the dependency's package-layout JSON
+		depLayoutPath := strings.TrimSuffix(manifestPath, ".component.textproto") + ".package-layout.json"
+		f, err := os.Open(depLayoutPath)
+		if err != nil {
+			// fallback/alternative name check
+			depLayoutPath2 := filepath.Join(depRoot, "package-layout.json")
+			f, err = os.Open(depLayoutPath2)
+			if err != nil {
+				return facts.DependencyInterface{}, fmt.Errorf("failed to open dependency package-layout: %w", err)
+			}
+		}
+		defer f.Close()
+
+		depLayout, err := packagelayout.Parse(f)
+		if err != nil {
+			return facts.DependencyInterface{}, fmt.Errorf("failed to parse dependency package-layout: %w", err)
+		}
+		patterns = depLayout.Roots
+	} else {
+		loadDir = cleanDepRoot
+		patterns = []string{"./..."}
+	}
+
 	cfg := &packages.Config{
 		Mode: packages.NeedName | packages.NeedFiles | packages.NeedCompiledGoFiles |
 			packages.NeedImports | packages.NeedDeps | packages.NeedSyntax |
 			packages.NeedTypes | packages.NeedTypesInfo | packages.NeedModule,
-		Dir: cleanDepRoot,
+		Dir: loadDir,
 	}
 
-	depPkgs, err := packages.Load(cfg, "./...")
+	depPkgs, err := packages.Load(cfg, patterns...)
 	if err != nil {
 		return facts.DependencyInterface{}, fmt.Errorf("failed to load dependency packages: %w", err)
 	}
@@ -534,7 +602,13 @@ func ResolveDependencyInterface(
 	for _, p := range depPkgs {
 		pkgPaths = append(pkgPaths, p.PkgPath)
 		for _, absFile := range p.GoFiles {
-			rel, err := filepath.Rel(cleanDepRoot, absFile)
+			var rel string
+			var err error
+			if packagelayout.IsLayoutMode() {
+				rel, err = filepath.Rel(packagelayout.GetActiveWorkspaceDir(), absFile)
+			} else {
+				rel, err = filepath.Rel(cleanDepRoot, absFile)
+			}
 			if err != nil {
 				continue
 			}
@@ -554,7 +628,13 @@ func ResolveDependencyInterface(
 
 		isStd := isStdlibPackage(p)
 
-		exportedSymbols, err := extractSymbols(p, cleanDepRoot)
+		var extractRoot string
+		if packagelayout.IsLayoutMode() {
+			extractRoot = packagelayout.GetActiveWorkspaceDir()
+		} else {
+			extractRoot = cleanDepRoot
+		}
+		exportedSymbols, err := extractSymbols(p, extractRoot)
 		if err != nil {
 			return facts.DependencyInterface{}, err
 		}
@@ -605,7 +685,13 @@ func ResolveDependencyInterface(
 			if absPath == "" {
 				continue
 			}
-			relPath, err := filepath.Rel(cleanDepRoot, absPath)
+			var relPath string
+			var err error
+			if packagelayout.IsLayoutMode() {
+				relPath, err = filepath.Rel(packagelayout.GetActiveWorkspaceDir(), absPath)
+			} else {
+				relPath, err = filepath.Rel(cleanDepRoot, absPath)
+			}
 			if err != nil {
 				continue
 			}

@@ -21,6 +21,7 @@ import (
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/facts"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/goanalysis"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/manifest"
+	"github.com/ono-sendai-labs/architectural-contracts/go/internal/packagelayout"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/report"
 )
 
@@ -37,11 +38,14 @@ type Runner struct {
 
 // Run executes the application logic based on the provided CLI arguments.
 func (r *Runner) Run(args []string, stdout, stderr io.Writer) int {
+	var packageLayoutPath string
 	var formatJSON bool
 	var cleanArgs []string
 
 	for _, arg := range args {
-		if arg == "--format=json" {
+		if strings.HasPrefix(arg, "--package-layout=") {
+			packageLayoutPath = strings.TrimPrefix(arg, "--package-layout=")
+		} else if arg == "--format=json" {
 			formatJSON = true
 		} else if strings.HasPrefix(arg, "-") && arg != "--version" && arg != "--help" && arg != "-h" {
 			fmt.Fprintf(stderr, "unknown option: %s\n", arg)
@@ -74,6 +78,34 @@ func (r *Runner) Run(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 
+	if packageLayoutPath != "" {
+		absLayoutPath, err := filepath.Abs(packageLayoutPath)
+		if err != nil {
+			fmt.Fprintf(stderr, "error: failed to resolve absolute path of package layout: %v\n", err)
+			return 2
+		}
+		workspaceDir, err := os.Getwd()
+		if err != nil {
+			fmt.Fprintf(stderr, "error: failed to get current working directory: %v\n", err)
+			return 2
+		}
+
+		var exitCode int
+		err = packagelayout.WithDriverEnv(absLayoutPath, workspaceDir, func() error {
+			exitCode = r.runCheck(cleanArgs, formatJSON, stdout, stderr)
+			return nil
+		})
+		if err != nil {
+			fmt.Fprintf(stderr, "error: package-layout loading failed: %v\n", err)
+			return 2
+		}
+		return exitCode
+	}
+
+	return r.runCheck(cleanArgs, formatJSON, stdout, stderr)
+}
+
+func (r *Runner) runCheck(cleanArgs []string, formatJSON bool, stdout, stderr io.Writer) int {
 	manifestPath := cleanArgs[1]
 
 	// 1. Open and parse manifest

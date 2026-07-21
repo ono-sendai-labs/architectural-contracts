@@ -12,6 +12,7 @@ import (
 	"runtime"
 	"sort"
 	"strings"
+	"sync"
 
 	"golang.org/x/tools/go/packages"
 )
@@ -351,4 +352,126 @@ func RunDriver(layoutPath string, workspaceDir string, patterns []string, stdin 
 	}
 
 	return nil
+}
+
+var (
+	envMu              sync.Mutex
+	activeLayout       *Layout
+	activeLayoutPath   string
+	activeWorkspaceDir string
+)
+
+// IsLayoutMode reports whether package-layout mode is currently active.
+func IsLayoutMode() bool {
+	return activeLayout != nil
+}
+
+// GetActiveLayout returns the active package layout, or nil if not in layout mode.
+func GetActiveLayout() *Layout {
+	return activeLayout
+}
+
+// GetActiveLayoutPath returns the path to the active package layout file.
+func GetActiveLayoutPath() string {
+	return activeLayoutPath
+}
+
+// GetActiveWorkspaceDir returns the active workspace directory.
+func GetActiveWorkspaceDir() string {
+	return activeWorkspaceDir
+}
+
+// WithDriverEnv configures GOPACKAGESDRIVER to point to the current executable
+// and loads the layout file, caching it and making it available in layout mode.
+// It restores the original environment and variables when fn returns.
+func WithDriverEnv(layoutPath, workspaceDir string, fn func() error) error {
+	envMu.Lock()
+	defer envMu.Unlock()
+
+	f, err := os.Open(layoutPath)
+	if err != nil {
+		return fmt.Errorf("opening layout file: %w", err)
+	}
+	defer f.Close()
+
+	layout, err := Parse(f)
+	if err != nil {
+		return fmt.Errorf("parsing layout file: %w", err)
+	}
+
+	if err := ValidateAndResolve(layout, workspaceDir); err != nil {
+		return fmt.Errorf("validating layout file: %w", err)
+	}
+
+	// Capture original environment
+	origDriver := os.Getenv("GOPACKAGESDRIVER")
+	origLayout := os.Getenv("ARCC_PACKAGE_LAYOUT")
+	origWorkspace := os.Getenv("ARCC_WORKSPACE_DIR")
+	origDriverMode := os.Getenv("ARCC_DRIVER_MODE")
+
+	origActiveLayout := activeLayout
+	origActiveLayoutPath := activeLayoutPath
+	origActiveWorkspaceDir := activeWorkspaceDir
+
+	executable, err := os.Executable()
+	if err != nil {
+		return fmt.Errorf("getting executable path: %w", err)
+	}
+
+	// Set environment variables
+	os.Setenv("GOPACKAGESDRIVER", executable)
+	os.Setenv("ARCC_PACKAGE_LAYOUT", layoutPath)
+	os.Setenv("ARCC_WORKSPACE_DIR", workspaceDir)
+	os.Setenv("ARCC_DRIVER_MODE", "1")
+
+	activeLayout = layout
+	activeLayoutPath = layoutPath
+	activeWorkspaceDir = workspaceDir
+
+	// Run the callback
+	err = fn()
+
+	// Restore original environment and variables
+	if origDriver == "" {
+		os.Unsetenv("GOPACKAGESDRIVER")
+	} else {
+		os.Setenv("GOPACKAGESDRIVER", origDriver)
+	}
+
+	if origLayout == "" {
+		os.Unsetenv("ARCC_PACKAGE_LAYOUT")
+	} else {
+		os.Setenv("ARCC_PACKAGE_LAYOUT", origLayout)
+	}
+
+	if origWorkspace == "" {
+		os.Unsetenv("ARCC_WORKSPACE_DIR")
+	} else {
+		os.Setenv("ARCC_WORKSPACE_DIR", origWorkspace)
+	}
+
+	if origDriverMode == "" {
+		os.Unsetenv("ARCC_DRIVER_MODE")
+	} else {
+		os.Setenv("ARCC_DRIVER_MODE", origDriverMode)
+	}
+
+	activeLayout = origActiveLayout
+	activeLayoutPath = origActiveLayoutPath
+	activeWorkspaceDir = origActiveWorkspaceDir
+
+	return err
+}
+
+func init() {
+	if os.Getenv("ARCC_DRIVER_MODE") == "1" {
+		layoutPath := os.Getenv("ARCC_PACKAGE_LAYOUT")
+		workspaceDir := os.Getenv("ARCC_WORKSPACE_DIR")
+		patterns := os.Args[1:]
+		if err := RunDriver(layoutPath, workspaceDir, patterns, os.Stdin, os.Stdout); err != nil {
+			fmt.Fprintf(os.Stderr, "GOPACKAGESDRIVER error: %v\n", err)
+			os.Exit(1)
+		}
+		os.Exit(0)
+	}
 }

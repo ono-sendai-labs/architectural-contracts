@@ -29,7 +29,12 @@ component_dependencies {
   name: "report"
   manifest: "../../internal/report/component.textproto"
 }
+absorbed_dependencies {
+  import_path: "github.com/ono-sendai-labs/architectural-contracts/go/internal/packagelayout"
+  reason: "Package layout driver and loading helpers"
+}
 declared_authority: "FILES"
 declared_authority: "REFLECT"
 declared_authority: "READ_SYSTEM_STATE"
 declared_authority: "UNSAFE_POINTER"
+declared_authority: "MODIFY_SYSTEM_STATE"
