@@ -5,7 +5,10 @@ go_library(
     srcs = ["packagelayout.go"],
     importpath = "github.com/ono-sendai-labs/architectural-contracts/go/internal/packagelayout",
     visibility = ["//go:__subpackages__"],
-    deps = ["@org_golang_x_tools//go/packages"],
+    deps = [
+        "//go/internal/hostpolicy",
+        "@org_golang_x_tools//go/packages",
+    ],
 )
 
 go_test(

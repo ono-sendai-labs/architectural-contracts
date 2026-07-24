@@ -53,6 +53,22 @@ func Check(in Inputs) report.ConformanceReport {
 		compPkgs[p.ImportPath] = true
 	}
 
+	// 1b. Standard-library imports are skipped. Prefer the loader-provided fact
+	// (StdlibImports), which is authoritative because the shell has module/SDK
+	// metadata the pure checker lacks. Fall back to the string heuristic only when
+	// facts don't carry the set (nil), e.g. hand-built facts in unit tests.
+	useStdlibFact := in.Facts.StdlibImports != nil
+	stdlibSet := make(map[string]bool, len(in.Facts.StdlibImports))
+	for _, imp := range in.Facts.StdlibImports {
+		stdlibSet[imp] = true
+	}
+	isStdlibImport := func(imp string) bool {
+		if useStdlibFact {
+			return stdlibSet[imp]
+		}
+		return isStdlib(imp)
+	}
+
 	// 2. Build allowed component dependency packages map (points to dependency name)
 	allowedPkgToCompDep := make(map[string]string)
 	for _, di := range in.DepIfaces {
@@ -71,7 +87,7 @@ func Check(in Inputs) report.ConformanceReport {
 	for _, pkg := range in.Facts.Packages {
 		for _, imp := range pkg.Imports {
 			// Skip standard library imports
-			if isStdlib(imp) {
+			if isStdlibImport(imp) {
 				continue
 			}
 

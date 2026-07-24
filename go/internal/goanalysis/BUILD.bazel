@@ -8,6 +8,7 @@ go_library(
     deps = [
         "//go/internal/capanalyzer",
         "//go/internal/facts",
+        "//go/internal/hostpolicy",
         "//go/internal/manifest",
         "//go/internal/packagelayout",
         "@org_golang_x_tools//go/callgraph/vta",

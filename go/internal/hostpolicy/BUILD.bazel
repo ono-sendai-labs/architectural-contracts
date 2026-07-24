@@ -1,0 +1,15 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "hostpolicy",
+    srcs = ["hostpolicy.go"],
+    importpath = "github.com/ono-sendai-labs/architectural-contracts/go/internal/hostpolicy",
+    visibility = ["//go:__subpackages__"],
+)
+
+go_test(
+    name = "hostpolicy_test",
+    size = "small",
+    srcs = ["hostpolicy_test.go"],
+    deps = [":hostpolicy"],
+)

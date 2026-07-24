@@ -20,6 +20,7 @@ import (
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/checker"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/facts"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/goanalysis"
+	"github.com/ono-sendai-labs/architectural-contracts/go/internal/hostpolicy"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/manifest"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/packagelayout"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/report"
@@ -143,6 +144,14 @@ func (r *Runner) runCheck(manifestPath string, formatJSON bool, stdout, stderr i
 	if err != nil {
 		fmt.Fprintf(stderr, "error: failed to parse manifest: %v\n", err)
 		return 2
+	}
+
+	// Canonicalize the import paths the checker compares against loaded facts, so a
+	// host that rewrites import paths at build time compares in one namespace.
+	// Identity by default (hostpolicy.CanonicalizePath), so this is a no-op upstream.
+	for i := range parsedManifest.AbsorbedDependencies {
+		parsedManifest.AbsorbedDependencies[i].ImportPath =
+			hostpolicy.CanonicalizePath(parsedManifest.AbsorbedDependencies[i].ImportPath)
 	}
 
 	// 2. Derive the component root from the cleaned manifest path's directory

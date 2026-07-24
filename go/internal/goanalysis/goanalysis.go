@@ -21,6 +21,7 @@ import (
 
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/capanalyzer"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/facts"
+	"github.com/ono-sendai-labs/architectural-contracts/go/internal/hostpolicy"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/manifest"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/packagelayout"
 	"golang.org/x/tools/go/callgraph/vta"
@@ -97,18 +98,23 @@ func LoadPackageFacts(componentRoot string) (facts.PackageFacts, error) {
 		}
 	}
 
+	isStdlib := stdlibClassifier()
+	stdlibImportSet := make(map[string]bool)
+
 	var factsPkgs []facts.PackageFact
 	for _, p := range pkgs {
 		if packagelayout.IsLayoutMode() && !compPkgPaths[p.PkgPath] && !compPkgPaths[p.ID] {
 			continue
 		}
 		var imports []string
-		for impPath := range p.Imports {
-			imports = append(imports, impPath)
+		for impPath, impPkg := range p.Imports {
+			canonImp := hostpolicy.CanonicalizePath(impPath)
+			imports = append(imports, canonImp)
+			if isStdlib(impPath, impPkg) {
+				stdlibImportSet[canonImp] = true
+			}
 		}
 		sort.Strings(imports)
-
-		isStd := isStdlibPackage(p)
 
 		var analysisRoot string
 		if packagelayout.IsLayoutMode() {
@@ -122,8 +128,8 @@ func LoadPackageFacts(componentRoot string) (facts.PackageFacts, error) {
 		}
 
 		factsPkgs = append(factsPkgs, facts.PackageFact{
-			ImportPath:      p.PkgPath,
-			IsStdlib:        isStd,
+			ImportPath:      hostpolicy.CanonicalizePath(p.PkgPath),
+			IsStdlib:        isStdlib(p.PkgPath, p),
 			Imports:         imports,
 			ExportedSymbols: exportedSymbols,
 		})
@@ -133,6 +139,14 @@ func LoadPackageFacts(componentRoot string) (facts.PackageFacts, error) {
 	sort.Slice(factsPkgs, func(i, j int) bool {
 		return factsPkgs[i].ImportPath < factsPkgs[j].ImportPath
 	})
+
+	// StdlibImports is the loader-authoritative set of standard-library imports,
+	// in canonical form, that the checker skips. Always non-nil after a real load.
+	stdlibImports := make([]string, 0, len(stdlibImportSet))
+	for imp := range stdlibImportSet {
+		stdlibImports = append(stdlibImports, imp)
+	}
+	sort.Strings(stdlibImports)
 
 	sourceFiles := make(map[string]bool)
 	for _, p := range pkgs {
@@ -215,8 +229,9 @@ func LoadPackageFacts(componentRoot string) (facts.PackageFacts, error) {
 	})
 
 	res := facts.PackageFacts{
-		Packages:  factsPkgs,
-		CallEdges: callEdges,
+		Packages:      factsPkgs,
+		CallEdges:     callEdges,
+		StdlibImports: stdlibImports,
 	}
 
 	if len(factsPkgs) > 0 {
@@ -248,6 +263,26 @@ func isStdlibPackage(p *packages.Package) bool {
 		return true
 	}
 	return false
+}
+
+// stdlibClassifier returns a stdlib predicate suitable for the current load mode.
+// In package-layout mode, packages carry no *packages.Module, so module-based
+// detection would misclassify every package as standard library; there it defers
+// to the host stdlib policy (hostpolicy.IsStdlibPath). Otherwise it uses the
+// authoritative module metadata, falling back to the host policy only when a
+// package reference is absent.
+func stdlibClassifier() func(pkgPath string, pkg *packages.Package) bool {
+	if packagelayout.IsLayoutMode() {
+		return func(pkgPath string, _ *packages.Package) bool {
+			return hostpolicy.IsStdlibPath(pkgPath)
+		}
+	}
+	return func(pkgPath string, pkg *packages.Package) bool {
+		if pkg == nil {
+			return hostpolicy.IsStdlibPath(pkgPath)
+		}
+		return isStdlibPackage(pkg)
+	}
 }
 
 func extractSymbols(p *packages.Package, componentRoot string) ([]facts.ExportedSymbol, error) {
@@ -620,7 +655,7 @@ func ResolveDependencyInterface(
 	var pkgPaths []string
 	sourceFiles := make(map[string]bool)
 	for _, p := range depPkgs {
-		pkgPaths = append(pkgPaths, p.PkgPath)
+		pkgPaths = append(pkgPaths, hostpolicy.CanonicalizePath(p.PkgPath))
 		for _, absFile := range p.GoFiles {
 			var rel string
 			var err error

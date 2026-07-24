@@ -18,6 +18,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/ono-sendai-labs/architectural-contracts/go/internal/hostpolicy"
 	"golang.org/x/tools/go/packages"
 )
 
@@ -31,17 +32,13 @@ type Layout struct {
 	Packages  []*packages.Package `json:"packages"`
 }
 
-// IsStdlib reports whether importPath is a standard-library package, using the
-// same heuristic the go tool uses: the first path segment contains no dot.
+// IsStdlib reports whether importPath is a standard-library package. It defers to
+// the host stdlib policy, whose default is the heuristic the go tool uses (the
+// first path segment contains no dot). Package-layout mode has no module metadata,
+// so a host that rewrites import paths into a dotless-first-segment namespace
+// overrides hostpolicy.IsStdlibPath to keep those paths from being misclassified.
 func IsStdlib(importPath string) bool {
-	if importPath == "" {
-		return false
-	}
-	first := importPath
-	if i := strings.IndexByte(importPath, '/'); i >= 0 {
-		first = importPath[:i]
-	}
-	return !strings.Contains(first, ".")
+	return hostpolicy.IsStdlibPath(importPath)
 }
 
 // discoverStdlib walks the standard library source tree rooted at sdkRoot,
