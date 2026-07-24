@@ -288,6 +288,10 @@ func stdlibClassifier() func(pkgPath string, pkg *packages.Package) bool {
 func extractSymbols(p *packages.Package, componentRoot string) ([]facts.ExportedSymbol, error) {
 	var symbols []facts.ExportedSymbol
 
+	// Emit symbol keys in the canonical namespace so they line up with the
+	// canonicalized package facts, dependency-interface symbols, and call edges.
+	canonPkgPath := hostpolicy.CanonicalizePath(p.PkgPath)
+
 	for _, file := range p.Syntax {
 		if file == nil {
 			continue
@@ -322,6 +326,7 @@ func extractSymbols(p *packages.Package, componentRoot string) ([]facts.Exported
 									} else {
 										receiverKey = "(" + formattedRecv + ")"
 									}
+									receiverKey = canonicalizeSymbol(receiverKey)
 
 									symbols = append(symbols, facts.ExportedSymbol{
 										Name:     receiverKey + "." + d.Name.Name,
@@ -336,14 +341,14 @@ func extractSymbols(p *packages.Package, componentRoot string) ([]facts.Exported
 				} else {
 					if d.Name.Name == "init" {
 						symbols = append(symbols, facts.ExportedSymbol{
-							Name:     p.PkgPath + ".init",
+							Name:     canonPkgPath + ".init",
 							File:     relPath,
 							Kind:     "init",
 							Receiver: "",
 						})
 					} else if ast.IsExported(d.Name.Name) {
 						symbols = append(symbols, facts.ExportedSymbol{
-							Name:     p.PkgPath + "." + d.Name.Name,
+							Name:     canonPkgPath + "." + d.Name.Name,
 							File:     relPath,
 							Kind:     "func",
 							Receiver: "",
@@ -365,7 +370,7 @@ func extractSymbols(p *packages.Package, componentRoot string) ([]facts.Exported
 									kind = "const"
 								}
 								symbols = append(symbols, facts.ExportedSymbol{
-									Name:     p.PkgPath + "." + ident.Name,
+									Name:     canonPkgPath + "." + ident.Name,
 									File:     relPath,
 									Kind:     kind,
 									Receiver: "",
@@ -375,7 +380,7 @@ func extractSymbols(p *packages.Package, componentRoot string) ([]facts.Exported
 					case *ast.TypeSpec:
 						if ast.IsExported(s.Name.Name) {
 							symbols = append(symbols, facts.ExportedSymbol{
-								Name:     p.PkgPath + "." + s.Name.Name,
+								Name:     canonPkgPath + "." + s.Name.Name,
 								File:     relPath,
 								Kind:     "type",
 								Receiver: "",
@@ -467,6 +472,26 @@ func stripAllBrackets(s string) string {
 	return sb.String()
 }
 
+// canonicalizeSymbol rewrites the package-path portion embedded in a formatted
+// function/method symbol key (e.g. "pkg/path.Fn", "(*pkg/path.T).M") through
+// hostpolicy.CanonicalizePath, leaving the type/function/method tail unchanged.
+// This keeps interface symbols and call-edge symbols in the same namespace as the
+// canonicalized package paths, so the checker's boundary comparisons and the
+// capability analyzer's prune keys line up. Default identity => no-op upstream.
+func canonicalizeSymbol(sym string) string {
+	pkg := extractPackageFromStr(sym)
+	if pkg == "" {
+		return sym
+	}
+	canon := hostpolicy.CanonicalizePath(pkg)
+	if canon == pkg {
+		return sym
+	}
+	// The package path occurs once, ahead of the type/func tail (as a bare prefix
+	// or inside a receiver), so replacing its first occurrence is unambiguous.
+	return strings.Replace(sym, pkg, canon, 1)
+}
+
 // extractPackageFromStr parses the package path from a formatted function/method string.
 func extractPackageFromStr(s string) string {
 	s = stripAllBrackets(s)
@@ -509,12 +534,14 @@ func getFuncPackagePath(fn *ssa.Function) string {
 	return extractPackageFromStr(fn.String())
 }
 
-// getFuncSymbol returns the InterfaceSymbol key of an ssa.Function.
+// getFuncSymbol returns the InterfaceSymbol key of an ssa.Function, with its
+// embedded package path canonicalized so call-edge symbols share one namespace
+// with dependency-interface symbols and package facts.
 func getFuncSymbol(fn *ssa.Function) capanalyzer.InterfaceSymbol {
 	if fn == nil {
 		return ""
 	}
-	return capanalyzer.InterfaceSymbol(stripAllBrackets(fn.String()))
+	return capanalyzer.InterfaceSymbol(canonicalizeSymbol(stripAllBrackets(fn.String())))
 }
 
 // passesFuncValue checks if a call site passes any function-typed value.
@@ -815,8 +842,8 @@ func ResolveDependencyInterface(
 					methodName := m.Obj().Name()
 					formattedTypeName := stripGenericBrackets(types.TypeString(named, nil))
 
-					ptrKey := "(*" + formattedTypeName + ")." + methodName
-					valKey := "(" + formattedTypeName + ")." + methodName
+					ptrKey := canonicalizeSymbol("(*" + formattedTypeName + ")." + methodName)
+					valKey := canonicalizeSymbol("(" + formattedTypeName + ")." + methodName)
 
 					concreteMethods[ptrKey] = true
 					concreteMethods[valKey] = true
