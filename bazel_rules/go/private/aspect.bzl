@@ -9,8 +9,8 @@ Reference implementation and the reasoning behind every non-obvious line:
 `.agents/planning/2026-07-16-bazel-arcc-rules/research/spike-aspect-findings.md`.
 """
 
-load("@rules_go//go:def.bzl", "GoArchive", "GoInfo")
 load("//bazel_rules/go:providers.bzl", "ArccPackageInfo")
+load(":go_adapter.bzl", "go_target_info", "is_go_target")
 
 # Attributes the closure propagates over.
 #
@@ -22,42 +22,10 @@ load("//bazel_rules/go:providers.bzl", "ArccPackageInfo")
 # below exists to fold back together.
 _ATTR_ASPECTS = ["deps", "embed"]
 
-def _node_for(target):
-    """Projects one Go target onto a closure node, or None if it is not one."""
-    go_info = target[GoInfo]
-    importpath = go_info.importpath
-    if not importpath:
-        # `main` packages and other unimportable libraries are never closure
-        # members: nothing can depend on them by import path.
-        return None
-
-    # GoInfo.srcs is already embed-merged by rules_go, so this must not walk
-    # `embed` to collect sources — that would double-count them.
-    srcs = tuple(go_info.srcs)
-
-    # Direct edges, projected onto import paths. GoArchive.direct excludes the
-    # standard library (arcc handles stdlib authority itself) and the guard
-    # drops the same-importpath embedded library.
-    deps = tuple(sorted([
-        archive.data.importpath
-        for archive in target[GoArchive].direct
-        if archive.data.importpath != importpath
-    ]))
-
-    return struct(
-        importpath = importpath,
-        srcs = srcs,
-        deps = deps,
-        # cgo packages compile through preprocessed sources that are not
-        # derivable at analysis time; the component rule refuses them rather
-        # than emitting a layout that names the wrong files.
-        cgo = getattr(go_info, "cgo", False),
-    )
-
 def _arcc_deps_impl(target, ctx):
     # A dependency edge can point at a filegroup, a proto target, or anything
     # else that is not a Go library.
-    if GoInfo not in target or GoArchive not in target:
+    if not is_go_target(target):
         return []
 
     transitive = []
@@ -66,7 +34,7 @@ def _arcc_deps_impl(target, ctx):
             if ArccPackageInfo in dep:
                 transitive.append(dep[ArccPackageInfo].packages)
 
-    node = _node_for(target)
+    node = go_target_info(target)
     return [ArccPackageInfo(
         packages = depset(direct = [node] if node else [], transitive = transitive),
     )]

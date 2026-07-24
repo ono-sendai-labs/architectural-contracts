@@ -8,14 +8,20 @@ interface library's Go providers so the component target is usable as a
 `deps` entry.
 """
 
-load("@rules_go//go:def.bzl", "GoArchive", "GoInfo")
 load("//bazel_rules:authority.bzl", "ALL_AUTHORITIES")
 load("//bazel_rules:providers.bzl", "ArccComponentInfo")
 load("//bazel_rules/go:providers.bzl", "ArccPackageInfo")
 load(":aspect.bzl", "arcc_deps_aspect", "merge_by_importpath")
+load(
+    ":go_adapter.bzl",
+    "GO_PROVIDERS",
+    "GO_TOOLCHAINS",
+    "forward_go_providers",
+    "go_importpath",
+    "go_library_srcs",
+    "go_sdk_root_file",
+)
 load(":paths.bzl", "runfiles_path")
-
-GO_TOOLCHAIN = "@rules_go//go:toolchain"
 
 def _relativize(target_path, base_dir):
     """`target_path` as seen from the directory `base_dir`."""
@@ -136,7 +142,7 @@ def _classify(ctx, merged):
     # 2. Absorbed: a listed label, or anything in its closure.
     absorbed = {}
     for dep in ctx.attr.absorbed_deps:
-        importpath = dep[GoInfo].importpath
+        importpath = go_importpath(dep)
         if not importpath:
             fail("component %s: absorbed_dep %s has no importpath; only importable Go libraries can be absorbed." % (
                 ctx.label.name,
@@ -208,7 +214,7 @@ def _go_component_impl(ctx):
             ))
 
     members, absorbed = _classify(ctx, merged)
-    interface_importpath = interface[GoInfo].importpath
+    interface_importpath = go_importpath(interface)
     if interface_importpath not in members:
         fail(("component %s: its own interface package %s is covered by a component_dep or listed in " +
               "absorbed_deps, which would leave the component with nothing to check.") % (
@@ -221,7 +227,7 @@ def _go_component_impl(ctx):
 
     interface_files = sorted([
         runfiles_path(ctx, src)
-        for src in interface[GoInfo].srcs
+        for src in go_library_srcs(interface)
         if src.extension == "go"
     ])
     ctx.actions.write(
@@ -236,14 +242,14 @@ def _go_component_impl(ctx):
         ),
     )
 
-    sdk = ctx.toolchains[GO_TOOLCHAIN].sdk
+    sdk_root_file = go_sdk_root_file(ctx)
     ctx.actions.write(
         output = layout,
         content = _layout_content(
             ctx,
             merged = merged,
             roots = members,
-            go_sdk_root = _dirname(runfiles_path(ctx, sdk.root_file)) + "/src",
+            go_sdk_root = _dirname(runfiles_path(ctx, sdk_root_file)) + "/src",
         ),
     )
 
@@ -299,18 +305,17 @@ def _go_component_impl(ctx):
             ]),
             contracts = contracts,
         ),
-        # Forwarded verbatim so `deps = [":some_component"]` works from any Go
-        # rule: the component target stands in for its interface library.
-        interface[GoInfo],
-        interface[GoArchive],
-    ]
+    ] + forward_go_providers(interface)
+    # The interface library's Go providers are forwarded verbatim so
+    # `deps = [":some_component"]` works from any Go rule: the component target
+    # stands in for its interface library.
 
 go_component_rule = rule(
     implementation = _go_component_impl,
     attrs = {
         "interface": attr.label(
             mandatory = True,
-            providers = [GoInfo, GoArchive],
+            providers = GO_PROVIDERS,
             aspects = [arcc_deps_aspect],
             doc = "The single go_library holding the component's public surface.",
         ),
@@ -319,7 +324,7 @@ go_component_rule = rule(
             doc = "Other components this one depends on; their packages are excluded from this one.",
         ),
         "absorbed_deps": attr.label_list(
-            providers = [GoInfo],
+            providers = GO_PROVIDERS,
             aspects = [arcc_deps_aspect],
             doc = "Libraries this component absorbs as implementation details.",
         ),
@@ -331,7 +336,7 @@ go_component_rule = rule(
             doc = "Ambient authority the component declares, from //bazel_rules:authority.bzl.",
         ),
     },
-    toolchains = [GO_TOOLCHAIN],
+    toolchains = GO_TOOLCHAINS,
     provides = [ArccComponentInfo],
     doc = "Generates an arcc manifest and package layout for a Go component.",
 )

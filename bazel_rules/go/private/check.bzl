@@ -12,9 +12,8 @@ needs no `go.mod` or `go` binary (design §4.5).
 
 load("//bazel_rules:providers.bzl", "ArccComponentInfo")
 load(":command.bzl", "arcc_check_argv")
+load(":go_adapter.bzl", "GO_TOOLCHAINS", "go_sdk_srcs")
 load(":paths.bzl", "runfiles_path")
-
-GO_TOOLCHAIN = "@rules_go//go:toolchain"
 
 def _shell_quote(arg):
     # Runfiles-root-relative paths hold no shell metacharacters, but quoting is
@@ -74,10 +73,9 @@ def _arcc_check_impl(ctx):
         is_executable = True,
     )
 
-    # The stdlib source the layout names lives in the rules_go SDK; arcc
-    # type-checks the closure from it, so it must be present in the sandbox.
-    sdk = ctx.toolchains[GO_TOOLCHAIN].sdk
-    runfiles = ctx.runfiles(transitive_files = sdk.srcs)
+    # The stdlib source the layout names lives in the Go SDK; arcc type-checks
+    # the closure from it, so it must be present in the sandbox.
+    runfiles = ctx.runfiles(transitive_files = go_sdk_srcs(ctx))
     runfiles = runfiles.merge(ctx.attr.component[DefaultInfo].default_runfiles)
     runfiles = runfiles.merge(ctx.attr._arcc[DefaultInfo].default_runfiles)
 
@@ -106,6 +104,6 @@ arcc_check_test = rule(
             doc = "The arcc binary the check runs.",
         ),
     },
-    toolchains = [GO_TOOLCHAIN],
+    toolchains = GO_TOOLCHAINS,
     doc = "Runs `arcc check` on a go_component's generated manifest and layout, hermetically.",
 )
