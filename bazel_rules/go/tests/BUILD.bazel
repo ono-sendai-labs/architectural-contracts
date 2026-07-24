@@ -19,6 +19,16 @@ arcc_check_test(
     expect_violation = True,
 )
 
+# Subtler negative: the authority is reachable only through an exported function
+# *value* (funcvalue.Open), not a directly-called exported function. Confirms the
+# capability analysis follows function values, not just direct call edges.
+arcc_check_test(
+    name = "funcvalue_component_check_fails_test",
+    size = "small",
+    component = "//bazel_rules/go/tests/testdata/funcvalue:funcvalue_component",
+    expect_violation = True,
+)
+
 sh_test(
     name = "golden_test",
     srcs = ["golden_test.sh"],
