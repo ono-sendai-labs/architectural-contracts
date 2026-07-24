@@ -182,7 +182,11 @@ func discoverStdlibWithContext(sdkRoot string, bctx build.Context) ([]*packages.
 				}
 			}
 			if IsStdlib(resolved) {
-				discovered[i].pkg.Imports[resolved] = &packages.Package{ID: resolved}
+				// Key by the import path as written in source (imp), not the
+				// resolved target: go/types resolves an import by the path in the
+				// source, even when it is satisfied by a vendored copy. The target
+				// package ID is the resolved (possibly vendor/-prefixed) path.
+				discovered[i].pkg.Imports[imp] = &packages.Package{ID: resolved}
 			}
 		}
 	}
@@ -429,7 +433,10 @@ func ValidateAndResolve(l *Layout, workspaceDir string) error {
 			if !ok {
 				return fmt.Errorf("package %q imports unknown package ID %q", p.ID, impID.ID)
 			}
-			if target.PkgPath != impPath {
+			// A standard-library package may import a vendored package by its bare
+			// path; the resolving target's PkgPath is then the vendor/-prefixed
+			// form (see discoverStdlib), so accept that as well.
+			if target.PkgPath != impPath && target.PkgPath != "vendor/"+impPath {
 				return fmt.Errorf("package %q imports path %q with ID %q, but target package import path is %q", p.ID, impPath, target.ID, target.PkgPath)
 			}
 		}

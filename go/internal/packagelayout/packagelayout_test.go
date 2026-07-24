@@ -851,6 +851,56 @@ func TestDiscoverStdlib(t *testing.T) {
 	}
 }
 
+func TestDiscoverStdlib_VendoredImportKeyedByBarePath(t *testing.T) {
+	tmpDir := t.TempDir()
+	sdkSrc := filepath.Join(tmpDir, "src")
+
+	// A standard-library package that imports a golang.org/x package the SDK
+	// vendors — exactly how net imports "golang.org/x/net/dns/dnsmessage". go/types
+	// resolves an import by the path as written (the bare path), so the discovered
+	// stdlib package's Imports must be keyed by that bare path, with the vendored
+	// package as the target. If it is keyed by the vendor/ path instead, type
+	// checking the stdlib package fails with "could not import <bare path>".
+	files := map[string]string{
+		"resolver/resolver.go":                   "package resolver\nimport _ \"golang.org/x/example/foo\"\n",
+		"vendor/golang.org/x/example/foo/foo.go": "package foo",
+	}
+	for rel, content := range files {
+		path := filepath.Join(sdkSrc, rel)
+		if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+			t.Fatalf("failed to create directory: %v", err)
+		}
+		if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+			t.Fatalf("failed to write file: %v", err)
+		}
+	}
+
+	pkgs, err := discoverStdlib(sdkSrc)
+	if err != nil {
+		t.Fatalf("discoverStdlib failed: %v", err)
+	}
+
+	resolver := packageByID(pkgs, "resolver")
+	if resolver == nil {
+		t.Fatal("resolver package not discovered")
+	}
+
+	const barePath = "golang.org/x/example/foo"
+	const vendorPath = "vendor/golang.org/x/example/foo"
+
+	imp, ok := resolver.Imports[barePath]
+	if !ok {
+		var keys []string
+		for k := range resolver.Imports {
+			keys = append(keys, k)
+		}
+		t.Fatalf("resolver.Imports missing bare key %q (go/types looks up vendored imports by the bare path); keys = %v", barePath, keys)
+	}
+	if imp.ID != vendorPath {
+		t.Errorf("resolver.Imports[%q].ID = %q, want the vendored package %q", barePath, imp.ID, vendorPath)
+	}
+}
+
 func TestDiscoverStdlib_DropsCgoPseudoImport(t *testing.T) {
 	tmpDir := t.TempDir()
 	sdkSrc := filepath.Join(tmpDir, "src")
@@ -1240,20 +1290,26 @@ func TestDriverQueries_EndToEnd(t *testing.T) {
 		}
 	}
 
-	// 4. Assert that the SDK vendor rule rewrites the source import path.
+	// 4. A vendored standard-library import is keyed by the bare path as written
+	//    in source (that is how go/types resolves it), with the vendored package
+	//    as the target ID.
+	barePath := "golang.org/x/net/dns/dnsmessage"
 	vendorPath := "vendor/golang.org/x/net/dns/dnsmessage"
 	if netPkg.Imports == nil {
 		t.Fatal("expected Imports map in net package, got nil")
 	}
-	if _, ok := netPkg.Imports[vendorPath]; !ok {
-		t.Errorf("expected net to import %q, got %v", vendorPath, netPkg.Imports)
-	}
-	if _, ok := netPkg.Imports["golang.org/x/net/dns/dnsmessage"]; ok {
-		t.Error("expected source vendor import path to be rewritten")
+	if imp, ok := netPkg.Imports[barePath]; !ok {
+		t.Errorf("expected net to import %q, got %v", barePath, netPkg.Imports)
+	} else if imp.ID != vendorPath {
+		t.Errorf("net import %q should target the vendored package %q, got %q", barePath, vendorPath, imp.ID)
 	}
 	vendorPkg := found[vendorPath]
-	if _, ok := vendorPkg.Imports["vendor/golang.org/x/net/internal/helper"]; !ok {
-		t.Errorf("expected vendored package edge to be rewritten, got %v", vendorPkg.Imports)
+	bareHelper := "golang.org/x/net/internal/helper"
+	vendorHelper := "vendor/golang.org/x/net/internal/helper"
+	if imp, ok := vendorPkg.Imports[bareHelper]; !ok {
+		t.Errorf("expected vendored package to import %q, got %v", bareHelper, vendorPkg.Imports)
+	} else if imp.ID != vendorHelper {
+		t.Errorf("vendored import %q should target %q, got %q", bareHelper, vendorHelper, imp.ID)
 	}
 	componentPkg := found["example.com/component"]
 	if _, ok := componentPkg.Imports["net"]; !ok {
