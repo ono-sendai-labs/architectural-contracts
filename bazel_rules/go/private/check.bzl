@@ -12,7 +12,7 @@ needs no `go.mod` or `go` binary (design §4.5).
 
 load("//bazel_rules:providers.bzl", "ArccComponentInfo")
 load(":command.bzl", "arcc_check_argv")
-load(":go_adapter.bzl", "GO_TOOLCHAINS", "go_sdk_srcs")
+load(":go_adapter.bzl", "ARCC_TARGET", "GO_TOOLCHAINS", "go_sdk_srcs")
 load(":paths.bzl", "runfiles_path")
 
 def _shell_quote(arg):
@@ -98,7 +98,7 @@ arcc_check_test = rule(
                   "the go_component macro generates, leave this False.",
         ),
         "_arcc": attr.label(
-            default = "//:arcc",
+            default = ARCC_TARGET,
             executable = True,
             cfg = "target",
             doc = "The arcc binary the check runs.",
