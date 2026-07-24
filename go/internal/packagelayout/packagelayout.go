@@ -348,6 +348,22 @@ func ValidateAndResolve(l *Layout, workspaceDir string) error {
 		p.CompiledGoFiles = resolvedCompiledFiles
 	}
 
+	// Phase 1b: Drop sources excluded by build constraints for the target
+	// platform. A host may hand arcc the full declared source set rather than the
+	// per-platform compiled subset — rules_go's GoInfo.srcs, for one, lists every
+	// _GOOS.go variant (its compiler, not the provider, applies constraints).
+	// Type-checking wrong-platform files makes the package IllTyped, which silently
+	// degrades the whole analysis, so arcc filters here the way the go tool does
+	// when it reads a package directory. Standard-library packages arrive already
+	// filtered from discoverStdlib and are left untouched.
+	for _, p := range l.Packages {
+		if IsStdlib(p.PkgPath) {
+			continue
+		}
+		p.GoFiles = filterByBuildConstraints(p.GoFiles)
+		p.CompiledGoFiles = filterByBuildConstraints(p.CompiledGoFiles)
+	}
+
 	// Phase 2: Recover standard library imports for non-stdlib packages.
 	for _, p := range l.Packages {
 		if !IsStdlib(p.PkgPath) {
@@ -420,6 +436,31 @@ func ValidateAndResolve(l *Layout, workspaceDir string) error {
 	}
 
 	return nil
+}
+
+// filterByBuildConstraints keeps only the .go sources compiled for the current
+// target platform, honoring filename suffixes (_windows.go, _amd64.go, ...) and
+// //go:build / // +build lines — the same rules the go tool applies when reading
+// a package directory. build.Default reflects the GOOS/GOARCH of the running arcc
+// binary, which the build system compiled for the target platform.
+//
+// Filtering is a safety net, not a gate: a file whose constraints cannot be
+// evaluated (e.g. it is not present on disk, as when a unit test mocks file
+// existence) is kept rather than dropped, so this never removes a file it failed
+// to read. Non-.go entries are passed through unchanged.
+func filterByBuildConstraints(files []string) []string {
+	kept := make([]string, 0, len(files))
+	for _, f := range files {
+		if !strings.HasSuffix(f, ".go") {
+			kept = append(kept, f)
+			continue
+		}
+		match, err := build.Default.MatchFile(filepath.Dir(f), filepath.Base(f))
+		if err != nil || match {
+			kept = append(kept, f)
+		}
+	}
+	return kept
 }
 
 func resolveAndCheckFiles(p *packages.Package, files []string, sdkRoot, workspaceDir string) ([]string, error) {

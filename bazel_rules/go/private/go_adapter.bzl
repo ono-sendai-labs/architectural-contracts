@@ -50,15 +50,15 @@ def go_target_info(target):
 
       importpath  string; "" is impossible here (None is returned instead), so
                   callers get either a real import path or nothing.
-      srcs        tuple[File] — the COMPILED, build-constraint-filtered source
-                  set for the target platform, already embed-merged. It MUST NOT
-                  include sources excluded by build constraints (GOOS/GOARCH
-                  filename suffixes or //go:build lines): arcc writes exactly
-                  these files into the hermetic package layout and type-checks
-                  them, so a superset pulls in wrong-platform files, makes the
-                  package IllTyped, and silently degrades the whole analysis to a
-                  pass. Filtering is the host ruleset's job (rules_go's GoInfo.srcs
-                  already is the compiled set); the adapter only forwards it.
+      srcs        tuple[File] — the package's Go source set, already embed-merged.
+                  This may be the full DECLARED set rather than the per-platform
+                  compiled subset: rules_go's GoInfo.srcs, for instance, lists
+                  every _GOOS.go variant, because its compiler (not the provider)
+                  applies build constraints. That is fine — arcc's layout loader
+                  filters the sources by build constraint (GOOS/GOARCH filename
+                  suffixes and //go:build lines) for the target platform before
+                  type-checking, so a host need not pre-filter. A host MAY pass an
+                  already-filtered set; the loader's pass is then a no-op.
       deps        tuple[string] — direct-dependency import paths, sorted, with the
                   standard library excluded (arcc handles stdlib authority itself)
                   and the target's own import path excluded (an embedded library

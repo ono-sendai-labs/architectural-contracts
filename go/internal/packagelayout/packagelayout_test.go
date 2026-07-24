@@ -1746,3 +1746,72 @@ func TestValidateAndResolve_ImportRecovery_IncompleteGraph(t *testing.T) {
 		})
 	}
 }
+
+func TestValidateAndResolveFiltersBuildConstraints(t *testing.T) {
+	if runtime.GOOS != "linux" && runtime.GOOS != "windows" && runtime.GOOS != "darwin" {
+		t.Skipf("fixture only carries linux/windows/darwin variants; host GOOS is %q", runtime.GOOS)
+	}
+
+	ws := t.TempDir()
+	pkgDir := filepath.Join(ws, "pkg")
+	if err := os.MkdirAll(pkgDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	write := func(name, content string) {
+		if err := os.WriteFile(filepath.Join(pkgDir, name), []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// common compiles everywhere; each plat_<goos>.go compiles only on its OS
+	// (filename-suffix constraint); tagged_only.go compiles only on windows
+	// (//go:build line, no filename suffix).
+	write("common.go", "package pkg\n")
+	write("plat_linux.go", "package pkg\n")
+	write("plat_windows.go", "package pkg\n")
+	write("plat_darwin.go", "package pkg\n")
+	write("tagged_only.go", "//go:build windows\n\npackage pkg\n")
+
+	rel := func(n string) string { return "pkg/" + n }
+	all := []string{
+		rel("common.go"), rel("plat_linux.go"), rel("plat_windows.go"),
+		rel("plat_darwin.go"), rel("tagged_only.go"),
+	}
+	layout := &Layout{
+		Roots: []string{"example.com/pkg"},
+		Packages: []*packages.Package{{
+			ID:              "example.com/pkg",
+			Name:            "pkg",
+			PkgPath:         "example.com/pkg",
+			GoFiles:         append([]string{}, all...),
+			CompiledGoFiles: append([]string{}, all...),
+			Imports:         map[string]*packages.Package{},
+		}},
+	}
+
+	if err := ValidateAndResolve(layout, ws); err != nil {
+		t.Fatalf("ValidateAndResolve: %v", err)
+	}
+
+	got := map[string]bool{}
+	for _, f := range layout.Packages[0].CompiledGoFiles {
+		got[filepath.Base(f)] = true
+	}
+
+	// The always-on file and the current OS's variant survive.
+	for _, want := range []string{"common.go", "plat_" + runtime.GOOS + ".go"} {
+		if !got[want] {
+			t.Errorf("expected %q to be kept after build-constraint filtering; kept: %v", want, got)
+		}
+	}
+	// Other-OS filename variants are dropped (a superset would make the package IllTyped).
+	for _, variant := range []string{"plat_linux.go", "plat_windows.go", "plat_darwin.go"} {
+		if variant != "plat_"+runtime.GOOS+".go" && got[variant] {
+			t.Errorf("expected %q to be filtered out on %s; kept: %v", variant, runtime.GOOS, got)
+		}
+	}
+	// The //go:build windows file is dropped everywhere but windows, proving line
+	// constraints (not just filename suffixes) are honored.
+	if runtime.GOOS != "windows" && got["tagged_only.go"] {
+		t.Errorf("expected //go:build windows file to be filtered out on %s; kept: %v", runtime.GOOS, got)
+	}
+}
