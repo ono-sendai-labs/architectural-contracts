@@ -1871,3 +1871,42 @@ func TestValidateAndResolveFiltersBuildConstraints(t *testing.T) {
 		t.Errorf("expected //go:build windows file to be filtered out on %s; kept: %v", runtime.GOOS, got)
 	}
 }
+
+func TestFileMatchesBuildConstraints(t *testing.T) {
+	dir := t.TempDir()
+	write := func(name, content string) string {
+		p := filepath.Join(dir, name)
+		if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
+			t.Fatalf("write %s: %v", name, err)
+		}
+		return p
+	}
+
+	// A file gated to the current platform is compiled; its negation is not. This
+	// underpins ValidateInterfaceFiles skipping build-constraint-excluded
+	// interface files (e.g. a //go:build-gated file when wrapping a
+	// cross-platform library).
+	included := write("included.go", "//go:build "+runtime.GOOS+"\n\npackage p\n")
+	excluded := write("excluded.go", "//go:build !"+runtime.GOOS+"\n\npackage p\n")
+	plain := write("plain.go", "package p\n")
+	notGo := write("data.txt", "not go\n")
+
+	cases := []struct {
+		name string
+		path string
+		want bool
+	}{
+		{"current-GOOS build tag is compiled", included, true},
+		{"negated-GOOS build tag is excluded", excluded, false},
+		{"unconstrained .go is compiled", plain, true},
+		{"non-.go path passes through", notGo, true},
+		{"unreadable file kept as safety net", filepath.Join(dir, "absent.go"), true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := FileMatchesBuildConstraints(tc.path); got != tc.want {
+				t.Errorf("FileMatchesBuildConstraints(%q) = %v, want %v", tc.path, got, tc.want)
+			}
+		})
+	}
+}

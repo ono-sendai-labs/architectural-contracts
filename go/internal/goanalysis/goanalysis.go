@@ -445,6 +445,15 @@ func ValidateInterfaceFiles(componentRoot string, interfaceFiles []string, loade
 		}
 
 		if sourceFiles == nil || !sourceFiles[cleanedSlash] {
+			// A declared interface file that exists on disk but is absent from
+			// the loaded package was excluded by build constraints for the
+			// analysis platform (e.g. a //go:build-gated or _GOOS.go interface
+			// file, as when wrapping a cross-platform library). It is not part
+			// of the surface analyzed on this platform, so skip it; only a file
+			// that should compile here yet is missing is an error.
+			if !packagelayout.FileMatchesBuildConstraints(absPath) {
+				continue
+			}
 			return fmt.Errorf("interface file %q does not belong to any loaded Go package under component root", f)
 		}
 	}

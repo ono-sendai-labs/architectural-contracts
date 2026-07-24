@@ -458,16 +458,28 @@ func ValidateAndResolve(l *Layout, workspaceDir string) error {
 func filterByBuildConstraints(files []string) []string {
 	kept := make([]string, 0, len(files))
 	for _, f := range files {
-		if !strings.HasSuffix(f, ".go") {
-			kept = append(kept, f)
-			continue
-		}
-		match, err := build.Default.MatchFile(filepath.Dir(f), filepath.Base(f))
-		if err != nil || match {
+		if FileMatchesBuildConstraints(f) {
 			kept = append(kept, f)
 		}
 	}
 	return kept
+}
+
+// FileMatchesBuildConstraints reports whether the .go file at path is compiled
+// for the current target platform, honoring filename suffixes (_windows.go,
+// _amd64.go, ...) and //go:build / // +build lines — the same rule
+// filterByBuildConstraints applies per file. Non-.go paths, and files whose
+// constraints cannot be evaluated (e.g. unreadable), are reported as matching,
+// so this never reports a file as excluded merely because it failed to read it.
+func FileMatchesBuildConstraints(path string) bool {
+	if !strings.HasSuffix(path, ".go") {
+		return true
+	}
+	match, err := build.Default.MatchFile(filepath.Dir(path), filepath.Base(path))
+	if err != nil {
+		return true
+	}
+	return match
 }
 
 func resolveAndCheckFiles(p *packages.Package, files []string, sdkRoot, workspaceDir string) ([]string, error) {
