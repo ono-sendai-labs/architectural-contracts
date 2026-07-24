@@ -19,7 +19,7 @@ load(
     "forward_go_providers",
     "go_importpath",
     "go_library_srcs",
-    "go_sdk_root_file",
+    "go_sdk_root",
 )
 load(":paths.bzl", "runfiles_path")
 
@@ -242,14 +242,13 @@ def _go_component_impl(ctx):
         ),
     )
 
-    sdk_root_file = go_sdk_root_file(ctx)
     ctx.actions.write(
         output = layout,
         content = _layout_content(
             ctx,
             merged = merged,
             roots = members,
-            go_sdk_root = _dirname(runfiles_path(ctx, sdk_root_file)) + "/src",
+            go_sdk_root = go_sdk_root(ctx),
         ),
     )
 

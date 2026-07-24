@@ -14,6 +14,7 @@ Upstream binds to rules_go (GoInfo / GoArchive / @rules_go//go:toolchain).
 """
 
 load("@rules_go//go:def.bzl", "GoArchive", "GoInfo")
+load(":paths.bzl", "runfiles_path")
 
 # Providers a Go library target must carry to take part as a component
 # interface, an absorbed dependency, or a closure node. Used in
@@ -100,18 +101,27 @@ def forward_go_providers(target):
     """
     return [target[GoInfo], target[GoArchive]]
 
-def go_sdk_root_file(ctx):
-    """A File under the Go SDK root, used to derive the SDK `src` path.
+def _dirname(path):
+    if "/" not in path:
+        return ""
+    return path.rsplit("/", 1)[0]
 
-    The component rule takes this file's directory (+ "/src") as `go_sdk_root`
-    in the emitted layout, so arcc can find standard-library sources hermetically.
+def go_sdk_root(ctx):
+    """The `go_sdk_root` value for the emitted layout: a runfiles-root-relative
+    path to the Go SDK's `src` directory, from which arcc reads standard-library
+    sources hermetically. Returned as a string so a host that knows its SDK
+    location by convention can supply it directly, rather than deriving it from a
+    toolchain-provided File.
     """
-    return ctx.toolchains[GO_TOOLCHAINS[0]].sdk.root_file
+    root_file = ctx.toolchains[GO_TOOLCHAINS[0]].sdk.root_file
+    return _dirname(runfiles_path(ctx, root_file)) + "/src"
 
 def go_sdk_srcs(ctx):
-    """The Go SDK source files as a depset.
+    """The Go SDK source files to stage into the `.check` sandbox, as a depset.
 
-    The `.check` test stages these into the sandbox: the layout names standard-
-    library packages by path, and arcc type-checks the closure from their sources.
+    The layout names standard-library packages by path and arcc type-checks the
+    closure from their sources, so they must be present at check time. A host
+    whose build already makes the SDK sources available (e.g. via the go_sdk_root
+    location) may return an empty depset.
     """
     return ctx.toolchains[GO_TOOLCHAINS[0]].sdk.srcs
