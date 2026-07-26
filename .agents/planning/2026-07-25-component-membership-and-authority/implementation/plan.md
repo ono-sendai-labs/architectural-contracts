@@ -8,15 +8,15 @@ Requirement IDs (M*, A*, T*, B*) refer to §2 of the design.
 
 ## Progress checklist
 
-- [ ] **Step 1** — Declared membership: `members` + `implicit` in the schema, honored end to end in native mode (M1, M3, M5)
-- [ ] **Step 2** — Attribution follows ownership: members are roots, init rule scoped to the interface (A1, A2, A3)
+- [ ] **Step 1** — Declared membership: `members` + `interface_style` in the schema, honored end to end in native mode (M1, M3, M5)
+- [ ] **Step 2** — Attribution follows ownership: members are roots, `INIT_OUTSIDE_INTERFACE` removed (A1, A2, A3)
 - [ ] **Step 3** — The analysis platform becomes declared data (T1, loader half of T2)
 - [ ] **Step 4** — Interface-file constraint reporting and report wording (T3, T7)
 - [ ] **Step 5** — Classification and canonicalization made fail-closed (T4, T5, T6)
-- [ ] **Step 6** — Bazel: adapter seam additions and the `members` attribute (B1, B2, emitter half of T2)
+- [ ] **Step 6** — Bazel: adapter seam additions, `members` and `interface_style` attributes (B1, emitter half of T2)
 - [ ] **Step 7** — Bazel: declared classification, emission, and example migration (M4, M6, M7)
 - [ ] **Step 8** — The absorbed func-value escape warning (A5)
-- [ ] **Step 9** — Implicit infra components (A6, A7)
+- [ ] **Step 9** — Package-surface components and auto-attached edges (A6, A7)
 - [ ] **Step 10** — Bazelified self-check (B3)
 - [ ] **Step 11** — Documentation and design-record sync
 
@@ -34,13 +34,15 @@ components, and dogfooding.
 FR1 behavior is bit-for-bit what it is today.
 
 **Guidance.**
-- Add `members` (repeated string) and `implicit` (bool) to
-  `proto/archcontracts/v1/component.proto` per design §4.1; regenerate with
+- Add `members` (repeated string) and the `InterfaceStyle` enum with
+  `interface_style` to `proto/archcontracts/v1/component.proto`, plus
+  `auto_attached` on `ComponentDependency`, per design §4.1; regenerate with
   `just gen` and keep `just gen-is-clean` green.
-- `manifest`: parse and validate both. Reject duplicate members, a member that is
-  also an `absorbed_dependencies` import path (M7 contradiction), and malformed
-  patterns. When `implicit` is set, permit empty `interface_files` (today a
-  validation error).
+- `manifest`: parse and validate all three. Reject duplicate members, a member
+  that is also an `absorbed_dependencies` import path (M7 contradiction), and
+  malformed patterns. Under `interface_style = PACKAGE_SURFACE`, require non-empty
+  `members` and **empty** `interface_files`; both directions are errors, so the
+  surface has one source of truth.
 - `checker`: membership comes from `Manifest.Members` when non-empty, else FR1.
   Force the interface package into the member set (M5); a pattern that also
   matches it is not an error.
@@ -51,7 +53,9 @@ FR1 behavior is bit-for-bit what it is today.
 
 **Tests.**
 - `manifest`: members parsing, pattern forms, duplicate rejection, the
-  absorbed-contradiction rejection, `implicit` permitting an empty interface.
+  absorbed-contradiction rejection; `PACKAGE_SURFACE` requiring members and
+  rejecting non-empty `interface_files`, and the default style still requiring
+  `interface_files`.
 - `checker`: membership derived from `Members` when present; FR1 when absent;
   interface package always a member.
 - `goanalysis`: a manifest whose members name a package outside the component
@@ -76,9 +80,16 @@ who calls them.
 **Guidance.**
 - Roots derive from declared membership (Step 1) rather than from layout-mode
   filtering alone; `LoadPackageFacts` filters facts to members.
-- Scope `INIT_OUTSIDE_INTERFACE` to packages containing at least one interface
-  file (A2). Without this, every member implementation package with an ordinary
-  `func init()` becomes a violation.
+- **Remove `INIT_OUTSIDE_INTERFACE`** (A2): the `report.Kind` constant, the
+  `sym.Kind == "init"` branch at `checker.go:166-176`, and its tests
+  (`TestCheck_FR4_ExplicitInitOutsideInterface`, the index-2 assertion at
+  `checker_test.go:910`). Without some change here, every member implementation
+  package with an ordinary `func init()` becomes a violation; scoping it to the
+  interface package would leave a rule whose rationale no longer holds (Q15).
+  A2's *other* half — emitting `func <B-pkg>.init CAPABILITY_SAFE` when pruning
+  dependency B — is untouched and is what actually carries the soundness.
+- This is the one non-additive edit in the batch and it touches the golden text
+  renders, so it lands here with the roots change that makes it necessary.
 - `METHOD_OUTSIDE_INTERFACE` needs **no change** — it is already conditional on
   the receiver type being declared in an interface file (`checker.go:152-165`).
   Add a test that pins this, so a later refactor cannot silently widen it.
@@ -86,8 +97,9 @@ who calls them.
 **Tests.**
 - Design §7.1 fixture 1: the note's Part 1 example with `backend` as a *member*
   must report `UNDECLARED_AUTHORITY` for FILES, where it passes today.
-- `checker`: the init rule fires in the interface package and does not fire in a
-  member implementation package.
+- `checker`: a member implementation package with `func init()` produces no
+  finding, and no `INIT_OUTSIDE_INTERFACE` survives anywhere (pinned by the
+  golden renders).
 - Pinning test for the method rule's existing interface scoping.
 
 **Integration.** First behavior change of the batch. Self-checks must stay green;
@@ -95,8 +107,9 @@ if any component's own impl package trips something here, that is a real finding
 to look at rather than a test to relax.
 
 **Demo.** Run the Part 1 fixture before and after: authority reachable only
-through a member implementation package now fails the check. Show a member
-package with `func init()` no longer flagged.
+through a member implementation package now fails the check. Show a package with
+`func init()` no longer flagged, and its authority charged to the component
+instead — attribution doing the job the placement rule was standing in for.
 
 ---
 
@@ -208,28 +221,38 @@ membership, with all host-specific knowledge in the one swappable file.
 
 **Guidance.**
 - `go_adapter.bzl` gains `go_build_platform(target)` (reads `GoInfo.mode`, **not**
-  `GoSDK.goos`, which is the exec platform), `go_member_label(package_path)` for
-  the package→target naming convention, and an `INFRA_COMPONENTS` list (used in
-  Step 9).
-- `arcc_subpackages()` helper in `bazel_rules/go/defs.bzl`, documented as
-  BUILD-top-level only: `native.subpackages()` is rejected inside a symbolic
-  macro (`../research/members-glob-expansion.md`, finding 3).
+  `GoSDK.goos`, which is the exec platform) and an `INFRA_COMPONENTS` list (used
+  in Step 9). **No** package→target naming hook: B2 is deferred because nothing in
+  rules_arcc maps a package path to a target any more (Q16).
+- **No `arcc_subpackages()` helper.** `members` takes concrete labels;
+  `native.subpackages()` returns only the frontier of nearest descendant packages
+  and cannot address anything past a package boundary, so a helper named for
+  subtrees would not deliver subtrees (`../research/members-glob-expansion.md`,
+  findings 2-3). An author wanting the frontier calls bazel-skylib's
+  `subpackages.all()` at BUILD top level themselves.
 - `members = attr.label_list(providers = GO_PROVIDERS, aspects = [arcc_deps_aspect])`
   on the component rule, so member targets are pulled into the closure by the
   aspect — a member the interface does not import must still be analyzed.
+- `interface_style` attribute, with the shape rule enforced in the macro
+  implementation: default style ⇒ `interface` mandatory and `members` optional;
+  `PACKAGE_SURFACE` ⇒ `members` mandatory and `interface` **rejected** with a
+  `fail()` naming the component (Q17a). `interface` therefore becomes
+  `mandatory = False` plus a validation check rather than a mandatory attr.
 
 **Tests.**
 - Analysis test: a component declaring members has those packages in its closure
   even when the interface does not import them.
 - Analysis test for `go_build_platform` returning the target (not exec) platform.
-- `arcc_subpackages()` expanding a subtree to the expected labels, and failing
-  usefully when a subpackage has no matching Go library.
+- Analysis tests for the shape rule: `PACKAGE_SURFACE` with `interface` set
+  fails; `PACKAGE_SURFACE` with empty `members` fails; the default style with no
+  `interface` fails.
 
 **Integration.** Additive to the rules; no manifest or layout change yet, so the
 existing Bazel suite must stay green untouched.
 
-**Demo.** `bazel build` a component declaring `members = arcc_subpackages()` and
-print the resolved closure, showing the member packages present.
+**Demo.** `bazel build` a component declaring explicit `members` and print the
+resolved closure, showing member packages present that the interface never
+imports. Show the three shape-rule failures.
 
 ---
 
@@ -304,37 +327,57 @@ showing a warning in the first and silence in the second.
 
 ---
 
-## Step 9: Implicit infra components
+## Step 9: Package-surface components and auto-attached edges
 
-**Objective.** Let toolchain-injected runtimes be pruned without their authority
-simply vanishing, so a pure component can use protos.
+**Objective.** Let code that was never given an architectural interface be pruned
+without its authority simply vanishing — whether it is a toolchain-injected
+runtime (so a pure component can use protos) or an existing library an author
+wraps to draw a boundary around it. These are one kind of component (Q17).
 
 **Guidance.**
 - `capanalyzer.AnalyzeRequest` gains `PruneAtPackages []string` beside `PruneAt`,
   keeping granularity explicit in the port.
 - `capslockadapter.buildClassifier` emits `package <path> CAPABILITY_SAFE` for
-  the packages of any dependency whose manifest is `implicit`. Capslock resolves
-  per-function keys before the package fallback, so both forms coexist
+  the packages of any dependency whose manifest declares
+  `interface_style = PACKAGE_SURFACE`. Capslock resolves per-function keys before
+  the package fallback, so both forms coexist
   (`../research/capability-analysis-mechanics.md` §2).
-- `checker`: an `implicit` dependency prunes at package granularity, is exempt
-  from FR4 placement rules, and never produces `UNUSED_DEPENDENCY`.
+- `goanalysis.ResolveDependencyInterface` gains a `PACKAGE_SURFACE` branch: the
+  dependency's interface symbol set is every exported symbol of every member,
+  taken from facts already loaded. This is what keeps `UNUSED_DEPENDENCY`
+  meaningful for a wrapped library while making `CALLS_UNDECLARED_INTERFACE`
+  vacuous.
+- `checker`: a `PACKAGE_SURFACE` dependency prunes at package granularity and
+  skips `CALLS_UNDECLARED_INTERFACE`; a dependency edge marked `auto_attached`
+  never produces `UNUSED_DEPENDENCY`. The exemption is read off the depender's own
+  manifest — no dep-manifest lookup. FR4 placement rules need **no** special case:
+  with the init rule gone (Step 2), `METHOD_OUTSIDE_INTERFACE` is already vacuous
+  when `interface_files` is empty.
 - The rule attaches an `INFRA_COMPONENTS` entry as a `component_dep` **iff** the
-  component's closure contains one of its packages (A7).
+  component's closure contains one of its packages, marking that edge
+  `auto_attached` (A7).
 
 **Tests.**
-- A component reaching authority only through an implicit infra dependency
+- A component reaching authority only through an injected infra dependency
   declares nothing and passes.
 - The infra component's **own** check still reports its authority — the property
   that distinguishes this from a bare trust list.
 - A per-function prune key still overrides the package key.
 - Attachment does not happen when the closure lacks the runtime's packages.
+- The author-written case: a `PACKAGE_SURFACE` wrapper that a member calls into
+  produces no `UNUSED_DEPENDENCY`, and the same wrapper left unused **does** warn
+  — the axis that `auto_attached` separates from the component kind.
 
-**Integration.** Depends on Step 1 (`implicit` in the schema) and Step 6
-(`INFRA_COMPONENTS` in the adapter).
+**Integration.** Depends on Step 1 (`interface_style` and `auto_attached` in the
+schema), Step 2 (the init-rule removal that makes relaxed well-formedness free),
+and Step 6 (`INFRA_COMPONENTS` and the `interface_style` attribute).
 
-**Demo.** A component whose generated code reaches a runtime using `REFLECT`:
-fails before, passes after, while the infra component's own check shows the
-`REFLECT` declaration doing the work.
+**Demo.** Two demos, one per case. A component whose generated code reaches a
+runtime using `REFLECT`: fails before, passes after, while the infra component's
+own check shows the `REFLECT` declaration doing the work. And a logger-shaped
+wrapper — `interface_style = PACKAGE_SURFACE`, `members = [//common/logger]`,
+`declared_authority = [FILES, NETWORK]` — where callers stop being charged NETWORK
+but still get an unused warning if they declare it and never log.
 
 ---
 
@@ -377,10 +420,16 @@ memory.
   than amend — the classification order and the membership source both change.
 - Correct §4.3/§4.6's statement that `GoInfo.srcs` is the compiled set; the
   loader filters, and now does so against a declared platform.
-- README: `members`, `arcc_subpackages()`, `implicit` infra components, and the
-  adapter's new hooks.
-- Record Appendix C's four limitations where a user will find them, not only in
-  the planning tree.
+- Remove the `INIT_OUTSIDE_INTERFACE` prose from the 2026-07-06 design (§FR4 rule
+  (c)) and from review A2, keeping A2's `init CAPABILITY_SAFE` half — that record
+  should say the rule was retired because attribution supersedes it, not that it
+  never existed.
+- README: `members` (concrete labels, and why there is no wildcard helper),
+  `interface_style = PACKAGE_SURFACE` for wrapping interface-less libraries,
+  `auto_attached` edges, and the adapter's new hooks.
+- Record Appendix C's six limitations where a user will find them, not only in the
+  planning tree — C.4 especially, since "the component's BUILD file changes when
+  the implementation is restructured" is a live cost an author feels.
 
 **Tests.** `just ci` green, including `gen-is-clean`.
 

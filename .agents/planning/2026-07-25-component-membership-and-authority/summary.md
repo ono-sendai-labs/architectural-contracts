@@ -1,7 +1,7 @@
 # Summary — component membership and authority attribution
 
 **Date:** 2026-07-25
-**Status:** design and plan complete; implementation not started
+**Status:** design and plan complete, revised after review (Q15–Q17); implementation not started
 **Branch:** `dev/exp-go-bazel-mvp`
 
 ## Artifacts
@@ -9,7 +9,7 @@
 ```
 .agents/planning/2026-07-25-component-membership-and-authority/
 ├── rough-idea.md          the three problem groups and where they came from
-├── idea-honing.md         Q1–Q14, every decision with its rationale
+├── idea-honing.md         Q1–Q17, every decision with its rationale
 ├── research/
 │   ├── members-glob-expansion.md          Bazel Starlark: what can expand a glob, and where
 │   ├── capability-analysis-mechanics.md   how Capslock actually attributes; SSA detection shape
@@ -43,27 +43,39 @@ becomes declared data instead of an ambient property of the arcc binary;
 standard-library classification requires two signals to agree; the
 canonicalization contract hosts depend on is asserted rather than assumed.
 
-**Two supporting pieces.** *Implicit infra components* let toolchain-injected
-runtimes be pruned while still being checked, so their authority is certified
-rather than trusted; a *bazelified self-check* means a Bazel-only environment
-cannot silently skip arcc's own dogfooding.
+**Two supporting pieces.** *Package-surface components* let code that was never
+given an architectural interface be pruned while still being checked, so its
+authority is certified rather than trusted — one kind covering both
+toolchain-injected runtimes and libraries an author wraps to draw a boundary;
+a *bazelified self-check* means a Bazel-only environment cannot silently skip
+arcc's own dogfooding.
 
 ## Findings that shaped it
 
 - **The "remainder is an error" rule already exists.** `UNDECLARED_DEPENDENCY`
   covers it; it only stays quiet because the Bazel rule emits blanket absorbed
   entries. Part 2 of the source note is largely a rules-layer change.
-- **Only one well-formedness rule needed rescoping.** `METHOD_OUTSIDE_INTERFACE`
-  is already conditional on the receiver type living in an interface file; only
-  the init rule breaks when members become roots.
+- **Neither well-formedness rule survives rescoping.**
+  `METHOD_OUTSIDE_INTERFACE` is already conditional on the receiver type living in
+  an interface file, so it needs no change; the init rule breaks when members
+  become roots, and on review (Q15) turned out to have no remaining job at all —
+  its soundness argument is carried by attribution, so it is removed rather than
+  narrowed.
 - **Capslock attributes by backwards BFS** from capability nodes, so the
   analyzed-*package* set is the entire criterion — there is no "reachable from the
   interface". This is why members-as-roots closes the gap for owned code, and why
   the note's Option B is not expressible through the current port.
-- **Capslock supports package-level prune keys**, which is what makes implicit
-  infra components cheap and, in fact, more complete than symbol pruning.
-- **`native.subpackages()` is rejected inside a symbolic macro**, so the
-  `members` glob expands at the BUILD call site, not inside `go_component`.
+- **Capslock supports package-level prune keys**, which is what makes
+  package-surface components cheap and, in fact, more complete than symbol
+  pruning.
+- **`native.subpackages()` cannot express a subtree at all.** It is rejected
+  inside a symbolic macro, and — corrected on re-verification (Q16) — returns only
+  the *frontier* of nearest descendant packages, unable to address anything past a
+  package boundary. bazel-skylib's wrapper has the same limit. So `members` takes
+  concrete labels and no wildcard helper ships.
+- **The infra and library-wrapper cases are one component kind** (Q17), differing
+  only in who created the dependency edge — which is a property of the edge
+  (`auto_attached`), not of the component (`interface_style`).
 - **`GoInfo.mode` carries the target platform**; `GoSDK.goos` is the exec
   platform and would have reproduced the bug being fixed.
 
@@ -88,16 +100,27 @@ Choices made without an explicit decision from the user:
 - The layout's `platform` block is **optional** (absent ⇒ `build.Default`), which
   keeps native mode and hand-written layouts working but leaves the old ambient
   behavior reachable.
+- Enum value naming: `INTERFACE_STYLE_PACKAGE_SURFACE` rather than the
+  `IMPLICIT_INTERFACE` the review sketched, because "implicit" is already carrying
+  M5 and auto-attachment.
 
-Four limitations are stated deliberately in design Appendix C: one platform per
+Reviewed and settled (Q15–Q17): removing `INIT_OUTSIDE_INTERFACE` outright;
+shipping no `members` wildcard helper; splitting `implicit` into
+`interface_style` + `auto_attached`; rejecting `interface` under
+`PACKAGE_SURFACE`.
+
+Six limitations are stated deliberately in design Appendix C: one platform per
 check; cross-component membership overlap undetected; absorbed code still
-use-attributed; package-granularity pruning hiding a runtime's unexported entry
-points.
+use-attributed; **a component's BUILD file changing when its internal package
+structure changes** (C.4, tabled with the wildcard helper — the one that works
+against the review-light-implementation-changes goal); package-granularity pruning
+hiding unexported entry points, now with a wider blast radius; and
+`PACKAGE_SURFACE` components being able to launder authority.
 
 ## Next steps
 
 1. Review `design/detailed-design.md` and `implementation/plan.md` together.
-2. Resolve the four open items above (or accept them).
+2. Resolve the remaining open items above (or accept them).
 3. Run `plan-to-tasks` to generate code task files for Step 1.
 
 ## Related work not in this batch
@@ -108,3 +131,7 @@ points.
   not invisible on a Linux check.
 - **Never feeding canonical paths back into `packages.Load`** (Q7b) — the
   principled removal of the invariant that Step 5 merely asserts.
+- **A stable way to say "all packages under here"** (Q16, Appendix C.4) — the
+  aggregate-target-per-package pattern is the likeliest answer; it keeps the
+  component's own BUILD file untouched by internal restructuring, at the cost of a
+  small target in every subpackage.

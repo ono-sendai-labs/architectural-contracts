@@ -278,6 +278,12 @@ classification the way `fileHandleUseMethods` does.
 **Answer: pre-declared *implicit infra components*, maintained in the Bazel
 rules — a combination of certification and a trusted list.**
 
+> **Superseded in form by Q17.** The reasoning below stands unchanged; only the
+> encoding moved. The single `implicit` marker split into
+> `interface_style = PACKAGE_SURFACE` on the component (what it is) and
+> `auto_attached` on the dependency edge (how it got there), once it became clear
+> that an author wrapping an ordinary library wants the first without the second.
+
 The user's formulation: maintain pre-declared infra components somewhere in the
 Bazel rules; they are themselves **checked**, so their authority is surfaced;
 and the emitter adds them automatically as a `component_dep`, with an `implicit`
@@ -379,3 +385,165 @@ precisely because the monorepo environment is Bazel-only and never ran
 `just selfcheck`. It also dogfoods `members`: the `cli` component spans
 `cmd/arcc` plus its `app` subpackage, so it is the repo's own multi-package case.
 
+
+---
+
+*Q15–Q17 came out of the user's review of the completed design and plan
+(2026-07-26). They revise A2, B1/B2 and A6/A7 respectively.*
+
+## Q15 — What is `INIT_OUTSIDE_INTERFACE` still for once A2 scopes it to the interface package?
+
+**The user's observation.** Under A2 the rule only fires where an init is *not*
+declared in an interface file of a package that has one — so what is left? The
+suspicion: the rule was introduced under the assumption that only member code
+reachable *from the interface* would be analyzed, which would leave member inits
+unanalyzed unless reachable through an interface-exposed init. With every member
+package now an analysis root that assumption is gone. And conceptually an init is
+an implementation detail, not an interface-exposed contract.
+
+**Answer: correct — remove the rule entirely.**
+
+Verified before answering: under A2 the rule's entire remaining surface is *an
+explicit `func init()` in a non-interface file of a package that has at least one
+interface file*, e.g. the init in `svc/helpers.go` when only `svc/api.go` is
+declared. Three reasons that is not worth keeping:
+
+1. **The soundness half of review A2 is elsewhere and unaffected.** A2 had two
+   parts. Part 1 — emit `func <B-pkg>.init CAPABILITY_SAFE` when pruning
+   dependency B — is what prevents import-time authority from re-absorbing with no
+   prune point. It is independent of file placement and stays. Part 2 (this rule)
+   rested on "importing a package runs its init, so init behavior is de facto
+   interface"; once members are roots, an init's authority is charged to the
+   component wherever it is declared. Attribution carries it.
+2. **The remaining scope is arbitrary.** If import-time behavior is de facto
+   interface, it is equally so for a member package's init, since the interface
+   imports it transitively. Interface-package-only catches the case where the
+   interface package happens to be multi-file and misses the general case.
+3. **An init is an implementation detail.** No signature, not callable, not
+   referenceable; what it changes is behavior, which arcc does not check. The
+   style concern is `gochecknoinits` territory.
+
+Removed: `report.InitOutsideInterface`, the `sym.Kind == "init"` branch at
+`checker.go:166-176`, `TestCheck_FR4_ExplicitInitOutsideInterface`, the assertion
+at `checker_test.go:910`, and the FR4 prose in the 2026-07-06 design. A2 becomes
+"delete" rather than "rescope".
+
+Side effect worth noting: with the init rule gone, `METHOD_OUTSIDE_INTERFACE` is
+already vacuous when `interface_files` is empty (it is conditional on the
+receiver's type being declared in an interface file), so the "relaxed
+well-formedness" that Q10a wanted for interface-less components costs nothing in
+the checker — only a manifest-validation relaxation.
+
+## Q16 — Should `arcc_subpackages()` ship?
+
+**Correction that forced the question.** `research/members-glob-expansion.md`
+finding 2 originally read `native.subpackages()` as returning transitive
+subpackages. Re-verified with a fixture where a package is nested *under* a
+package (`comp/a/deep`), it returns only the **frontier** of nearest descendant
+packages and cannot address anything past a package boundary —
+`include = ["a/deep"]` returns `[]` for an existing `//comp/a/deep`. The original
+fixture could not tell the difference because `comp/b` was a plain directory.
+bazel-skylib's `subpackages.all()` (which
+[bazel.build recommends](https://bazel.build/rules/lib/toplevel/native#subpackages)
+over the native call) is a thin wrapper with the same limit, though its
+`fully_qualified = True` output makes the B2 naming hook a no-op under the Gazelle
+basename convention.
+
+**The user's actual goal, which the helper was standing in for.** Components are
+meant to enable a style of work where implementation changes need little or no
+human review *because* interface changes are the ones that surface. For that, the
+BUILD file declaring a component should not have to change when the
+implementation does — internal packages added, removed, or restructured. A
+top-level "all packages underneath" declaration would give that.
+
+**Answer: table it — ship no helper at all.**
+
+`members` takes concrete labels. An author who wants the frontier calls skylib
+directly at BUILD top level; otherwise labels are listed, and whoever changes the
+implementation adjusts the BUILD files under the component. A helper named for
+subtrees that delivers a frontier is worse than no helper: it reads as "everything
+below here" and is wrong the moment a nested BUILD file appears.
+
+Consequences: **B1** becomes "concrete labels only"; **B2** is deferred, since
+nothing in rules_arcc maps a package path to a target any more; no
+`bazel_dep` on bazel-skylib is needed. The unmet goal is recorded as Appendix C.4
+rather than dropped, along with the mitigating fact that a *missed* member which
+is actually imported is fail-closed (`UNDECLARED_DEPENDENCY` names it) and only
+dead nested code stays silently unowned. The aggregate-target-per-package pattern
+in Appendix B is the likeliest eventual answer, since it keeps the component's own
+BUILD file stable — at the cost of a BUILD edit in every subpackage.
+
+## Q17 — Does an author-declared "implicit interface" component collapse with the implicit infra component?
+
+**The user's proposal.** A common adoption scenario is wrapping a commonly used
+library — a logger, say — that was never structured to have an architecturally
+exposed interface. Such a component would prune at package granularity like an
+infra component, its interface being implicitly every exported symbol of its
+members, but it *should* still warn when declared and unused, since an author
+wrote it.
+
+**Answer: the component kind collapses to one; the difference is real but belongs
+on a different axis.**
+
+Comparing the two cases across every property in play, they agree on: interface =
+full exported surface of members; package-granularity pruning; `interface_files`
+may be empty; FR4 placement rules not applying; own check running so authority is
+certified rather than trusted. They differ on exactly two, which are the same
+thing twice: the edge is created by the emitter rather than the author, and it is
+exempt from `UNUSED_DEPENDENCY`.
+
+So: one component kind, one edge property.
+
+```protobuf
+enum InterfaceStyle {
+  INTERFACE_STYLE_UNSPECIFIED = 0;      // interface_files enumerate the surface
+  INTERFACE_STYLE_PACKAGE_SURFACE = 1;  // every exported symbol of every member
+}
+message Component { ... InterfaceStyle interface_style = 7; }
+message ComponentDependency { ... bool auto_attached = N; }
+```
+
+`bool implicit` on `Component` disappears. Two fields rather than one three-value
+enum, for two reasons: `auto_attached` sits on the **depender's own** edge, so the
+checker needs no cross-manifest lookup to decide whether to warn (simpler than the
+original design, which resolved the dep's manifest to read `implicit`); and it
+permits the combination a three-value enum forbids — an injected component that
+does declare real interface files.
+
+### Q17a — Is `interface` still needed under `PACKAGE_SURFACE`?
+
+**The user's question.** The logger example still carried an `interface`
+declaration; if the style is package-surface, is that necessary, or is
+`interface_style` plus `members` sufficient?
+
+**Answer: not necessary — and it should be rejected outright.**
+
+`interface` does four jobs today: supplies `interface_files`, is the aspect root,
+defines the FR1 component root, and forwards Go providers so the component target
+works as a `deps` entry. Under `PACKAGE_SURFACE` the first three are subsumed by
+`members` (already aspect roots; FR1 moot because membership is explicit). Only
+provider forwarding survives, and it is close to worthless in exactly this
+scenario: callers of a library you do not own already depend on it directly, and
+you cannot edit their BUILD files to point at your component target. An author who
+wants it writes an `alias`. Allowing `interface` as optional-but-permitted would
+leave two sources of truth for the surface.
+
+So the shape rule is: **declared style** — `interface` mandatory, `members`
+optional; **`PACKAGE_SURFACE`** — `members` mandatory, `interface` rejected. M5
+("the interface package is implicitly a member") is vacuous under
+`PACKAGE_SURFACE`, and layout `roots` equals `members` exactly.
+
+### Q17b — Consequences accepted with the decision
+
+1. `ResolveDependencyInterface` needs a `PACKAGE_SURFACE` branch returning every
+   exported symbol of every member, so `UNUSED_DEPENDENCY` stays meaningful
+   (`logger.Info(...)` resolves to a used symbol) while
+   `CALLS_UNDECLARED_INTERFACE` becomes vacuous.
+2. The authority hiding is deliberate and is the point: absorbing
+   `//common/logger/impl:network_logger` charges NETWORK to every component that
+   logs, whereas making it a component stops that. The load-bearing safeguard is
+   the wrapper's own check — the certified-not-trusted argument from Q9, now
+   applying to author-written components too (Appendix C.6).
+3. Appendix C's package-pruning limitation widens: it was scoped to injected
+   runtimes and now applies wherever an author writes `PACKAGE_SURFACE`, which
+   will be common (Appendix C.5).

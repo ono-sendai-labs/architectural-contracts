@@ -42,7 +42,7 @@ emits only `func` keys (`capslockadapter.buildClassifier`).
 So `package <import/path> CAPABILITY_SAFE` marks **every function in that
 package** safe, with per-function keys taking precedence.
 
-**Design consequence.** An implicit infra component (Q9/Q10a) can be pruned with
+**Design consequence.** A `PACKAGE_SURFACE` component (Q9/Q10a/Q17) can be pruned with
 one classifier line per package rather than by deriving per-symbol keys — and it
 is *more* complete than symbol pruning, which cannot name unexported entry
 points. This makes "relaxed well-formedness, no interface files" mechanically
