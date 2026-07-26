@@ -547,3 +547,237 @@ optional; **`PACKAGE_SURFACE`** — `members` mandatory, `interface` rejected. M
 3. Appendix C's package-pruning limitation widens: it was scoped to injected
    runtimes and now applies wherever an author writes `PACKAGE_SURFACE`, which
    will be common (Appendix C.5).
+
+---
+
+## Q18 — What survives review against a second host?
+
+The design was reviewed in the context of porting arcc to a second Bazel-compatible
+build system with an independently written Go ruleset, probing empirically where
+the design made a host-dependent claim. Evidence is recorded host-neutrally in
+`research/host-portability-findings.md` (F1–F7). Two rounds; the second round's
+refinements are folded in below. Nine changes resulted, four of them substantive.
+
+### Q18a — Does T4's stdlib rule break layout mode?
+
+**Yes, and the first diagnosis of why was wrong.** `stdlibClassifier()`
+(`goanalysis.go:274-286`) uses `hostpolicy.IsStdlibPath` in layout mode and
+`isStdlibPackage` otherwise, and `isStdlibPackage` returns **true** when
+`p.Module == nil` (`goanalysis.go:259-261`). So a literal AND is harmless — in
+layout mode it degenerates to today's path policy. What breaks it is T4's *other*
+half, which Step 5 states out loud: "a driver-loaded dependency with no `Module` is
+no longer classified stdlib." Flip that branch and apply the AND uniformly, and
+`os` and `fmt` become non-stdlib along with everything else, drowning every member
+package in `UNDECLARED_DEPENDENCY`. This would have shipped.
+
+The diagnosis matters because it exposes what T4 conflated: the nil-`Module` flip
+fixes the *native* path, while `IsStdlibPath` is the *only* signal layout mode has
+ever had. "Two signals must agree" was never true there.
+
+**Answer: layouts carry a per-package `is_stdlib` bit — and it must be
+provenance-derived (T4, T4a).**
+
+"AND where metadata exists" restores correctness but leaves layout mode
+single-signal, which is the real weakness: a host path policy that is wrong for one
+path has nothing checking it. The alternative considered and rejected.
+
+The second round supplied the decisive constraint: **an emitter asked for
+`is_stdlib` will re-implement the path heuristic.** A host emitter was found
+already carrying a local copy of the host path policy, with a comment saying it is
+deliberately kept in sync with the loader's (F6). A bit computed that way is a
+checksum over a copy of the function being checked — it can never disagree, the
+load error can never fire, and layout mode stays single-signal with ceremony that
+makes it look otherwise. So T4a requires the bit to come from **build-graph
+provenance** (SDK/toolchain versus enumerated target), which the path policy does
+not have and cannot reconstruct.
+
+One further framing correction, made while writing this up: **the two signals are
+not peers.** Provenance is authoritative; the path policy is a heuristic. The
+agreement check is not a vote — it validates the heuristic against ground truth,
+and it fails closed because `hostpolicy.IsStdlibPath` is consulted by other code
+paths (`packagelayout.IsStdlib`, the checker's nil-facts fallback) that a wrong
+path policy would also corrupt.
+
+### Q18b — Does the platform block bind emitters too?
+
+**Yes (T8, new).** Verified on a host whose layout listed one package's OS-specific
+variants for two operating systems, a POSIX variant, a "neither" fallback and a
+negated-OS variant simultaneously (F1) — the build metadata carries each target's
+*declared* source set, not what the compiler selected. Two consequences: the
+loader's constraint filter is load-bearing rather than belt-and-braces, and the
+emitter, deriving imports by parsing those same files, produces an import list that
+is the **union across platforms**. Such a layout is internally inconsistent with its
+own platform block, and the failure it causes — spurious `UNDECLARED_DEPENDENCY`
+for a platform-gated import — is exactly what T1 exists to prevent, relocated.
+
+Two shapes conform: the emitter filters and declares files *and* imports for the
+platform; or it declares the unfiltered file set with **no** imports and the loader
+recovers them post-filter. The accidental middle — unfiltered files with imports
+derived from them — does not. Naming both shapes keeps the contract implementable
+by a host that has no platform at emit time.
+
+**The loader validates rather than trusts.** It already parses sources for import
+recovery, so the check is nearly free. Made **bidirectional** rather than
+one-sided: declared imports must *equal* the post-filter recovered set. The reverse
+direction — an import a surviving file contributes that was never declared — is an
+edge FR2 would never see, which is the more dangerous of the two.
+
+### Q18c — Can a `PACKAGE_SURFACE` component's membership be patterns?
+
+**Yes (M8).** On a host where generated serialization code reaches its runtime
+through the toolchain, the runtime's internal packages are visibility-restricted to
+their own subtree and the principal entry point is behind a consumer allowlist
+(F4). Naming ~35 such packages as `members` labels means visibility grants across
+build files owned by another team — the thing Q9 ruled out.
+
+Smaller than it looks: M1 already permits patterns in the manifest. It is M4
+("emitters write the fully expanded literal list") that forces labels, and M4's
+rationale is **reviewability** — a glob that swept in something unexpected should
+be visible in review. That does not apply to a component whose membership only
+derives prune keys and an exported-surface set. So M4 narrows to declared-style
+components.
+
+Consequences worked through in the second round:
+
+- **A pattern-membership component has no layout**, so the surface resolves from the
+  **depender's** layout, whose closure contains those packages by construction.
+  M6 (`roots == members`) therefore applies only where the component is loaded as a
+  root.
+- **Narrower than it first appeared.** The surface is needed only to detect a call
+  edge for `UNUSED_DEPENDENCY`; prune keys need package paths alone, and an
+  `auto_attached` edge is exempt from `UNUSED_DEPENDENCY` by definition. So local
+  symbol extraction is needed only for *pattern membership without
+  auto-attachment*, which is rare — a library you wrap deliberately is usually one
+  you can name. The motivating case (injected runtimes) needs paths only.
+- **The certification flag is a self-declaration.** Only the dependency's own
+  emitter knows whether a check target exists; a depender cannot infer it, because
+  the case that needs it is the case where dependencies are not targets. So
+  `own_check_runs` and `certification_reference` sit at the same trust level as
+  `declared_authority` — reviewable, not proven — and their field comments say so.
+
+### Q18d — How is the lost certification surfaced?
+
+The trade-off is real: a pattern-only component cannot run its own check, so its
+`declared_authority` is an assertion rather than the maintained claim Q9 earned.
+The first proposal was a per-component `UNCERTIFIED_PRUNE` warning. The review
+pushed back that where a runtime is injected everywhere, it fires on **every**
+component in the repository, identically, forever — and a warning with a 100% hit
+rate gets suppressed wholesale in CI, after which the suppression hides the
+interesting instances too.
+
+**Answer: a report annotation plus deferred repo-wide enforcement, not a finding
+(A8).**
+
+The review's counter-proposal was a free-form certification reference that flips
+severity: present ⇒ info, absent ⇒ warn. Kept the field, rejected the severity
+flip, because the diagnosis points somewhere better: **the subject is wrong.** "This
+component is not certified" is a property of *that* component, not of the many that
+prune at it. Reporting it N times is the noise; reporting it once is the fix. And
+the natural home for once is a **repo-wide check** — "every `PACKAGE_SURFACE`
+dependency is certified or carries a reference" — which is the same shape as the
+already-deferred repo-wide membership-uniqueness check, and is deferred with it.
+
+So the report's dependency listing annotates each pruned boundary **certified** or
+**asserted**, always visible, never suppressible, no severity, and the depending
+component is not blamed for someone else's missing check. The reference field
+survives as the thing that makes an asserted boundary reviewable and greppable, and
+gives "certification is a scheduling problem, not an impossibility" a place to live
+in the data rather than only in prose.
+
+### Q18e — Must infra attachment be conditional?
+
+**No (A7).** On a host where toolchain-injected packages are absent from the
+analysis-phase closure but present in the execution-phase build metadata (F3), the
+predicate "attach iff the closure contains one of its packages" is unevaluable for
+exactly the packages it was written for.
+
+And it is unnecessary, by a stronger argument than the review's ("`auto_attached`
+already suppresses the warning"): **pruning at a package is a no-op unless that
+package is reached** — prune keys only fire on paths through it — and a component
+that reaches the runtime *and* independently exercises authority in its own code is
+still charged, because its own packages are roots (A1). So unconditional attachment
+cannot hide anything that would not have been hidden when reached. The predicate was
+a report-tidiness optimization dressed up as a safety property.
+
+The attachment predicate becomes a host seam with "always attach" explicitly
+conforming. One thing to preserve, from the second round: **the injected edge must
+still appear in the emitted manifest.** The whole legibility argument for
+`auto_attached` over a hidden allowlist is that a reader can see which boundaries
+were injected; an emitter that skips the entry because "it is always there" hands
+the trust list back.
+
+### Q18f — Smaller items
+
+- **T2 admits a constant.** A host's Go provider can be a documented placeholder
+  with an empty field list, carrying no platform, tags or cgo flag (F2). So a fixed
+  constant is not a fallback but the only available implementation, and the seam's
+  contract says it is conforming. `GoInfo.mode` becomes an illustrative example
+  rather than the specification.
+- **The registry accepts patterns, and an empty default is a placeholder.** Injected
+  packages are disproportionately the visibility-gated ones, so the case that most
+  needs the registry cannot name targets (F4). And they are ubiquitous rather than
+  exotic: on one host every Go target's closure carries an exit-hook registrar and a
+  coverage-instrumentation package, both closure-visible and classified as ordinary
+  members today (F5), so they hit the "remainder is an error" branch in every
+  component before anything interesting is involved. The registry is the first thing
+  an adopter touches, not the last, and the `UNDECLARED_DEPENDENCY` message should
+  be able to point at it.
+- **`_check_component_roots` is deleted, not scoped.** The FR1-era rule that a
+  `component_dep` may not be rooted inside the consumer
+  (`component.bzl:181-192`) reads `dep[ArccComponentInfo].component_root`, and a
+  `PACKAGE_SURFACE` component has no interface target and so no meaningful root — it
+  is *inputless*, not merely jobless. M7 states the real constraint over package
+  sets, and directory nesting stops meaning anything once M2 lets members live
+  anywhere. Deleting it unblocks co-locating a wrapper with the library it wraps,
+  the ergonomics case that started Q17.
+- **The plumbing-handle point generalizes (M9).** Rejecting `interface` under
+  `PACKAGE_SURFACE` was reported as breaking host plumbing that derives
+  layout-generation inputs from the interface target. True, but not
+  `PACKAGE_SURFACE`-specific: a *declared-style* component with `members` the
+  interface does not import has the same problem. So the requirement is
+  host-neutral — layout inputs derive from the union of interface and members — and
+  belongs with M1/M2. The shape rule stands; keeping `interface` as a pure plumbing
+  handle would defer work a host needs anyway while making one attribute mean two
+  things.
+- **B2's rationale is rewritten.** "The default target name matches the directory
+  basename" is a convention of one ruleset, not a general fact — a second host has
+  no such convention (F7). B2 is deferred because nothing in the rules maps a
+  package path to a target *any more*; the convention was evidence the hook would be
+  a no-op here, not an argument that it is unnecessary anywhere.
+- **Members must be source-loaded (M10), and the gap is reported (A9).** A package
+  with an export file and no sources is bodiless on its face, so the contract is
+  checkable from the layout rather than merely stated. For the residual — a bodiless
+  package that is *absorbed* — the review proposed reporting it under the existing
+  `UNANALYZED` authority constant. Rejected: the word is right but the constant is
+  taken, and its handling is load-bearing. `UNANALYZED` is a Capslock capability the
+  adapter deliberately **excludes**, because with it visible functions like
+  `io.ReadAll` become capability leaves and mask the real `FILES` flow behind them
+  (the original spike finding). Giving it a second meaning would entangle a report
+  concept with a classifier setting whose purpose is to stay suppressed.
+  `ANALYSIS_LIMITATION` already means "the analysis could not see through this",
+  which is the claim.
+- **Symbolic macros are portable; no upstream change.** `macro()` with
+  `inherit_attrs = "common"`, `configurable = False` attributes and a `name +
+  ".check"` target all work unchanged on a second implementation, where
+  `native.subpackages()` also exists with the same frontier semantics and is also
+  rejected inside a symbolic macro (F7). So the Q16 conclusion rests on the macro
+  model rather than on one implementation — the strongest available evidence for
+  shipping no expansion helper.
+
+### Q18g — Confirmations worth keeping
+
+Three retroactive validations from running the design's rules against real ported
+code, recorded because they are the only evidence in this batch that comes from
+outside the design's own reasoning:
+
+1. **A2's removal eliminates real contortion.** A ported component absorbed three
+   otherwise-unnecessary dependencies solely because their explicit `init`s tripped
+   FR4. With A2 those absorptions become unnecessary — the rule was generating
+   architectural noise, not describing it.
+2. **A1 catches a bug that actually happened.** Under declared membership, a
+   package that had been silently absorbed becomes a *member*, so authority it
+   exercises is charged even though it only escapes as a function value — the exact
+   fail-open the source note's Part 1 described, on real code.
+3. **M6 is already the emitted shape.** A host emitter already writes the member set
+   as the layout's roots, so `roots == members` codifies existing behavior rather
+   than imposing new work.

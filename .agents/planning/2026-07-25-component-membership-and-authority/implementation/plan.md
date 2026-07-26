@@ -8,15 +8,15 @@ Requirement IDs (M*, A*, T*, B*) refer to §2 of the design.
 
 ## Progress checklist
 
-- [ ] **Step 1** — Declared membership: `members` + `interface_style` in the schema, honored end to end in native mode (M1, M3, M5)
+- [ ] **Step 1** — Declared membership: `members`, `interface_style` and the certification fields in the schema, honored end to end in native mode (M1, M3, M5, M8, M10)
 - [ ] **Step 2** — Attribution follows ownership: members are roots, `INIT_OUTSIDE_INTERFACE` removed (A1, A2, A3)
-- [ ] **Step 3** — The analysis platform becomes declared data (T1, loader half of T2)
+- [ ] **Step 3** — The analysis platform becomes declared data, and layouts are held to it (T1, T2, T8)
 - [ ] **Step 4** — Interface-file constraint reporting and report wording (T3, T7)
-- [ ] **Step 5** — Classification and canonicalization made fail-closed (T4, T5, T6)
+- [ ] **Step 5** — Classification and canonicalization made fail-closed (T4, T4a, T5, T6)
 - [ ] **Step 6** — Bazel: adapter seam additions, `members` and `interface_style` attributes (B1, emitter half of T2)
 - [ ] **Step 7** — Bazel: declared classification, emission, and example migration (M4, M6, M7)
 - [ ] **Step 8** — The absorbed func-value escape warning (A5)
-- [ ] **Step 9** — Package-surface components and auto-attached edges (A6, A7)
+- [ ] **Step 9** — Package-surface components, auto-attached edges, pattern membership (A6, A7, A8, A9, M8)
 - [ ] **Step 10** — Bazelified self-check (B3)
 - [ ] **Step 11** — Documentation and design-record sync
 
@@ -34,15 +34,23 @@ components, and dogfooding.
 FR1 behavior is bit-for-bit what it is today.
 
 **Guidance.**
-- Add `members` (repeated string) and the `InterfaceStyle` enum with
-  `interface_style` to `proto/archcontracts/v1/component.proto`, plus
+- Add `members` (repeated string), the `InterfaceStyle` enum with
+  `interface_style`, and the two certification fields (`own_check_runs`,
+  `certification_reference`) to `proto/archcontracts/v1/component.proto`, plus
   `auto_attached` on `ComponentDependency`, per design §4.1; regenerate with
-  `just gen` and keep `just gen-is-clean` green.
+  `just gen` and keep `just gen-is-clean` green. The certification fields' comments
+  must say they are self-declarations at the same trust level as
+  `declared_authority`, or the first reader assumes arcc verified them.
 - `manifest`: parse and validate all three. Reject duplicate members, a member
   that is also an `absorbed_dependencies` import path (M7 contradiction), and
   malformed patterns. Under `interface_style = PACKAGE_SURFACE`, require non-empty
   `members` and **empty** `interface_files`; both directions are errors, so the
-  surface has one source of truth.
+  surface has one source of truth. Accept unexpanded patterns in `members` for a
+  `PACKAGE_SURFACE` component (M8); require literal paths for a declared-style one
+  (M4).
+- `packagelayout`: error when a declared member has no source files (M10). Checkable
+  rather than merely stated — a bodiless package is visible on its face in the
+  layout.
 - `checker`: membership comes from `Manifest.Members` when non-empty, else FR1.
   Force the interface package into the member set (M5); a pattern that also
   matches it is not an error.
@@ -58,6 +66,7 @@ FR1 behavior is bit-for-bit what it is today.
   `interface_files`.
 - `checker`: membership derived from `Members` when present; FR1 when absent;
   interface package always a member.
+- `packagelayout`: a member with no source files errors (M10).
 - `goanalysis`: a manifest whose members name a package outside the component
   root loads that package.
 
@@ -113,10 +122,11 @@ instead — attribution doing the job the placement rule was standing in for.
 
 ---
 
-## Step 3: The analysis platform becomes declared data
+## Step 3: The analysis platform becomes declared data, and layouts are held to it
 
 **Objective.** Stop the analysis depending on what the arcc binary itself was
-built for and on ambient environment variables.
+built for and on ambient environment variables — and stop a layout from silently
+contradicting the platform it declares.
 
 **Guidance.**
 - Add the optional `platform` block to the layout (design §5.1); build a
@@ -129,6 +139,18 @@ built for and on ambient environment variables.
 - `cgo_enabled` maps to `build.Context.CgoEnabled`; note in a comment that
   rules_go's `pure` is an approximation of it
   (`../research/build-platform-and-tags.md` §3).
+- **T8 validation.** The platform block governs emitters too. Accept both
+  conforming shapes — filtered files *with* imports, or unfiltered files with
+  imports **omitted** — and reject the accidental middle by comparing declared
+  imports against the imports of the post-filter source set, **bidirectionally**:
+  error on a declared import no surviving file contributes, and on an import a
+  surviving file contributes that was never declared. The loader already parses
+  sources for import recovery, so this is nearly free, and the second direction
+  catches an edge FR2 would otherwise never see.
+- Document T2's contract where the seam is defined: the platform extractor returns
+  the target platform **or a fixed constant** where the host's rules expose none —
+  a constant is conforming, not a degradation
+  (`../research/host-portability-findings.md` F2).
 
 **Tests.**
 - A package with a `//go:build purego` file is **kept** when the layout declares
@@ -138,6 +160,11 @@ built for and on ambient environment variables.
 - Cross-platform: a declared `goos` other than the host's selects that platform's
   `_GOOS.go` variants.
 - Empty-package error.
+- T8: a layout listing several platforms' variants of one package *with* their
+  union of imports fails validation; the same layout with imports omitted passes and
+  the loader recovers the filtered set; a surviving-file import missing from the
+  declared list fails. The first of these is the shape observed in practice
+  (`../research/host-portability-findings.md` F1).
 
 **Integration.** The Starlark half (emitting the block) lands in Step 6; until
 then the block is exercised by hand-written layouts in tests, which is exactly
@@ -181,11 +208,29 @@ both text and JSON output. A fully-gated interface: hard failure with the reason
 can fall into, and clear the residue the port left behind.
 
 **Guidance.**
-- Standard library is the **AND** of module metadata and
-  `hostpolicy.IsStdlibPath` (T4). This fixes both directions: a driver-loaded
-  dependency with no `Module` is no longer classified stdlib and silently skipped;
-  a host-rewritten dotless path that has a `Module` is no longer misread as
-  stdlib.
+- **Standard-library classification takes its verdict from provenance (T4).** Three
+  cases, and they are not symmetric:
+  - **Native mode:** module metadata ANDed with `hostpolicy.IsStdlibPath`, with
+    `isStdlibPackage`'s `p.Module == nil ⇒ true` branch flipped so a driver-loaded
+    dependency with no module is no longer classified stdlib and silently skipped.
+  - **Layout mode:** the verdict comes from the layout's per-package `is_stdlib`
+    bit, ANDed with the path policy; SDK-discovered packages (from
+    `discoverStdlib`) are stdlib structurally and need no bit. **Do not** simply
+    apply the AND on top of `stdlibClassifier`'s existing layout branch: nothing
+    has a `*packages.Module` in layout mode, so the nil-`Module` flip plus a
+    uniform AND makes `os` and `fmt` non-stdlib and drowns every member package in
+    `UNDECLARED_DEPENDENCY` (Q18a — this would have shipped).
+  - A declared bit disagreeing with the path policy is a load error naming the path
+    and both verdicts. **The two are not peers:** provenance is authoritative, the
+    path policy is a heuristic, and the check exists because
+    `hostpolicy.IsStdlibPath` is consulted by other code paths that a wrong policy
+    would also corrupt.
+- **T4a: document that the bit must be provenance-derived**, in the layout schema
+  next to the field. An emitter that computes it by re-evaluating a path heuristic
+  produces a copy of the signal it is meant to check, making the disagreement error
+  unreachable — and that is the natural implementation, already observed in a host
+  emitter (`../research/host-portability-findings.md` F6). This is documentation
+  doing load-bearing work; it is not decoration.
 - State the identity-on-loader-paths requirement in `hostpolicy`'s exported
   contract and assert it at load time, failing closed with the offending path
   named (T5).
@@ -205,6 +250,15 @@ can fall into, and clear the residue the port left behind.
   clear message rather than producing an empty analysis.
 - `canonicalizeSymbol` on `(*a/b.T[c/d.U]).M`.
 - The vendor relaxation no longer applies to a non-stdlib package.
+- Layout mode: `os` and `fmt` stay stdlib (the regression Q18a identifies), a
+  declared bit disagreeing with the path policy errors, and an SDK-discovered
+  package needs no bit.
+
+**Migration.** Three failures here will look like regressions and are correct: a
+hand-written layout that *lists* an SDK package explicitly now needs the bit; a
+fixture whose synthetic module path has a dotless first segment starts failing the
+agreement check; and a layout in the unfiltered-with-imports shape starts failing
+T8 (Step 3).
 
 **Integration.** `facts` is the shared pure contract; removing a field touches
 its consumers. Self-checks and the full Bazel suite are the regression signal.
@@ -221,9 +275,13 @@ membership, with all host-specific knowledge in the one swappable file.
 
 **Guidance.**
 - `go_adapter.bzl` gains `go_build_platform(target)` (reads `GoInfo.mode`, **not**
-  `GoSDK.goos`, which is the exec platform) and an `INFRA_COMPONENTS` list (used
-  in Step 9). **No** package→target naming hook: B2 is deferred because nothing in
-  rules_arcc maps a package path to a target any more (Q16).
+  `GoSDK.goos`, which is the exec platform, and documented as permitted to return a
+  fixed constant — T2), `go_attach_infra(target, infra)` (documented as permitted to
+  return True unconditionally — A7), and an `INFRA_COMPONENTS` list accepting
+  patterns as well as labels, with a worked example rather than a bare `[]`.
+  **No** package→target naming hook: B2 is deferred because nothing in rules_arcc
+  maps a package path to a target any more, and the convention it would have relied
+  on does not generalize (Q16, Q18f).
 - **No `arcc_subpackages()` helper.** `members` takes concrete labels;
   `native.subpackages()` returns only the frontier of nearest descendant packages
   and cannot address anything past a package boundary, so a helper named for
@@ -233,6 +291,14 @@ membership, with all host-specific knowledge in the one swappable file.
 - `members = attr.label_list(providers = GO_PROVIDERS, aspects = [arcc_deps_aspect])`
   on the component rule, so member targets are pulled into the closure by the
   aspect — a member the interface does not import must still be analyzed.
+- Delete `_check_component_roots` (`component.bzl:181-192`). It is *inputless*
+  under `PACKAGE_SURFACE` — no interface target means no `component_root` — and
+  jobless under declared membership, where M7 states the real constraint over
+  package sets. Its removal unblocks co-locating a wrapper with the library it wraps.
+- Layout-generation inputs derive from the union of the interface and the members
+  (M9), not from the interface target alone. Required by M2 in general, not by
+  `PACKAGE_SURFACE`: a declared-style component with members the interface does not
+  import has the same need.
 - `interface_style` attribute, with the shape rule enforced in the macro
   implementation: default style ⇒ `interface` mandatory and `members` optional;
   `PACKAGE_SURFACE` ⇒ `members` mandatory and `interface` **rejected** with a
@@ -246,6 +312,10 @@ membership, with all host-specific knowledge in the one swappable file.
 - Analysis tests for the shape rule: `PACKAGE_SURFACE` with `interface` set
   fails; `PACKAGE_SURFACE` with empty `members` fails; the default style with no
   `interface` fails.
+- A component whose members include a package the interface does not import gets
+  that package's layout data (M9) — the test that pins the union rule.
+- The `_check_component_roots` fixtures are deleted with the rule; a component whose
+  `component_dep` is rooted inside it now builds.
 
 **Integration.** Additive to the rules; no manifest or layout change yet, so the
 existing Bazel suite must stay green untouched.
@@ -353,9 +423,30 @@ wraps to draw a boundary around it. These are one kind of component (Q17).
   manifest — no dep-manifest lookup. FR4 placement rules need **no** special case:
   with the init rule gone (Step 2), `METHOD_OUTSIDE_INTERFACE` is already vacuous
   when `interface_files` is empty.
-- The rule attaches an `INFRA_COMPONENTS` entry as a `component_dep` **iff** the
-  component's closure contains one of its packages, marking that edge
-  `auto_attached` (A7).
+- The rule attaches an `INFRA_COMPONENTS` entry as a `component_dep` per
+  `go_attach_infra`, marking that edge `auto_attached` (A7). Unconditional
+  attachment is conforming: pruning at a package is a no-op unless that package is
+  reached, and own-code authority is charged regardless because members are roots.
+  The injected edge **appears in the emitted manifest even when unconditional** —
+  otherwise the legibility that justified `auto_attached` over a hidden allowlist is
+  given back.
+- **Pattern membership (M8).** A `PACKAGE_SURFACE` component may declare
+  import-path patterns rather than labels, unexpanded, for packages that cannot be
+  named as targets. Its surface then resolves from the *depender's* layout, which
+  contains those packages by construction. Narrower than it sounds: prune keys need
+  only package paths, and an `auto_attached` edge is exempt from
+  `UNUSED_DEPENDENCY`, so local symbol extraction is needed only for pattern
+  membership *without* auto-attachment.
+- **A8 — the certified/asserted annotation.** The report's dependency listing marks
+  each pruned boundary certified (the dependency's own check runs) or asserted, with
+  the certification reference where recorded. Deliberately **not** a finding: the
+  depending component is not at fault, and where a runtime is injected everywhere a
+  warning would fire on every component in the repository and be suppressed
+  wholesale. Enforcement is one repo-wide check, deferred with the
+  membership-uniqueness one.
+- **A9 — bodiless absorbed packages** yield `ANALYSIS_LIMITATION` naming the
+  package. Reuses the existing kind rather than the `UNANALYZED` authority constant,
+  which is a Capslock capability the adapter deliberately suppresses.
 
 **Tests.**
 - A component reaching authority only through an injected infra dependency
@@ -367,6 +458,11 @@ wraps to draw a boundary around it. These are one kind of component (Q17).
 - The author-written case: a `PACKAGE_SURFACE` wrapper that a member calls into
   produces no `UNUSED_DEPENDENCY`, and the same wrapper left unused **does** warn
   — the axis that `auto_attached` separates from the component kind.
+- Unconditional attachment still emits the manifest entry.
+- A pattern-membership dependency resolves its surface from the depender's layout.
+- The dependency listing shows certified for a component with its own check and
+  asserted for one without, with the reference rendered when present.
+- A bodiless absorbed package yields `ANALYSIS_LIMITATION`.
 
 **Integration.** Depends on Step 1 (`interface_style` and `auto_attached` in the
 schema), Step 2 (the init-rule removal that makes relaxed well-formedness free),
@@ -427,9 +523,12 @@ memory.
 - README: `members` (concrete labels, and why there is no wildcard helper),
   `interface_style = PACKAGE_SURFACE` for wrapping interface-less libraries,
   `auto_attached` edges, and the adapter's new hooks.
-- Record Appendix C's six limitations where a user will find them, not only in the
-  planning tree — C.4 especially, since "the component's BUILD file changes when
+- Record Appendix C's eight limitations where a user will find them, not only in
+  the planning tree — C.4 especially, since "the component's BUILD file changes when
   the implementation is restructured" is a live cost an author feels.
+- Document the layout schema's `is_stdlib` field with T4a's provenance requirement
+  adjacent to it, and the two conforming platform shapes (T8). Both are places where
+  the natural implementation is the wrong one, so the doc is load-bearing.
 
 **Tests.** `just ci` green, including `gen-is-clean`.
 

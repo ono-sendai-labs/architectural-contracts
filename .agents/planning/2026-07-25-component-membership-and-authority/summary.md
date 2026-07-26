@@ -1,7 +1,7 @@
 # Summary — component membership and authority attribution
 
 **Date:** 2026-07-25
-**Status:** design and plan complete, revised after review (Q15–Q17); implementation not started
+**Status:** design and plan complete, revised after review (Q15–Q18); implementation not started
 **Branch:** `dev/exp-go-bazel-mvp`
 
 ## Artifacts
@@ -9,11 +9,12 @@
 ```
 .agents/planning/2026-07-25-component-membership-and-authority/
 ├── rough-idea.md          the three problem groups and where they came from
-├── idea-honing.md         Q1–Q17, every decision with its rationale
+├── idea-honing.md         Q1–Q18, every decision with its rationale
 ├── research/
 │   ├── members-glob-expansion.md          Bazel Starlark: what can expand a glob, and where
 │   ├── capability-analysis-mechanics.md   how Capslock actually attributes; SSA detection shape
-│   └── build-platform-and-tags.md         where a host gets GOOS/GOARCH/tags/cgo
+│   ├── build-platform-and-tags.md         where a host gets GOOS/GOARCH/tags/cgo
+│   └── host-portability-findings.md      the design run against a second host's Go rules
 ├── design/detailed-design.md              the design
 ├── implementation/plan.md                 11 steps with a progress checklist
 └── summary.md                             this file
@@ -76,6 +77,20 @@ arcc's own dogfooding.
 - **The infra and library-wrapper cases are one component kind** (Q17), differing
   only in who created the dependency edge — which is a property of the edge
   (`auto_attached`), not of the component (`interface_style`).
+- **T4 as first written would have broken layout mode outright** (Q18a). Nothing
+  carries a `*packages.Module` there, so flipping the nil-`Module` branch and
+  applying the AND uniformly makes `os` and `fmt` non-stdlib. Layouts now carry a
+  per-package stdlib bit that must be **provenance-derived** — an emitter that
+  recomputes a path heuristic produces a copy of the signal it is meant to check.
+- **The platform block binds emitters, not just the loader** (Q18b). A layout can
+  carry several platforms' files for one package at once, in which case its import
+  list is the union across platforms and contradicts its own platform block. The
+  loader now validates this bidirectionally.
+- **Some packages cannot be named as targets at all** (Q18c) — visibility-gated
+  toolchain runtimes — so `PACKAGE_SURFACE` membership accepts unexpanded patterns,
+  at the cost of the component's own check. That loss is surfaced as a report
+  annotation rather than a warning, because a warning there would fire on every
+  component in a repository and be suppressed wholesale.
 - **`GoInfo.mode` carries the target platform**; `GoSDK.goos` is the exec
   platform and would have reproduced the bug being fixed.
 
@@ -103,18 +118,23 @@ Choices made without an explicit decision from the user:
 - Enum value naming: `INTERFACE_STYLE_PACKAGE_SURFACE` rather than the
   `IMPLICIT_INTERFACE` the review sketched, because "implicit" is already carrying
   M5 and auto-attachment.
+- A8 as a dependency-listing annotation rather than an `UNCERTIFIED_PRUNE` warning,
+  and A9 reusing `ANALYSIS_LIMITATION` rather than the `UNANALYZED` authority
+  constant. Both decline a new report kind the port review proposed.
 
 Reviewed and settled (Q15–Q17): removing `INIT_OUTSIDE_INTERFACE` outright;
 shipping no `members` wildcard helper; splitting `implicit` into
 `interface_style` + `auto_attached`; rejecting `interface` under
 `PACKAGE_SURFACE`.
 
-Six limitations are stated deliberately in design Appendix C: one platform per
+Eight limitations are stated deliberately in design Appendix C: one platform per
 check; cross-component membership overlap undetected; absorbed code still
 use-attributed; **a component's BUILD file changing when its internal package
 structure changes** (C.4, tabled with the wildcard helper — the one that works
 against the review-light-implementation-changes goal); package-granularity pruning
-hiding unexported entry points, now with a wider blast radius; and
+hiding unexported entry points, now with a wider blast radius; an **asserted
+boundary not being a verified one** (a pattern-membership component has no check of
+its own); **bodiless packages** being an unanalyzable authority category; and
 `PACKAGE_SURFACE` components being able to launder authority.
 
 ## Next steps
@@ -131,6 +151,10 @@ hiding unexported entry points, now with a wider blast radius; and
   not invisible on a Linux check.
 - **Never feeding canonical paths back into `packages.Load`** (Q7b) — the
   principled removal of the invariant that Step 5 merely asserts.
+- **Repo-wide certification check** (Q18d) — "every `PACKAGE_SURFACE` dependency is
+  certified or carries a reference", the one place an uncertified boundary should
+  fail once rather than warn everywhere. Naturally lands with the
+  membership-uniqueness check.
 - **A stable way to say "all packages under here"** (Q16, Appendix C.4) — the
   aggregate-target-per-package pattern is the likeliest answer; it keeps the
   component's own BUILD file untouched by internal restructuring, at the cost of a
