@@ -10,7 +10,7 @@ Requirement IDs (M*, A*, T*, B*) refer to §2 of the design.
 
 - [ ] **Step 1** — Declared membership: `members`, `interface_style` and the certification fields in the schema, honored end to end in native mode (M1, M3, M5, M8, M10)
 - [ ] **Step 2** — Attribution follows ownership: members are roots, `INIT_OUTSIDE_INTERFACE` removed (A1, A2, A3)
-- [ ] **Step 3** — The analysis platform becomes declared data, and layouts are held to it (T1, T2, T8)
+- [ ] **Step 3** — The analysis platform becomes declared data, and layouts are held to it (T1, T2, T8, T8a)
 - [ ] **Step 4** — Interface-file constraint reporting and report wording (T3, T7)
 - [ ] **Step 5** — Classification and canonicalization made fail-closed (T4, T4a, T5, T6)
 - [ ] **Step 6** — Bazel: adapter seam additions, `members` and `interface_style` attributes (B1, emitter half of T2)
@@ -147,6 +147,14 @@ contradicting the platform it declares.
   surviving file contributes that was never declared. The loader already parses
   sources for import recovery, so this is nearly free, and the second direction
   catches an edge FR2 would otherwise never see.
+- **T8a — the equality runs over *resolvable* imports only.** An import resolving to
+  no layout package and no stdlib package is a different failure with a different
+  cause; folding it into T8 would make T8 a completeness requirement on layouts
+  rather than a consistency one, and would turn an emitter's deliberate drop of a
+  dangling edge into a hard failure. Collect them instead and report as
+  `ANALYSIS_LIMITATION` naming file and import — same loader-collects /
+  checker-reports split T3 uses. Needed in **both** shapes: under shape 2 the loader
+  faces the same decision and would otherwise make it silently.
 - Document T2's contract where the seam is defined: the platform extractor returns
   the target platform **or a fixed constant** where the host's rules expose none —
   a constant is conforming, not a degradation
@@ -165,6 +173,8 @@ contradicting the platform it declares.
   the loader recovers the filtered set; a surviving-file import missing from the
   declared list fails. The first of these is the shape observed in practice
   (`../research/host-portability-findings.md` F1).
+- T8a: an unresolvable post-filter import does **not** fail the load and **does**
+  produce `ANALYSIS_LIMITATION`, in both conforming shapes.
 
 **Integration.** The Starlark half (emitting the block) lands in Step 6; until
 then the block is exercised by hand-written layouts in tests, which is exactly

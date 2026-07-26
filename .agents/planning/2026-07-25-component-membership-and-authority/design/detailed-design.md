@@ -90,13 +90,14 @@ settled it.
 | **T6** | Four smaller fixes: `canonicalizeSymbol` occurrence handling; `vendor/` relaxation restricted to stdlib; facts stdlib representation cleaned up; `ResolveDependencyInterface` local facts canonicalized. | Q7c |
 | **T7** | The report's success wording changes from "conforms / ambient-authority-free" to declared-authority terms. | Q12 |
 | **T8** | The platform block governs **emitters as well as the loader**. A layout's package data must be consistent with the platform it declares, in one of two conforming shapes; the loader validates this rather than trusting it. | Q18 |
+| **T8a** | T8's equality is over **resolvable** imports — those resolving to a layout package or to the standard library. A recovered import that resolves to nothing is a separate diagnostic, reported rather than dropped, in both conforming shapes. | Q19 |
 
 ### Tooling
 
 | ID | Requirement | From |
 |---|---|---|
-| **B1** | `members` takes **concrete labels only**. rules_arcc ships no expansion helper; an author who wants a subtree calls `subpackages.all()` from bazel-skylib at BUILD top level, or lists labels. | Q13, Q16 |
-| **B2** | *Deferred.* A package→target naming hook is unnecessary while no expansion helper exists — nothing in rules_arcc maps a package path to a target. | Q13, Q16 |
+| **B1** | For a *declared-style* component, `members` takes **concrete labels**; `PACKAGE_SURFACE` may use unexpanded patterns (M8). rules_arcc ships no expansion helper in either case; an author who wants a subtree's frontier calls `subpackages.all()` from bazel-skylib at BUILD top level. | Q13, Q16, Q18 |
+| **B2** | *Deferred*, because nothing in rules_arcc maps a package path to a target **any more**. A host that reintroduces such a mapping needs the hook. The reference ruleset's directory-basename convention was evidence the hook would be a no-op *here* — not an argument that it is unnecessary anywhere; a second host has no such convention. | Q13, Q16, Q18 |
 | **B3** | arcc's own components get `go_component` targets so `bazel test //...` runs the self-checks. | Q14 |
 
 ## 3. Architecture Overview
@@ -109,7 +110,7 @@ What changes is **which packages are roots**, **what the manifest carries**, and
 flowchart TB
     subgraph Author["Authoring (BUILD file)"]
         H["skylib subpackages.all()<br/>optional, author's choice"]
-        GC["go_component<br/>symbolic macro<br/>members = concrete labels"]
+        GC["go_component<br/>symbolic macro<br/>members = labels, or<br/>patterns under PACKAGE_SURFACE"]
         H -.->|"labels, if used"| GC
     end
 
@@ -324,7 +325,8 @@ manifest-validation relaxation in §4.2.
   `discoverStdlib` over `GoSDKRoot`) are stdlib structurally; emitter-listed
   packages take the declared `is_stdlib` bit, and a disagreement with
   `hostpolicy.IsStdlibPath` is a load error naming the path and both verdicts.
-- Validate the platform block against the package data (T8, §5.1).
+- Validate the platform block against the package data (T8, §5.1), over resolvable
+  imports only, and return the unresolvable ones for reporting (T8a).
 - Error when a declared member has no source files (M10) — checkable because the
   layout distinguishes a bodiless package on its face.
 
@@ -468,14 +470,21 @@ go_component(
 
 ### 4.9 No `members` expansion helper (B1)
 
-`members` takes concrete labels. rules_arcc ships **no** wildcard helper, for the
-reason in `../research/members-glob-expansion.md`: `native.subpackages()` — and
+rules_arcc ships **no** wildcard helper, for the reason in
+`../research/members-glob-expansion.md`: `native.subpackages()` — and
 bazel-skylib's `subpackages.all()` wrapper over it — returns only the *frontier*
 of nearest descendant packages and cannot see past a package boundary at all, so a
 helper named after subtrees would not deliver subtrees. An author who wants the
 frontier calls skylib directly at BUILD top level (`native.subpackages()` is
 rejected inside a symbolic macro, so it cannot move into `go_component`); everyone
 else lists labels.
+
+Membership form by style: a **declared-style** component's `members` are concrete
+labels, expanded literally into the manifest (M4), because reviewability is the
+point. A **`PACKAGE_SURFACE`** component may use unexpanded import-path patterns
+(M8), because its membership only derives prune keys and an exported-surface set,
+and because some of the packages that most need it cannot be named as targets at
+all.
 
 This leaves the goal that motivated the helper unmet, and it is recorded as such
 in Appendix C.4 rather than papered over.
@@ -524,6 +533,16 @@ the loader's (`../research/host-portability-findings.md` F6).
 Provenance is information the path policy does not have and cannot reconstruct,
 which is exactly what makes it a second signal.
 
+**T4a and T8 interact favorably**, which is worth knowing before implementing
+either. The in-emitter heuristic copy exists to decide which *import edges* to keep,
+not to produce a stdlib bit. Under T8's shape 2 the emitter stops declaring imports
+altogether, so that copy has no remaining job and can be deleted. And where every
+package an emitter lists comes from an enumerated build target — the SDK not being
+in its metadata set at all — the provenance bit is structurally `false` for all of
+them and `true` never needs computing. So on such a host T8 *removes* the
+duplication T4a warns about, and T4a costs almost nothing, rather than the two
+requirements merely coexisting.
+
 ### 5.1b Platform consistency — two conforming shapes (T8)
 
 A host whose rules expose no platform at emit time cannot filter, and should not
@@ -546,6 +565,37 @@ import no surviving file contributes (the unfiltered-union case), or an import a
 surviving file contributes that was never declared (an edge FR2 would never see).
 Equality is easier to specify than a one-sided rule and catches the more dangerous
 direction too.
+
+**Equality is over *resolvable* imports (T8a).** An import that resolves to a
+layout package or to the standard library participates in the comparison. A
+recovered import that resolves to **nothing** does not — it is a different failure
+with a different cause, and folding it into T8 would turn a consistency requirement
+into a completeness requirement on layouts, which is a much larger contract than
+T8 is making.
+
+Concretely: an emitter may deliberately drop an import edge with no node and no
+export data behind it rather than emit a dangling reference — parsing sources can
+surface imports that were never linked into the closure. Under a naive
+equality-in-either-direction rule every such drop becomes a hard load failure.
+
+But it must not be **silent**, because a dropped edge is invisible to FR2, and an
+import edge arcc cannot classify is the precise fail-open shape this batch exists
+to remove. So the loader collects unresolvable post-filter imports and they are
+reported as `ANALYSIS_LIMITATION`, naming the file and the import — the same
+loader-collects/checker-reports split T3 already uses for constraint-excluded
+interface files.
+
+This matters in **both** shapes, and the question does not disappear under shape 2:
+an emitter that omits imports hands the loader the same decision when it recovers
+an import with no corresponding package. Shape 2 would otherwise make it silently
+rather than loudly.
+
+Two things worth expecting: post-filter, an unresolvable import should be *rare*.
+The common cause of one — a `_windows.go` file importing something the build never
+compiled — is exactly what filtering removes. So a surviving-file import that
+resolves to nothing usually means a wrong platform block or a genuinely incomplete
+closure, which is why it deserves its own message rather than being absorbed into
+T8's.
 
 ### 5.2 `facts` package
 
@@ -570,8 +620,8 @@ type FuncValueEscape struct {
 
 `PackageFact.IsStdlib` is **removed** — it has no consumer, and `StdlibImports`
 is the one representation (T6). `StdlibImports` stops encoding policy in
-nil-ness: the AND rule is applied in the loader and the field is always
-populated.
+nil-ness: the loader always populates it, having applied T4's classification
+(provenance-authoritative, path policy as the validating heuristic).
 
 ### 5.3 Report kinds
 
@@ -582,7 +632,7 @@ populated.
 | `INTERFACE_FILE_EXCLUDED` | warning | new (T3) |
 | `HIGHER_ORDER_BOUNDARY_CALL` | warning | **removed** (A5) |
 | `INIT_OUTSIDE_INTERFACE` | violation | **removed** (A2) |
-| `ANALYSIS_LIMITATION` | warning | existing kind, new producer: a bodiless absorbed package (A9) |
+| `ANALYSIS_LIMITATION` | warning | existing kind, two new producers: a bodiless absorbed package (A9), and a post-filter import that resolves to nothing (T8a) |
 | all others | — | unchanged |
 
 **No new kind for an uncertified boundary (A8).** The report's *dependency
@@ -633,8 +683,9 @@ PACKAGE_SURFACE`, or `members` empty under it (§4.8); a cgo package in the clos
 manifest's members (M6); a non-identity canonicalization of a loader-reported
 path (T5); a package left with no `.go` files after constraint filtering; an
 interface with no surviving files (T3); a declared `is_stdlib` bit disagreeing
-with the host path policy (T4); declared imports not equal to the imports of the
-post-filter source set (T8); a declared member with no source files (M10). Each is
+with the host path policy (T4); declared *resolvable* imports not equal to the
+resolvable imports of the post-filter source set (T8, T8a); a declared member with
+no source files (M10). Each is
 an error naming what disagreed — not a warning, because every one of them silently
 degrades analysis if allowed through.
 
@@ -828,8 +879,10 @@ Full notes in `../research/`.
    nothing owned reaches is not charged. A5 warns where that is most likely to
    matter; it does not close it.
 4. **A component's BUILD file changes when its internal package structure
-   changes.** `members` is explicit labels, so adding, removing or restructuring
-   an internal package edits the component declaration. This works against a goal
+   changes.** A declared-style component's `members` are explicit labels, so
+   adding, removing or restructuring an internal package edits the component
+   declaration. (`PACKAGE_SURFACE` escapes this via patterns — M8 — but at the cost
+   of its own check, C.6, so it is not a general answer.) This works against a goal
    the component model is meant to serve — implementation changes reviewable with
    little or no human attention, precisely *because* interface changes are the
    ones that surface — since an internal-only refactor now shows up as a diff to

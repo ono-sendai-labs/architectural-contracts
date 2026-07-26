@@ -781,3 +781,94 @@ outside the design's own reasoning:
 3. **M6 is already the emitted shape.** A host emitter already writes the member set
    as the layout's roots, so `roots == members` codifies existing behavior rather
    than imposing new work.
+
+---
+
+## Q19 — What is an import that resolves to nothing?
+
+Raised by the port review of the Q18 revision, against §5.1b as written.
+
+**The gap.** T8 says the loader errors on a mismatch between declared imports and
+the imports of the post-filter source set, **in either direction**. Correct
+polarity, but it never says what an import resolving to *no package in the layout*
+is. Not hypothetical: a host emitter deliberately drops such edges, with a comment
+saying that parsing sources can surface imports never linked into the closure, and
+that an edge with no node and no export data behind it is dropped rather than
+emitted as a dangling reference. Under naive equality every one of those becomes a
+hard load failure where today it is a silent, deliberate drop.
+
+Three answers were on the table: equality over *resolvable* imports with a separate
+diagnostic; dangling edges legal and declared imports permitted to be a subset; or
+dangling edges illegal outright.
+
+**Answer: (1) — equality over resolvable imports, with its own diagnostic (T8a).**
+
+Option 2 gives up the direction that was correctly identified as the more dangerous
+one (an undeclared edge FR2 never sees). Option 3 is defensible but converts T8
+from a *consistency* requirement into a *completeness* requirement on layouts, which
+is a much larger contract than T8 is making and should not be smuggled in.
+
+So the comparison runs over imports that resolve to a layout package or to the
+standard library, and an unresolvable one is reported separately.
+
+**But not silently.** A dropped edge is invisible to FR2, and an import edge arcc
+cannot classify is precisely the fail-open shape this batch exists to remove. The
+loader collects unresolvable post-filter imports and they surface as
+`ANALYSIS_LIMITATION` naming the file and the import — the same
+loader-collects/checker-reports split T3 already uses for constraint-excluded
+interface files, and the same existing kind A9 reuses.
+
+Two observations that made the choice easy:
+
+- **The question does not disappear under shape 2.** An emitter that omits imports
+  hands the loader the same decision when it recovers an import with no
+  corresponding package; it just makes it silently instead of loudly. So the
+  diagnostic is needed in both conforming shapes, not only the filtered one.
+- **Post-filter, an unresolvable import should be rare.** Its common cause — a
+  platform-gated file importing something the build never compiled — is exactly what
+  filtering removes. A *surviving* file's import resolving to nothing usually means a
+  wrong platform block or a genuinely incomplete closure. That is a different
+  diagnosis from an emitter/loader disagreement and deserves its own message rather
+  than being absorbed into T8's.
+
+### Q19a — Editorial leftovers from the Q18 revision
+
+The review found that the B1/B2 rewrite promised in Q18f had not actually landed,
+along with three related staleness sites. All fixed:
+
+- **B1** said "`members` takes **concrete labels only**", contradicting M8. Now
+  scoped by style: labels for declared-style, patterns permitted under
+  `PACKAGE_SURFACE`.
+- **B2**'s rationale is now the agreed wording — deferred because nothing maps a
+  package path to a target *any more*; a host that reintroduces such a mapping needs
+  the hook; the directory-basename convention was evidence of a no-op *here*, not an
+  argument it is unnecessary anywhere.
+- **§4.9**'s body and the **§3 mermaid** both said "concrete labels" unqualified.
+- **C.4** opened by attributing explicit labels to `members` generally; now
+  declared-style only, noting that `PACKAGE_SURFACE` escapes it via patterns at the
+  cost of its own check (C.6), so it is not a general answer.
+- **§5.2** still said "the AND rule is applied in the loader", which T4's revision
+  replaced.
+
+### Q19b — Precision on the F7 evidence class
+
+The record read as though both F7 claims were executed. Corrected: the symbolic-macro
+half **was** executed (a component, its `.check`, and the rules' own analysis-test
+suite rebuilt against a symbolic-macro definition, all passing); the
+`native.subpackages()` half is from the host's generated Starlark reference
+documentation, not a fixture. Same conclusion, weaker evidence class. The frontier
+semantics themselves remain execution-confirmed on the reference implementation, so
+only the *cross-host rejection* claim rests on documentation alone.
+
+### Q19c — Two sequencing notes for the port
+
+- **T4a is nearly free and T8 may delete what F6 found.** The in-emitter heuristic
+  copy exists to decide which import *edges* to keep, not to produce a stdlib bit —
+  so under shape 2, where the emitter declares no imports, it has no job left. And
+  where every emitter-listed package comes from an enumerated build target, the
+  provenance bit is structurally `false` throughout. Recorded in §5.1a and F6:
+  T8 *removes* the duplication T4a warns about rather than coexisting with it.
+- **M9 is the expensive one, as predicted.** A host emitter keyed on the interface
+  plus absorbed deps must generalize to `interface ∪ members`, and that lands whether
+  or not `PACKAGE_SURFACE` is used. It is the item to sequence earliest in a port,
+  which is consistent with M9 being a consequence of M2 rather than of A6.

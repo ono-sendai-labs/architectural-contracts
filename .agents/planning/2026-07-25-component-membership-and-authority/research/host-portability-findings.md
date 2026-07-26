@@ -92,16 +92,31 @@ mode stays single-signal with added ceremony that makes it look otherwise. Hence
 T4a: the bit must be derived from build-graph provenance, which is information the
 path policy does not have and cannot reconstruct.
 
+**But T8 may delete this copy rather than merely coexisting with it.** The copy
+exists to decide which *import edges* to keep, not to produce a stdlib bit. Under
+T8's shape 2 the emitter stops declaring imports, so the copy has no job left. And
+where every package the emitter lists comes from an enumerated build target — the
+SDK not appearing in its metadata set at all — the provenance bit is structurally
+`false` throughout and `true` never needs computing. On such a host T4a is nearly
+free and T8 removes the duplication T4a warns about.
+
 ## F7 — Symbolic-macro constraints reproduce on an independent implementation
 
-Verified by building and testing a component and its check through a symbolic-macro
-definition on this host:
+Two claims here, with **different evidence classes** — worth distinguishing so a
+later reader does not over-credit the second:
 
-- `macro()` with `inherit_attrs = "common"` and `configurable = False` attributes
-  is supported and works unchanged. A `name + ".check"` target is legal.
-- `native.subpackages()` exists with the **same frontier semantics**
-  (`members-glob-expansion.md` F2) and is **likewise rejected inside a symbolic
-  macro implementation**.
+- **Executed.** `macro()` with `inherit_attrs = "common"` and
+  `configurable = False` attributes is supported and works unchanged: a component,
+  its `.check`, and the rules' own analysis-test suite were rebuilt against a
+  symbolic-macro definition of `go_component` and all passed. A `name + ".check"`
+  target is legal.
+- **Documented, not executed.** `native.subpackages()` exists with the **same
+  frontier semantics** (`members-glob-expansion.md` F2) and is **likewise rejected
+  inside a symbolic macro implementation** — read from the host's own generated
+  Starlark reference documentation rather than confirmed by a fixture. The frontier
+  semantics *are* separately confirmed by execution on the reference
+  implementation (`members-glob-expansion.md`), so only the cross-host rejection
+  claim rests on documentation alone.
 
 So `members-glob-expansion.md`'s finding 3 and the B1 conclusion are properties of
 the macro model rather than of one implementation — which is the strongest
@@ -120,5 +135,5 @@ the concrete case B2's reworded rationale points at.
 | F3 | **A7** — the attachment predicate is a seam; unconditional attachment is legal |
 | F4 | **A6, A7** — pattern membership, and a pattern-accepting registry |
 | F5 | **A7** — an empty registry is a placeholder; the error message must point at it |
-| F6 | **T4a (new)** — the layout's stdlib bit must be provenance-derived |
+| F6 | **T4a (new)** — the layout's stdlib bit must be provenance-derived; T8 shape 2 may remove the duplication entirely |
 | F7 | **B1, B2** — no expansion helper anywhere; B2's rationale rewritten |

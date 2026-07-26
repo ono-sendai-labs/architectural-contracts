@@ -1,7 +1,7 @@
 # Summary — component membership and authority attribution
 
 **Date:** 2026-07-25
-**Status:** design and plan complete, revised after review (Q15–Q18); implementation not started
+**Status:** design and plan complete, revised after review (Q15–Q19); implementation not started
 **Branch:** `dev/exp-go-bazel-mvp`
 
 ## Artifacts
@@ -9,7 +9,7 @@
 ```
 .agents/planning/2026-07-25-component-membership-and-authority/
 ├── rough-idea.md          the three problem groups and where they came from
-├── idea-honing.md         Q1–Q18, every decision with its rationale
+├── idea-honing.md         Q1–Q19, every decision with its rationale
 ├── research/
 │   ├── members-glob-expansion.md          Bazel Starlark: what can expand a glob, and where
 │   ├── capability-analysis-mechanics.md   how Capslock actually attributes; SSA detection shape
@@ -82,6 +82,11 @@ arcc's own dogfooding.
   applying the AND uniformly makes `os` and `fmt` non-stdlib. Layouts now carry a
   per-package stdlib bit that must be **provenance-derived** — an emitter that
   recomputes a path heuristic produces a copy of the signal it is meant to check.
+- **An import that resolves to nothing is its own failure** (Q19). T8's equality
+  runs over *resolvable* imports; an unresolvable post-filter import is reported as
+  `ANALYSIS_LIMITATION` rather than failing the load, because folding it in would
+  turn a consistency requirement into a completeness one — but it is not silent,
+  since an edge FR2 cannot classify is the fail-open this batch exists to remove.
 - **The platform block binds emitters, not just the loader** (Q18b). A layout can
   carry several platforms' files for one package at once, in which case its import
   list is the union across platforms and contradicts its own platform block. The
