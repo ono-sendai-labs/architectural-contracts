@@ -1,6 +1,10 @@
 package goanalysis
 
 import (
+	"go/ast"
+	"go/parser"
+	"go/token"
+	"go/types"
 	"os"
 	"path/filepath"
 	"strings"
@@ -9,6 +13,7 @@ import (
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/facts"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/hostpolicy"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/manifest"
+	"github.com/ono-sendai-labs/architectural-contracts/go/internal/packagelayout"
 	"golang.org/x/tools/go/packages"
 )
 
@@ -51,6 +56,45 @@ func TestLoadPackageFactsRejectsNonIdentityLoaderPath(t *testing.T) {
 	_, err := LoadPackageFacts(LoadRequest{ComponentRoot: t.TempDir()})
 	if err == nil || !strings.Contains(err.Error(), "host/component") || !strings.Contains(err.Error(), "canonical/host/component") {
 		t.Fatalf("LoadPackageFacts() error = %v, want loader-path contract error", err)
+	}
+}
+
+func TestLoadPackageFactsRejectsNonIdentityLoaderPathInLayoutMode(t *testing.T) {
+	workspace := t.TempDir()
+	if err := os.WriteFile(filepath.Join(workspace, "component.go"), []byte("package component\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	layoutPath := filepath.Join(workspace, "package-layout.json")
+	layout := `{"roots":["host/component"],"packages":[{"id":"host/component","name":"component","pkgPath":"host/component","goFiles":["component.go"],"compiledGoFiles":["component.go"],"imports":{},"is_stdlib":false}]}`
+	if err := os.WriteFile(layoutPath, []byte(layout), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	originalPolicy := hostpolicy.CanonicalizePath
+	originalStdlib := hostpolicy.IsStdlibPath
+	originalLoad := loadPackages
+	t.Cleanup(func() {
+		hostpolicy.CanonicalizePath = originalPolicy
+		hostpolicy.IsStdlibPath = originalStdlib
+		loadPackages = originalLoad
+	})
+	hostpolicy.CanonicalizePath = func(path string) string {
+		if path == "host/component" {
+			return "canonical/component"
+		}
+		return path
+	}
+	hostpolicy.IsStdlibPath = func(string) bool { return false }
+	loadPackages = func(_ *packages.Config, _ ...string) ([]*packages.Package, error) {
+		return []*packages.Package{{ID: "host/component", PkgPath: "host/component"}}, nil
+	}
+
+	err := packagelayout.WithDriverEnv(layoutPath, workspace, func() error {
+		_, err := LoadPackageFacts(LoadRequest{ComponentRoot: workspace})
+		return err
+	})
+	if err == nil || !strings.Contains(err.Error(), "host/component") || !strings.Contains(err.Error(), "canonical/component") {
+		t.Fatalf("layout LoadPackageFacts() error = %v, want loader-path contract error", err)
 	}
 }
 
@@ -116,6 +160,7 @@ func TestCanonicalizeSymbolRewritesEveryPackagePath(t *testing.T) {
 		{name: "multiple and nested arguments", in: "(*a/b.T[c/d.U, e/f.V[foo/bar.W]]).M", want: "(*canonical/a/b.T[canonical/c/d.U, canonical/e/f.V[canonical/foo/bar.W]]).M"},
 		{name: "overlapping prefixes", in: "(*a/b.T[a/bc.U]).M", want: "(*canonical/a/b.T[a/bc.U]).M"},
 		{name: "malformed receiver", in: "(*a/b.T[c/d.U].M", want: "(*a/b.T[c/d.U].M"},
+		{name: "unsupported balanced receiver", in: "(*a/b.T[bad? c/d.U]).M", want: "(*a/b.T[bad? c/d.U]).M"},
 		{name: "unsupported selector", in: "a/b.T.M", want: "a/b.T.M"},
 	}
 	for _, tt := range tests {
@@ -139,7 +184,17 @@ func TestResolveDependencyInterfaceCanonicalizesLocalFacts(t *testing.T) {
 		t.Fatal(err)
 	}
 	apiPath := filepath.Join(depRoot, "api.go")
-	if err := os.WriteFile(apiPath, []byte("package dep\n"), 0644); err != nil {
+	if err := os.WriteFile(apiPath, []byte("package dep\nfunc Exported() {}\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	fset := token.NewFileSet()
+	file, err := parser.ParseFile(fset, apiPath, "package dep\nfunc Exported() {}\n", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	typesInfo := &types.Info{Defs: make(map[*ast.Ident]types.Object)}
+	typesPkg, err := (&types.Config{}).Check("canonical/dep", fset, []*ast.File{file}, typesInfo)
+	if err != nil {
 		t.Fatal(err)
 	}
 
@@ -157,10 +212,14 @@ func TestResolveDependencyInterfaceCanonicalizesLocalFacts(t *testing.T) {
 	}
 	loadPackages = func(_ *packages.Config, _ ...string) ([]*packages.Package, error) {
 		return []*packages.Package{{
-			ID:      "canonical/dep",
-			PkgPath: "canonical/dep",
-			Name:    "dep",
-			GoFiles: []string{apiPath},
+			ID:        "canonical/dep",
+			PkgPath:   "canonical/dep",
+			Name:      "dep",
+			GoFiles:   []string{apiPath},
+			Fset:      fset,
+			Syntax:    []*ast.File{file},
+			Types:     typesPkg,
+			TypesInfo: typesInfo,
 			Imports: map[string]*packages.Package{
 				"host/import": {ID: "canonical/import", PkgPath: "canonical/import"},
 			},
@@ -176,6 +235,9 @@ func TestResolveDependencyInterfaceCanonicalizesLocalFacts(t *testing.T) {
 	}
 	if got, want := result.Packages, []string{"canonical/dep"}; len(got) != len(want) || got[0] != want[0] {
 		t.Fatalf("result packages = %v, want %v", got, want)
+	}
+	if len(result.Symbols) != 1 || result.Symbols[0] != "canonical/dep.Exported" {
+		t.Fatalf("result symbols = %v, want canonical/dep.Exported", result.Symbols)
 	}
 }
 

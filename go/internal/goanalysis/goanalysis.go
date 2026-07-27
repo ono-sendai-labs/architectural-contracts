@@ -865,7 +865,11 @@ func canonicalizeSymbol(sym string) string {
 		if close <= innerStart {
 			return sym
 		}
-		return sym[:innerStart] + canonicalizeTypeExpression(sym[innerStart:close]) + sym[close:]
+		rewritten, ok := rewriteSymbolTypeExpression(sym[innerStart:close])
+		if !ok {
+			return sym
+		}
+		return sym[:innerStart] + rewritten + sym[close:]
 	}
 
 	dot := topLevelSymbolDot(sym)
@@ -876,7 +880,13 @@ func canonicalizeSymbol(sym string) string {
 	if !ok {
 		return sym
 	}
-	return hostpolicy.CanonicalizePath(sym[:dot]) + "." + name + canonicalizeTypeExpression(arguments)
+	if arguments != "" {
+		arguments, ok = rewriteSymbolTypeArguments(arguments)
+		if !ok {
+			return sym
+		}
+	}
+	return hostpolicy.CanonicalizePath(sym[:dot]) + "." + name + arguments
 }
 
 // canonicalizePackageFact puts dependency-interface package facts in the same
@@ -893,26 +903,185 @@ func canonicalizePackageFact(pkg facts.PackageFact) facts.PackageFact {
 	return pkg
 }
 
-func canonicalizeTypeExpression(expr string) string {
-	var out strings.Builder
-	for i := 0; i < len(expr); {
-		if !isPackagePathChar(expr[i]) {
-			out.WriteByte(expr[i])
-			i++
-			continue
-		}
-		start := i
-		for i < len(expr) && isPackagePathChar(expr[i]) {
-			i++
-		}
-		token := expr[start:i]
-		if dot := strings.LastIndexByte(token, '.'); dot > 0 && dot+1 < len(token) {
-			packagePath := token[:dot]
-			token = hostpolicy.CanonicalizePath(packagePath) + token[dot:]
-		}
-		out.WriteString(token)
+type symbolPathReplacement struct {
+	start int
+	end   int
+	path  string
+}
+
+// rewriteSymbolTypeExpression validates the supported type-expression grammar
+// before rewriting qualified names. Unsupported or malformed expressions are
+// returned unchanged instead of being partially rewritten.
+func rewriteSymbolTypeExpression(expr string) (string, bool) {
+	parser := symbolTypeParser{expr: expr}
+	if !parser.parseType() || !parser.atEnd() {
+		return expr, false
 	}
-	return out.String()
+	return parser.rewrite(), true
+}
+
+func rewriteSymbolTypeArguments(expr string) (string, bool) {
+	parser := symbolTypeParser{expr: expr}
+	if !parser.parseTypeArguments() || !parser.atEnd() {
+		return expr, false
+	}
+	return parser.rewrite(), true
+}
+
+type symbolTypeParser struct {
+	expr         string
+	pos          int
+	replacements []symbolPathReplacement
+}
+
+func (p *symbolTypeParser) parseType() bool {
+	p.skipSpace()
+	if p.pos >= len(p.expr) {
+		return false
+	}
+	if p.consume("*") {
+		return p.parseType()
+	}
+	if p.consume("<-") {
+		if !p.consumeName("chan") {
+			return false
+		}
+		return p.parseType()
+	}
+	if p.expr[p.pos] == '[' {
+		return p.parseArrayOrSlice()
+	}
+	if p.expr[p.pos] == '(' {
+		p.pos++
+		if !p.parseType() {
+			return false
+		}
+		p.skipSpace()
+		return p.consume(")")
+	}
+
+	start := p.pos
+	for p.pos < len(p.expr) && isPackagePathChar(p.expr[p.pos]) {
+		p.pos++
+	}
+	if start == p.pos {
+		return false
+	}
+	token := p.expr[start:p.pos]
+	if token == "map" {
+		return p.parseTypeArguments() && p.parseType()
+	}
+	if token == "chan" {
+		p.skipSpace()
+		p.consume("<-")
+		return p.parseType()
+	}
+	if dot := strings.LastIndexByte(token, '.'); dot >= 0 {
+		if dot == 0 || dot+1 == len(token) || !isPackagePath(token[:dot]) || !isIdentifier(token[dot+1:]) {
+			return false
+		}
+		p.replacements = append(p.replacements, symbolPathReplacement{
+			start: start,
+			end:   start + dot,
+			path:  token[:dot],
+		})
+	} else if !isIdentifier(token) {
+		return false
+	}
+	if p.peekNonSpace() == '[' {
+		return p.parseTypeArguments()
+	}
+	return true
+}
+
+func (p *symbolTypeParser) parseTypeArguments() bool {
+	p.skipSpace()
+	if !p.consume("[") || !p.parseType() {
+		return false
+	}
+	for {
+		p.skipSpace()
+		if p.consume("]") {
+			return true
+		}
+		if !p.consume(",") || !p.parseType() {
+			return false
+		}
+	}
+}
+
+func (p *symbolTypeParser) parseArrayOrSlice() bool {
+	if !p.consume("[") {
+		return false
+	}
+	p.skipSpace()
+	if p.consume("]") {
+		return p.parseType()
+	}
+	start := p.pos
+	for p.pos < len(p.expr) && p.expr[p.pos] != ']' {
+		if !isArrayLengthChar(p.expr[p.pos]) {
+			return false
+		}
+		p.pos++
+	}
+	if start == p.pos || !p.consume("]") {
+		return false
+	}
+	return p.parseType()
+}
+
+func isArrayLengthChar(ch byte) bool {
+	return (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') ||
+		(ch >= '0' && ch <= '9') || strings.ContainsRune("_ +-*/%().", rune(ch))
+}
+
+func (p *symbolTypeParser) consumeName(name string) bool {
+	p.skipSpace()
+	if !strings.HasPrefix(p.expr[p.pos:], name) {
+		return false
+	}
+	p.pos += len(name)
+	return true
+}
+
+func (p *symbolTypeParser) consume(s string) bool {
+	if !strings.HasPrefix(p.expr[p.pos:], s) {
+		return false
+	}
+	p.pos += len(s)
+	return true
+}
+
+func (p *symbolTypeParser) peekNonSpace() byte {
+	pos := p.pos
+	for pos < len(p.expr) && (p.expr[pos] == ' ' || p.expr[pos] == '\t' || p.expr[pos] == '\n') {
+		pos++
+	}
+	if pos == len(p.expr) {
+		return 0
+	}
+	return p.expr[pos]
+}
+
+func (p *symbolTypeParser) skipSpace() {
+	for p.pos < len(p.expr) && (p.expr[p.pos] == ' ' || p.expr[p.pos] == '\t' || p.expr[p.pos] == '\n') {
+		p.pos++
+	}
+}
+
+func (p *symbolTypeParser) atEnd() bool {
+	p.skipSpace()
+	return p.pos == len(p.expr)
+}
+
+func (p *symbolTypeParser) rewrite() string {
+	result := p.expr
+	for i := len(p.replacements) - 1; i >= 0; i-- {
+		r := p.replacements[i]
+		result = result[:r.start] + hostpolicy.CanonicalizePath(r.path) + result[r.end:]
+	}
+	return result
 }
 
 func matchingSymbolParen(sym string) int {
