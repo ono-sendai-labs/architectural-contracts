@@ -80,7 +80,8 @@ func (r ConformanceReport) RenderText() string {
 		if len(r.Dependencies) > 0 {
 			sb.WriteString("\nDependencies:\n")
 			for _, dep := range r.Dependencies {
-				sb.WriteString(formatDependencyBoundary(dep) + "\n")
+				sb.WriteString(formatDependencyBoundary(dep))
+				sb.WriteString("\n")
 			}
 		}
 		return sb.String()
@@ -91,7 +92,8 @@ func (r ConformanceReport) RenderText() string {
 	if len(r.Dependencies) > 0 {
 		sb.WriteString("\nDependencies:\n")
 		for _, dep := range r.Dependencies {
-			sb.WriteString(formatDependencyBoundary(dep) + "\n")
+			sb.WriteString(formatDependencyBoundary(dep))
+			sb.WriteString("\n")
 		}
 	}
 

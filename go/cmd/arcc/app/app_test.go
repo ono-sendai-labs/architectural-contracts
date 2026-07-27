@@ -1244,3 +1244,92 @@ component_dependencies: {
 		}
 	}
 }
+
+func TestRunner_Check_AssertedOnlyBoundary_Success(t *testing.T) {
+	parentDir := t.TempDir()
+
+	depDir := filepath.Join(parentDir, "asserted-dep")
+	if err := os.MkdirAll(depDir, 0755); err != nil {
+		t.Fatalf("failed to create dep dir: %v", err)
+	}
+	depManifest := `
+name: "asserted-dep"
+interface_files: "api.go"
+own_check_runs: false
+certification_reference: "ref-999"
+`
+	if err := os.WriteFile(filepath.Join(depDir, "go.mod"), []byte("module example.com/temp/asserted-dep\n\ngo 1.21\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(depDir, "component.textproto"), []byte(depManifest), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(depDir, "api.go"), []byte("package asserteddep\n\nfunc Fetch() {}\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	analyzedDir := filepath.Join(parentDir, "asserted-comp")
+	if err := os.MkdirAll(analyzedDir, 0755); err != nil {
+		t.Fatalf("failed to create analyzed dir: %v", err)
+	}
+	manifestContent := `
+name: "asserted-comp"
+interface_files: "api.go"
+component_dependencies: {
+  name: "asserted-dep"
+  manifest: "../asserted-dep/component.textproto"
+}
+`
+	if err := os.WriteFile(filepath.Join(analyzedDir, "go.mod"), []byte("module example.com/temp/asserted-comp\n\ngo 1.21\n\nrequire example.com/temp/asserted-dep v0.0.0\nreplace example.com/temp/asserted-dep => ../asserted-dep\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	manifestPath := filepath.Join(analyzedDir, "component.textproto")
+	if err := os.WriteFile(manifestPath, []byte(manifestContent), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(analyzedDir, "api.go"), []byte("package main\n\nimport \"example.com/temp/asserted-dep\"\n\nfunc Hello() {\n\tasserteddep.Fetch()\n}\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	runner := &app.Runner{
+		Loader:   func(req goanalysis.LoadRequest) (facts.PackageFacts, error) { return goanalysis.LoadPackageFacts(req) },
+		Analyzer: &mockAnalyzer{},
+	}
+
+	// 1. Text mode
+	var stdout, stderr bytes.Buffer
+	exitCode := runner.Run([]string{"check", manifestPath}, &stdout, &stderr)
+	if exitCode != 0 {
+		t.Fatalf("Run() exit = %d, want 0; stderr = %q, stdout = %q", exitCode, stderr.String(), stdout.String())
+	}
+	if stderr.Len() != 0 {
+		t.Errorf("stderr = %q, want empty", stderr.String())
+	}
+	gotText := stdout.String()
+	wantText := `Component "asserted-comp" conforms; does not exceed declared authority
+
+Dependencies:
+- asserted-dep: asserted (ref-999)
+`
+	if gotText != wantText {
+		t.Errorf("stdout =\n%q\nwant:\n%q", gotText, wantText)
+	}
+
+	// 2. JSON mode
+	stdout.Reset()
+	stderr.Reset()
+	exitCodeJSON := runner.Run([]string{"check", manifestPath, "--format=json"}, &stdout, &stderr)
+	if exitCodeJSON != 0 {
+		t.Fatalf("Run(--format=json) exit = %d, want 0; stderr = %q", exitCodeJSON, stderr.String())
+	}
+	var rep report.ConformanceReport
+	if err := json.Unmarshal(stdout.Bytes(), &rep); err != nil {
+		t.Fatalf("json.Unmarshal error = %v; stdout = %q", err, stdout.String())
+	}
+	if len(rep.Violations) != 0 || len(rep.Warnings) != 0 {
+		t.Errorf("report has findings: violations=%v, warnings=%v", rep.Violations, rep.Warnings)
+	}
+	if len(rep.Dependencies) != 1 || rep.Dependencies[0].Component != "asserted-dep" || rep.Dependencies[0].OwnCheckRuns || rep.Dependencies[0].CertificationReference != "ref-999" {
+		t.Errorf("report.Dependencies = %+v, want asserted-dep boundary", rep.Dependencies)
+	}
+}

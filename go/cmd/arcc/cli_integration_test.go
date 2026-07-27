@@ -770,9 +770,39 @@ func TestIntegration_App_Success(t *testing.T) {
 		t.Errorf("expected empty stderr, got %q", stderr)
 	}
 
-	want := `Component "app" conforms; does not exceed declared authority`
-	if !strings.Contains(stdout, want) {
-		t.Errorf("stdout = %q, want it to contain %q", stdout, want)
+	wantText := `Component "app" conforms; does not exceed declared authority
+
+Dependencies:
+- csvfile: asserted
+- toprow: asserted
+`
+	if stdout != wantText {
+		t.Errorf("stdout =\n%q\nwant:\n%q", stdout, wantText)
+	}
+}
+
+func TestIntegration_App_Success_JSON(t *testing.T) {
+	stdout, stderr, exitCode := runArcc([]string{"check", "../../examples/csvtool/app/component.textproto", "--format=json"})
+
+	if exitCode != 0 {
+		t.Fatalf("expected exit code 0, got %d. Stderr: %s\nStdout: %s", exitCode, stderr, stdout)
+	}
+	if stderr != "" {
+		t.Errorf("expected empty stderr, got %q", stderr)
+	}
+
+	var rep report.ConformanceReport
+	if err := json.Unmarshal([]byte(stdout), &rep); err != nil {
+		t.Fatalf("json.Unmarshal error = %v; stdout = %q", err, stdout)
+	}
+	if rep.Component != "app" {
+		t.Errorf("rep.Component = %q, want 'app'", rep.Component)
+	}
+	if len(rep.Violations) != 0 || len(rep.Warnings) != 0 {
+		t.Errorf("report has findings: violations=%v, warnings=%v", rep.Violations, rep.Warnings)
+	}
+	if len(rep.Dependencies) != 2 || rep.Dependencies[0].Component != "csvfile" || rep.Dependencies[1].Component != "toprow" {
+		t.Errorf("rep.Dependencies = %+v, want csvfile and toprow asserted boundaries", rep.Dependencies)
 	}
 }
 
@@ -1100,5 +1130,93 @@ component_dependencies {
 	}
 	if !strings.Contains(stdoutMem, `Component "fixture2-editor" conforms; does not exceed declared authority`) {
 		t.Errorf("expected member variant stdout to be conforming success line, got: %s", stdoutMem)
+	}
+}
+
+func TestIntegration_AssertedBoundary_Exit0(t *testing.T) {
+	// Verifies AC4: a component whose dependencies are all asserted and has no violations
+	// or warnings returns exit code 0, emits no findings, and retains the success line + annotation.
+	depManifest := `
+name: "asserted-dep-cli"
+interface_files: "api.go"
+`
+	depFiles := map[string]string{
+		"api.go": `package asserteddep
+func Fetch() {}
+`,
+	}
+	depDir, depManifestPath := createTempComponent(t, "asserted-dep-cli", depManifest, depFiles)
+
+	absModuleRoot, err := filepath.Abs("../..")
+	if err != nil {
+		t.Fatalf("failed to get module root: %v", err)
+	}
+	relDepDir, err := filepath.Rel(absModuleRoot, depDir)
+	if err != nil {
+		t.Fatalf("failed to resolve relative path: %v", err)
+	}
+	depImportPath := "github.com/ono-sendai-labs/architectural-contracts/go/" + filepath.ToSlash(relDepDir)
+
+	callerFiles := map[string]string{
+		"main.go": fmt.Sprintf(`package main
+import dep "%s"
+func Hello() {
+	dep.Fetch()
+}
+`, depImportPath),
+	}
+
+	callerDir, callerManifestPath := createTempComponent(t, "asserted-caller-cli", "", callerFiles)
+	relDepManifest, err := filepath.Rel(callerDir, depManifestPath)
+	if err != nil {
+		t.Fatalf("failed to compute relative path: %v", err)
+	}
+
+	actualManifest := fmt.Sprintf(`
+name: "asserted-caller-cli"
+interface_files: "main.go"
+component_dependencies {
+	name: "asserted-dep-cli"
+	manifest: "%s"
+}
+`, filepath.ToSlash(relDepManifest))
+	if err := os.WriteFile(callerManifestPath, []byte(actualManifest), 0644); err != nil {
+		t.Fatalf("failed to update manifest: %v", err)
+	}
+
+	// 1. Text mode check
+	stdout, stderr, exitCode := runArcc([]string{"check", callerManifestPath})
+	if exitCode != 0 {
+		t.Fatalf("expected exit code 0, got %d. Stderr: %s\nStdout: %s", exitCode, stderr, stdout)
+	}
+	if stderr != "" {
+		t.Errorf("expected empty stderr, got %q", stderr)
+	}
+	wantText := `Component "asserted-caller-cli" conforms; does not exceed declared authority
+
+Dependencies:
+- asserted-dep-cli: asserted
+`
+	if stdout != wantText {
+		t.Errorf("stdout =\n%q\nwant:\n%q", stdout, wantText)
+	}
+
+	// 2. JSON mode check
+	stdoutJSON, stderrJSON, exitCodeJSON := runArcc([]string{"check", callerManifestPath, "--format=json"})
+	if exitCodeJSON != 0 {
+		t.Fatalf("expected JSON exit code 0, got %d. Stderr: %s\nStdout: %s", exitCodeJSON, stderrJSON, stdoutJSON)
+	}
+	if stderrJSON != "" {
+		t.Errorf("expected empty stderr for JSON, got %q", stderrJSON)
+	}
+	var rep report.ConformanceReport
+	if err := json.Unmarshal([]byte(stdoutJSON), &rep); err != nil {
+		t.Fatalf("json.Unmarshal error = %v; stdout = %q", err, stdoutJSON)
+	}
+	if len(rep.Violations) != 0 || len(rep.Warnings) != 0 {
+		t.Errorf("expected 0 violations and 0 warnings, got violations=%v, warnings=%v", rep.Violations, rep.Warnings)
+	}
+	if len(rep.Dependencies) != 1 || rep.Dependencies[0].Component != "asserted-dep-cli" || rep.Dependencies[0].OwnCheckRuns {
+		t.Errorf("rep.Dependencies = %+v, want asserted-dep-cli boundary", rep.Dependencies)
 	}
 }

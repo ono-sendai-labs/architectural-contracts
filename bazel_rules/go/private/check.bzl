@@ -108,12 +108,12 @@ arcc_check_test = rule(
     doc = "Runs `arcc check` on a go_component's generated manifest and layout, hermetically.",
 )
 
-def _launcher_content_with_grep(argv, expected_strings):
+def _launcher_content_with_grep(argv, expected_strings, expect_status = 1):
     command = " ".join([_shell_quote(arg) for arg in argv])
     
     grep_commands = []
     for s in expected_strings:
-        grep_commands.append('if ! grep -F "%s" "$output_file" > /dev/null; then' % s)
+        grep_commands.append('if ! grep -F %s "$output_file" > /dev/null; then' % _shell_quote(s))
         grep_commands.append('  echo "arcc_check_test: expected string \'%s\' not found in output" >&2' % s)
         grep_commands.append('  cat "$output_file" >&2')
         grep_commands.append('  rm -f "$output_file"')
@@ -129,8 +129,8 @@ def _launcher_content_with_grep(argv, expected_strings):
         "status=0",
         command + ' > "$output_file" 2>&1 || status=$?',
         "",
-        'if [ "$status" -ne 1 ]; then',
-        '  echo "arcc_check_test: expected a violation (exit 1), got exit $status" >&2',
+        'if [ "$status" -ne %d ]; then' % expect_status,
+        '  echo "arcc_check_test: expected exit %d, got exit $status" >&2' % expect_status,
         '  cat "$output_file" >&2',
         '  rm -f "$output_file"',
         '  exit 1',
@@ -155,7 +155,7 @@ def _arcc_check_grep_impl(ctx):
     launcher = ctx.actions.declare_file(ctx.label.name + ".sh")
     ctx.actions.write(
         output = launcher,
-        content = _launcher_content_with_grep(argv, ctx.attr.expected_strings),
+        content = _launcher_content_with_grep(argv, ctx.attr.expected_strings, ctx.attr.expect_status),
         is_executable = True,
     )
 
@@ -178,6 +178,10 @@ arcc_check_grep_test = rule(
             mandatory = True,
             doc = "List of strings to grep in the output of the check.",
         ),
+        "expect_status": attr.int(
+            default = 1,
+            doc = "Expected exit status of the arcc check command.",
+        ),
         "_arcc": attr.label(
             default = ARCC_TARGET,
             executable = True,
@@ -186,5 +190,90 @@ arcc_check_grep_test = rule(
         ),
     },
     toolchains = GO_TOOLCHAINS,
-    doc = "Runs `arcc check` on a go_component, expects exit 1, and greps stdout/stderr for specific strings.",
+    doc = "Runs `arcc check` on a go_component, expects exit code, and greps stdout/stderr for specific strings.",
+)
+
+def _launcher_content_with_golden(argv, golden_file_path):
+    command = " ".join([_shell_quote(arg) for arg in argv])
+    return "\n".join([
+        "#!/bin/sh",
+        "set -u",
+        'cd "${TEST_SRCDIR:?TEST_SRCDIR is not set}" || exit 2',
+        "",
+        'output_file=$(mktemp)',
+        "status=0",
+        command + ' > "$output_file" 2>&1 || status=$?',
+        "",
+        'if [ "$status" -ne 0 ]; then',
+        '  echo "arcc_check_report_golden_test: check failed with exit $status" >&2',
+        '  cat "$output_file" >&2',
+        '  rm -f "$output_file"',
+        '  exit 1',
+        'fi',
+        "",
+        'if ! diff -u %s "$output_file"; then' % _shell_quote(golden_file_path),
+        '  echo "arcc_check_report_golden_test: output differs from golden %s" >&2' % _shell_quote(golden_file_path),
+        '  rm -f "$output_file"',
+        '  exit 1',
+        'fi',
+        "",
+        'rm -f "$output_file"',
+        "exit 0",
+        "",
+    ])
+
+def _arcc_check_report_golden_impl(ctx):
+    info = ctx.attr.component[ArccComponentInfo]
+
+    argv = [
+        runfiles_path(ctx, ctx.executable._arcc),
+        "check",
+        runfiles_path(ctx, info.manifest),
+        "--package-layout=" + runfiles_path(ctx, info.layout),
+    ]
+    if ctx.attr.format_json:
+        argv.append("--format=json")
+
+    golden_path = runfiles_path(ctx, ctx.file.golden)
+
+    launcher = ctx.actions.declare_file(ctx.label.name + ".sh")
+    ctx.actions.write(
+        output = launcher,
+        content = _launcher_content_with_golden(argv, golden_path),
+        is_executable = True,
+    )
+
+    runfiles = ctx.runfiles(files = [ctx.file.golden], transitive_files = go_sdk_srcs(ctx))
+    runfiles = runfiles.merge(ctx.attr.component[DefaultInfo].default_runfiles)
+    runfiles = runfiles.merge(ctx.attr._arcc[DefaultInfo].default_runfiles)
+
+    return [DefaultInfo(executable = launcher, runfiles = runfiles)]
+
+arcc_check_report_golden_test = rule(
+    implementation = _arcc_check_report_golden_impl,
+    test = True,
+    attrs = {
+        "component": attr.label(
+            mandatory = True,
+            providers = [ArccComponentInfo],
+            doc = "The go_component target to check.",
+        ),
+        "golden": attr.label(
+            mandatory = True,
+            allow_single_file = True,
+            doc = "Golden report file to compare against.",
+        ),
+        "format_json": attr.bool(
+            default = False,
+            doc = "Whether to pass --format=json to arcc check.",
+        ),
+        "_arcc": attr.label(
+            default = ARCC_TARGET,
+            executable = True,
+            cfg = "target",
+            doc = "The arcc binary the check runs.",
+        ),
+    },
+    toolchains = GO_TOOLCHAINS,
+    doc = "Runs `arcc check` on a go_component hermetically and compares its report output against a golden file.",
 )

@@ -1,0 +1,4 @@
+Component "api_component" conforms; does not exceed declared authority
+
+Dependencies:
+- shared_component: asserted
