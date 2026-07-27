@@ -40,7 +40,7 @@ type Inputs struct {
 // - FR4 (well-formedness rule: Method placement)
 // - FR5 (cross-component call-boundary rule and higher-order boundary-call warning)
 // - FR6 (policy-aware ambient-authority rule, using StrictPolicy() merged with declared_authority)
-// - §5.5 (package-overlap check)
+// - M7 (member-overlap check)
 //
 // Check is now feature-complete for all pure-core rules (FR3/FR4/FR5/FR6). Findings in Caps are pre-pruned
 // at dependency boundaries (Step 9) by the analyzer shell before being passed here.
@@ -168,7 +168,8 @@ func Check(in Inputs) report.ConformanceReport {
 		}
 	}
 
-	// 4c. Package Overlap Checks (§5.5)
+	// 4c. Member overlap checks (M7). Effective members must not also be
+	// covered by a resolved component dependency or an absorbed declaration.
 	for _, di := range in.DepIfaces {
 		var overlapping []string
 		for _, dpkg := range di.Packages {
@@ -179,10 +180,28 @@ func Check(in Inputs) report.ConformanceReport {
 		if len(overlapping) > 0 {
 			sort.Strings(overlapping)
 			violations = append(violations, report.Finding{
-				Kind:    report.PackageOverlap,
-				Message: fmt.Sprintf("package overlap with dependency %q: overlapping packages: %s", di.Component, strings.Join(overlapping, ", ")),
+				Kind:    report.MemberOverlap,
+				Message: fmt.Sprintf("member overlap with dependency %q: overlapping packages: %s", di.Component, strings.Join(overlapping, ", ")),
 			})
 		}
+	}
+
+	for _, absDep := range in.Manifest.AbsorbedDependencies {
+		var overlapping []string
+		for pkg := range compPkgs {
+			matched, err := path.Match(absDep.ImportPath, pkg)
+			if err == nil && matched {
+				overlapping = append(overlapping, pkg)
+			}
+		}
+		if len(overlapping) == 0 {
+			continue
+		}
+		sort.Strings(overlapping)
+		violations = append(violations, report.Finding{
+			Kind:    report.MemberOverlap,
+			Message: fmt.Sprintf("member overlap with absorbed dependency %q: overlapping packages: %s", absDep.ImportPath, strings.Join(overlapping, ", ")),
+		})
 	}
 
 	// 4d. FR5 Cross-component Call Boundary Checks (design §5.3b)

@@ -1,12 +1,14 @@
 package goanalysis
 
 import (
+	"fmt"
 	"go/ast"
 	"go/parser"
 	"go/token"
 	"go/types"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -36,6 +38,132 @@ func TestValidateLoaderPackagePathsChecksDependencyGraph(t *testing.T) {
 	err := validateLoaderPackagePaths([]*packages.Package{root})
 	if err == nil || !strings.Contains(err.Error(), "host/dep") || !strings.Contains(err.Error(), "canonical/dep") {
 		t.Fatalf("validateLoaderPackagePaths() error = %v, want both loader and canonical paths", err)
+	}
+}
+
+func TestValidateLayoutMembershipSets(t *testing.T) {
+	tests := []struct {
+		name       string
+		members    []string
+		roots      []string
+		wantErr    bool
+		wantPieces []string
+	}{
+		{
+			name:    "same set different order",
+			members: []string{"canonical/b", "canonical/a"},
+			roots:   []string{"canonical/a", "canonical/b"},
+		},
+		{
+			name:       "missing layout root",
+			members:    []string{"canonical/a", "canonical/b"},
+			roots:      []string{"canonical/a"},
+			wantErr:    true,
+			wantPieces: []string{"canonical/a", "canonical/b", "missing from layout: [canonical/b]", "missing from manifest: []"},
+		},
+		{
+			name:       "extra layout root",
+			members:    []string{"canonical/a"},
+			roots:      []string{"canonical/a", "canonical/b"},
+			wantErr:    true,
+			wantPieces: []string{"canonical/a", "canonical/b", "missing from layout: []", "missing from manifest: [canonical/b]"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validateLayoutMembership(tt.members, tt.roots)
+			if !tt.wantErr {
+				if err != nil {
+					t.Fatalf("validateLayoutMembership() error = %v", err)
+				}
+				return
+			}
+			if err == nil {
+				t.Fatal("validateLayoutMembership() succeeded for mismatched sets")
+			}
+			for _, piece := range tt.wantPieces {
+				if !strings.Contains(err.Error(), piece) {
+					t.Errorf("error %q does not contain %q", err, piece)
+				}
+			}
+		})
+	}
+}
+
+func TestValidateLayoutMembershipCanonicalizesWithoutMutatingInputs(t *testing.T) {
+	originalPolicy := hostpolicy.CanonicalizePath
+	t.Cleanup(func() { hostpolicy.CanonicalizePath = originalPolicy })
+	hostpolicy.CanonicalizePath = func(path string) string {
+		return strings.TrimPrefix(path, "host/")
+	}
+	members := []string{"host/a"}
+	roots := []string{"a"}
+	if err := validateLayoutMembership(members, roots); err != nil {
+		t.Fatalf("validateLayoutMembership() error = %v", err)
+	}
+	if !reflect.DeepEqual(members, []string{"host/a"}) || !reflect.DeepEqual(roots, []string{"a"}) {
+		t.Fatalf("validateLayoutMembership mutated inputs: members=%v roots=%v", members, roots)
+	}
+}
+
+func TestLoadPackageFactsRejectsLayoutMembershipMismatchBeforeLoading(t *testing.T) {
+	workspace := t.TempDir()
+	for _, name := range []string{"a", "b"} {
+		if err := os.WriteFile(filepath.Join(workspace, name+".go"), []byte("package "+name+"\n"), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	originalLoad := loadPackages
+	t.Cleanup(func() { loadPackages = originalLoad })
+	called := false
+	loadPackages = func(_ *packages.Config, _ ...string) ([]*packages.Package, error) {
+		called = true
+		return nil, nil
+	}
+
+	tests := []struct {
+		name    string
+		members []string
+		roots   []string
+		want    string
+	}{
+		{
+			name:    "missing root",
+			members: []string{"example.com/a", "example.com/b"},
+			roots:   []string{"example.com/a"},
+			want:    "missing from layout: [example.com/b]",
+		},
+		{
+			name:    "extra root",
+			members: []string{"example.com/a"},
+			roots:   []string{"example.com/a", "example.com/b"},
+			want:    "missing from manifest: [example.com/b]",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			called = false
+			layoutPath := filepath.Join(workspace, tt.name+".json")
+			packagesJSON := `{"id":"example.com/a","name":"a","pkgPath":"example.com/a","goFiles":["a.go"],"compiledGoFiles":["a.go"],"imports":{},"is_stdlib":false}`
+			if len(tt.roots) == 2 {
+				packagesJSON += `,{"id":"example.com/b","name":"b","pkgPath":"example.com/b","goFiles":["b.go"],"compiledGoFiles":["b.go"],"imports":{},"is_stdlib":false}`
+			}
+			data := fmt.Sprintf(`{"roots":["%s"],"packages":[%s]}`, strings.Join(tt.roots, `","`), packagesJSON)
+			if err := os.WriteFile(layoutPath, []byte(data), 0644); err != nil {
+				t.Fatal(err)
+			}
+			err := packagelayout.WithDriverEnv(layoutPath, workspace, func() error {
+				_, err := LoadPackageFacts(LoadRequest{ComponentRoot: workspace, Members: tt.members})
+				return err
+			})
+			if err == nil || !strings.Contains(err.Error(), tt.want) || !strings.Contains(err.Error(), "manifest members") || !strings.Contains(err.Error(), "layout roots") {
+				t.Fatalf("LoadPackageFacts() error = %v, want mismatch details including %q", err, tt.want)
+			}
+			if called {
+				t.Fatal("loadPackages was called before layout membership mismatch was rejected")
+			}
+		})
 	}
 }
 

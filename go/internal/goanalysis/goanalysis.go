@@ -59,8 +59,14 @@ func LoadPackageFacts(req LoadRequest) (facts.PackageFacts, error) {
 	var patterns []string
 
 	if packagelayout.IsLayoutMode() {
+		layout := packagelayout.GetActiveLayout()
+		if len(req.Members) > 0 {
+			if err := validateLayoutMembership(req.Members, layout.Roots); err != nil {
+				return facts.PackageFacts{}, err
+			}
+		}
 		dir = packagelayout.GetActiveWorkspaceDir()
-		patterns = packagelayout.GetActiveLayout().Roots
+		patterns = layout.Roots
 	} else if len(req.Members) > 0 {
 		dir = componentRoot
 		patterns = append(patterns, req.Members...)
@@ -315,6 +321,64 @@ func LoadPackageFacts(req LoadRequest) (facts.PackageFacts, error) {
 	}
 
 	return res, nil
+}
+
+// validateLayoutMembership enforces the layout/manifest ownership contract at
+// the loader boundary. It compares fresh canonical sets and leaves both input
+// slices untouched so the original declarations remain available to callers.
+func validateLayoutMembership(members, roots []string) error {
+	memberSet := canonicalPathSet(members)
+	rootSet := canonicalPathSet(roots)
+	if equalStringSets(memberSet, rootSet) {
+		return nil
+	}
+
+	missingFromLayout := setDifference(memberSet, rootSet)
+	missingFromManifest := setDifference(rootSet, memberSet)
+	return fmt.Errorf(
+		"package layout roots do not match manifest members: manifest members: %v; layout roots: %v; missing from layout: %v; missing from manifest: %v",
+		sortedSetValues(memberSet), sortedSetValues(rootSet), missingFromLayout, missingFromManifest,
+	)
+}
+
+func canonicalPathSet(paths []string) map[string]bool {
+	set := make(map[string]bool, len(paths))
+	for _, p := range paths {
+		set[hostpolicy.CanonicalizePath(p)] = true
+	}
+	return set
+}
+
+func equalStringSets(left, right map[string]bool) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for value := range left {
+		if !right[value] {
+			return false
+		}
+	}
+	return true
+}
+
+func setDifference(left, right map[string]bool) []string {
+	var difference []string
+	for value := range left {
+		if !right[value] {
+			difference = append(difference, value)
+		}
+	}
+	sort.Strings(difference)
+	return difference
+}
+
+func sortedSetValues(set map[string]bool) []string {
+	values := make([]string, 0, len(set))
+	for value := range set {
+		values = append(values, value)
+	}
+	sort.Strings(values)
+	return values
 }
 
 func isExpectedUnresolvedLayoutImport(message string, unresolvedPaths map[string]bool) bool {

@@ -939,7 +939,7 @@ func TestCheck_FR5_HigherOrderBoundaryCall(t *testing.T) {
 	}
 }
 
-func TestCheck_FR5_PackageOverlap(t *testing.T) {
+func TestCheck_MemberOverlapWithComponentDependency(t *testing.T) {
 	in := checker.Inputs{
 		Manifest: manifest.Manifest{
 			Name: "mycomponent",
@@ -963,12 +963,52 @@ func TestCheck_FR5_PackageOverlap(t *testing.T) {
 		t.Fatalf("expected exactly 1 violation, got %d", len(rep.Violations))
 	}
 	v := rep.Violations[0]
-	if v.Kind != report.PackageOverlap {
-		t.Errorf("expected kind %s, got %s", report.PackageOverlap, v.Kind)
+	if v.Kind != report.MemberOverlap {
+		t.Errorf("expected kind %s, got %s", report.MemberOverlap, v.Kind)
 	}
-	expectedMsg := `package overlap with dependency "dep1": overlapping packages: mycomponent/pkg/nested`
+	expectedMsg := `member overlap with dependency "dep1": overlapping packages: mycomponent/pkg/nested`
 	if v.Message != expectedMsg {
 		t.Errorf("expected message %q, got %q", expectedMsg, v.Message)
+	}
+}
+
+func TestCheck_MemberOverlapWithAbsorbedExactAndPattern(t *testing.T) {
+	in := checker.Inputs{
+		Manifest: manifest.Manifest{
+			Name:    "component",
+			Members: []string{"component/exact", "component/pattern"},
+			AbsorbedDependencies: []manifest.AbsorbedDependency{
+				{ImportPath: "component/exact"},
+				{ImportPath: "component/*"},
+			},
+		},
+		Facts: facts.PackageFacts{Packages: []facts.PackageFact{
+			{ImportPath: "component/exact"},
+			{ImportPath: "component/pattern"},
+		}},
+	}
+
+	first := checker.Check(in)
+	second := checker.Check(in)
+	if !reflect.DeepEqual(first, second) {
+		t.Fatalf("overlap findings are not deterministic: first=%#v second=%#v", first, second)
+	}
+	if len(first.Violations) != 2 {
+		t.Fatalf("violations = %#v, want two absorbed overlaps", first.Violations)
+	}
+	for _, want := range []string{
+		`member overlap with absorbed dependency "component/*": overlapping packages: component/exact, component/pattern`,
+		`member overlap with absorbed dependency "component/exact": overlapping packages: component/exact`,
+	} {
+		found := false
+		for _, violation := range first.Violations {
+			if violation.Kind == report.MemberOverlap && violation.Message == want {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("violations = %#v, missing %q", first.Violations, want)
+		}
 	}
 }
 
@@ -1112,13 +1152,13 @@ func TestCheck_FR5_FR3_FR4_Combined_And_Deterministic(t *testing.T) {
 		}
 
 		v3 := rep.Violations[3]
-		if v3.Kind != report.UndeclaredDependency {
-			t.Errorf("expected UndeclaredDependency at index 3, got kind %s: %s", v3.Kind, v3.Message)
+		if v3.Kind != report.MemberOverlap {
+			t.Errorf("expected MemberOverlap at index 3, got kind %s: %s", v3.Kind, v3.Message)
 		}
 
 		v4 := rep.Violations[4]
-		if v4.Kind != report.PackageOverlap {
-			t.Errorf("expected PackageOverlap at index 4, got kind %s: %s", v4.Kind, v4.Message)
+		if v4.Kind != report.UndeclaredDependency {
+			t.Errorf("expected UndeclaredDependency at index 4, got kind %s: %s", v4.Kind, v4.Message)
 		}
 
 		// Assert exactly 3 warnings

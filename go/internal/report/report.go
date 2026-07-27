@@ -21,7 +21,7 @@ const (
 	CallsUndeclaredInterface Kind = "CALLS_UNDECLARED_INTERFACE"
 	UndeclaredAuthority      Kind = "UNDECLARED_AUTHORITY"
 	MethodOutsideInterface   Kind = "METHOD_OUTSIDE_INTERFACE"
-	PackageOverlap           Kind = "PACKAGE_OVERLAP"
+	MemberOverlap            Kind = "MEMBER_OVERLAP"
 
 	// Warnings
 	AnalysisLimitation      Kind = "ANALYSIS_LIMITATION"
