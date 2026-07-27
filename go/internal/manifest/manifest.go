@@ -11,19 +11,61 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"path"
+	"strings"
 
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/manifest/gen"
 	"google.golang.org/protobuf/encoding/prototext"
 )
 
 var (
-	ErrEmptyName           = errors.New("manifest name cannot be empty")
-	ErrEmptyInterfaceFiles = errors.New("manifest must declare at least one interface file")
+	ErrEmptyName                     = errors.New("manifest name cannot be empty")
+	ErrEmptyInterfaceFiles           = errors.New("manifest must declare at least one interface file")
+	ErrPackageSurfaceRequiresMembers = errors.New("package-surface component requires at least one member")
+	ErrPackageSurfaceInterfaceFiles  = errors.New("package-surface component must not declare interface files")
 )
+
+// InterfaceStyle controls how a component's interface is determined.
+type InterfaceStyle uint8
+
+const (
+	// InterfaceStyleUnspecified preserves the declared interface_files behavior.
+	InterfaceStyleUnspecified InterfaceStyle = iota
+	// InterfaceStylePackageSurface exposes every exported symbol in each member package.
+	InterfaceStylePackageSurface
+)
+
+// UnknownInterfaceStyleError reports an interface style value not understood by this version.
+type UnknownInterfaceStyleError struct {
+	Value int32
+}
+
+func (e *UnknownInterfaceStyleError) Error() string {
+	return fmt.Sprintf("unknown interface style: %d", e.Value)
+}
+
+// InvalidMemberError reports a member that is empty or is not a valid import-path pattern.
+type InvalidMemberError struct {
+	Member string
+	Reason string
+}
+
+func (e *InvalidMemberError) Error() string {
+	return fmt.Sprintf("invalid member %q: %s", e.Member, e.Reason)
+}
+
+// MemberAbsorbedDependencyError reports a member declared again as an absorbed dependency.
+type MemberAbsorbedDependencyError struct {
+	ImportPath string
+}
+
+func (e *MemberAbsorbedDependencyError) Error() string {
+	return fmt.Sprintf("import path %q is both a member and an absorbed dependency", e.ImportPath)
+}
 
 // DuplicateDeclarationError represents a duplicate declaration error.
 type DuplicateDeclarationError struct {
-	Kind  string // "interface file", "component dependency", "absorbed dependency", "declared authority"
+	Kind  string // "interface file", "component dependency", "absorbed dependency", "member", "declared authority"
 	Value string
 }
 
@@ -60,17 +102,22 @@ func (e *UnknownCapabilityError) Error() string {
 // Manifest represents the native hand-written Go model for a component manifest,
 // shielding the rest of the application from protobuf definitions.
 type Manifest struct {
-	Name                  string
-	InterfaceFiles        []string
-	ComponentDependencies []ComponentDependency
-	AbsorbedDependencies  []AbsorbedDependency
-	DeclaredAuthority     []string
+	Name                   string
+	InterfaceFiles         []string
+	ComponentDependencies  []ComponentDependency
+	AbsorbedDependencies   []AbsorbedDependency
+	DeclaredAuthority      []string
+	Members                []string
+	InterfaceStyle         InterfaceStyle
+	OwnCheckRuns           bool
+	CertificationReference string
 }
 
 // ComponentDependency represents a dependency on a first-class component.
 type ComponentDependency struct {
-	Name     string
-	Manifest string
+	Name         string
+	Manifest     string
+	AutoAttached bool
 }
 
 // AbsorbedDependency represents an implementation-detail dependency (e.g. internal or third-party package).
@@ -92,18 +139,28 @@ func Parse(r io.Reader) (Manifest, error) {
 		return Manifest{}, fmt.Errorf("unmarshaling textproto: %w", err)
 	}
 
+	interfaceStyle, err := nativeInterfaceStyle(pbComponent.GetInterfaceStyle())
+	if err != nil {
+		return Manifest{}, err
+	}
+
 	m := Manifest{
-		Name:              pbComponent.GetName(),
-		InterfaceFiles:    pbComponent.GetInterfaceFiles(),
-		DeclaredAuthority: pbComponent.GetDeclaredAuthority(),
+		Name:                   pbComponent.GetName(),
+		InterfaceFiles:         copyStrings(pbComponent.GetInterfaceFiles()),
+		DeclaredAuthority:      copyStrings(pbComponent.GetDeclaredAuthority()),
+		Members:                copyStrings(pbComponent.GetMembers()),
+		InterfaceStyle:         interfaceStyle,
+		OwnCheckRuns:           pbComponent.GetOwnCheckRuns(),
+		CertificationReference: pbComponent.GetCertificationReference(),
 	}
 
 	if pbDeps := pbComponent.GetComponentDependencies(); len(pbDeps) > 0 {
 		m.ComponentDependencies = make([]ComponentDependency, len(pbDeps))
 		for i, pbDep := range pbDeps {
 			m.ComponentDependencies[i] = ComponentDependency{
-				Name:     pbDep.GetName(),
-				Manifest: pbDep.GetManifest(),
+				Name:         pbDep.GetName(),
+				Manifest:     pbDep.GetManifest(),
+				AutoAttached: pbDep.GetAutoAttached(),
 			}
 		}
 	}
@@ -130,13 +187,46 @@ func Parse(r io.Reader) (Manifest, error) {
 	return m, nil
 }
 
+func copyStrings(values []string) []string {
+	if values == nil {
+		return nil
+	}
+	result := make([]string, len(values))
+	copy(result, values)
+	return result
+}
+
+func nativeInterfaceStyle(style gen.InterfaceStyle) (InterfaceStyle, error) {
+	switch style {
+	case gen.InterfaceStyle_INTERFACE_STYLE_UNSPECIFIED:
+		return InterfaceStyleUnspecified, nil
+	case gen.InterfaceStyle_INTERFACE_STYLE_PACKAGE_SURFACE:
+		return InterfaceStylePackageSurface, nil
+	default:
+		return InterfaceStyleUnspecified, &UnknownInterfaceStyleError{Value: int32(style)}
+	}
+}
+
 // validate is a seam for task-03 to add syntactic validation rules.
 func validate(m Manifest) error {
 	if m.Name == "" {
 		return ErrEmptyName
 	}
-	if len(m.InterfaceFiles) == 0 {
-		return ErrEmptyInterfaceFiles
+
+	switch m.InterfaceStyle {
+	case InterfaceStyleUnspecified:
+		if len(m.InterfaceFiles) == 0 {
+			return ErrEmptyInterfaceFiles
+		}
+	case InterfaceStylePackageSurface:
+		if len(m.Members) == 0 {
+			return ErrPackageSurfaceRequiresMembers
+		}
+		if len(m.InterfaceFiles) > 0 {
+			return ErrPackageSurfaceInterfaceFiles
+		}
+	default:
+		return &UnknownInterfaceStyleError{Value: int32(m.InterfaceStyle)}
 	}
 
 	seenFiles := make(map[string]bool)
@@ -161,6 +251,27 @@ func validate(m Manifest) error {
 			return &DuplicateDeclarationError{Kind: "absorbed dependency", Value: absDep.ImportPath}
 		}
 		seenAbsDeps[absDep.ImportPath] = true
+	}
+
+	seenMembers := make(map[string]bool)
+	for _, member := range m.Members {
+		if seenMembers[member] {
+			return &DuplicateDeclarationError{Kind: "member", Value: member}
+		}
+		seenMembers[member] = true
+
+		if member == "" {
+			return &InvalidMemberError{Member: member, Reason: "import path cannot be empty"}
+		}
+		if _, err := path.Match(member, ""); err != nil {
+			return &InvalidMemberError{Member: member, Reason: fmt.Sprintf("malformed import-path pattern: %v", err)}
+		}
+		if m.InterfaceStyle == InterfaceStyleUnspecified && strings.ContainsAny(member, "*?[]\\") {
+			return &InvalidMemberError{Member: member, Reason: "declared-style members must be literal import paths"}
+		}
+		if seenAbsDeps[member] {
+			return &MemberAbsorbedDependencyError{ImportPath: member}
+		}
 	}
 
 	seenAuth := make(map[string]bool)

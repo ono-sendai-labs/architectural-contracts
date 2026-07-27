@@ -53,6 +53,7 @@ component_dependencies {
   name: "dep1"
   manifest: "path/to/dep1/component.textproto"
 }
+
 component_dependencies {
   name: "dep2"
   manifest: "path/to/dep2/component.textproto"
@@ -121,6 +122,160 @@ declared_authority: "EXEC"
 	}
 	if !reflect.DeepEqual(got.DeclaredAuthority, want.DeclaredAuthority) {
 		t.Errorf("DeclaredAuthority = %v, want %v", got.DeclaredAuthority, want.DeclaredAuthority)
+	}
+}
+
+func TestParse_DeclaredMembershipFields(t *testing.T) {
+	input := `name: "surface"
+members: "example.com/app"
+members: "example.com/app/*"
+interface_style: INTERFACE_STYLE_PACKAGE_SURFACE
+own_check_runs: true
+certification_reference: "build://surface-check"
+component_dependencies {
+  name: "runtime"
+  manifest: "../runtime/component.textproto"
+  auto_attached: true
+}
+`
+
+	got, err := manifest.Parse(bytes.NewBufferString(input))
+	if err != nil {
+		t.Fatalf("Parse failed: %v", err)
+	}
+
+	if got.InterfaceStyle != manifest.InterfaceStylePackageSurface {
+		t.Errorf("InterfaceStyle = %v, want package surface", got.InterfaceStyle)
+	}
+	if !reflect.DeepEqual(got.Members, []string{"example.com/app", "example.com/app/*"}) {
+		t.Errorf("Members = %v, want [example.com/app example.com/app/*]", got.Members)
+	}
+	if !got.OwnCheckRuns {
+		t.Error("OwnCheckRuns = false, want true")
+	}
+	if got.CertificationReference != "build://surface-check" {
+		t.Errorf("CertificationReference = %q, want %q", got.CertificationReference, "build://surface-check")
+	}
+	if len(got.ComponentDependencies) != 1 || !got.ComponentDependencies[0].AutoAttached {
+		t.Errorf("ComponentDependencies = %+v, want one auto-attached dependency", got.ComponentDependencies)
+	}
+}
+
+func TestParse_DefaultStyleStillRequiresInterfaceFiles(t *testing.T) {
+	got, err := manifest.Parse(bytes.NewBufferString(`name: "legacy"`))
+	if !errors.Is(err, manifest.ErrEmptyInterfaceFiles) {
+		t.Fatalf("Parse() error = %v, want %v", err, manifest.ErrEmptyInterfaceFiles)
+	}
+	if got.Name != "" {
+		t.Errorf("Parse() returned non-zero manifest on error: %+v", got)
+	}
+}
+
+func TestParse_MemberValidation(t *testing.T) {
+	tests := []struct {
+		name       string
+		members    string
+		absorbed   string
+		wantKind   string
+		wantMember string
+		wantText   string
+	}{
+		{
+			name:       "duplicate",
+			members:    "members: \"example.com/app\"\nmembers: \"example.com/app\"",
+			wantKind:   "member",
+			wantMember: "example.com/app",
+		},
+		{
+			name:       "malformed pattern",
+			members:    "members: \"example.com/[\"",
+			wantMember: "example.com/[",
+			wantText:   "malformed import-path pattern",
+		},
+		{
+			name:       "declared style pattern",
+			members:    "members: \"example.com/app/*\"",
+			wantMember: "example.com/app/*",
+			wantText:   "declared-style members must be literal",
+		},
+		{
+			name:       "absorbed contradiction",
+			members:    "members: \"example.com/app\"",
+			absorbed:   "absorbed_dependencies { import_path: \"example.com/app\" }",
+			wantMember: "example.com/app",
+			wantText:   "both a member and an absorbed dependency",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			input := "name: \"component\"\ninterface_files: \"api.go\"\n" + tt.members + "\n" + tt.absorbed
+			_, err := manifest.Parse(bytes.NewBufferString(input))
+			if err == nil {
+				t.Fatalf("Parse() succeeded, want error for %s", tt.name)
+			}
+			if tt.wantKind != "" {
+				var duplicate *manifest.DuplicateDeclarationError
+				if !errors.As(err, &duplicate) || duplicate.Kind != tt.wantKind || duplicate.Value != tt.wantMember {
+					t.Fatalf("Parse() error = %v, want duplicate %s %q", err, tt.wantKind, tt.wantMember)
+				}
+			}
+			if !strings.Contains(err.Error(), tt.wantMember) {
+				t.Errorf("Parse() error = %q, want offending member %q", err, tt.wantMember)
+			}
+			if tt.wantText != "" && !strings.Contains(err.Error(), tt.wantText) {
+				t.Errorf("Parse() error = %q, want text %q", err, tt.wantText)
+			}
+		})
+	}
+}
+
+func TestParse_PackageSurfaceShape(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{
+			name:  "requires members",
+			input: `name: "surface" interface_style: INTERFACE_STYLE_PACKAGE_SURFACE`,
+			want:  "requires at least one member",
+		},
+		{
+			name:  "forbids interface files",
+			input: `name: "surface" interface_style: INTERFACE_STYLE_PACKAGE_SURFACE members: "example.com/app" interface_files: "api.go"`,
+			want:  "must not declare interface files",
+		},
+		{
+			name:  "accepts literals",
+			input: `name: "surface" interface_style: INTERFACE_STYLE_PACKAGE_SURFACE members: "example.com/app"`,
+		},
+		{
+			name:  "accepts patterns",
+			input: `name: "surface" interface_style: INTERFACE_STYLE_PACKAGE_SURFACE members: "example.com/app/*"`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := manifest.Parse(bytes.NewBufferString(tt.input))
+			if tt.want == "" {
+				if err != nil {
+					t.Fatalf("Parse() failed: %v", err)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("Parse() error = %v, want text %q", err, tt.want)
+			}
+		})
+	}
+}
+
+func TestParse_UnknownInterfaceStyleRejected(t *testing.T) {
+	_, err := manifest.Parse(bytes.NewBufferString(`name: "component" interface_style: 99 interface_files: "api.go"`))
+	if err == nil || !strings.Contains(err.Error(), "unknown interface style") {
+		t.Fatalf("Parse() error = %v, want unknown interface style error", err)
 	}
 }
 
