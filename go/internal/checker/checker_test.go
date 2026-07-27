@@ -1968,3 +1968,93 @@ func TestCheck_FR4_EmptyInterfaceFilesVacuous(t *testing.T) {
 		t.Fatalf("expected 0 violations for empty interface_files, got %d: %+v", len(rep.Violations), rep.Violations)
 	}
 }
+
+func TestCheck_BodilessAbsorbedPackagesAreAnalysisLimitations(t *testing.T) {
+	in := checker.Inputs{
+		Manifest: manifest.Manifest{
+			Name: "mycomponent",
+		},
+		Facts: facts.PackageFacts{
+			Packages: []facts.PackageFact{
+				{ImportPath: "mycomponent/pkg"},
+			},
+			BodilessAbsorbedPackages: []string{"example.com/bodiless_dep"},
+		},
+	}
+
+	rep := checker.Check(in)
+	if len(rep.Violations) != 0 {
+		t.Fatalf("expected 0 violations, got %d: %+v", len(rep.Violations), rep.Violations)
+	}
+	if len(rep.Warnings) != 1 {
+		t.Fatalf("expected 1 warning, got %d: %+v", len(rep.Warnings), rep.Warnings)
+	}
+	w := rep.Warnings[0]
+	if w.Kind != report.AnalysisLimitation {
+		t.Errorf("warning kind = %v, want ANALYSIS_LIMITATION", w.Kind)
+	}
+	if !strings.Contains(w.Message, "example.com/bodiless_dep") || !strings.Contains(w.Message, "no source bodies") {
+		t.Errorf("warning message = %q, want naming package and no source bodies", w.Message)
+	}
+}
+
+func TestCheck_ThreeAnalysisLimitationsAreDistinguishable(t *testing.T) {
+	in := checker.Inputs{
+		Manifest: manifest.Manifest{
+			Name: "mycomponent",
+		},
+		Facts: facts.PackageFacts{
+			Packages: []facts.PackageFact{
+				{ImportPath: "mycomponent/pkg"},
+			},
+			UnresolvedImports: []facts.UnresolvedImport{
+				{Package: "mycomponent/pkg", File: "foo.go", ImportPath: "example.com/missing"},
+			},
+			BodilessAbsorbedPackages: []string{"example.com/bodiless"},
+		},
+		Caps: []capanalyzer.CapabilityFinding{
+			{
+				Capability: "FILES",
+				Package:    "mycomponent/pkg",
+				Class:      capanalyzer.AnalysisDefeating,
+			},
+		},
+		Policy: capanalyzer.CapabilityPolicy{
+			Warn: map[string]bool{"FILES": true},
+		},
+	}
+
+	rep := checker.Check(in)
+	if len(rep.Violations) != 0 {
+		t.Fatalf("expected 0 violations, got %d: %+v", len(rep.Violations), rep.Violations)
+	}
+	if len(rep.Warnings) != 3 {
+		t.Fatalf("expected 3 warnings, got %d: %+v", len(rep.Warnings), rep.Warnings)
+	}
+
+	for _, w := range rep.Warnings {
+		if w.Kind != report.AnalysisLimitation {
+			t.Errorf("warning kind = %v, want ANALYSIS_LIMITATION", w.Kind)
+		}
+	}
+
+	// Verify messages are distinct and individually identifiable
+	msgs := make(map[string]bool)
+	for _, w := range rep.Warnings {
+		msgs[w.Message] = true
+	}
+	if len(msgs) != 3 {
+		t.Errorf("expected 3 distinct warning messages, got %d", len(msgs))
+	}
+
+	rendered := report.RenderText(rep)
+	if !strings.Contains(rendered, "unresolved import") {
+		t.Errorf("rendered report missing unresolved import limitation")
+	}
+	if !strings.Contains(rendered, "absorbed package") {
+		t.Errorf("rendered report missing absorbed package limitation")
+	}
+	if !strings.Contains(rendered, "is an analysis limitation") {
+		t.Errorf("rendered report missing capability analysis limitation")
+	}
+}

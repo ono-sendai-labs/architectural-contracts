@@ -870,3 +870,138 @@ func TestLoadPackageFacts_FuncValueEscapes_LayoutMode(t *testing.T) {
 		t.Errorf("layout escape 2 mismatch: got %+v, want symbol %q, pkg %q, file \"escapes/member/member.go\"", esc2, wantSymbol2, wantPkg)
 	}
 }
+
+func TestLoadPackageFacts_BodilessAbsorbedPackages(t *testing.T) {
+	tmpDir := t.TempDir()
+	memberDir := filepath.Join(tmpDir, "member")
+	bodiedDir := filepath.Join(tmpDir, "bodied_absorbed")
+	if err := os.MkdirAll(memberDir, 0755); err != nil {
+		t.Fatalf("failed to create member dir: %v", err)
+	}
+	if err := os.MkdirAll(bodiedDir, 0755); err != nil {
+		t.Fatalf("failed to create bodied_absorbed dir: %v", err)
+	}
+
+	memberSrc := `package member
+import _ "example.com/bodied_absorbed"
+import _ "example.com/bodiless_absorbed"
+import _ "example.com/bodiless_other"
+`
+	if err := os.WriteFile(filepath.Join(memberDir, "member.go"), []byte(memberSrc), 0644); err != nil {
+		t.Fatalf("failed to write member source: %v", err)
+	}
+
+	bodiedSrc := `package bodied_absorbed
+`
+	if err := os.WriteFile(filepath.Join(bodiedDir, "bodied.go"), []byte(bodiedSrc), 0644); err != nil {
+		t.Fatalf("failed to write bodied_absorbed source: %v", err)
+	}
+
+	layoutPath := filepath.Join(tmpDir, "package-layout.json")
+	sdkRoot := filepath.ToSlash(filepath.Join(runtime.GOROOT(), "src"))
+	layoutJSON := fmt.Sprintf(`{
+		"go_sdk_root": %q,
+		"roots": ["example.com/member"],
+		"packages": [
+			{
+				"id": "example.com/member",
+				"name": "member",
+				"pkgPath": "example.com/member",
+				"goFiles": ["member/member.go"],
+				"compiledGoFiles": ["member/member.go"],
+				"imports": {
+					"example.com/bodied_absorbed": "example.com/bodied_absorbed",
+					"example.com/bodiless_absorbed": "example.com/bodiless_absorbed",
+					"example.com/bodiless_other": "example.com/bodiless_other"
+				},
+				"is_stdlib": false
+			},
+			{
+				"id": "example.com/bodied_absorbed",
+				"name": "bodied_absorbed",
+				"pkgPath": "example.com/bodied_absorbed",
+				"goFiles": ["bodied_absorbed/bodied.go"],
+				"compiledGoFiles": ["bodied_absorbed/bodied.go"],
+				"imports": {},
+				"is_stdlib": false
+			},
+			{
+				"id": "example.com/bodiless_absorbed",
+				"name": "bodiless_absorbed",
+				"pkgPath": "example.com/bodiless_absorbed",
+				"goFiles": [],
+				"compiledGoFiles": [],
+				"imports": {},
+				"is_stdlib": false
+			},
+			{
+				"id": "example.com/bodiless_other",
+				"name": "bodiless_other",
+				"pkgPath": "example.com/bodiless_other",
+				"goFiles": [],
+				"compiledGoFiles": [],
+				"imports": {},
+				"is_stdlib": false
+			}
+		]
+	}`, sdkRoot)
+
+	if err := os.WriteFile(layoutPath, []byte(layoutJSON), 0644); err != nil {
+		t.Fatalf("failed to write layout file: %v", err)
+	}
+
+	var res facts.PackageFacts
+	err := packagelayout.WithDriverEnv(layoutPath, tmpDir, func() error {
+		var err error
+		res, err = goanalysis.LoadPackageFacts(goanalysis.LoadRequest{
+			ComponentRoot: tmpDir,
+			Members:       []string{"example.com/member"},
+			Absorbed:      []string{"example.com/*_absorbed"},
+		})
+		return err
+	})
+	if err != nil {
+		t.Fatalf("unexpected error loading package facts in layout mode: %v", err)
+	}
+
+	wantBodiless := []string{"example.com/bodiless_absorbed"}
+	if !reflect.DeepEqual(res.BodilessAbsorbedPackages, wantBodiless) {
+		t.Errorf("BodilessAbsorbedPackages = %#v, want %#v", res.BodilessAbsorbedPackages, wantBodiless)
+	}
+
+	// Side-by-side test: a bodiless member is a hard error (M10), not a warning.
+	layoutM10Path := filepath.Join(tmpDir, "package-layout-m10.json")
+	layoutM10JSON := fmt.Sprintf(`{
+		"go_sdk_root": %q,
+		"roots": ["example.com/bodiless_member"],
+		"packages": [
+			{
+				"id": "example.com/bodiless_member",
+				"name": "bodiless_member",
+				"pkgPath": "example.com/bodiless_member",
+				"goFiles": [],
+				"compiledGoFiles": [],
+				"imports": {},
+				"is_stdlib": false
+			}
+		]
+	}`, sdkRoot)
+
+	if err := os.WriteFile(layoutM10Path, []byte(layoutM10JSON), 0644); err != nil {
+		t.Fatalf("failed to write M10 layout file: %v", err)
+	}
+
+	err = packagelayout.WithDriverEnv(layoutM10Path, tmpDir, func() error {
+		_, err := goanalysis.LoadPackageFacts(goanalysis.LoadRequest{
+			ComponentRoot: tmpDir,
+			Members:       []string{"example.com/bodiless_member"},
+		})
+		return err
+	})
+	if err == nil {
+		t.Fatalf("expected error for bodiless member (M10), got nil")
+	}
+	if !strings.Contains(err.Error(), "has no source files") && !strings.Contains(err.Error(), "has no source package") {
+		t.Errorf("expected M10 error message about missing source files, got %v", err)
+	}
+}

@@ -237,6 +237,13 @@ func Check(in Inputs) report.ConformanceReport {
 		})
 	}
 
+	for _, pkg := range in.Facts.BodilessAbsorbedPackages {
+		warnings = append(warnings, report.Finding{
+			Kind:    report.AnalysisLimitation,
+			Message: fmt.Sprintf("absorbed package %q has no source bodies; its authority could not be analyzed", pkg),
+		})
+	}
+
 	for _, esc := range in.Facts.FuncValueEscapes {
 		warnings = append(warnings, report.Finding{
 			Kind:    report.AbsorbedFuncValueEscape,

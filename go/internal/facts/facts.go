@@ -39,6 +39,12 @@ type PackageFacts struct {
 	// an absorbed package. The body is analyzed by nobody — the component does not
 	// call it, and whoever does is behind a boundary.
 	FuncValueEscapes []FuncValueEscape
+
+	// BodilessAbsorbedPackages records absorbed packages present in the analyzed
+	// closure that have no analyzable source bodies after filtering. The loader
+	// owns this observation; the pure checker renders each entry as an
+	// analysis limitation.
+	BodilessAbsorbedPackages []string
 }
 
 // UnresolvedImport is a pure observation of an import edge that the loader

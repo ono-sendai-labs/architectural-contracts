@@ -304,13 +304,15 @@ func LoadPackageFacts(req LoadRequest) (facts.PackageFacts, error) {
 	})
 
 	escapes := scanFuncValueEscapes(prog, cg, isEffectiveMember, req.Absorbed, componentRoot)
+	bodilessAbsorbed := collectBodilessAbsorbedPackages(pkgs, isEffectiveMember, req.Absorbed)
 
 	res := facts.PackageFacts{
-		Packages:          factsPkgs,
-		CallEdges:         callEdges,
-		StdlibImports:     stdlibImports,
-		UnresolvedImports: unresolvedImports,
-		FuncValueEscapes:  escapes,
+		Packages:                 factsPkgs,
+		CallEdges:                callEdges,
+		StdlibImports:            stdlibImports,
+		UnresolvedImports:        unresolvedImports,
+		FuncValueEscapes:         escapes,
+		BodilessAbsorbedPackages: bodilessAbsorbed,
 	}
 
 	if len(factsPkgs) > 0 {
@@ -2065,4 +2067,50 @@ func resolveDefiningPackage(fn *ssa.Function) string {
 		return fn.Pkg.Pkg.Path()
 	}
 	return ""
+}
+
+func collectBodilessAbsorbedPackages(pkgs []*packages.Package, isEffectiveMember func(string) bool, absorbedPatterns []string) []string {
+	bodiless := make([]string, 0)
+	if len(absorbedPatterns) == 0 || len(pkgs) == 0 {
+		return bodiless
+	}
+
+	isAbsorbed := func(pkgPath string) bool {
+		canonPkg := hostpolicy.CanonicalizePath(pkgPath)
+		for _, pattern := range absorbedPatterns {
+			canonPattern := hostpolicy.CanonicalizePath(pattern)
+			matched, err := path.Match(canonPattern, canonPkg)
+			if err == nil && matched {
+				return true
+			}
+		}
+		return false
+	}
+
+	seen := make(map[string]bool)
+	packages.Visit(pkgs, nil, func(p *packages.Package) {
+		if p == nil {
+			return
+		}
+		pkgPath := p.PkgPath
+		if pkgPath == "" {
+			pkgPath = p.ID
+		}
+		canonPkg := hostpolicy.CanonicalizePath(pkgPath)
+		if isEffectiveMember(canonPkg) || isEffectiveMember(p.ID) {
+			return
+		}
+		if !isAbsorbed(canonPkg) {
+			return
+		}
+		if len(packagelayout.SurvivingSourceFiles(p)) == 0 {
+			if !seen[canonPkg] {
+				seen[canonPkg] = true
+				bodiless = append(bodiless, canonPkg)
+			}
+		}
+	})
+
+	sort.Strings(bodiless)
+	return bodiless
 }
