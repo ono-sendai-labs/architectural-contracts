@@ -726,3 +726,79 @@ members: "host/*"
 		t.Fatalf("result symbols = %v, missing 'canonical/dep.Exported'", result.Symbols)
 	}
 }
+
+func TestCollectBodilessAbsorbedPackages_DeduplicationAndSorting(t *testing.T) {
+	// Build a graph with duplicate reachable references to bodiless absorbed packages:
+	// Root -> Pkg1, Pkg2
+	// Pkg1 -> example.com/z_absorbed, example.com/a_absorbed
+	// Pkg2 -> example.com/z_absorbed, example.com/a_absorbed
+	pkgZ := &packages.Package{
+		ID:      "example.com/z_absorbed",
+		PkgPath: "example.com/z_absorbed",
+	}
+	pkgA := &packages.Package{
+		ID:      "example.com/a_absorbed",
+		PkgPath: "example.com/a_absorbed",
+	}
+	pkg1 := &packages.Package{
+		ID:      "example.com/pkg1",
+		PkgPath: "example.com/pkg1",
+		GoFiles: []string{"pkg1.go"},
+		Imports: map[string]*packages.Package{
+			"example.com/z_absorbed": pkgZ,
+			"example.com/a_absorbed": pkgA,
+		},
+	}
+	pkg2 := &packages.Package{
+		ID:      "example.com/pkg2",
+		PkgPath: "example.com/pkg2",
+		GoFiles: []string{"pkg2.go"},
+		Imports: map[string]*packages.Package{
+			"example.com/z_absorbed": pkgZ,
+			"example.com/a_absorbed": pkgA,
+		},
+	}
+	root := &packages.Package{
+		ID:      "example.com/root",
+		PkgPath: "example.com/root",
+		GoFiles: []string{"root.go"},
+		Imports: map[string]*packages.Package{
+			"example.com/pkg1": pkg1,
+			"example.com/pkg2": pkg2,
+		},
+	}
+
+	isMember := func(path string) bool {
+		return path == "example.com/root" || path == "example.com/pkg1" || path == "example.com/pkg2"
+	}
+	patterns := []string{"example.com/*_absorbed"}
+
+	// Run collection multiple times to verify repeat determinism, sorting, and deduplication
+	res1 := collectBodilessAbsorbedPackages([]*packages.Package{root}, isMember, patterns)
+	res2 := collectBodilessAbsorbedPackages([]*packages.Package{root}, isMember, patterns)
+
+	want := []string{"example.com/a_absorbed", "example.com/z_absorbed"}
+	if !reflect.DeepEqual(res1, want) {
+		t.Errorf("res1 = %#v, want sorted and deduplicated %#v", res1, want)
+	}
+	if !reflect.DeepEqual(res2, want) {
+		t.Errorf("res2 = %#v, want %#v", res2, want)
+	}
+
+	// Verify non-nil empty slice when no patterns match or empty input
+	resEmpty1 := collectBodilessAbsorbedPackages([]*packages.Package{root}, isMember, nil)
+	if resEmpty1 == nil {
+		t.Fatalf("expected non-nil empty slice, got nil")
+	}
+	if len(resEmpty1) != 0 {
+		t.Errorf("expected empty slice, got %#v", resEmpty1)
+	}
+
+	resEmpty2 := collectBodilessAbsorbedPackages(nil, isMember, patterns)
+	if resEmpty2 == nil {
+		t.Fatalf("expected non-nil empty slice, got nil")
+	}
+	if len(resEmpty2) != 0 {
+		t.Errorf("expected empty slice, got %#v", resEmpty2)
+	}
+}

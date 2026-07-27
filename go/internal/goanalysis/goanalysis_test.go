@@ -969,6 +969,146 @@ import _ "example.com/bodiless_other"
 		t.Errorf("BodilessAbsorbedPackages = %#v, want %#v", res.BodilessAbsorbedPackages, wantBodiless)
 	}
 
+	// Repeat load determinism check (AC8).
+	var resRepeat facts.PackageFacts
+	err = packagelayout.WithDriverEnv(layoutPath, tmpDir, func() error {
+		var err error
+		resRepeat, err = goanalysis.LoadPackageFacts(goanalysis.LoadRequest{
+			ComponentRoot: tmpDir,
+			Members:       []string{"example.com/member"},
+			Absorbed:      []string{"example.com/*_absorbed"},
+		})
+		return err
+	})
+	if err != nil {
+		t.Fatalf("unexpected error re-loading package facts: %v", err)
+	}
+	if !reflect.DeepEqual(resRepeat.BodilessAbsorbedPackages, res.BodilessAbsorbedPackages) {
+		t.Errorf("repeat load BodilessAbsorbedPackages = %#v, want %#v", resRepeat.BodilessAbsorbedPackages, res.BodilessAbsorbedPackages)
+	}
+
+	// AC3: Unmatched absorbed declaration yields UNUSED_DEPENDENCY and no ANALYSIS_LIMITATION.
+	unmatchedDir := filepath.Join(tmpDir, "unmatched")
+	unmatchedDepDir := filepath.Join(tmpDir, "unmatched_dep")
+	if err := os.MkdirAll(unmatchedDir, 0755); err != nil {
+		t.Fatalf("failed to create unmatched dir: %v", err)
+	}
+	if err := os.MkdirAll(unmatchedDepDir, 0755); err != nil {
+		t.Fatalf("failed to create unmatched_dep dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(unmatchedDir, "member.go"), []byte("package member\nimport _ \"example.com/unmatched_dep\"\n"), 0644); err != nil {
+		t.Fatalf("failed to write member source: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(unmatchedDepDir, "dep.go"), []byte("package dep\n"), 0644); err != nil {
+		t.Fatalf("failed to write dep source: %v", err)
+	}
+
+	layoutUnmatchedPath := filepath.Join(tmpDir, "package-layout-unmatched.json")
+	layoutUnmatchedJSON := fmt.Sprintf(`{
+		"go_sdk_root": %q,
+		"roots": ["example.com/unmatched_member"],
+		"packages": [
+			{
+				"id": "example.com/unmatched_member",
+				"name": "member",
+				"pkgPath": "example.com/unmatched_member",
+				"goFiles": ["unmatched/member.go"],
+				"compiledGoFiles": ["unmatched/member.go"],
+				"imports": {
+					"example.com/unmatched_dep": "example.com/unmatched_dep"
+				},
+				"is_stdlib": false
+			},
+			{
+				"id": "example.com/unmatched_dep",
+				"name": "dep",
+				"pkgPath": "example.com/unmatched_dep",
+				"goFiles": ["unmatched_dep/dep.go"],
+				"compiledGoFiles": ["unmatched_dep/dep.go"],
+				"imports": {},
+				"is_stdlib": false
+			}
+		]
+	}`, sdkRoot)
+	if err := os.WriteFile(layoutUnmatchedPath, []byte(layoutUnmatchedJSON), 0644); err != nil {
+		t.Fatalf("failed to write unmatched layout file: %v", err)
+	}
+
+	var resUnmatched facts.PackageFacts
+	err = packagelayout.WithDriverEnv(layoutUnmatchedPath, tmpDir, func() error {
+		var err error
+		resUnmatched, err = goanalysis.LoadPackageFacts(goanalysis.LoadRequest{
+			ComponentRoot: tmpDir,
+			Members:       []string{"example.com/unmatched_member"},
+			Absorbed:      []string{"example.com/unmatched_dep", "example.com/unused_abs_pattern"},
+		})
+		return err
+	})
+	if err != nil {
+		t.Fatalf("unexpected error loading facts for unmatched absorbed pattern: %v", err)
+	}
+	if resUnmatched.BodilessAbsorbedPackages == nil {
+		t.Fatalf("BodilessAbsorbedPackages is nil for unmatched absorbed pattern, expected non-nil empty slice")
+	}
+	if len(resUnmatched.BodilessAbsorbedPackages) != 0 {
+		t.Errorf("BodilessAbsorbedPackages = %#v, want empty", resUnmatched.BodilessAbsorbedPackages)
+	}
+
+	chkRep := checker.Check(checker.Inputs{
+		Manifest: manifest.Manifest{
+			Name: "mycomponent",
+			AbsorbedDependencies: []manifest.AbsorbedDependency{
+				{ImportPath: "example.com/unmatched_dep"},
+				{ImportPath: "example.com/unused_abs_pattern"},
+			},
+		},
+		Facts: resUnmatched,
+	})
+	if len(chkRep.Violations) != 0 {
+		t.Errorf("expected 0 violations for unmatched absorbed pattern, got %d: %+v", len(chkRep.Violations), chkRep.Violations)
+	}
+	if len(chkRep.Warnings) != 1 {
+		t.Fatalf("expected 1 warning for unmatched absorbed pattern, got %d: %+v", len(chkRep.Warnings), chkRep.Warnings)
+	}
+	if chkRep.Warnings[0].Kind != report.UnusedDependency {
+		t.Errorf("warning kind = %v, want UNUSED_DEPENDENCY", chkRep.Warnings[0].Kind)
+	}
+	if !strings.Contains(chkRep.Warnings[0].Message, "example.com/unused_abs_pattern") {
+		t.Errorf("warning message = %q, want mentioning example.com/unused_abs_pattern", chkRep.Warnings[0].Message)
+	}
+
+	// AC8: Empty facts are non-nil empty slices and byte-identical across repeated loads.
+	var resEmpty1, resEmpty2 facts.PackageFacts
+	err = packagelayout.WithDriverEnv(layoutPath, tmpDir, func() error {
+		var err error
+		resEmpty1, err = goanalysis.LoadPackageFacts(goanalysis.LoadRequest{
+			ComponentRoot: tmpDir,
+			Members:       []string{"example.com/member"},
+			Absorbed:      []string{"example.com/bodied_absorbed"},
+		})
+		if err != nil {
+			return err
+		}
+		resEmpty2, err = goanalysis.LoadPackageFacts(goanalysis.LoadRequest{
+			ComponentRoot: tmpDir,
+			Members:       []string{"example.com/member"},
+			Absorbed:      []string{"example.com/bodied_absorbed"},
+		})
+		return err
+	})
+	if err != nil {
+		t.Fatalf("unexpected error loading empty bodiless facts: %v", err)
+	}
+	if resEmpty1.BodilessAbsorbedPackages == nil {
+		t.Fatalf("resEmpty1.BodilessAbsorbedPackages is nil, expected non-nil empty slice")
+	}
+	if len(resEmpty1.BodilessAbsorbedPackages) != 0 {
+		t.Errorf("resEmpty1.BodilessAbsorbedPackages = %#v, want empty", resEmpty1.BodilessAbsorbedPackages)
+	}
+	if !reflect.DeepEqual(resEmpty1.BodilessAbsorbedPackages, resEmpty2.BodilessAbsorbedPackages) {
+		t.Errorf("resEmpty1.BodilessAbsorbedPackages (%#v) != resEmpty2.BodilessAbsorbedPackages (%#v)", resEmpty1.BodilessAbsorbedPackages, resEmpty2.BodilessAbsorbedPackages)
+	}
+
 	// Side-by-side test: a bodiless member is a hard error (M10), not a warning.
 	layoutM10Path := filepath.Join(tmpDir, "package-layout-m10.json")
 	layoutM10JSON := fmt.Sprintf(`{
