@@ -127,6 +127,7 @@ func ToLower(s string) string {
 		ID              string            `json:"id"`
 		Name            string            `json:"name"`
 		PkgPath         string            `json:"pkgPath"`
+		IsStdlib        bool              `json:"is_stdlib"`
 		GoFiles         []string          `json:"goFiles"`
 		CompiledGoFiles []string          `json:"compiledGoFiles"`
 		Imports         map[string]string `json:"imports,omitempty"`
@@ -350,6 +351,7 @@ func ToLower(s string) string {
 		ID              string            `json:"id"`
 		Name            string            `json:"name"`
 		PkgPath         string            `json:"pkgPath"`
+		IsStdlib        bool              `json:"is_stdlib"`
 		GoFiles         []string          `json:"goFiles"`
 		CompiledGoFiles []string          `json:"compiledGoFiles"`
 		Imports         map[string]string `json:"imports,omitempty"`
@@ -998,6 +1000,7 @@ func Hello() {
 		ID              string            `json:"id"`
 		Name            string            `json:"name"`
 		PkgPath         string            `json:"pkgPath"`
+		IsStdlib        bool              `json:"is_stdlib"`
 		GoFiles         []string          `json:"goFiles"`
 		CompiledGoFiles []string          `json:"compiledGoFiles"`
 		Imports         map[string]string `json:"imports"`
@@ -1024,6 +1027,7 @@ func Hello() {
 				ID:              "syscall",
 				Name:            "syscall",
 				PkgPath:         "syscall",
+				IsStdlib:        true,
 				GoFiles:         []string{"syscall.go"},
 				CompiledGoFiles: []string{"syscall.go"},
 				Imports:         make(map[string]string),
@@ -1061,6 +1065,7 @@ func Hello() {
 				ID:              "syscall",
 				Name:            "syscall",
 				PkgPath:         "syscall",
+				IsStdlib:        true,
 				GoFiles:         []string{"syscall.go"},
 				CompiledGoFiles: []string{"syscall.go"},
 				Imports:         make(map[string]string),

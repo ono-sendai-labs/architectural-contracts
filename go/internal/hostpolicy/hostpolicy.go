@@ -39,10 +39,11 @@ import "strings"
 // It must remain safe for concurrent reads; hosts set it once during init.
 var CanonicalizePath = func(p string) string { return p }
 
-// IsStdlibPath reports whether an import path denotes a Go standard-library
-// package, for contexts where module metadata is unavailable (notably arcc's
-// hermetic package-layout mode, where packages carry no *packages.Module). When
-// module metadata IS available the shell prefers it; this hook is the fallback.
+// IsStdlibPath reports the host's path-policy verdict for whether an import path
+// denotes a Go standard-library package. In package-layout mode this policy is
+// checked against emitter-provided build-graph provenance. In native mode it is
+// checked against module provenance for non-SDK packages. It remains the safe
+// fallback only when no package reference exists.
 //
 // The default is the heuristic the go tool uses: the first path segment contains
 // no dot (with the empty path treated as non-stdlib). A host whose rewritten

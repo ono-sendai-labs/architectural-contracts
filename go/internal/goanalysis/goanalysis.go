@@ -405,34 +405,59 @@ func stripGenericBrackets(s string) string {
 	return s
 }
 
+// packageBelongsToSDK uses go/build's structural GOROOT result rather than an
+// import-path heuristic. FindOnly avoids loading source and does not add a
+// subprocess pass to native package loading.
+func packageBelongsToSDK(pkgPath string) bool {
+	if pkgPath == "" {
+		return false
+	}
+	bpkg, err := build.Default.Import(pkgPath, "", build.FindOnly)
+	return err == nil && bpkg.Goroot
+}
+
+// isStdlibPackage applies native-mode classification in its required order:
+// SDK membership is structural, a non-SDK nil Module is non-stdlib, and the
+// remaining module provenance must agree with the host path policy.
 func isStdlibPackage(p *packages.Package) bool {
-	// Standard library packages do not belong to a module, or belong to the special "std" module.
+	if p == nil {
+		return false
+	}
+	if packageBelongsToSDK(p.PkgPath) {
+		return true
+	}
 	if p.Module == nil {
-		return true
+		return false
 	}
-	if p.Module.Path == "" || p.Module.Path == "std" {
-		return true
+	moduleStdlib := p.Module.Path == "" || p.Module.Path == "std"
+	return moduleStdlib && hostpolicy.IsStdlibPath(p.PkgPath)
+}
+
+// classifyStdlibPackage applies the loader-aware classifier for either mode.
+// A nil package reference has no provenance to consult, so it retains the
+// narrow path-policy fallback required for import recovery.
+func classifyStdlibPackage(pkgPath string, pkg *packages.Package, layout *packagelayout.Layout) bool {
+	if pkg == nil {
+		return hostpolicy.IsStdlibPath(pkgPath)
 	}
-	return false
+	if layout != nil {
+		return layout.IsStdlibPackage(pkg)
+	}
+	return isStdlibPackage(pkg)
 }
 
 // stdlibClassifier returns a stdlib predicate suitable for the current load mode.
-// In package-layout mode, packages carry no *packages.Module, so module-based
-// detection would misclassify every package as standard library; there it defers
-// to the host stdlib policy (hostpolicy.IsStdlibPath). Otherwise it uses the
-// authoritative module metadata, falling back to the host policy only when a
-// package reference is absent.
+// Layout mode uses validated layout provenance; native mode uses structural SDK
+// provenance followed by module/path agreement.
 func stdlibClassifier() func(pkgPath string, pkg *packages.Package) bool {
 	if packagelayout.IsLayoutMode() {
-		return func(pkgPath string, _ *packages.Package) bool {
-			return hostpolicy.IsStdlibPath(pkgPath)
+		layout := packagelayout.GetActiveLayout()
+		return func(pkgPath string, pkg *packages.Package) bool {
+			return classifyStdlibPackage(pkgPath, pkg, layout)
 		}
 	}
 	return func(pkgPath string, pkg *packages.Package) bool {
-		if pkg == nil {
-			return hostpolicy.IsStdlibPath(pkgPath)
-		}
-		return isStdlibPackage(pkg)
+		return classifyStdlibPackage(pkgPath, pkg, nil)
 	}
 }
 
@@ -932,6 +957,7 @@ func ResolveDependencyInterface(
 	var loadDir string
 	var patterns []string
 	var depPkgs []*packages.Package
+	var depLayout *packagelayout.Layout
 
 	if packagelayout.IsLayoutMode() {
 		loadDir = packagelayout.GetActiveWorkspaceDir()
@@ -1033,7 +1059,7 @@ func ResolveDependencyInterface(
 		}
 		sort.Strings(imports)
 
-		isStd := isStdlibPackage(p)
+		isStd := classifyStdlibPackage(p.PkgPath, p, depLayout)
 
 		var extractRoot string
 		if packagelayout.IsLayoutMode() {

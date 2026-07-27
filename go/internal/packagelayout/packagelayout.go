@@ -32,6 +32,15 @@ type Layout struct {
 	Roots     []string            `json:"roots"`
 	Packages  []*packages.Package `json:"packages"`
 
+	// The layout wire schema extends each emitter-listed package with an
+	// `is_stdlib` boolean. It records build-graph provenance (SDK/toolchain
+	// versus enumerated target); emitters must not derive it by re-running an
+	// import-path heuristic. Upstream packages.Package cannot retain this field,
+	// so validation-owned metadata keeps it beside the decoded package graph.
+	stdlibByID       map[string]bool
+	stdlibByPath     map[string]bool
+	emittedPackageID map[string]bool
+
 	// UnresolvedImports contains imports observed in surviving source files that
 	// do not resolve to a layout or SDK package. It is loader-owned state and is
 	// deliberately excluded from the layout JSON schema.
@@ -72,6 +81,34 @@ type Platform struct {
 // overrides hostpolicy.IsStdlibPath to keep those paths from being misclassified.
 func IsStdlib(importPath string) bool {
 	return hostpolicy.IsStdlibPath(importPath)
+}
+
+// IsStdlibPackage reports the validated standard-library provenance for a
+// package in layout mode. Missing provenance is non-stdlib (fail closed).
+func (l *Layout) IsStdlibPackage(p *packages.Package) bool {
+	if l == nil || p == nil {
+		return false
+	}
+	if l.stdlibByID != nil {
+		if verdict, ok := l.stdlibByID[p.ID]; ok {
+			return verdict
+		}
+	}
+	if l.stdlibByPath != nil {
+		if verdict, ok := l.stdlibByPath[p.PkgPath]; ok {
+			return verdict
+		}
+	}
+	return false
+}
+
+// IsStdlibPackage reports the validated provenance of the active layout
+// package. It is intentionally not a path heuristic.
+func IsStdlibPackage(p *packages.Package) bool {
+	activeMu.RLock()
+	l := activeLayout
+	activeMu.RUnlock()
+	return l.IsStdlibPackage(p)
 }
 
 // discoverStdlib walks the standard library source tree rooted at sdkRoot,
@@ -291,13 +328,13 @@ func discoverStdlibWithContext(sdkRoot string, bctx build.Context) ([]*packages.
 				continue
 			}
 			resolved := imp
-			if !IsStdlib(resolved) {
+			if !known[resolved] {
 				vendorPath := "vendor/" + resolved
-				if !known[resolved] && known[vendorPath] {
+				if known[vendorPath] {
 					resolved = vendorPath
 				}
 			}
-			if IsStdlib(resolved) {
+			if known[resolved] {
 				// Key by the import path as written in source (imp), not the
 				// resolved target: go/types resolves an import by the path in the
 				// source, even when it is satisfied by a vendored copy. The target
@@ -334,7 +371,9 @@ func Parse(r io.Reader) (*Layout, error) {
 }
 
 // MarshalJSON serializes the Layout with deterministic canonical ordering of Roots and Packages
-// without mutating the original caller-owned data.
+// without mutating the original caller-owned data. The layout-only `is_stdlib`
+// field is emitted for emitter-listed packages and carries build-graph
+// provenance, never a duplicated import-path heuristic.
 func (l *Layout) MarshalJSON() ([]byte, error) {
 	var roots []string
 	if l.Roots != nil {
@@ -356,17 +395,93 @@ func (l *Layout) MarshalJSON() ([]byte, error) {
 		pkgs = []*packages.Package{}
 	}
 
+	packageJSON := make([]json.RawMessage, len(pkgs))
+	for i, p := range pkgs {
+		if p == nil {
+			packageJSON[i] = json.RawMessage("null")
+			continue
+		}
+		raw, err := json.Marshal(p)
+		if err != nil {
+			return nil, fmt.Errorf("marshalling package %q: %w", p.ID, err)
+		}
+		var fields map[string]json.RawMessage
+		if err := json.Unmarshal(raw, &fields); err != nil {
+			return nil, fmt.Errorf("marshalling package %q: %w", p.ID, err)
+		}
+		emitted := l.emittedPackageID == nil || l.emittedPackageID[p.ID]
+		if emitted {
+			fields["is_stdlib"] = json.RawMessage("false")
+			if l.stdlibByID != nil && l.stdlibByID[p.ID] {
+				fields["is_stdlib"] = json.RawMessage("true")
+			}
+		}
+		packageJSON[i], err = json.Marshal(fields)
+		if err != nil {
+			return nil, fmt.Errorf("marshalling package %q: %w", p.ID, err)
+		}
+	}
+
 	return json.Marshal(&struct {
-		GoSDKRoot string              `json:"go_sdk_root"`
-		Platform  *Platform           `json:"platform,omitempty"`
-		Roots     []string            `json:"roots"`
-		Packages  []*packages.Package `json:"packages"`
+		GoSDKRoot string            `json:"go_sdk_root"`
+		Platform  *Platform         `json:"platform,omitempty"`
+		Roots     []string          `json:"roots"`
+		Packages  []json.RawMessage `json:"packages"`
 	}{
 		GoSDKRoot: l.GoSDKRoot,
 		Platform:  l.Platform,
 		Roots:     roots,
-		Packages:  pkgs,
+		Packages:  packageJSON,
 	})
+}
+
+// UnmarshalJSON decodes the upstream go/packages package shape and retains the
+// layout-only is_stdlib side metadata. Missing is_stdlib intentionally decodes
+// as false for JSON syntax compatibility; validation rejects that false value
+// when the host path policy identifies an explicitly listed package as stdlib.
+func (l *Layout) UnmarshalJSON(data []byte) error {
+	var wire struct {
+		GoSDKRoot string            `json:"go_sdk_root"`
+		Platform  *Platform         `json:"platform,omitempty"`
+		Roots     []string          `json:"roots"`
+		Packages  []json.RawMessage `json:"packages"`
+	}
+	if err := json.Unmarshal(data, &wire); err != nil {
+		return err
+	}
+
+	packagesList := make([]*packages.Package, len(wire.Packages))
+	stdlibByID := make(map[string]bool, len(wire.Packages))
+	emittedPackageID := make(map[string]bool, len(wire.Packages))
+	for i, raw := range wire.Packages {
+		if string(raw) == "null" {
+			continue
+		}
+		var p packages.Package
+		if err := json.Unmarshal(raw, &p); err != nil {
+			return fmt.Errorf("decoding package at index %d: %w", i, err)
+		}
+		var metadata struct {
+			IsStdlib bool `json:"is_stdlib"`
+		}
+		if err := json.Unmarshal(raw, &metadata); err != nil {
+			return fmt.Errorf("decoding package %q provenance: %w", p.ID, err)
+		}
+		packagesList[i] = &p
+		stdlibByID[p.ID] = metadata.IsStdlib
+		emittedPackageID[p.ID] = true
+	}
+
+	l.GoSDKRoot = wire.GoSDKRoot
+	l.Platform = wire.Platform
+	l.Roots = wire.Roots
+	l.Packages = packagesList
+	l.stdlibByID = stdlibByID
+	l.stdlibByPath = make(map[string]bool, len(stdlibByID))
+	l.emittedPackageID = emittedPackageID
+	l.UnresolvedImports = nil
+	l.importsOmitted = nil
+	return nil
 }
 
 // ValidateAndResolve validates the layout's structural consistency and resolves
@@ -381,6 +496,33 @@ func ValidateAndResolve(l *Layout, workspaceDir string) error {
 		if p == nil {
 			return fmt.Errorf("package entry at index %d is null", idx)
 		}
+	}
+	if l.stdlibByID == nil {
+		l.stdlibByID = make(map[string]bool, len(l.Packages))
+	}
+	if l.stdlibByPath == nil {
+		l.stdlibByPath = make(map[string]bool, len(l.Packages))
+	}
+	if l.emittedPackageID == nil {
+		l.emittedPackageID = make(map[string]bool, len(l.Packages))
+		for _, p := range l.Packages {
+			l.emittedPackageID[p.ID] = true
+		}
+	}
+	// Validate emitter provenance before SDK discovery can add structural
+	// packages. An omitted is_stdlib field is the false value and therefore
+	// deliberately disagrees with a policy that identifies the explicit package
+	// as standard library.
+	for _, p := range l.Packages {
+		if !l.emittedPackageID[p.ID] {
+			continue
+		}
+		declared := l.stdlibByID[p.ID]
+		policy := hostpolicy.IsStdlibPath(p.PkgPath)
+		if declared != policy {
+			return fmt.Errorf("package %q standard-library provenance disagreement: declared %t, path-policy %t", p.PkgPath, declared, policy)
+		}
+		l.stdlibByPath[p.PkgPath] = declared
 	}
 
 	// First, discover and merge standard library packages if GoSDKRoot is set.
@@ -399,6 +541,9 @@ func ValidateAndResolve(l *Layout, workspaceDir string) error {
 		for _, stdPkg := range stdPkgs {
 			if !existing[stdPkg.ID] && !existing[stdPkg.PkgPath] {
 				l.Packages = append(l.Packages, stdPkg)
+				l.stdlibByID[stdPkg.ID] = true
+				l.stdlibByPath[stdPkg.PkgPath] = true
+				l.emittedPackageID[stdPkg.ID] = false
 			}
 		}
 	}
@@ -406,11 +551,11 @@ func ValidateAndResolve(l *Layout, workspaceDir string) error {
 	if l.GoSDKRoot == "" {
 		// GoSDKRoot is required if standard library packages are present or referenced.
 		for _, p := range l.Packages {
-			if IsStdlib(p.PkgPath) {
+			if l.IsStdlibPackage(p) {
 				return errors.New("go_sdk_root is required when standard library packages are present in layout")
 			}
 			for impPath := range p.Imports {
-				if IsStdlib(impPath) {
+				if hostpolicy.IsStdlibPath(impPath) {
 					return fmt.Errorf("go_sdk_root is required when standard library package %q is imported by %q", impPath, p.ID)
 				}
 			}
@@ -464,13 +609,13 @@ func ValidateAndResolve(l *Layout, workspaceDir string) error {
 
 	// Phase 1: Resolve GoFiles and CompiledGoFiles for all packages.
 	for _, p := range l.Packages {
-		resolvedGoFiles, err := resolveAndCheckFiles(p, p.GoFiles, l.GoSDKRoot, workspaceDir)
+		resolvedGoFiles, err := l.resolveAndCheckFiles(p, p.GoFiles, l.GoSDKRoot, workspaceDir)
 		if err != nil {
 			return err
 		}
 		p.GoFiles = resolvedGoFiles
 
-		resolvedCompiledFiles, err := resolveAndCheckFiles(p, p.CompiledGoFiles, l.GoSDKRoot, workspaceDir)
+		resolvedCompiledFiles, err := l.resolveAndCheckFiles(p, p.CompiledGoFiles, l.GoSDKRoot, workspaceDir)
 		if err != nil {
 			return err
 		}
@@ -486,7 +631,7 @@ func ValidateAndResolve(l *Layout, workspaceDir string) error {
 	// when it reads a package directory. Standard-library packages arrive already
 	// filtered from discoverStdlib and are left untouched.
 	for _, p := range l.Packages {
-		if IsStdlib(p.PkgPath) {
+		if l.IsStdlibPackage(p) {
 			continue
 		}
 		hadGoSources := hasGoSources(p.GoFiles) || hasGoSources(p.CompiledGoFiles)
@@ -508,7 +653,7 @@ func ValidateAndResolve(l *Layout, workspaceDir string) error {
 		// source-level import remains the bare path. The target's path is the
 		// authoritative indication here because the source-level path may be a
 		// dotted vendored path.
-		if target, ok := byPath["vendor/"+importPath]; ok && IsStdlib(target.PkgPath) {
+		if target, ok := byPath["vendor/"+importPath]; ok && l.IsStdlibPackage(target) {
 			return target, true
 		}
 		return nil, false
@@ -516,7 +661,7 @@ func ValidateAndResolve(l *Layout, workspaceDir string) error {
 
 	var unresolvedImports []UnresolvedImport
 	for _, p := range l.Packages {
-		if !IsStdlib(p.PkgPath) {
+		if !l.IsStdlibPackage(p) {
 			fset := token.NewFileSet()
 			sortedFiles := survivingSourceFiles(p)
 
@@ -651,7 +796,7 @@ func ValidateAndResolve(l *Layout, workspaceDir string) error {
 			// A standard-library package may import a vendored package by its bare
 			// path; the resolving target's PkgPath is then the vendor/-prefixed
 			// form (see discoverStdlib), so accept that as well.
-			if target.PkgPath != impPath && target.PkgPath != "vendor/"+impPath {
+			if target.PkgPath != impPath && (target.PkgPath != "vendor/"+impPath || !l.IsStdlibPackage(target)) {
 				return fmt.Errorf("package %q imports path %q with ID %q, but target package import path is %q", p.ID, impPath, target.ID, target.PkgPath)
 			}
 		}
@@ -750,7 +895,7 @@ func survivingSourceFiles(p *packages.Package) []string {
 	return files
 }
 
-func resolveAndCheckFiles(p *packages.Package, files []string, sdkRoot, workspaceDir string) ([]string, error) {
+func (l *Layout) resolveAndCheckFiles(p *packages.Package, files []string, sdkRoot, workspaceDir string) ([]string, error) {
 	resolved := make([]string, len(files))
 	for i, f := range files {
 		if f == "" {
@@ -758,7 +903,7 @@ func resolveAndCheckFiles(p *packages.Package, files []string, sdkRoot, workspac
 		}
 
 		var path string
-		if IsStdlib(p.PkgPath) {
+		if l.IsStdlibPackage(p) {
 			// Resolve relative to sdkRoot.
 			// Standard library files can be mapped to sdkRoot/PkgPath/BaseName.
 			path = filepath.Join(sdkRoot, p.PkgPath, filepath.Base(f))
@@ -810,7 +955,7 @@ func HandleDriverRequest(l *Layout, req *packages.DriverRequest, patterns []stri
 	for _, p := range l.Packages {
 		byID[p.ID] = p
 		byPath[p.PkgPath] = p
-		if IsStdlib(p.PkgPath) {
+		if l.IsStdlibPackage(p) {
 			stdIDs = append(stdIDs, p.ID)
 		}
 	}

@@ -14,8 +14,138 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ono-sendai-labs/architectural-contracts/go/internal/hostpolicy"
 	"golang.org/x/tools/go/packages"
 )
+
+func TestLayoutPackageStdlibProvenanceRoundTrip(t *testing.T) {
+	l := &Layout{
+		Roots: []string{"example.com/member"},
+		Packages: []*packages.Package{{
+			ID: "example.com/member", Name: "member", PkgPath: "example.com/member",
+			GoFiles: []string{"member.go"}, Imports: map[string]*packages.Package{},
+		}},
+	}
+	data, err := json.Marshal(l)
+	if err != nil {
+		t.Fatalf("json.Marshal() error = %v", err)
+	}
+	if !strings.Contains(string(data), `"is_stdlib":false`) {
+		t.Fatalf("layout JSON = %s, want explicit is_stdlib field", data)
+	}
+	parsed, err := Parse(bytes.NewReader(data))
+	if err != nil {
+		t.Fatalf("Parse() error = %v", err)
+	}
+	if parsed.stdlibByID["example.com/member"] {
+		t.Fatal("omitted/default provenance unexpectedly classified member as stdlib")
+	}
+}
+
+func TestValidateAndResolveRejectsStdlibProvenanceDisagreement(t *testing.T) {
+	originalPolicy := hostpolicy.IsStdlibPath
+	t.Cleanup(func() { hostpolicy.IsStdlibPath = originalPolicy })
+	hostpolicy.IsStdlibPath = func(path string) bool { return path == "fmt" }
+
+	workspace := t.TempDir()
+	if err := os.WriteFile(filepath.Join(workspace, "fmt.go"), []byte("package fmt\n"), 0644); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+	l := &Layout{
+		Roots:      []string{"fmt"},
+		stdlibByID: map[string]bool{"fmt": false},
+		Packages: []*packages.Package{{
+			ID: "fmt", Name: "fmt", PkgPath: "fmt", GoFiles: []string{"fmt.go"},
+			CompiledGoFiles: []string{"fmt.go"}, Imports: map[string]*packages.Package{},
+		}},
+	}
+	err := ValidateAndResolve(l, workspace)
+	if err == nil {
+		t.Fatal("ValidateAndResolve() succeeded for contradictory stdlib provenance")
+	}
+	for _, want := range []string{"fmt", "declared false", "path-policy true"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("ValidateAndResolve() error = %q, want substring %q", err, want)
+		}
+	}
+}
+
+func TestValidateAndResolveUsesSDKDiscoveryAsStructuralStdlib(t *testing.T) {
+	originalPolicy := hostpolicy.IsStdlibPath
+	t.Cleanup(func() { hostpolicy.IsStdlibPath = originalPolicy })
+	hostpolicy.IsStdlibPath = func(string) bool { return false }
+
+	root := t.TempDir()
+	sdkRoot := filepath.Join(root, "sdk", "src")
+	workspace := filepath.Join(root, "workspace")
+	for _, pkg := range []string{"fmt", "os"} {
+		dir := filepath.Join(sdkRoot, pkg)
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			t.Fatalf("mkdir %s: %v", pkg, err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, pkg+".go"), []byte("package "+pkg+"\n"), 0644); err != nil {
+			t.Fatalf("write %s: %v", pkg, err)
+		}
+	}
+	if err := os.MkdirAll(workspace, 0755); err != nil {
+		t.Fatalf("mkdir workspace: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(workspace, "member.go"), []byte("package member\nimport _ \"fmt\"\nimport _ \"os\"\n"), 0644); err != nil {
+		t.Fatalf("write member: %v", err)
+	}
+
+	l := &Layout{
+		GoSDKRoot: sdkRoot,
+		Roots:     []string{"example.com/member"},
+		Packages: []*packages.Package{{
+			ID: "example.com/member", Name: "member", PkgPath: "example.com/member",
+			GoFiles: []string{"member.go"}, CompiledGoFiles: []string{"member.go"},
+		}},
+	}
+	if err := ValidateAndResolve(l, workspace); err != nil {
+		t.Fatalf("ValidateAndResolve() error = %v", err)
+	}
+	for _, path := range []string{"fmt", "os"} {
+		pkg := packageByID(l.Packages, path)
+		if pkg == nil {
+			t.Fatalf("SDK package %q was not discovered", path)
+		}
+		if !l.IsStdlibPackage(pkg) {
+			t.Errorf("SDK package %q was not structurally classified as stdlib", path)
+		}
+	}
+}
+
+func TestValidateAndResolveDoesNotVendorResolveNonStdlibPackage(t *testing.T) {
+	originalPolicy := hostpolicy.IsStdlibPath
+	t.Cleanup(func() { hostpolicy.IsStdlibPath = originalPolicy })
+	hostpolicy.IsStdlibPath = func(string) bool { return false }
+
+	root := t.TempDir()
+	workspace := filepath.Join(root, "workspace")
+	if err := os.MkdirAll(filepath.Join(workspace, "vendor", "acme", "dep"), 0755); err != nil {
+		t.Fatalf("mkdir fixture: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(workspace, "root.go"), []byte("package root\nimport \"acme/dep\"\n"), 0644); err != nil {
+		t.Fatalf("write root: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(workspace, "vendor", "acme", "dep", "dep.go"), []byte("package dep\n"), 0644); err != nil {
+		t.Fatalf("write dep: %v", err)
+	}
+	l := &Layout{
+		Roots: []string{"example.com/root"},
+		Packages: []*packages.Package{
+			{ID: "example.com/root", Name: "root", PkgPath: "example.com/root", GoFiles: []string{"root.go"}, CompiledGoFiles: []string{"root.go"}},
+			{ID: "vendor/acme/dep", Name: "dep", PkgPath: "vendor/acme/dep", GoFiles: []string{"vendor/acme/dep/dep.go"}, CompiledGoFiles: []string{"vendor/acme/dep/dep.go"}},
+		},
+	}
+	if err := ValidateAndResolve(l, workspace); err != nil {
+		t.Fatalf("ValidateAndResolve() error = %v", err)
+	}
+	if len(l.UnresolvedImports) != 1 || l.UnresolvedImports[0].ImportPath != "acme/dep" {
+		t.Fatalf("UnresolvedImports = %+v, want unresolved acme/dep", l.UnresolvedImports)
+	}
+}
 
 type mockFileInfo struct {
 	name  string
@@ -247,8 +377,9 @@ func TestValidateAndResolve_Valid(t *testing.T) {
 	}
 
 	l := &Layout{
-		GoSDKRoot: sdkRoot,
-		Roots:     []string{"example.com/foo"},
+		GoSDKRoot:  sdkRoot,
+		Roots:      []string{"example.com/foo"},
+		stdlibByID: map[string]bool{"fmt": true},
 		Packages: []*packages.Package{
 			{
 				ID:              "example.com/foo",
@@ -371,7 +502,8 @@ func TestValidateAndResolve_Errors(t *testing.T) {
 		{
 			name: "missing sdk root for stdlib",
 			layout: &Layout{
-				Roots: []string{"fmt"},
+				Roots:      []string{"fmt"},
+				stdlibByID: map[string]bool{"fmt": true},
 				Packages: []*packages.Package{
 					{ID: "fmt", Name: "fmt", PkgPath: "fmt", GoFiles: []string{"format.go"}},
 				},
@@ -616,8 +748,9 @@ func TestValidateAndResolve_Errors(t *testing.T) {
 
 func TestHandleDriverRequest(t *testing.T) {
 	l := &Layout{
-		GoSDKRoot: "/sdk",
-		Roots:     []string{"example.com/foo"},
+		GoSDKRoot:  "/sdk",
+		Roots:      []string{"example.com/foo"},
+		stdlibByID: map[string]bool{"fmt": true, "os": true},
 		Packages: []*packages.Package{
 			{ID: "example.com/foo", Name: "foo", PkgPath: "example.com/foo"},
 			{ID: "fmt", Name: "fmt", PkgPath: "fmt"},
@@ -1202,8 +1335,9 @@ func TestValidateAndResolve_LayoutWinsOnCollision(t *testing.T) {
 	}
 
 	l := &Layout{
-		GoSDKRoot: sdkSrc,
-		Roots:     []string{"fmt"},
+		GoSDKRoot:  sdkSrc,
+		Roots:      []string{"fmt"},
+		stdlibByID: map[string]bool{"fmt": true},
 		Packages: []*packages.Package{
 			{
 				ID:      "fmt",
@@ -1675,8 +1809,9 @@ func TestValidateAndResolve_LayoutPrecedence_Focused(t *testing.T) {
 	}
 
 	l := &Layout{
-		GoSDKRoot: sdkSrc,
-		Roots:     []string{"layout-fmt"},
+		GoSDKRoot:  sdkSrc,
+		Roots:      []string{"layout-fmt"},
+		stdlibByID: map[string]bool{"layout-fmt": true},
 		Packages: []*packages.Package{{
 			ID:              "layout-fmt",
 			Name:            "fmt",
@@ -1709,7 +1844,7 @@ func TestValidateAndResolve_LayoutPrecedence_Focused(t *testing.T) {
 }
 
 func TestHandleDriverRequest_DeterministicOutput_Focused(t *testing.T) {
-	l := &Layout{Packages: []*packages.Package{
+	l := &Layout{stdlibByID: map[string]bool{"os": true, "fmt": true}, Packages: []*packages.Package{
 		{ID: "z.example/root", Name: "root", PkgPath: "z.example/root", Imports: map[string]*packages.Package{
 			"os": {ID: "os"},
 		}},
@@ -1802,8 +1937,9 @@ func TestValidateAndResolve_ImportRecovery_Comprehensive(t *testing.T) {
 	}
 
 	l := &Layout{
-		GoSDKRoot: sdkSrc,
-		Roots:     []string{"example.com/api"},
+		GoSDKRoot:  sdkSrc,
+		Roots:      []string{"example.com/api"},
+		stdlibByID: map[string]bool{"layout-fmt": true},
 		Packages: []*packages.Package{
 			{
 				ID:      "example.com/api",
