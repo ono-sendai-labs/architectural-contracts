@@ -1364,9 +1364,22 @@ func ResolveDependencyInterface(
 		return facts.DependencyInterface{}, fmt.Errorf("dependency name mismatch: expected %q, got %q in manifest", dep.Name, depManifest.Name)
 	}
 
-	// 4. Reject roots overlapping the analyzed component as actionable tool errors
 	cleanAnalyzed := filepath.Clean(analyzedRoot)
 	cleanDepRoot := filepath.Clean(depRoot)
+
+	if depManifest.InterfaceStyle == manifest.InterfaceStylePackageSurface {
+		if isPatternMembership(depManifest) {
+			return resolvePatternMembershipDependencyInterface(cleanAnalyzed, dep, depManifest)
+		}
+		if cleanDepRoot == cleanAnalyzed ||
+			strings.HasPrefix(cleanDepRoot, cleanAnalyzed+string(filepath.Separator)) ||
+			strings.HasPrefix(cleanAnalyzed, cleanDepRoot+string(filepath.Separator)) {
+			return facts.DependencyInterface{}, fmt.Errorf("root overlap error: dependency root %q overlaps with analyzed root %q", cleanDepRoot, cleanAnalyzed)
+		}
+		return resolvePackageSurfaceDependencyInterface(cleanDepRoot, cleanAnalyzed, dep, depManifest, manifestPath)
+	}
+
+	// 4. Reject roots overlapping the analyzed component as actionable tool errors
 	if cleanDepRoot == cleanAnalyzed ||
 		strings.HasPrefix(cleanDepRoot, cleanAnalyzed+string(filepath.Separator)) ||
 		strings.HasPrefix(cleanAnalyzed, cleanDepRoot+string(filepath.Separator)) {
@@ -1652,9 +1665,273 @@ func ResolveDependencyInterface(
 	})
 
 	return facts.DependencyInterface{
-		Component: dep.Name,
-		Packages:  pkgPaths,
-		Symbols:   symbols,
+		Component:              dep.Name,
+		InterfaceStyle:         depManifest.InterfaceStyle,
+		OwnCheckRuns:           depManifest.OwnCheckRuns,
+		CertificationReference: depManifest.CertificationReference,
+		Packages:               pkgPaths,
+		Symbols:                symbols,
+	}, nil
+}
+
+func isPatternMembership(m manifest.Manifest) bool {
+	if m.InterfaceStyle != manifest.InterfaceStylePackageSurface {
+		return false
+	}
+	for _, member := range m.Members {
+		if strings.ContainsAny(member, "*?[]\\") {
+			return true
+		}
+	}
+	return false
+}
+
+func addSurfaceSymbol(symbolSet map[string]bool, sym facts.ExportedSymbol) {
+	symbolSet[sym.Name] = true
+	recv := sym.Receiver
+	if recv == "" {
+		if strings.HasPrefix(sym.Name, "(*") {
+			idx := strings.Index(sym.Name, ").")
+			if idx != -1 {
+				recv = sym.Name[:idx+1]
+			}
+		} else if strings.HasPrefix(sym.Name, "(") {
+			idx := strings.Index(sym.Name, ").")
+			if idx != -1 {
+				recv = sym.Name[:idx+1]
+			}
+		}
+	}
+	if recv != "" {
+		methodSuffix := sym.Name[len(recv):]
+		if strings.HasPrefix(recv, "(*") {
+			valKey := "(" + recv[2:] + methodSuffix
+			symbolSet[valKey] = true
+		} else if strings.HasPrefix(recv, "(") {
+			ptrKey := "(*" + recv[1:] + methodSuffix
+			symbolSet[ptrKey] = true
+		}
+	}
+}
+
+func resolvePatternMembershipDependencyInterface(
+	cleanAnalyzed string,
+	dep manifest.ComponentDependency,
+	depManifest manifest.Manifest,
+) (facts.DependencyInterface, error) {
+	var loadDir string
+	var patterns []string
+
+	if packagelayout.IsLayoutMode() {
+		loadDir = packagelayout.GetActiveWorkspaceDir()
+		patterns = packagelayout.GetActiveLayout().Roots
+	} else {
+		loadDir = cleanAnalyzed
+		patterns = []string{"./..."}
+	}
+
+	cfg := &packages.Config{
+		Mode: packages.NeedName | packages.NeedFiles | packages.NeedCompiledGoFiles |
+			packages.NeedImports | packages.NeedDeps | packages.NeedSyntax |
+			packages.NeedTypes | packages.NeedTypesInfo | packages.NeedModule,
+		Dir: loadDir,
+	}
+
+	dependerPkgs, err := loadPackages(cfg, patterns...)
+	if err != nil {
+		return facts.DependencyInterface{}, fmt.Errorf("failed to load depender packages for pattern-membership dependency %q: %w", dep.Name, err)
+	}
+
+	var matchedPkgs []*packages.Package
+	var matchedPkgPaths []string
+	seenMatched := make(map[string]bool)
+
+	packages.Visit(dependerPkgs, nil, func(p *packages.Package) {
+		canonPath := hostpolicy.CanonicalizePath(p.PkgPath)
+		for _, pattern := range depManifest.Members {
+			matched, err := path.Match(pattern, canonPath)
+			if err == nil && matched {
+				if !seenMatched[canonPath] {
+					seenMatched[canonPath] = true
+					matchedPkgs = append(matchedPkgs, p)
+					matchedPkgPaths = append(matchedPkgPaths, canonPath)
+				}
+				break
+			}
+		}
+	})
+
+	if len(matchedPkgPaths) == 0 {
+		return facts.DependencyInterface{}, fmt.Errorf("pattern-membership dependency %q matched no packages in closure of %q", dep.Name, cleanAnalyzed)
+	}
+
+	sort.Strings(matchedPkgPaths)
+
+	var extractRoot string
+	if packagelayout.IsLayoutMode() {
+		extractRoot = packagelayout.GetActiveWorkspaceDir()
+	} else {
+		extractRoot = cleanAnalyzed
+	}
+
+	symbolSet := make(map[string]bool)
+	for _, p := range matchedPkgs {
+		exportedSymbols, err := extractSymbols(p, extractRoot)
+		if err != nil {
+			return facts.DependencyInterface{}, fmt.Errorf("failed to extract symbols for dependency %q package %q: %w", dep.Name, p.PkgPath, err)
+		}
+		for _, sym := range exportedSymbols {
+			addSurfaceSymbol(symbolSet, sym)
+		}
+	}
+
+	var symbols []capanalyzer.InterfaceSymbol
+	for sym := range symbolSet {
+		symbols = append(symbols, capanalyzer.InterfaceSymbol(sym))
+	}
+	sort.Slice(symbols, func(i, j int) bool {
+		return symbols[i] < symbols[j]
+	})
+
+	return facts.DependencyInterface{
+		Component:              dep.Name,
+		InterfaceStyle:         depManifest.InterfaceStyle,
+		OwnCheckRuns:           depManifest.OwnCheckRuns,
+		CertificationReference: depManifest.CertificationReference,
+		Packages:               matchedPkgPaths,
+		Symbols:                symbols,
+	}, nil
+}
+
+func resolvePackageSurfaceDependencyInterface(
+	cleanDepRoot string,
+	cleanAnalyzed string,
+	dep manifest.ComponentDependency,
+	depManifest manifest.Manifest,
+	manifestPath string,
+) (facts.DependencyInterface, error) {
+	var loadDir string
+	var patterns []string
+	var depPkgs []*packages.Package
+
+	if packagelayout.IsLayoutMode() {
+		loadDir = packagelayout.GetActiveWorkspaceDir()
+		depLayoutPath := strings.TrimSuffix(manifestPath, ".component.textproto") + ".package-layout.json"
+		f, errOpen := os.Open(depLayoutPath)
+		if errOpen != nil {
+			depLayoutPath2 := filepath.Join(cleanDepRoot, "package-layout.json")
+			f, errOpen = os.Open(depLayoutPath2)
+			if errOpen != nil {
+				return facts.DependencyInterface{}, fmt.Errorf("failed to open dependency package-layout: %w", errOpen)
+			}
+			depLayoutPath = depLayoutPath2
+		}
+
+		depLayout, errParse := packagelayout.Parse(f)
+		f.Close()
+		if errParse != nil {
+			return facts.DependencyInterface{}, fmt.Errorf("failed to parse dependency package-layout: %w", errParse)
+		}
+		patterns = depLayout.Roots
+
+		cfg := &packages.Config{
+			Mode: packages.NeedName | packages.NeedFiles | packages.NeedCompiledGoFiles |
+				packages.NeedImports | packages.NeedDeps | packages.NeedSyntax |
+				packages.NeedTypes | packages.NeedTypesInfo | packages.NeedModule,
+			Dir: loadDir,
+		}
+
+		err := packagelayout.WithTemporaryLayout(depLayoutPath, func() error {
+			var loadErr error
+			depPkgs, loadErr = loadPackages(cfg, patterns...)
+			return loadErr
+		})
+		if err != nil {
+			return facts.DependencyInterface{}, fmt.Errorf("failed to load dependency packages in layout mode: %w", err)
+		}
+	} else {
+		loadDir = cleanDepRoot
+		patterns = []string{"./..."}
+
+		cfg := &packages.Config{
+			Mode: packages.NeedName | packages.NeedFiles | packages.NeedCompiledGoFiles |
+				packages.NeedImports | packages.NeedDeps | packages.NeedSyntax |
+				packages.NeedTypes | packages.NeedTypesInfo | packages.NeedModule,
+			Dir: loadDir,
+		}
+
+		var err error
+		depPkgs, err = loadPackages(cfg, patterns...)
+		if err != nil {
+			return facts.DependencyInterface{}, fmt.Errorf("failed to load dependency packages: %w", err)
+		}
+	}
+
+	if len(depPkgs) == 0 {
+		return facts.DependencyInterface{}, fmt.Errorf("no packages found under dependency root %q", cleanDepRoot)
+	}
+	if err := validateLoaderPackagePaths(depPkgs); err != nil {
+		return facts.DependencyInterface{}, err
+	}
+
+	var errMsgs []string
+	packages.Visit(depPkgs, nil, func(p *packages.Package) {
+		for _, err := range p.Errors {
+			errMsgs = append(errMsgs, err.Msg)
+		}
+	})
+	if len(errMsgs) > 0 {
+		sort.Strings(errMsgs)
+		return facts.DependencyInterface{}, fmt.Errorf("dependency package load errors:\n%s", strings.Join(errMsgs, "\n"))
+	}
+
+	memberSet := make(map[string]bool)
+	var memberPkgPaths []string
+	for _, m := range depManifest.Members {
+		cm := hostpolicy.CanonicalizePath(m)
+		if !memberSet[cm] {
+			memberSet[cm] = true
+			memberPkgPaths = append(memberPkgPaths, cm)
+		}
+	}
+	sort.Strings(memberPkgPaths)
+
+	var extractRoot string
+	if packagelayout.IsLayoutMode() {
+		extractRoot = packagelayout.GetActiveWorkspaceDir()
+	} else {
+		extractRoot = cleanDepRoot
+	}
+
+	symbolSet := make(map[string]bool)
+	for _, p := range depPkgs {
+		canonPkgPath := hostpolicy.CanonicalizePath(p.PkgPath)
+		if memberSet[canonPkgPath] {
+			exportedSymbols, err := extractSymbols(p, extractRoot)
+			if err != nil {
+				return facts.DependencyInterface{}, err
+			}
+			for _, sym := range exportedSymbols {
+				addSurfaceSymbol(symbolSet, sym)
+			}
+		}
+	}
+
+	var symbols []capanalyzer.InterfaceSymbol
+	for sym := range symbolSet {
+		symbols = append(symbols, capanalyzer.InterfaceSymbol(sym))
+	}
+	sort.Slice(symbols, func(i, j int) bool {
+		return symbols[i] < symbols[j]
+	})
+
+	return facts.DependencyInterface{
+		Component:              dep.Name,
+		InterfaceStyle:         depManifest.InterfaceStyle,
+		OwnCheckRuns:           depManifest.OwnCheckRuns,
+		CertificationReference: depManifest.CertificationReference,
+		Packages:               memberPkgPaths,
+		Symbols:                symbols,
 	}, nil
 }
 

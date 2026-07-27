@@ -177,3 +177,130 @@ func TestResolveDependencyInterface_Errors(t *testing.T) {
 		})
 	}
 }
+
+func TestResolveDependencyInterface_PackageSurface(t *testing.T) {
+	declaringRoot, err := filepath.Abs("testdata/dep_resolve/declaring")
+	if err != nil {
+		t.Fatalf("failed to get absolute path to declaring: %v", err)
+	}
+
+	dep := manifest.ComponentDependency{
+		Name:     "dep",
+		Manifest: "../dep/pkg_surface.textproto",
+	}
+
+	result, err := goanalysis.ResolveDependencyInterface(declaringRoot, declaringRoot, dep)
+	if err != nil {
+		t.Fatalf("unexpected error resolving package-surface dependency: %v", err)
+	}
+
+	if result.Component != "dep" {
+		t.Errorf("expected component name %q, got %q", "dep", result.Component)
+	}
+	if result.InterfaceStyle != manifest.InterfaceStylePackageSurface {
+		t.Errorf("expected InterfaceStylePackageSurface, got %v", result.InterfaceStyle)
+	}
+	if !result.OwnCheckRuns {
+		t.Errorf("expected OwnCheckRuns true, got false")
+	}
+	if result.CertificationReference != "ref-456" {
+		t.Errorf("expected CertificationReference %q, got %q", "ref-456", result.CertificationReference)
+	}
+
+	expectedPkgs := []string{
+		"github.com/ono-sendai-labs/architectural-contracts/go/internal/goanalysis/testdata/dep_resolve/dep",
+		"github.com/ono-sendai-labs/architectural-contracts/go/internal/goanalysis/testdata/dep_resolve/dep/subpkg",
+	}
+	if !reflect.DeepEqual(result.Packages, expectedPkgs) {
+		t.Errorf("expected packages:\n%v\ngot:\n%v", expectedPkgs, result.Packages)
+	}
+
+	// Should contain exported symbols from both member packages, including PrivateFunc and Subhello
+	pkgPath := "github.com/ono-sendai-labs/architectural-contracts/go/internal/goanalysis/testdata/dep_resolve/dep"
+	subPkgPath := "github.com/ono-sendai-labs/architectural-contracts/go/internal/goanalysis/testdata/dep_resolve/dep/subpkg"
+
+	mustContain := []capanalyzer.InterfaceSymbol{
+		capanalyzer.InterfaceSymbol(pkgPath + ".PrivateFunc"),
+		capanalyzer.InterfaceSymbol(subPkgPath + ".Subhello"),
+		capanalyzer.InterfaceSymbol("(*" + pkgPath + ".Base).GetValue"),
+		capanalyzer.InterfaceSymbol("(" + pkgPath + ".Base).GetValue"),
+		capanalyzer.InterfaceSymbol("(*" + pkgPath + ".GreeterImpl).Greet"),
+		capanalyzer.InterfaceSymbol("(" + pkgPath + ".GreeterImpl).Greet"),
+	}
+
+	for _, expected := range mustContain {
+		found := false
+		for _, sym := range result.Symbols {
+			if sym == expected {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("expected symbol %q not found in package-surface symbols: %v", expected, result.Symbols)
+		}
+	}
+}
+
+func TestResolveDependencyInterface_PatternMembership(t *testing.T) {
+	declaringRoot, err := filepath.Abs("testdata/dep_resolve/declaring_pattern")
+	if err != nil {
+		t.Fatalf("failed to get absolute path to declaring_pattern: %v", err)
+	}
+
+	dep := manifest.ComponentDependency{
+		Name:     "dep",
+		Manifest: "../dep/pattern_surface.textproto",
+	}
+
+	result, err := goanalysis.ResolveDependencyInterface(declaringRoot, declaringRoot, dep)
+	if err != nil {
+		t.Fatalf("unexpected error resolving pattern-membership dependency: %v", err)
+	}
+
+	if result.InterfaceStyle != manifest.InterfaceStylePackageSurface {
+		t.Errorf("expected InterfaceStylePackageSurface, got %v", result.InterfaceStyle)
+	}
+	if result.OwnCheckRuns {
+		t.Errorf("expected OwnCheckRuns false, got true")
+	}
+	if result.CertificationReference != "scheduled-job" {
+		t.Errorf("expected CertificationReference %q, got %q", "scheduled-job", result.CertificationReference)
+	}
+
+	if len(result.Packages) == 0 {
+		t.Fatalf("expected non-empty packages for pattern-membership dependency")
+	}
+
+	pkgPath := "github.com/ono-sendai-labs/architectural-contracts/go/internal/goanalysis/testdata/dep_resolve/dep"
+	foundPrivateFunc := false
+	for _, sym := range result.Symbols {
+		if sym == capanalyzer.InterfaceSymbol(pkgPath+".PrivateFunc") {
+			foundPrivateFunc = true
+			break
+		}
+	}
+	if !foundPrivateFunc {
+		t.Errorf("expected %q in pattern-membership symbols", pkgPath+".PrivateFunc")
+	}
+}
+
+func TestResolveDependencyInterface_PatternNoMatchFailsClosed(t *testing.T) {
+	declaringRoot, err := filepath.Abs("testdata/dep_resolve/declaring")
+	if err != nil {
+		t.Fatalf("failed to get absolute path to declaring: %v", err)
+	}
+
+	dep := manifest.ComponentDependency{
+		Name:     "dep",
+		Manifest: "../dep/pattern_nomatch.textproto",
+	}
+
+	_, err = goanalysis.ResolveDependencyInterface(declaringRoot, declaringRoot, dep)
+	if err == nil {
+		t.Fatalf("expected error for pattern matching nothing, got nil")
+	}
+	if !strings.Contains(err.Error(), "dep") {
+		t.Errorf("expected error message naming dependency %q, got: %v", "dep", err)
+	}
+}

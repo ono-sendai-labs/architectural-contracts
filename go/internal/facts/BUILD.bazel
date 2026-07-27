@@ -5,7 +5,10 @@ go_library(
     srcs = ["facts.go"],
     importpath = "github.com/ono-sendai-labs/architectural-contracts/go/internal/facts",
     visibility = ["//go:__subpackages__"],
-    deps = ["//go/internal/capanalyzer"],
+    deps = [
+        "//go/internal/capanalyzer",
+        "//go/internal/manifest",
+    ],
 )
 
 go_test(
@@ -15,5 +18,6 @@ go_test(
     deps = [
         ":facts",
         "//go/internal/capanalyzer",
+        "//go/internal/manifest",
     ],
 )

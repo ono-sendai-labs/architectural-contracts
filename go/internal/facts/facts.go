@@ -14,6 +14,7 @@ package facts
 
 import (
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/capanalyzer"
+	"github.com/ono-sendai-labs/architectural-contracts/go/internal/manifest"
 )
 
 // PackageFacts aggregates the loaded information for the component's internal packages,
@@ -85,8 +86,18 @@ type CallEdge struct {
 // to validate boundary calls and build the prune set.
 type DependencyInterface struct {
 	Component string
-	Packages  []string                      // all packages under the dependency's component root (derived, not declared)
-	Symbols   []capanalyzer.InterfaceSymbol // the FR4 symbol set (derived, not declared)
+
+	// InterfaceStyle is read from the dependency's own manifest and is not verified by arcc.
+	InterfaceStyle manifest.InterfaceStyle
+
+	// OwnCheckRuns is read from the dependency's own manifest and is not verified by arcc.
+	OwnCheckRuns bool
+
+	// CertificationReference is read from the dependency's own manifest and is not verified by arcc.
+	CertificationReference string
+
+	Packages []string                      // all packages under the dependency's component root (derived, not declared)
+	Symbols  []capanalyzer.InterfaceSymbol // the FR4 symbol set (derived, not declared)
 }
 
 // FuncValueEscape records member code taking the value of a function defined in

@@ -500,6 +500,7 @@ func TestSelfHostingManifests(t *testing.T) {
 			interfaceFiles: []string{"facts.go"},
 			dependencies: map[string]string{
 				"capanalyzer": "../capanalyzer/component.textproto",
+				"manifest":    "../manifest/component.textproto",
 			},
 		},
 		"../report/component.textproto": {

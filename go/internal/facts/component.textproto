@@ -4,3 +4,7 @@ component_dependencies {
   name: "capanalyzer"
   manifest: "../capanalyzer/component.textproto"
 }
+component_dependencies {
+  name: "manifest"
+  manifest: "../manifest/component.textproto"
+}

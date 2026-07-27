@@ -1099,3 +1099,102 @@ component_dependencies: {
 		t.Errorf("expected stderr to contain error message about dependency resolution, got: %s", stderrBad.String())
 	}
 }
+
+func TestRunner_Check_PackageSurfacePruneAtPackages(t *testing.T) {
+	parentDir := t.TempDir()
+
+	// 1. Declared-style dependency
+	declDir := filepath.Join(parentDir, "dep-decl")
+	if err := os.MkdirAll(declDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(declDir, "go.mod"), []byte("module example.com/temp/dep-decl\n\ngo 1.21\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(declDir, "component.textproto"), []byte("name: \"dep-decl\"\ninterface_files: \"api.go\"\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(declDir, "api.go"), []byte("package depdecl\n\nfunc DeclFunc() {}\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// 2. Package-surface dependency
+	surfDir := filepath.Join(parentDir, "dep-surf")
+	if err := os.MkdirAll(surfDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(surfDir, "go.mod"), []byte("module example.com/temp/dep-surf\n\ngo 1.21\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	surfManifest := "name: \"dep-surf\"\ninterface_style: INTERFACE_STYLE_PACKAGE_SURFACE\nmembers: \"example.com/temp/dep-surf\"\n"
+	if err := os.WriteFile(filepath.Join(surfDir, "component.textproto"), []byte(surfManifest), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(surfDir, "surf.go"), []byte("package depsurf\n\nfunc SurfFunc() {}\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// 3. Analyzed component depending on both
+	analyzedDir := filepath.Join(parentDir, "analyzed")
+	if err := os.MkdirAll(analyzedDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(analyzedDir, "go.mod"), []byte("module example.com/temp/analyzed\n\ngo 1.21\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	analyzedManifest := `name: "analyzed"
+interface_files: "api.go"
+component_dependencies: {
+  name: "dep-decl"
+  manifest: "../dep-decl/component.textproto"
+}
+component_dependencies: {
+  name: "dep-surf"
+  manifest: "../dep-surf/component.textproto"
+}
+`
+	manifestPath := filepath.Join(analyzedDir, "component.textproto")
+	if err := os.WriteFile(manifestPath, []byte(analyzedManifest), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(analyzedDir, "api.go"), []byte("package main\n\nfunc Hello() {}\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	analyzer := &mockAnalyzer{}
+	runner := &app.Runner{
+		Loader:   func(req goanalysis.LoadRequest) (facts.PackageFacts, error) { return goanalysis.LoadPackageFacts(req) },
+		Analyzer: analyzer,
+	}
+
+	var stdout, stderr bytes.Buffer
+	if exitCode := runner.Run([]string{"check", manifestPath}, &stdout, &stderr); exitCode != 0 {
+		t.Fatalf("Run() returned %d, want 0. Stderr: %s", exitCode, stderr.String())
+	}
+
+	// AC 6: PruneAtPackages holds exactly package-surface package
+	wantPruneAtPackages := []string{"example.com/temp/dep-surf"}
+	if !reflect.DeepEqual(analyzer.calledWith.PruneAtPackages, wantPruneAtPackages) {
+		t.Errorf("PruneAtPackages = %v, want %v", analyzer.calledWith.PruneAtPackages, wantPruneAtPackages)
+	}
+
+	// PruneAt contains symbols from both dependencies and init keys
+	mustPruneAt := []string{
+		"example.com/temp/dep-decl.DeclFunc",
+		"func example.com/temp/dep-decl.init",
+		"example.com/temp/dep-surf.SurfFunc",
+		"func example.com/temp/dep-surf.init",
+	}
+	for _, expected := range mustPruneAt {
+		found := false
+		for _, got := range analyzer.calledWith.PruneAt {
+			if string(got) == expected {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("PruneAt = %v, missing expected key %q", analyzer.calledWith.PruneAt, expected)
+		}
+	}
+}

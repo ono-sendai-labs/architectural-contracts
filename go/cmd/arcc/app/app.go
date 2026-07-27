@@ -196,14 +196,20 @@ func (r *Runner) runCheck(manifestPath string, formatJSON bool, stdout, stderr i
 		resolvedDeps = append(resolvedDeps, depIface)
 	}
 
-	// 6. Build AnalyzeRequest.PruneAt from resolved dependencies
+	// 6. Build AnalyzeRequest.PruneAt and PruneAtPackages from resolved dependencies
 	pruneSet := make(map[string]bool)
+	prunePkgSet := make(map[string]bool)
 	for _, di := range resolvedDeps {
 		for _, sym := range di.Symbols {
 			pruneSet[string(sym)] = true
 		}
 		for _, pkg := range di.Packages {
 			pruneSet["func "+pkg+".init"] = true
+		}
+		if di.InterfaceStyle == manifest.InterfaceStylePackageSurface {
+			for _, pkg := range di.Packages {
+				prunePkgSet[pkg] = true
+			}
 		}
 	}
 
@@ -215,6 +221,12 @@ func (r *Runner) runCheck(manifestPath string, formatJSON bool, stdout, stderr i
 		return pruneAt[i] < pruneAt[j]
 	})
 
+	var pruneAtPackages []string
+	for pkg := range prunePkgSet {
+		pruneAtPackages = append(pruneAtPackages, pkg)
+	}
+	sort.Strings(pruneAtPackages)
+
 	// 7. Pass all loaded component package import paths to the analyzer
 	var pkgs []string
 	for _, p := range loadedFacts.Packages {
@@ -222,8 +234,9 @@ func (r *Runner) runCheck(manifestPath string, formatJSON bool, stdout, stderr i
 	}
 
 	findings, err := r.Analyzer.Analyze(capanalyzer.AnalyzeRequest{
-		Packages: pkgs,
-		PruneAt:  pruneAt,
+		Packages:        pkgs,
+		PruneAt:         pruneAt,
+		PruneAtPackages: pruneAtPackages,
 	})
 	if err != nil {
 		fmt.Fprintf(stderr, "error: capability analysis failed: %v\n", err)
