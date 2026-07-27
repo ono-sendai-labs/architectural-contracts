@@ -13,3 +13,15 @@ go_component(
     ],
     visibility = ["//bazel_rules:__subpackages__"],
 )
+
+# The same roots in the opposite order must produce the same closure/provider
+# sequence and package layout bytes.
+go_component(
+    name = "member_component_reversed",
+    interface = "//bazel_rules/go/tests/testdata/api:api",
+    members = [
+        "//bazel_rules/go/tests/testdata/member",
+        "//bazel_rules/go/tests/testdata/memberdep",
+    ],
+    visibility = ["//bazel_rules:__subpackages__"],
+)

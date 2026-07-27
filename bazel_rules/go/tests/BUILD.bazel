@@ -60,3 +60,17 @@ sh_test(
         "//bazel_rules/go/tests/testdata/membercomponent:member_component",
     ],
 )
+
+sh_test(
+    name = "member_order_test",
+    srcs = ["member_order_test.sh"],
+    size = "small",
+    args = [
+        "$(rootpaths //bazel_rules/go/tests/testdata/membercomponent:member_component)",
+        "$(rootpaths //bazel_rules/go/tests/testdata/membercomponent:member_component_reversed)",
+    ],
+    data = [
+        "//bazel_rules/go/tests/testdata/membercomponent:member_component",
+        "//bazel_rules/go/tests/testdata/membercomponent:member_component_reversed",
+    ],
+)
