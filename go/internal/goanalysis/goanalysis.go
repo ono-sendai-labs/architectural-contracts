@@ -10,6 +10,7 @@ package goanalysis
 import (
 	"fmt"
 	"go/ast"
+	"go/build"
 	"go/token"
 	"go/types"
 	"os"
@@ -520,6 +521,14 @@ func ValidateInterfaceFiles(componentRoot string, interfaceFiles []string, loade
 	if packagelayout.IsLayoutMode() {
 		root = packagelayout.GetActiveWorkspaceDir()
 	}
+	bctx := build.Default
+	if packagelayout.IsLayoutMode() {
+		var err error
+		bctx, err = packagelayout.BuildContextForLayout(packagelayout.GetActiveLayout())
+		if err != nil {
+			return err
+		}
+	}
 
 	for _, f := range interfaceFiles {
 		if filepath.IsAbs(f) {
@@ -551,7 +560,7 @@ func ValidateInterfaceFiles(componentRoot string, interfaceFiles []string, loade
 			// file, as when wrapping a cross-platform library). It is not part
 			// of the surface analyzed on this platform, so skip it; only a file
 			// that should compile here yet is missing is an error.
-			if !packagelayout.FileMatchesBuildConstraints(absPath) {
+			if !packagelayout.FileMatchesBuildConstraintsWithContext(absPath, bctx) {
 				continue
 			}
 			return fmt.Errorf("interface file %q does not belong to any loaded Go package under component root", f)

@@ -1002,6 +1002,35 @@ func TestDiscoverStdlib_DropsCgoPseudoImport(t *testing.T) {
 	}
 }
 
+func TestDiscoverStdlibWithContextUsesDeclaredPlatform(t *testing.T) {
+	tmpDir := t.TempDir()
+	sdkSrc := filepath.Join(tmpDir, "src")
+	pkgDir := filepath.Join(sdkSrc, "platformpkg")
+	if err := os.MkdirAll(pkgDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for name := range map[string]string{
+		"platformpkg_windows.go": "package platformpkg\n",
+		"platformpkg_linux.go":   "package platformpkg\n",
+	} {
+		if err := os.WriteFile(filepath.Join(pkgDir, name), []byte("package platformpkg\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ctx := build.Default
+	ctx.GOROOT = filepath.Dir(sdkSrc)
+	ctx.GOOS = "windows"
+	ctx.GOARCH = "amd64"
+	pkgs, err := discoverStdlibWithContext(sdkSrc, ctx)
+	if err != nil {
+		t.Fatalf("discoverStdlibWithContext() error = %v", err)
+	}
+	platformPkg := packageByID(pkgs, "platformpkg")
+	if platformPkg == nil || !reflect.DeepEqual(platformPkg.GoFiles, []string{"platformpkg_windows.go"}) {
+		t.Fatalf("platformpkg GoFiles = %#v, want only windows source", platformPkg)
+	}
+}
+
 func TestDiscoverStdlib_RealSDK(t *testing.T) {
 	sdkSrc := filepath.Join(build.Default.GOROOT, "src")
 	info, err := os.Stat(sdkSrc)
@@ -1988,4 +2017,182 @@ func TestFileMatchesBuildConstraints(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestBuildContextForLayout(t *testing.T) {
+	t.Run("absent platform copies defaults", func(t *testing.T) {
+		got, err := BuildContextForLayout(&Layout{})
+		if err != nil {
+			t.Fatalf("BuildContextForLayout() error = %v", err)
+		}
+		if got.GOOS != build.Default.GOOS || got.GOARCH != build.Default.GOARCH || got.CgoEnabled != build.Default.CgoEnabled {
+			t.Fatalf("default context = %#v, want GOOS=%q GOARCH=%q CgoEnabled=%v", got, build.Default.GOOS, build.Default.GOARCH, build.Default.CgoEnabled)
+		}
+		got.BuildTags = append(got.BuildTags, "mutated")
+		if slicesEqual(got.BuildTags, build.Default.BuildTags) {
+			t.Fatal("derived BuildTags shares build.Default backing storage")
+		}
+	})
+
+	t.Run("declared values override defaults", func(t *testing.T) {
+		layout := &Layout{Platform: &Platform{
+			GOOS:       "windows",
+			GOARCH:     "386",
+			BuildTags:  []string{"purego"},
+			CgoEnabled: true,
+		}}
+		got, err := BuildContextForLayout(layout)
+		if err != nil {
+			t.Fatalf("BuildContextForLayout() error = %v", err)
+		}
+		if got.GOOS != "windows" || got.GOARCH != "386" || !got.CgoEnabled || !slicesEqual(got.BuildTags, []string{"purego"}) {
+			t.Fatalf("declared context = %#v", got)
+		}
+		if got.GOROOT != build.Default.GOROOT || got.Compiler != build.Default.Compiler {
+			t.Fatalf("declared context discarded default toolchain fields: %#v", got)
+		}
+	})
+
+	for _, tc := range []struct {
+		name     string
+		platform Platform
+		want     string
+	}{
+		{name: "empty goos", platform: Platform{GOARCH: "amd64"}, want: `platform.goos has invalid value ""`},
+		{name: "unsupported goos", platform: Platform{GOOS: "unknown", GOARCH: "amd64"}, want: `platform.goos has invalid value "unknown"`},
+		{name: "empty goarch", platform: Platform{GOOS: "linux"}, want: `platform.goarch has invalid value ""`},
+		{name: "unsupported goarch", platform: Platform{GOOS: "linux", GOARCH: "unknown"}, want: `platform.goarch has invalid value "unknown"`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := BuildContextForLayout(&Layout{Platform: &tc.platform})
+			if err == nil || err.Error() != tc.want {
+				t.Fatalf("BuildContextForLayout() error = %v, want %q", err, tc.want)
+			}
+		})
+	}
+}
+
+func TestPlatformConstraintsUseDeclaredContext(t *testing.T) {
+	dir := t.TempDir()
+	write := func(name, content string) string {
+		path := filepath.Join(dir, name)
+		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return path
+	}
+
+	tests := []struct {
+		name     string
+		platform Platform
+		file     string
+		want     bool
+	}{
+		{name: "custom tag", platform: Platform{GOOS: "linux", GOARCH: "amd64", BuildTags: []string{"purego"}}, file: write("purego.go", "//go:build purego\n\npackage p\n"), want: true},
+		{name: "custom tag absent", platform: Platform{GOOS: "linux", GOARCH: "amd64"}, file: filepath.Join(dir, "purego.go"), want: false},
+		{name: "declared target", platform: Platform{GOOS: "windows", GOARCH: "amd64"}, file: write("only_windows.go", "package p\n"), want: true},
+		{name: "declared target rejects host variant", platform: Platform{GOOS: "windows", GOARCH: "amd64"}, file: write("only_linux.go", "package p\n"), want: false},
+		{name: "cgo enabled", platform: Platform{GOOS: "linux", GOARCH: "amd64", CgoEnabled: true}, file: write("cgo.go", "//go:build cgo\n\npackage p\n"), want: true},
+		{name: "cgo disabled", platform: Platform{GOOS: "linux", GOARCH: "amd64", CgoEnabled: false}, file: filepath.Join(dir, "cgo.go"), want: false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx, err := BuildContextForLayout(&Layout{Platform: &tc.platform})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := FileMatchesBuildConstraintsWithContext(tc.file, ctx); got != tc.want {
+				t.Errorf("FileMatchesBuildConstraintsWithContext() = %v, want %v", got, tc.want)
+			}
+			bulk := filterByBuildConstraintsWithContext([]string{tc.file}, ctx)
+			if (len(bulk) == 1) != tc.want {
+				t.Errorf("filterByBuildConstraintsWithContext() kept %v, want kept=%v", bulk, tc.want)
+			}
+		})
+	}
+}
+
+func TestValidateAndResolveRejectsConstraintEmptyPackage(t *testing.T) {
+	workspace := t.TempDir()
+	path := filepath.Join(workspace, "pkg", "only_windows.go")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("package pkg\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	layout := &Layout{
+		Platform: &Platform{GOOS: "linux", GOARCH: "amd64"},
+		Roots:    []string{"example.com/pkg"},
+		Packages: []*packages.Package{{
+			ID:              "example.com/pkg",
+			Name:            "pkg",
+			PkgPath:         "example.com/pkg",
+			GoFiles:         []string{"pkg/only_windows.go"},
+			CompiledGoFiles: []string{"pkg/only_windows.go"},
+			Imports:         map[string]*packages.Package{},
+		}},
+	}
+	if err := ValidateAndResolve(layout, workspace); err == nil || !strings.Contains(err.Error(), `example.com/pkg`) || !strings.Contains(err.Error(), "excluded every Go source") {
+		t.Fatalf("ValidateAndResolve() error = %v, want package-specific constraint-empty error", err)
+	}
+}
+
+func TestValidateAndResolveAllowsPreExistingBodilessNonRoot(t *testing.T) {
+	workspace := t.TempDir()
+	rootPath := filepath.Join(workspace, "root.go")
+	if err := os.WriteFile(rootPath, []byte("package root\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	layout := &Layout{
+		Platform: &Platform{GOOS: "linux", GOARCH: "amd64"},
+		Roots:    []string{"example.com/root"},
+		Packages: []*packages.Package{
+			{ID: "example.com/root", Name: "root", PkgPath: "example.com/root", GoFiles: []string{"root.go"}, CompiledGoFiles: []string{"root.go"}, Imports: map[string]*packages.Package{}},
+			{ID: "example.com/empty", Name: "empty", PkgPath: "example.com/empty", Imports: map[string]*packages.Package{}},
+		},
+	}
+	if err := ValidateAndResolve(layout, workspace); err != nil {
+		t.Fatalf("ValidateAndResolve() rejected pre-existing bodiless non-root: %v", err)
+	}
+}
+
+func TestPlatformJSONRoundTripIsDeterministic(t *testing.T) {
+	platform := &Platform{GOOS: "linux", GOARCH: "amd64", BuildTags: []string{"z", "a"}, CgoEnabled: false}
+	layout := &Layout{
+		GoSDKRoot: "/sdk/src",
+		Platform:  platform,
+		Roots:     []string{"z", "a"},
+		Packages: []*packages.Package{
+			{ID: "z", Name: "z", PkgPath: "z"},
+			{ID: "a", Name: "a", PkgPath: "a"},
+		},
+	}
+	originalRoots := append([]string(nil), layout.Roots...)
+	originalTags := append([]string(nil), platform.BuildTags...)
+	first, err := json.Marshal(layout)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := json.Marshal(layout)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(first, second) || !reflect.DeepEqual(layout.Roots, originalRoots) || !reflect.DeepEqual(platform.BuildTags, originalTags) {
+		t.Fatalf("marshal was not deterministic or mutated caller data: first=%s second=%s", first, second)
+	}
+	parsed, err := Parse(bytes.NewReader(first))
+	if err != nil || parsed.Platform == nil || !reflect.DeepEqual(parsed.Platform, platform) {
+		t.Fatalf("platform round trip = %#v, %v; want %#v", parsed.Platform, err, platform)
+	}
+	without := &Layout{Roots: []string{"a"}, Packages: []*packages.Package{{ID: "a", Name: "a", PkgPath: "a"}}}
+	data, err := json.Marshal(without)
+	if err != nil || strings.Contains(string(data), `"platform"`) {
+		t.Fatalf("absent platform serialization = %s, %v", data, err)
+	}
+}
+
+func slicesEqual(a, b []string) bool {
+	return reflect.DeepEqual(a, b)
 }

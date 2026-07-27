@@ -11,6 +11,10 @@ in-house rules exposing different providers) ports arcc by replacing just this
 file — the rules above it stay byte-identical.
 
 Upstream binds to rules_go (GoInfo / GoArchive / @rules_go//go:toolchain).
+
+The platform seam returns target settings when the host exposes them. A host
+whose Go providers expose no target-platform metadata may return a fixed
+constant instead; that is conforming behavior, not a degraded fallback.
 """
 
 load("@rules_go//go:def.bzl", "GoArchive", "GoInfo")
@@ -40,6 +44,26 @@ def is_go_target(target):
 def go_importpath(target):
     """The import path of a Go library target ("" for main/unimportable libraries)."""
     return target[GoInfo].importpath
+
+def go_build_platform(target):
+    """Returns GOOS/GOARCH/tags/cgo for the target being analyzed.
+
+    rules_go stores target settings in GoInfo.mode. GoSDK.goos and GoSDK.goarch
+    describe the execution host and must not be used here. rules_go's pure
+    setting means that cgo is unavailable, so cgo_enabled = not pure is an
+    approximation: it does not prove that a C compiler is available.
+
+    A conforming host whose Go providers expose no target-platform metadata may
+    return a fixed constant. The caller must treat that as the host contract,
+    not as a degraded best-effort result.
+    """
+    mode = target[GoInfo].mode
+    return struct(
+        goos = mode.goos,
+        goarch = mode.goarch,
+        tags = tuple(mode.tags),
+        cgo_enabled = not mode.pure,
+    )
 
 def go_library_srcs(target):
     """The compiled, build-constraint-filtered sources of a Go library target.

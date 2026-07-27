@@ -28,8 +28,27 @@ var osStat = os.Stat
 // Layout is the package layout schema representing a Bazel-produced package graph.
 type Layout struct {
 	GoSDKRoot string              `json:"go_sdk_root"`
+	Platform  *Platform           `json:"platform,omitempty"`
 	Roots     []string            `json:"roots"`
 	Packages  []*packages.Package `json:"packages"`
+}
+
+// Platform declares the target used when evaluating Go build constraints.
+//
+// When present, goos and goarch are required target values, build_tags are the
+// user-supplied build tags, and cgo_enabled controls the cgo build constraint.
+// When absent, validation uses a copy of build.Default for compatibility with
+// hand-written layouts. The remaining build.Context defaults, including GOROOT,
+// compiler, tool tags, and release tags, are retained in either case.
+type Platform struct {
+	// GOOS is the target operating system, such as linux or windows.
+	GOOS string `json:"goos"`
+	// GOARCH is the target architecture, such as amd64 or arm64.
+	GOARCH string `json:"goarch"`
+	// BuildTags are user-supplied build tags enabled for this target.
+	BuildTags []string `json:"build_tags"`
+	// CgoEnabled controls whether files guarded by the cgo tag are selected.
+	CgoEnabled bool `json:"cgo_enabled"`
 }
 
 // IsStdlib reports whether importPath is a standard-library package. It defers to
@@ -51,6 +70,49 @@ func discoverStdlib(sdkRoot string) ([]*packages.Package, error) {
 	bctx := build.Default
 	bctx.GOROOT = filepath.Dir(sdkRoot)
 	return discoverStdlibWithContext(sdkRoot, bctx)
+}
+
+var knownGOOS = map[string]bool{
+	"aix": true, "android": true, "darwin": true, "dragonfly": true,
+	"freebsd": true, "hurd": true, "illumos": true, "ios": true,
+	"js": true, "linux": true, "nacl": true, "netbsd": true,
+	"openbsd": true, "plan9": true, "solaris": true, "wasip1": true,
+	"windows": true, "zos": true,
+}
+
+var knownGOARCH = map[string]bool{
+	"386": true, "amd64": true, "amd64p32": true, "arm": true,
+	"armbe": true, "arm64": true, "arm64be": true, "loong64": true,
+	"mips": true, "mipsle": true, "mips64": true, "mips64le": true,
+	"mips64p32": true, "mips64p32le": true, "ppc": true, "ppc64": true,
+	"ppc64le": true, "riscv": true, "riscv64": true, "s390": true,
+	"s390x": true, "sparc": true, "sparc64": true, "wasm": true,
+}
+
+// BuildContextForLayout returns the build context declared by l. It always
+// starts with a copy of build.Default, so deriving a context never changes the
+// process-wide defaults or shares the layout's build-tags slice with them.
+func BuildContextForLayout(l *Layout) (build.Context, error) {
+	bctx := build.Default
+	bctx.BuildTags = append([]string(nil), build.Default.BuildTags...)
+	bctx.ToolTags = append([]string(nil), build.Default.ToolTags...)
+	bctx.ReleaseTags = append([]string(nil), build.Default.ReleaseTags...)
+	if l == nil || l.Platform == nil {
+		return bctx, nil
+	}
+
+	platform := l.Platform
+	if platform.GOOS == "" || !knownGOOS[platform.GOOS] {
+		return build.Context{}, fmt.Errorf("platform.goos has invalid value %q", platform.GOOS)
+	}
+	if platform.GOARCH == "" || !knownGOARCH[platform.GOARCH] {
+		return build.Context{}, fmt.Errorf("platform.goarch has invalid value %q", platform.GOARCH)
+	}
+	bctx.GOOS = platform.GOOS
+	bctx.GOARCH = platform.GOARCH
+	bctx.BuildTags = append([]string(nil), platform.BuildTags...)
+	bctx.CgoEnabled = platform.CgoEnabled
+	return bctx, nil
 }
 
 func discoverStdlibWithContext(sdkRoot string, bctx build.Context) ([]*packages.Package, error) {
@@ -242,10 +304,12 @@ func (l *Layout) MarshalJSON() ([]byte, error) {
 
 	return json.Marshal(&struct {
 		GoSDKRoot string              `json:"go_sdk_root"`
+		Platform  *Platform           `json:"platform,omitempty"`
 		Roots     []string            `json:"roots"`
 		Packages  []*packages.Package `json:"packages"`
 	}{
 		GoSDKRoot: l.GoSDKRoot,
+		Platform:  l.Platform,
 		Roots:     roots,
 		Packages:  pkgs,
 	})
@@ -254,6 +318,10 @@ func (l *Layout) MarshalJSON() ([]byte, error) {
 // ValidateAndResolve validates the layout's structural consistency and resolves
 // all workspace-relative and SDK-relative source paths, checking that each file exists.
 func ValidateAndResolve(l *Layout, workspaceDir string) error {
+	bctx, err := BuildContextForLayout(l)
+	if err != nil {
+		return err
+	}
 	for idx, p := range l.Packages {
 		if p == nil {
 			return fmt.Errorf("package entry at index %d is null", idx)
@@ -264,7 +332,9 @@ func ValidateAndResolve(l *Layout, workspaceDir string) error {
 
 	// First, discover and merge standard library packages if GoSDKRoot is set.
 	if l.GoSDKRoot != "" {
-		stdPkgs, err := discoverStdlib(l.GoSDKRoot)
+		stdlibContext := bctx
+		stdlibContext.GOROOT = filepath.Dir(l.GoSDKRoot)
+		stdPkgs, err := discoverStdlibWithContext(l.GoSDKRoot, stdlibContext)
 		if err != nil {
 			return fmt.Errorf("discovering standard library: %w", err)
 		}
@@ -364,8 +434,12 @@ func ValidateAndResolve(l *Layout, workspaceDir string) error {
 		if IsStdlib(p.PkgPath) {
 			continue
 		}
-		p.GoFiles = filterByBuildConstraints(p.GoFiles)
-		p.CompiledGoFiles = filterByBuildConstraints(p.CompiledGoFiles)
+		hadGoSources := hasGoSources(p.GoFiles) || hasGoSources(p.CompiledGoFiles)
+		p.GoFiles = filterByBuildConstraintsWithContext(p.GoFiles, bctx)
+		p.CompiledGoFiles = filterByBuildConstraintsWithContext(p.CompiledGoFiles, bctx)
+		if hadGoSources && !hasGoSources(p.GoFiles) && !hasGoSources(p.CompiledGoFiles) {
+			return fmt.Errorf("package %q has no Go sources after the declared platform excluded every Go source", p.PkgPath)
+		}
 	}
 
 	// Phase 2: Recover standard library imports for non-stdlib packages.
@@ -464,17 +538,21 @@ func ValidateAndResolve(l *Layout, workspaceDir string) error {
 // filterByBuildConstraints keeps only the .go sources compiled for the current
 // target platform, honoring filename suffixes (_windows.go, _amd64.go, ...) and
 // //go:build / // +build lines — the same rules the go tool applies when reading
-// a package directory. build.Default reflects the GOOS/GOARCH of the running arcc
-// binary, which the build system compiled for the target platform.
+// a package directory. The context reflects the declared target platform
+// rather than the platform for which the arcc binary was compiled.
 //
 // Filtering is a safety net, not a gate: a file whose constraints cannot be
 // evaluated (e.g. it is not present on disk, as when a unit test mocks file
 // existence) is kept rather than dropped, so this never removes a file it failed
 // to read. Non-.go entries are passed through unchanged.
 func filterByBuildConstraints(files []string) []string {
+	return filterByBuildConstraintsWithContext(files, build.Default)
+}
+
+func filterByBuildConstraintsWithContext(files []string, bctx build.Context) []string {
 	kept := make([]string, 0, len(files))
 	for _, f := range files {
-		if FileMatchesBuildConstraints(f) {
+		if FileMatchesBuildConstraintsWithContext(f, bctx) {
 			kept = append(kept, f)
 		}
 	}
@@ -488,14 +566,30 @@ func filterByBuildConstraints(files []string) []string {
 // constraints cannot be evaluated (e.g. unreadable), are reported as matching,
 // so this never reports a file as excluded merely because it failed to read it.
 func FileMatchesBuildConstraints(path string) bool {
+	return FileMatchesBuildConstraintsWithContext(path, build.Default)
+}
+
+// FileMatchesBuildConstraintsWithContext is FileMatchesBuildConstraints for an
+// explicit analysis context. Non-Go paths, and files whose constraints cannot
+// be evaluated because they cannot be read, are reported as matching.
+func FileMatchesBuildConstraintsWithContext(path string, bctx build.Context) bool {
 	if !strings.HasSuffix(path, ".go") {
 		return true
 	}
-	match, err := build.Default.MatchFile(filepath.Dir(path), filepath.Base(path))
+	match, err := bctx.MatchFile(filepath.Dir(path), filepath.Base(path))
 	if err != nil {
 		return true
 	}
 	return match
+}
+
+func hasGoSources(files []string) bool {
+	for _, file := range files {
+		if strings.HasSuffix(file, ".go") {
+			return true
+		}
+	}
+	return false
 }
 
 func resolveAndCheckFiles(p *packages.Package, files []string, sdkRoot, workspaceDir string) ([]string, error) {
