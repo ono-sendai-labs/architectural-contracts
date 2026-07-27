@@ -799,8 +799,8 @@ func TestLoadPackageFacts_FuncValueEscapes_LayoutMode(t *testing.T) {
 				"id": "github.com/ono-sendai-labs/architectural-contracts/go/internal/goanalysis/testdata/escapes/member",
 				"name": "member",
 				"pkgPath": "github.com/ono-sendai-labs/architectural-contracts/go/internal/goanalysis/testdata/escapes/member",
-				"goFiles": ["member/member.go"],
-				"compiledGoFiles": ["member/member.go"],
+				"goFiles": ["escapes/member/member.go"],
+				"compiledGoFiles": ["escapes/member/member.go"],
 				"imports": {
 					"fmt": "fmt",
 					"github.com/ono-sendai-labs/architectural-contracts/go/internal/goanalysis/testdata/escapes/absorbed": "github.com/ono-sendai-labs/architectural-contracts/go/internal/goanalysis/testdata/escapes/absorbed",
@@ -812,8 +812,8 @@ func TestLoadPackageFacts_FuncValueEscapes_LayoutMode(t *testing.T) {
 				"id": "github.com/ono-sendai-labs/architectural-contracts/go/internal/goanalysis/testdata/escapes/absorbed",
 				"name": "absorbed",
 				"pkgPath": "github.com/ono-sendai-labs/architectural-contracts/go/internal/goanalysis/testdata/escapes/absorbed",
-				"goFiles": ["absorbed/absorbed.go"],
-				"compiledGoFiles": ["absorbed/absorbed.go"],
+				"goFiles": ["escapes/absorbed/absorbed.go"],
+				"compiledGoFiles": ["escapes/absorbed/absorbed.go"],
 				"imports": {},
 				"is_stdlib": false
 			},
@@ -821,8 +821,8 @@ func TestLoadPackageFacts_FuncValueEscapes_LayoutMode(t *testing.T) {
 				"id": "github.com/ono-sendai-labs/architectural-contracts/go/internal/goanalysis/testdata/escapes/otherpkg",
 				"name": "otherpkg",
 				"pkgPath": "github.com/ono-sendai-labs/architectural-contracts/go/internal/goanalysis/testdata/escapes/otherpkg",
-				"goFiles": ["otherpkg/otherpkg.go"],
-				"compiledGoFiles": ["otherpkg/otherpkg.go"],
+				"goFiles": ["escapes/otherpkg/otherpkg.go"],
+				"compiledGoFiles": ["escapes/otherpkg/otherpkg.go"],
 				"imports": {},
 				"is_stdlib": false
 			}
@@ -834,7 +834,7 @@ func TestLoadPackageFacts_FuncValueEscapes_LayoutMode(t *testing.T) {
 	}
 
 	var res facts.PackageFacts
-	err = packagelayout.WithDriverEnv(layoutPath, root, func() error {
+	err = packagelayout.WithDriverEnv(layoutPath, filepath.Dir(root), func() error {
 		var err error
 		res, err = goanalysis.LoadPackageFacts(goanalysis.LoadRequest{
 			ComponentRoot: root,
@@ -862,11 +862,11 @@ func TestLoadPackageFacts_FuncValueEscapes_LayoutMode(t *testing.T) {
 	wantSymbol2 := "github.com/ono-sendai-labs/architectural-contracts/go/internal/goanalysis/testdata/escapes/absorbed.Save"
 	wantPkg := "github.com/ono-sendai-labs/architectural-contracts/go/internal/goanalysis/testdata/escapes/member"
 
-	if esc1.Symbol != wantSymbol1 || esc1.Package != wantPkg || esc1.File != "member/member.go" {
-		t.Errorf("layout escape 1 mismatch: got %+v, want symbol %q, pkg %q, file \"member/member.go\"", esc1, wantSymbol1, wantPkg)
+	if esc1.Symbol != wantSymbol1 || esc1.Package != wantPkg || esc1.File != "escapes/member/member.go" {
+		t.Errorf("layout escape 1 mismatch: got %+v, want symbol %q, pkg %q, file \"escapes/member/member.go\"", esc1, wantSymbol1, wantPkg)
 	}
 
-	if esc2.Symbol != wantSymbol2 || esc2.Package != wantPkg || esc2.File != "member/member.go" {
-		t.Errorf("layout escape 2 mismatch: got %+v, want symbol %q, pkg %q, file \"member/member.go\"", esc2, wantSymbol2, wantPkg)
+	if esc2.Symbol != wantSymbol2 || esc2.Package != wantPkg || esc2.File != "escapes/member/member.go" {
+		t.Errorf("layout escape 2 mismatch: got %+v, want symbol %q, pkg %q, file \"escapes/member/member.go\"", esc2, wantSymbol2, wantPkg)
 	}
 }
