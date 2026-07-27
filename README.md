@@ -216,7 +216,7 @@ cd go
 
 For all three commands, you will see a conforming output and an exit code of `0`:
 ```
-Component "<name>" conforms / ambient-authority-free
+Component "<name>" conforms; does not exceed declared authority
 ```
 
 ### Reproducing a Conformance Violation

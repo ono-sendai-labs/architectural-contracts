@@ -192,7 +192,7 @@ interface_files: "api.go"
 	}
 
 	got := stdout.String()
-	want := `Component "test-comp" conforms / ambient-authority-free`
+	want := `Component "test-comp" conforms; does not exceed declared authority`
 	if !strings.Contains(got, want) {
 		t.Errorf("stdout = %q, want to contain %q", got, want)
 	}

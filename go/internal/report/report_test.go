@@ -37,7 +37,7 @@ func TestRenderText_Conforms(t *testing.T) {
 	}
 
 	got := report.RenderText(rep)
-	want := `Component "test-comp" conforms / ambient-authority-free
+	want := `Component "test-comp" conforms; does not exceed declared authority
 `
 
 	if got != want {

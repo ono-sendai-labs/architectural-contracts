@@ -448,7 +448,7 @@ func Hello() string {
 		t.Errorf("expected empty stderr, got %q", stderr)
 	}
 
-	want := `Component "puremember" conforms / ambient-authority-free`
+	want := `Component "puremember" conforms; does not exceed declared authority`
 	if !strings.Contains(stdout, want) {
 		t.Errorf("stdout = %q, want it to contain %q", stdout, want)
 	}
@@ -1092,7 +1092,7 @@ func Hello() {
 		t.Errorf("expected empty stderr, got %q", stderr)
 	}
 
-	want := `Component "primary" conforms / ambient-authority-free`
+	want := `Component "primary" conforms; does not exceed declared authority`
 	if !strings.Contains(stdout, want) {
 		t.Errorf("stdout = %q, want it to contain %q", stdout, want)
 	}

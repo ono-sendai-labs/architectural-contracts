@@ -156,7 +156,7 @@ func TestIntegration_Toprow_Success(t *testing.T) {
 		t.Errorf("expected empty stderr, got %q", stderr)
 	}
 
-	want := `Component "toprow" conforms / ambient-authority-free`
+	want := `Component "toprow" conforms; does not exceed declared authority`
 	if !strings.Contains(stdout, want) {
 		t.Errorf("stdout = %q, want it to contain %q", stdout, want)
 	}
@@ -172,7 +172,7 @@ func TestIntegration_Csvfile_Success(t *testing.T) {
 		t.Errorf("expected empty stderr, got %q", stderr)
 	}
 
-	want := `Component "csvfile" conforms / ambient-authority-free`
+	want := `Component "csvfile" conforms; does not exceed declared authority`
 	if !strings.Contains(stdout, want) {
 		t.Errorf("stdout = %q, want it to contain %q", stdout, want)
 	}
@@ -526,7 +526,7 @@ component_dependencies {
 	if stderrCD != "" {
 		t.Errorf("expected empty stderr for component-dependency variant, got %q", stderrCD)
 	}
-	if !strings.Contains(stdoutCD, `Component "caller-cd" conforms / ambient-authority-free`) {
+	if !strings.Contains(stdoutCD, `Component "caller-cd" conforms; does not exceed declared authority`) {
 		t.Errorf("expected stdout to confirm conformance, got: %s", stdoutCD)
 	}
 
@@ -722,7 +722,7 @@ component_dependencies {
 	if stderrCD != "" {
 		t.Errorf("expected empty stderr for component-dependency variant, got %q", stderrCD)
 	}
-	if !strings.Contains(stdoutCD, `Component "caller-init-cd" conforms / ambient-authority-free`) {
+	if !strings.Contains(stdoutCD, `Component "caller-init-cd" conforms; does not exceed declared authority`) {
 		t.Errorf("expected stdout to confirm conformance, got: %s", stdoutCD)
 	}
 
@@ -770,7 +770,7 @@ func TestIntegration_App_Success(t *testing.T) {
 		t.Errorf("expected empty stderr, got %q", stderr)
 	}
 
-	want := `Component "app" conforms / ambient-authority-free`
+	want := `Component "app" conforms; does not exceed declared authority`
 	if !strings.Contains(stdout, want) {
 		t.Errorf("stdout = %q, want it to contain %q", stdout, want)
 	}

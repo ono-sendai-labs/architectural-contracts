@@ -1442,7 +1442,7 @@ func TestCheck_FR6_FeatureCompleteCompositeReport(t *testing.T) {
 		t.Errorf("expected clean report, got violations=%d, warnings=%d", len(repClean.Violations), len(repClean.Warnings))
 	}
 	renderedClean := report.RenderText(repClean)
-	expectedClean := "Component \"mycomponent\" conforms / ambient-authority-free\n"
+	expectedClean := "Component \"mycomponent\" conforms; does not exceed declared authority\n"
 	if renderedClean != expectedClean {
 		t.Errorf("clean report output mismatch.\nexpected:\n%q\ngot:\n%q", expectedClean, renderedClean)
 	}

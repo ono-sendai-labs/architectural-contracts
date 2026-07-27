@@ -66,7 +66,7 @@ func RenderText(r ConformanceReport) string {
 func (r ConformanceReport) RenderText() string {
 	var sb strings.Builder
 	if len(r.Violations) == 0 && len(r.Warnings) == 0 {
-		sb.WriteString(fmt.Sprintf("Component %q conforms / ambient-authority-free\n", r.Component))
+		sb.WriteString(fmt.Sprintf("Component %q conforms; does not exceed declared authority\n", r.Component))
 		return sb.String()
 	}
 
