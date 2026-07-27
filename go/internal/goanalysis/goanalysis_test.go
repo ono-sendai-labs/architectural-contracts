@@ -987,6 +987,8 @@ import _ "example.com/bodiless_other"
 		t.Errorf("repeat load BodilessAbsorbedPackages = %#v, want %#v", resRepeat.BodilessAbsorbedPackages, res.BodilessAbsorbedPackages)
 	}
 
+	// End-to-end test for AC3 and reviewer findings: an unmatched absorbed declaration
+	// produces UNUSED_DEPENDENCY warning and no ANALYSIS_LIMITATION warning.
 	// AC3: Unmatched absorbed declaration yields UNUSED_DEPENDENCY and no ANALYSIS_LIMITATION.
 	unmatchedDir := filepath.Join(tmpDir, "unmatched")
 	unmatchedDepDir := filepath.Join(tmpDir, "unmatched_dep")
