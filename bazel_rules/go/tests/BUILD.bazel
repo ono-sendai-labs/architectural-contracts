@@ -30,6 +30,8 @@ arcc_check_grep_test(
 
 # End-to-end regression hazard: uncorrected component with four member packages
 # reaching three utility packages reports UNDECLARED_DEPENDENCY for all three.
+# This negative test asserts that the unclassified remainder packages (util1-util3)
+# are successfully reported as UNDECLARED_DEPENDENCY, preventing silent ownership.
 arcc_check_grep_test(
     name = "regression_hazard_failing_test",
     component = "//bazel_rules/go/tests/testdata/hazard:failing_hazard_component",
