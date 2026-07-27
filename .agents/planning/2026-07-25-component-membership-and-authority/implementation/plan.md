@@ -220,9 +220,17 @@ can fall into, and clear the residue the port left behind.
 **Guidance.**
 - **Standard-library classification takes its verdict from provenance (T4).** Three
   cases, and they are not symmetric:
-  - **Native mode:** module metadata ANDed with `hostpolicy.IsStdlibPath`, with
-    `isStdlibPackage`'s `p.Module == nil ⇒ true` branch flipped so a driver-loaded
-    dependency with no module is no longer classified stdlib and silently skipped.
+  - **Native mode:** three ordered cases. An **SDK (`GOROOT`) package is stdlib
+    structurally**, mirroring `discoverStdlib` in layout mode — `packages.Package`
+    has no `Goroot` field, so determine it loader-side via `go/build`'s
+    `Context.Import(..., build.FindOnly)` or `go list -json`. Otherwise a package
+    with `p.Module == nil` is **not** stdlib, which is what stops a driver-loaded
+    dependency being silently skipped. Otherwise module metadata ANDed with
+    `hostpolicy.IsStdlibPath`. **Do not** flip the nil-`Module` branch and then AND
+    uniformly: `go/packages` reports `Module == nil` for *every* stdlib package, so
+    that yields `false && true` for `fmt` and drowns the self-check in
+    `UNDECLARED_DEPENDENCY` — the native twin of the Q18a layout trap below, and
+    the reason Step 5 task 01 escalated on its first attempt.
   - **Layout mode:** the verdict comes from the layout's per-package `is_stdlib`
     bit, ANDed with the path policy; SDK-discovered packages (from
     `discoverStdlib`) are stdlib structurally and need no bit. **Do not** simply

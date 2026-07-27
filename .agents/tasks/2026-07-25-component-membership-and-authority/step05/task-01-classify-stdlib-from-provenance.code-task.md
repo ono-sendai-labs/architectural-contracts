@@ -24,7 +24,12 @@ The layout `is_stdlib` bit is not a second heuristic. It records whether the pac
 3. In layout validation, compare each emitter-listed package's declared provenance bit with `hostpolicy.IsStdlibPath(packagePath)`. Return a load error on disagreement that names the package path, the declared provenance verdict, and the path-policy verdict.
 4. Use the validated layout provenance verdict throughout layout-mode loading and fact production. Do not infer layout standard-library status from `packages.Module`, because layout packages have no useful module metadata.
 5. Preserve `os`, `fmt`, and other SDK-discovered packages as standard library in layout mode even though they carry no emitted bit. Avoid a uniform nil-module rule that would either misclassify all layout packages or drown member packages in `UNDECLARED_DEPENDENCY`.
-6. In native mode, make `isStdlibPackage` return false when `p.Module == nil`. Classify a package as standard library only when module provenance says standard library and `hostpolicy.IsStdlibPath` agrees.
+6. In native mode, classify in three ordered cases:
+   a. A package belonging to the Go SDK (`GOROOT`) is standard library **structurally**, mirroring `discoverStdlib` in layout mode. `packages.Package` exposes no `Goroot` field, so determine SDK membership loader-side — `go/build`'s `Context.Import(path, "", build.FindOnly)` exposes `Goroot`, and `go list -json`'s `Standard`/`Goroot` is equivalent. Either is conforming; prefer the one that does not add a subprocess pass to every native load.
+   b. Otherwise, a package with `p.Module == nil` is **not** standard library. This is the case the nil-`Module` fix exists for: a driver-loaded or rewritten dependency with no provenance must not be classified stdlib and silently skipped.
+   c. Otherwise, standard library only when module provenance says standard library **and** `hostpolicy.IsStdlibPath` agrees.
+
+   Do **not** flip the nil-`Module` branch and then AND uniformly. `go/packages` reports `Module == nil` for *every* standard-library package — verified on Go 1.26.4, where `go list -json fmt` gives `Standard: true`, `Goroot: true` and no `Module` — so that rule evaluates to `false && true` for `fmt` and makes `fmt`, `path`, `sort` and `strings` report `UNDECLARED_DEPENDENCY`, which the self-check cannot survive. Case (a) is what keeps provenance authoritative without demoting `hostpolicy.IsStdlibPath` to the sole native signal.
 7. Preserve a safe path-policy fallback only for absent package references where no package provenance can be consulted; do not use it to override contradictory provenance.
 8. Ensure a simulated rewriting-host dependency that lacks module metadata is retained as a non-stdlib dependency and can reach the existing `UNDECLARED_DEPENDENCY` check instead of being skipped.
 9. Restrict the phase-3 `vendor/<import>` resolution relaxation in `packagelayout.ValidateAndResolve` to targets whose validated provenance says standard library. A non-stdlib vendored package must not resolve through this special case.
@@ -51,10 +56,16 @@ The layout `is_stdlib` bit is not a second heuristic. It records whether the pac
    - When package facts and conformance findings are produced
    - Then the dependency is classified non-stdlib and can produce `UNDECLARED_DEPENDENCY`.
 
-2. **Native classification requires both signals**
-   - Given packages with standard-library module provenance, ordinary module provenance, missing module provenance, and host path-policy verdicts
+2. **Native classification is provenance-first, in three ordered cases**
+   - Given an SDK (`GOROOT`) package such as `fmt`, a non-SDK package with `Module == nil`, a package with ordinary module provenance, and a package with standard-library module provenance, each paired with host path-policy verdicts
    - When the native classifier runs
-   - Then only standard-library module provenance paired with a true path-policy verdict is standard library.
+   - Then the SDK package is standard library structurally regardless of its module metadata being nil; the non-SDK nil-module package is not standard library; and for the remainder, standard library requires module provenance and a true path-policy verdict to agree.
+
+2a. **The self-check survives native classification**
+   - Given arcc's own components and the csvtool examples, which import `fmt`, `os`, `path`, `sort` and `strings`
+   - When `just selfcheck` and the CLI integration suites run under the new native classifier
+   - Then those SDK imports remain standard library and produce no `UNDECLARED_DEPENDENCY`, and the existing success expectations are unchanged.
+   - This criterion exists because the previous wording of requirement 6 failed exactly here; a change that satisfies requirement 6 but not this criterion is wrong.
 
 3. **Layout classification comes from declared provenance**
    - Given an emitter-listed layout package whose `is_stdlib` bit and path policy agree

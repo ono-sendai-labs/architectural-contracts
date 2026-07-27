@@ -84,7 +84,7 @@ settled it.
 | **T1** | The layout declares the analysis platform (GOOS, GOARCH, build tags, cgo); the loader builds a `build.Context` from it instead of using `build.Default`. | Q6a |
 | **T2** | Extraction of the platform from the host's Go rules lives in the adapter seam. The seam returns the target platform, **or a fixed constant where the host's rules expose no platform metadata** — the constant is a conforming implementation, not a degradation. | Q6a, Q18 |
 | **T3** | Build-constraint-excluded interface files are reported as warnings naming file and constraint; an interface with no surviving files is an error. | Q6b |
-| **T4** | Standard-library classification takes its verdict from **provenance**, validated against the host path policy. SDK-discovered packages are standard library structurally. Emitter-listed packages carry a declared `is_stdlib` bit; disagreement with `hostpolicy.IsStdlibPath` is a load error naming the path and both verdicts. Native mode keeps module metadata, ANDed with the path policy, including the nil-`Module` fix. | Q7a, Q18 |
+| **T4** | Standard-library classification takes its verdict from **provenance**, validated against the host path policy. SDK-discovered packages are standard library structurally, in **both** modes. Emitter-listed packages carry a declared `is_stdlib` bit; disagreement with `hostpolicy.IsStdlibPath` is a load error naming the path and both verdicts. Native mode classifies an SDK package structurally, treats a non-SDK package with no module as non-stdlib, and ANDs module metadata with the path policy for the rest. | Q7a, Q18 |
 | **T4a** | The declared bit must be derived from **build-graph provenance** — SDK/toolchain versus enumerated target — and **not** by re-evaluating a path heuristic in the emitter. Stated in the layout schema next to the field, because the cheap wrong implementation is the obvious one. | Q18 |
 | **T5** | `hostpolicy.CanonicalizePath` must be identity on loader-reported paths; this is stated in the contract and asserted at load time, failing closed. | Q7b |
 | **T6** | Four smaller fixes: `canonicalizeSymbol` occurrence handling; `vendor/` relaxation restricted to stdlib; facts stdlib representation cleaned up; `ResolveDependencyInterface` local facts canonicalized. | Q7c |
@@ -340,11 +340,34 @@ manifest-validation relaxation in §4.2.
   reaches from member code. Emits `facts.FuncValueEscape{Symbol, Package, File,
   Line}` (A5). Mechanics and caveats in
   `../research/capability-analysis-mechanics.md` §3.
-- Stdlib classification per T4. In **native** mode: module metadata ANDed with
-  `hostpolicy.IsStdlibPath`, with `isStdlibPackage`'s `p.Module == nil ⇒ true`
-  branch flipped so a driver-loaded dependency with no module is not silently
-  skipped. In **layout** mode the verdict comes from the layout (§4.4), not from
+- Stdlib classification per T4. In **native** mode the verdict is taken in three
+  ordered cases:
+
+  1. **SDK provenance is structural.** A package belonging to the Go SDK
+     (`GOROOT`) is standard library, exactly as `discoverStdlib` makes SDK
+     packages structurally stdlib in layout mode. `packages.Package` carries no
+     `Goroot` field, so this is determined loader-side — `go/build`'s
+     `Context.Import(path, "", build.FindOnly)` exposes `Goroot`, and `go list
+     -json`'s `Standard`/`Goroot` is the equivalent. Either is conforming.
+  2. **No module and not SDK ⇒ not standard library.** This is the case the
+     nil-`Module` fix exists for: a driver-loaded or rewritten dependency with no
+     provenance is no longer classified stdlib and silently skipped.
+  3. **Otherwise**, module metadata ANDed with `hostpolicy.IsStdlibPath`.
+
+  In **layout** mode the verdict comes from the layout (§4.4), not from
   `stdlibClassifier`'s current path-policy-only branch.
+
+  **Case 1 is load-bearing and was missing from the first two framings of T4.**
+  `go/packages` reports `Module == nil` for *every* standard-library package, not
+  only for driver-loaded ones — verified on Go 1.26.4, where `go list -json fmt`
+  gives `Standard: true`, `Goroot: true` and no `Module`. So "flip the nil-`Module`
+  branch to false, then AND with the path policy" evaluates to `false && true` for
+  `fmt`, collapsing native stdlib classification entirely: `fmt`, `path`, `sort`
+  and `strings` become `UNDECLARED_DEPENDENCY` and the self-check cannot pass.
+  That is the native twin of the layout-mode trap recorded as Q18a, and it was
+  caught only when an implementer hit it (Step 5, task 01). Structural SDK
+  provenance is what restores correctness **without** demoting the path policy to
+  the authoritative signal.
 
   Worth stating plainly, because the first framing of T4 got it wrong: **the two
   signals are not peers.** Provenance is authoritative; the path policy is a
@@ -862,7 +885,8 @@ Full notes in `../research/`.
 | **Ship `arcc_subpackages()` over the skylib frontier anyway** | It would be named for a subtree and deliver a frontier. Authors would read `members = arcc_subpackages()` as "everything below here" and be wrong the moment a nested BUILD file appears. Better to have no helper than a misleading one; skylib is one load statement away for anyone who wants the frontier knowingly. |
 | **An aggregate target per intermediate package** (`arcc_members(srcs = [":impl"] + subpackages.all())`, parent lists `//pkg/impl:members`) | Genuinely complete — recursion works because each package expands its own frontier — and it keeps the *component's* BUILD file stable, which is the goal in C.4. Rejected for now because it needs a BUILD edit in every subpackage, defeating the wrap-a-library-you-do-not-own case, and because no use has yet demanded it (Q16). The most likely eventual answer to C.4. |
 | **One enum with three values** (`DECLARED` / `PACKAGE_SURFACE` / `INFRA`) | Conflates the component's interface style with how its dependency edge was created, and forbids an injected component that declares real interface files. Two orthogonal fields cost one more field and mean one thing each (Q17). |
-| **T4 as "AND where module metadata exists"** | Restores correctness after the nil-`Module` flip, but leaves layout mode single-signal — the actual weakness, since a host path policy that gets one path wrong has nothing checking it. A provenance-derived layout bit gives two real signals in both modes (Q18). |
+| **T4 as "AND where module metadata exists"** | Restores correctness after the nil-`Module` flip, but leaves layout mode single-signal — the actual weakness, since a host path policy that gets one path wrong has nothing checking it. A provenance-derived layout bit gives two real signals in both modes (Q18). Still rejected — but note this row understated the problem: the flip does not merely need correctness "restored" in some optional sense, it breaks native stdlib classification outright, because `Module` is nil for all SDK packages. §4.6 case 1 (structural SDK provenance) is what actually resolves it, and it keeps two real signals in native mode too. |
+| **T4 native as "nil `Module` ⇒ defer to `hostpolicy.IsStdlibPath`"** | The cheapest repair of the native defect — one line, no loader-side SDK lookup — and it keeps the self-check green. Rejected because it makes the path heuristic the *sole* native signal for every SDK package, which is precisely the single-signal weakness this requirement exists to remove, and it contradicts "provenance is authoritative; the path policy is a heuristic, not a peer" one paragraph above it (Step 5 escalation). |
 | **`UNCERTIFIED_PRUNE` as a per-component warning** | Fires with a 100% hit rate wherever a runtime is injected everywhere, so it gets suppressed wholesale and takes the interesting instances with it. It also blames the wrong subject: the depending component did nothing wrong. A dependency-listing annotation plus deferred repo-wide enforcement puts the signal where it can be acted on once (Q18). |
 | **Reporting bodiless absorbed packages as `UNANALYZED` authority** | The word is right but the constant is taken: `UNANALYZED` is a Capslock capability the adapter deliberately excludes, because keeping it visible turns functions like `io.ReadAll` into capability leaves and masks the real flow behind them. `ANALYSIS_LIMITATION` already means what A9 needs (Q18). |
 | **Keeping `interface` under `PACKAGE_SURFACE` as a pure plumbing handle** | Defers the n-target work a host needs anyway for M9 while making one attribute mean two different things. The plumbing generalization is required by members-the-interface-does-not-import regardless of style (Q18). |
