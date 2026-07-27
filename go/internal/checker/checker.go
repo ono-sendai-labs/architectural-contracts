@@ -51,20 +51,14 @@ func Check(in Inputs) report.ConformanceReport {
 	// needed for type checking, so only the resulting set is swept as owned code.
 	compPkgs := buildMembership(in.Manifest, in.Facts.Packages)
 
-	// 1b. Standard-library imports are skipped. Prefer the loader-provided fact
-	// (StdlibImports), which is authoritative because the shell has module/SDK
-	// metadata the pure checker lacks. Fall back to the string heuristic only when
-	// facts don't carry the set (nil), e.g. hand-built facts in unit tests.
-	useStdlibFact := in.Facts.StdlibImports != nil
+	// 1b. Standard-library imports are skipped using only the loader-provided
+	// authoritative fact. Nil and empty slices both represent an empty set.
 	stdlibSet := make(map[string]bool, len(in.Facts.StdlibImports))
 	for _, imp := range in.Facts.StdlibImports {
 		stdlibSet[imp] = true
 	}
 	isStdlibImport := func(imp string) bool {
-		if useStdlibFact {
-			return stdlibSet[imp]
-		}
-		return isStdlib(imp)
+		return stdlibSet[imp]
 	}
 
 	// 2. Build allowed component dependency packages map (points to dependency name)
@@ -324,21 +318,6 @@ func Check(in Inputs) report.ConformanceReport {
 		Violations: violations,
 		Warnings:   warnings,
 	}
-}
-
-// isStdlib checks if a given import path is in the standard library.
-// Pure string-based detection based on the convention that standard library
-// import paths (except for pseudo-package "C") never contain a dot in their
-// first path component.
-func isStdlib(importPath string) bool {
-	if importPath == "C" {
-		return true
-	}
-	first := importPath
-	if idx := strings.Index(importPath, "/"); idx != -1 {
-		first = importPath[:idx]
-	}
-	return !strings.Contains(first, ".")
 }
 
 // buildMembership returns the package paths owned by a component. An empty

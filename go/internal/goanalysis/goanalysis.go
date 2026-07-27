@@ -180,7 +180,6 @@ func LoadPackageFacts(req LoadRequest) (facts.PackageFacts, error) {
 
 		factsPkgs = append(factsPkgs, facts.PackageFact{
 			ImportPath:      hostpolicy.CanonicalizePath(p.PkgPath),
-			IsStdlib:        isStdlib(p.PkgPath, p),
 			Imports:         imports,
 			ExportedSymbols: exportedSymbols,
 		})
@@ -193,11 +192,7 @@ func LoadPackageFacts(req LoadRequest) (facts.PackageFacts, error) {
 
 	// StdlibImports is the loader-authoritative set of standard-library imports,
 	// in canonical form, that the checker skips. Always non-nil after a real load.
-	stdlibImports := make([]string, 0, len(stdlibImportSet))
-	for imp := range stdlibImportSet {
-		stdlibImports = append(stdlibImports, imp)
-	}
-	sort.Strings(stdlibImports)
+	stdlibImports := normalizeStdlibImports(stdlibImportSet)
 
 	sourceFiles := make(map[string]bool)
 	for _, p := range pkgs {
@@ -484,6 +479,25 @@ func stdlibClassifier() func(pkgPath string, pkg *packages.Package) bool {
 	return func(pkgPath string, pkg *packages.Package) bool {
 		return classifyStdlibPackage(pkgPath, pkg, nil)
 	}
+}
+
+// normalizeStdlibImports turns the loader's set representation into the
+// canonical facts representation. A fresh zero-length slice is intentional:
+// every production facts result carries an explicit authoritative value.
+func normalizeStdlibImports(imports map[string]bool) []string {
+	canonical := make(map[string]bool, len(imports))
+	for importPath := range imports {
+		canonical[hostpolicy.CanonicalizePath(importPath)] = true
+	}
+	result := make([]string, 0, len(canonical))
+	for importPath := range canonical {
+		result = append(result, importPath)
+	}
+	sort.Strings(result)
+	if len(result) == 0 {
+		return []string{}
+	}
+	return result
 }
 
 func extractSymbols(p *packages.Package, componentRoot string) ([]facts.ExportedSymbol, error) {
@@ -1417,14 +1431,17 @@ func ResolveDependencyInterface(
 
 	// 7. Collect package facts (extract symbols) and register in loadedFiles for ValidateInterfaceFiles
 	var factsPkgs []facts.PackageFact
+	stdlibImportSet := make(map[string]bool)
 	for _, p := range depPkgs {
 		var imports []string
-		for impPath := range p.Imports {
-			imports = append(imports, hostpolicy.CanonicalizePath(impPath))
+		for impPath, impPkg := range p.Imports {
+			canonicalImport := hostpolicy.CanonicalizePath(impPath)
+			imports = append(imports, canonicalImport)
+			if classifyStdlibPackage(impPath, impPkg, depLayout) {
+				stdlibImportSet[canonicalImport] = true
+			}
 		}
 		sort.Strings(imports)
-
-		isStd := classifyStdlibPackage(p.PkgPath, p, depLayout)
 
 		var extractRoot string
 		if packagelayout.IsLayoutMode() {
@@ -1439,7 +1456,6 @@ func ResolveDependencyInterface(
 
 		factsPkgs = append(factsPkgs, canonicalizePackageFact(facts.PackageFact{
 			ImportPath:      p.PkgPath,
-			IsStdlib:        isStd,
 			Imports:         imports,
 			ExportedSymbols: exportedSymbols,
 		}))
@@ -1450,7 +1466,8 @@ func ResolveDependencyInterface(
 	})
 
 	depPackageFacts := facts.PackageFacts{
-		Packages: factsPkgs,
+		Packages:      factsPkgs,
+		StdlibImports: normalizeStdlibImports(stdlibImportSet),
 	}
 	if len(factsPkgs) > 0 {
 		ptr := reflect.ValueOf(depPackageFacts.Packages).Pointer()

@@ -31,7 +31,6 @@ func TestFactsRoundTrip(t *testing.T) {
 	// 2. Construct PackageFact
 	pkgFact := facts.PackageFact{
 		ImportPath:      "example.com/store",
-		IsStdlib:        false,
 		Imports:         []string{"os", "github.com/ono-sendai-labs/architectural-contracts/go/internal/capanalyzer"},
 		ExportedSymbols: []facts.ExportedSymbol{symMethod, symInit, symFunc},
 	}
@@ -45,8 +44,9 @@ func TestFactsRoundTrip(t *testing.T) {
 
 	// 4. Construct PackageFacts
 	pkgFacts := facts.PackageFacts{
-		Packages:  []facts.PackageFact{pkgFact},
-		CallEdges: []facts.CallEdge{edge},
+		Packages:      []facts.PackageFact{pkgFact},
+		CallEdges:     []facts.CallEdge{edge},
+		StdlibImports: []string{"os"},
 	}
 
 	// 5. Construct DependencyInterface
@@ -64,8 +64,8 @@ func TestFactsRoundTrip(t *testing.T) {
 	if p.ImportPath != "example.com/store" {
 		t.Errorf("expected import path example.com/store, got %q", p.ImportPath)
 	}
-	if p.IsStdlib {
-		t.Errorf("expected IsStdlib to be false, got true")
+	if len(pkgFacts.StdlibImports) != 1 || pkgFacts.StdlibImports[0] != "os" {
+		t.Errorf("unexpected stdlib imports: %v", pkgFacts.StdlibImports)
 	}
 	if len(p.Imports) != 2 || p.Imports[0] != "os" || p.Imports[1] != "github.com/ono-sendai-labs/architectural-contracts/go/internal/capanalyzer" {
 		t.Errorf("unexpected imports: %v", p.Imports)

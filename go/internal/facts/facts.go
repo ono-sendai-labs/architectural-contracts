@@ -22,13 +22,11 @@ type PackageFacts struct {
 	Packages  []PackageFact
 	CallEdges []CallEdge // inter-package static call edges (from VTA call graph)
 
-	// StdlibImports is the set of direct imports (across all component packages,
-	// in canonical form) that the shell classified as Go standard library. It is
-	// populated by the loader, which has authoritative module/SDK metadata that
-	// the pure checker lacks. When non-nil it is authoritative and the checker
-	// skips exactly these imports; when nil (e.g. hand-built facts in unit tests)
-	// the checker falls back to its own string heuristic. A real load always
-	// sets it (possibly empty, but non-nil).
+	// StdlibImports is the loader-authoritative set of direct standard-library
+	// imports across all component packages. Paths are canonical, unique, and
+	// deterministically sorted. Every loader initializes the slice, including
+	// when the authoritative result is empty; the pure checker treats nil and
+	// empty values as an empty authoritative set.
 	StdlibImports []string
 
 	// UnresolvedImports records source-level imports that survived layout
@@ -48,7 +46,6 @@ type UnresolvedImport struct {
 // PackageFact represents metadata and extracted facts about a single loaded Go package.
 type PackageFact struct {
 	ImportPath      string
-	IsStdlib        bool
 	Imports         []string         // direct imports of this package
 	ExportedSymbols []ExportedSymbol // top-level exported declarations (+ init declarations)
 }

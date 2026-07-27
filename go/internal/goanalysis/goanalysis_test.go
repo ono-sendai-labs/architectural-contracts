@@ -56,12 +56,8 @@ func TestLoadPackageFacts_Success(t *testing.T) {
 		t.Errorf("expected package 1 path to be %q, got %q", expectedB, pkgB.ImportPath)
 	}
 
-	// Check IsStdlib (should be false for component packages)
-	if pkgA.IsStdlib {
-		t.Errorf("expected package a IsStdlib to be false")
-	}
-	if pkgB.IsStdlib {
-		t.Errorf("expected package b IsStdlib to be false")
+	if factsResult.StdlibImports == nil || !reflect.DeepEqual(factsResult.StdlibImports, []string{"fmt"}) {
+		t.Errorf("expected non-nil sorted stdlib imports [fmt], got %v", factsResult.StdlibImports)
 	}
 
 	// Check sorted direct imports for package A: "fmt" and "github.com/ono-sendai-labs/architectural-contracts/go/internal/facts"

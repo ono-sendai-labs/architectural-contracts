@@ -2,6 +2,7 @@ package checker_test
 
 import (
 	"encoding/json"
+	"fmt"
 	"reflect"
 	"strings"
 	"testing"
@@ -25,6 +26,7 @@ func TestCheck_FR3_ConformingImports(t *testing.T) {
 			},
 		},
 		Facts: facts.PackageFacts{
+			StdlibImports: []string{"fmt"},
 			Packages: []facts.PackageFact{
 				{
 					ImportPath: "mycomponent/pkg1",
@@ -82,6 +84,51 @@ func TestCheck_DeclaredMembershipScopesPackageSweep(t *testing.T) {
 	}
 	if got := rep.Violations[0].Message; got != `package "component/member" imports undeclared dependency "example.com/transitive"` {
 		t.Fatalf("unexpected violation: %q", got)
+	}
+}
+
+func TestCheck_StdlibFactsAreAuthoritativeWhenNil(t *testing.T) {
+	for _, stdlibImports := range [][]string{nil, {}} {
+		in := checker.Inputs{
+			Manifest: manifest.Manifest{Name: "mycomponent"},
+			Facts: facts.PackageFacts{
+				Packages: []facts.PackageFact{{
+					ImportPath: "mycomponent/pkg1",
+					Imports:    []string{"fmt"},
+				}},
+				// Nil and empty slices are empty authoritative sets, not
+				// signals to classify imports using a path policy.
+				StdlibImports: stdlibImports,
+			},
+		}
+
+		t.Run(fmt.Sprintf("stdlib-imports-%d", len(stdlibImports)), func(t *testing.T) {
+			rep := checker.Check(in)
+			if len(rep.Violations) != 1 {
+				t.Fatalf("expected one undeclared dependency, got %d: %v", len(rep.Violations), rep.Violations)
+			}
+			if got := rep.Violations[0].Kind; got != report.UndeclaredDependency {
+				t.Fatalf("finding kind = %s, want %s", got, report.UndeclaredDependency)
+			}
+		})
+	}
+}
+
+func TestCheck_ExplicitStdlibFactSuppressesDependency(t *testing.T) {
+	in := checker.Inputs{
+		Manifest: manifest.Manifest{Name: "mycomponent"},
+		Facts: facts.PackageFacts{
+			Packages: []facts.PackageFact{{
+				ImportPath: "mycomponent/pkg1",
+				Imports:    []string{"fmt"},
+			}},
+			StdlibImports: []string{"fmt"},
+		},
+	}
+
+	rep := checker.Check(in)
+	if len(rep.Violations) != 0 {
+		t.Fatalf("expected explicit stdlib import to be skipped, got %v", rep.Violations)
 	}
 }
 
@@ -270,6 +317,7 @@ func TestCheck_FR3_StdlibAndIntraComponentAllowed(t *testing.T) {
 			Name: "mycomponent",
 		},
 		Facts: facts.PackageFacts{
+			StdlibImports: []string{"os", "net/http"},
 			Packages: []facts.PackageFact{
 				{
 					ImportPath: "mycomponent/pkg1",
