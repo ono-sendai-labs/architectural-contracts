@@ -49,6 +49,138 @@ func TestCheck_FR3_ConformingImports(t *testing.T) {
 	}
 }
 
+func TestCheck_DeclaredMembershipScopesPackageSweep(t *testing.T) {
+	in := checker.Inputs{
+		Manifest: manifest.Manifest{
+			Name:    "component",
+			Members: []string{"component/member"},
+		},
+		Facts: facts.PackageFacts{
+			Packages: []facts.PackageFact{
+				{
+					ImportPath: "component/member",
+					Imports:    []string{"example.com/transitive"},
+					ExportedSymbols: []facts.ExportedSymbol{
+						{Name: "component/member.Run", File: "member.go"},
+					},
+				},
+				{
+					ImportPath: "example.com/transitive",
+					Imports:    []string{"example.com/only-in-transitive"},
+					ExportedSymbols: []facts.ExportedSymbol{
+						{Name: "example.com/transitive.Helper", File: "transitive.go"},
+					},
+				},
+			},
+		},
+	}
+
+	rep := checker.Check(in)
+	if len(rep.Violations) != 1 {
+		t.Fatalf("expected one violation from the member package, got %d: %v", len(rep.Violations), rep.Violations)
+	}
+	if got := rep.Violations[0].Message; got != `package "component/member" imports undeclared dependency "example.com/transitive"` {
+		t.Fatalf("unexpected violation: %q", got)
+	}
+}
+
+func TestCheck_EmptyMembersRetainsFR1PackageMembership(t *testing.T) {
+	in := checker.Inputs{
+		Manifest: manifest.Manifest{Name: "component"},
+		Facts: facts.PackageFacts{
+			Packages: []facts.PackageFact{
+				{
+					ImportPath: "component/member",
+					Imports:    []string{"component/transitive"},
+				},
+				{
+					ImportPath: "component/transitive",
+					Imports:    []string{"example.com/only-in-transitive"},
+					ExportedSymbols: []facts.ExportedSymbol{
+						{Name: "component/transitive.Helper", File: "transitive.go"},
+					},
+				},
+			},
+		},
+	}
+
+	rep := checker.Check(in)
+	if len(rep.Violations) != 1 {
+		t.Fatalf("expected the transitive package to be swept under FR1, got %d: %v", len(rep.Violations), rep.Violations)
+	}
+	if got := rep.Violations[0].Message; got != `package "component/transitive" imports undeclared dependency "example.com/only-in-transitive"` {
+		t.Fatalf("unexpected violation: %q", got)
+	}
+}
+
+func TestCheck_InterfacePackageIsImplicitMember(t *testing.T) {
+	in := checker.Inputs{
+		Manifest: manifest.Manifest{
+			Name:           "component",
+			InterfaceFiles: []string{"pkg/api.go"},
+			Members:        []string{"component/implementation"},
+		},
+		Facts: facts.PackageFacts{
+			Packages: []facts.PackageFact{
+				{
+					ImportPath: "component/interface",
+					Imports:    []string{"example.com/interface-dependency"},
+					ExportedSymbols: []facts.ExportedSymbol{
+						{Name: "component/interface.API", File: "pkg/api.go", Kind: "type"},
+					},
+				},
+				{
+					ImportPath: "component/implementation",
+				},
+			},
+		},
+	}
+
+	rep := checker.Check(in)
+	if len(rep.Violations) != 1 {
+		t.Fatalf("expected the implicit interface member to be swept, got %d: %v", len(rep.Violations), rep.Violations)
+	}
+	if got := rep.Violations[0].Message; got != `package "component/interface" imports undeclared dependency "example.com/interface-dependency"` {
+		t.Fatalf("unexpected violation: %q", got)
+	}
+}
+
+func TestCheck_InterfacePackageSelectionIsIdempotent(t *testing.T) {
+	tests := []struct {
+		name    string
+		members []string
+	}{
+		{name: "literal", members: []string{"component/interface"}},
+		{name: "pattern", members: []string{"component/*"}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			in := checker.Inputs{
+				Manifest: manifest.Manifest{
+					Name:           "component",
+					InterfaceFiles: []string{"pkg/api.go"},
+					Members:        tt.members,
+				},
+				Facts: facts.PackageFacts{
+					Packages: []facts.PackageFact{{
+						ImportPath: "component/interface",
+						Imports:    []string{"example.com/interface-dependency"},
+						ExportedSymbols: []facts.ExportedSymbol{
+							{Name: "component/interface.API", File: "pkg/api.go", Kind: "type"},
+						},
+					}},
+				},
+			}
+
+			rep := checker.Check(in)
+			if len(rep.Violations) != 1 {
+				t.Fatalf("expected one interface-package violation, got %d: %v", len(rep.Violations), rep.Violations)
+			}
+		})
+	}
+}
+
 func TestCheck_FR3_UndeclaredImport(t *testing.T) {
 	in := checker.Inputs{
 		Manifest: manifest.Manifest{

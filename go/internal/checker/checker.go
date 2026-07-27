@@ -47,11 +47,9 @@ type Inputs struct {
 //
 // MVP matching is call-only. Real call edges and resolved interfaces are injected by the shell (Step 9).
 func Check(in Inputs) report.ConformanceReport {
-	// 1. Build component membership set
-	compPkgs := make(map[string]bool)
-	for _, p := range in.Facts.Packages {
-		compPkgs[p.ImportPath] = true
-	}
+	// 1. Build component membership set. Facts may include transitive packages
+	// needed for type checking, so only the resulting set is swept as owned code.
+	compPkgs := buildMembership(in.Manifest, in.Facts.Packages)
 
 	// 1b. Standard-library imports are skipped. Prefer the loader-provided fact
 	// (StdlibImports), which is authoritative because the shell has module/SDK
@@ -85,6 +83,9 @@ func Check(in Inputs) report.ConformanceReport {
 
 	// 4. Sweep each component package and check its imports
 	for _, pkg := range in.Facts.Packages {
+		if !compPkgs[pkg.ImportPath] {
+			continue
+		}
 		for _, imp := range pkg.Imports {
 			// Skip standard library imports
 			if isStdlibImport(imp) {
@@ -135,6 +136,9 @@ func Check(in Inputs) report.ConformanceReport {
 	// 4b. FR4 Well-formedness checks (Method and Explicit Init rules)
 	typeDeclFiles := make(map[string]string)
 	for _, pkg := range in.Facts.Packages {
+		if !compPkgs[pkg.ImportPath] {
+			continue
+		}
 		for _, sym := range pkg.ExportedSymbols {
 			if sym.Kind == "type" {
 				typeDeclFiles[sym.Name] = sym.File
@@ -333,6 +337,49 @@ func isStdlib(importPath string) bool {
 		first = importPath[:idx]
 	}
 	return !strings.Contains(first, ".")
+}
+
+// buildMembership returns the package paths owned by a component. An empty
+// members declaration preserves FR1 by owning every supplied package. When
+// members are declared, entries are matched against package import paths; the
+// interface package is then added from the package fact containing each
+// declared interface file.
+func buildMembership(m manifest.Manifest, packages []facts.PackageFact) map[string]bool {
+	members := make(map[string]bool)
+	if len(m.Members) == 0 {
+		for _, pkg := range packages {
+			members[pkg.ImportPath] = true
+		}
+		return members
+	}
+
+	for _, pkg := range packages {
+		for _, pattern := range m.Members {
+			matched, err := path.Match(pattern, pkg.ImportPath)
+			if err == nil && matched {
+				members[pkg.ImportPath] = true
+				break
+			}
+		}
+	}
+
+	interfaceFiles := make(map[string]bool, len(m.InterfaceFiles))
+	for _, file := range m.InterfaceFiles {
+		interfaceFiles[file] = true
+	}
+	if len(interfaceFiles) == 0 {
+		return members
+	}
+	for _, pkg := range packages {
+		for _, sym := range pkg.ExportedSymbols {
+			if interfaceFiles[sym.File] {
+				members[pkg.ImportPath] = true
+				break
+			}
+		}
+	}
+
+	return members
 }
 
 // cleanReceiverType strips parentheses and pointers from receiver type keys
