@@ -35,15 +35,29 @@ var (
 	loadedFiles  = make(map[uintptr]map[string]bool)
 )
 
+// LoadRequest describes the component-scoped package roots to load. Members are
+// validated literal import paths in declared-style native manifests. Interface
+// files are used to retain their containing package as an implicit member.
+type LoadRequest struct {
+	ComponentRoot  string
+	Members        []string
+	InterfaceFiles []string
+}
+
 // LoadPackageFacts loads Go package membership, direct-import, and standard-library facts
 // below the supplied component root using go/packages.
-func LoadPackageFacts(componentRoot string) (facts.PackageFacts, error) {
+func LoadPackageFacts(req LoadRequest) (facts.PackageFacts, error) {
+	componentRoot := req.ComponentRoot
 	var dir string
 	var patterns []string
 
 	if packagelayout.IsLayoutMode() {
 		dir = packagelayout.GetActiveWorkspaceDir()
 		patterns = packagelayout.GetActiveLayout().Roots
+	} else if len(req.Members) > 0 {
+		dir = componentRoot
+		patterns = append(patterns, req.Members...)
+		patterns = append(patterns, interfacePackagePatterns(req.InterfaceFiles)...)
 	} else {
 		dir = componentRoot
 		patterns = []string{"./..."}
@@ -58,11 +72,20 @@ func LoadPackageFacts(componentRoot string) (facts.PackageFacts, error) {
 
 	pkgs, err := packages.Load(cfg, patterns...)
 	if err != nil {
+		if len(req.Members) > 0 && !packagelayout.IsLayoutMode() {
+			return facts.PackageFacts{}, fmt.Errorf("failed to load declared members %v: %w", req.Members, err)
+		}
 		return facts.PackageFacts{}, fmt.Errorf("failed to load packages: %w", err)
 	}
 
 	if len(pkgs) == 0 {
 		return facts.PackageFacts{}, fmt.Errorf("no packages found under root %q", componentRoot)
+	}
+
+	if len(req.Members) > 0 && !packagelayout.IsLayoutMode() {
+		if err := validateDeclaredPackages(req.Members, pkgs); err != nil {
+			return facts.PackageFacts{}, err
+		}
 	}
 
 	// Collect all load/parse/type errors in the loaded package graph
@@ -90,12 +113,21 @@ func LoadPackageFacts(componentRoot string) (facts.PackageFacts, error) {
 	compPkgPaths := make(map[string]bool)
 	if packagelayout.IsLayoutMode() {
 		for _, r := range packagelayout.GetActiveLayout().Roots {
-			compPkgPaths[r] = true
+			compPkgPaths[hostpolicy.CanonicalizePath(r)] = true
+		}
+	} else if len(req.Members) > 0 {
+		for _, p := range pkgs {
+			if packageIsDeclaredMember(p, req.Members) || packageContainsInterfaceFile(p, componentRoot, req.InterfaceFiles) {
+				compPkgPaths[hostpolicy.CanonicalizePath(p.PkgPath)] = true
+			}
 		}
 	} else {
 		for _, p := range pkgs {
-			compPkgPaths[p.PkgPath] = true
+			compPkgPaths[hostpolicy.CanonicalizePath(p.PkgPath)] = true
 		}
+	}
+	isEffectiveMember := func(pkgPath string) bool {
+		return compPkgPaths[hostpolicy.CanonicalizePath(pkgPath)]
 	}
 
 	isStdlib := stdlibClassifier()
@@ -103,7 +135,7 @@ func LoadPackageFacts(componentRoot string) (facts.PackageFacts, error) {
 
 	var factsPkgs []facts.PackageFact
 	for _, p := range pkgs {
-		if packagelayout.IsLayoutMode() && !compPkgPaths[p.PkgPath] && !compPkgPaths[p.ID] {
+		if !isEffectiveMember(p.PkgPath) && !isEffectiveMember(p.ID) {
 			continue
 		}
 		var imports []string
@@ -150,7 +182,7 @@ func LoadPackageFacts(componentRoot string) (facts.PackageFacts, error) {
 
 	sourceFiles := make(map[string]bool)
 	for _, p := range pkgs {
-		if packagelayout.IsLayoutMode() && !compPkgPaths[p.PkgPath] && !compPkgPaths[p.ID] {
+		if !isEffectiveMember(p.PkgPath) && !isEffectiveMember(p.ID) {
 			continue
 		}
 		for _, absFile := range p.GoFiles {
@@ -185,8 +217,8 @@ func LoadPackageFacts(componentRoot string) (facts.PackageFacts, error) {
 		if fn == nil || node == nil {
 			continue
 		}
-		callerPkg := getFuncPackagePath(fn)
-		if !compPkgPaths[callerPkg] {
+		callerPkg := hostpolicy.CanonicalizePath(getFuncPackagePath(fn))
+		if !isEffectiveMember(callerPkg) {
 			continue
 		}
 		callerSym := getFuncSymbol(fn)
@@ -196,7 +228,7 @@ func LoadPackageFacts(componentRoot string) (facts.PackageFacts, error) {
 				continue
 			}
 			calleeFn := edge.Callee.Func
-			calleePkg := getFuncPackagePath(calleeFn)
+			calleePkg := hostpolicy.CanonicalizePath(getFuncPackagePath(calleeFn))
 			if callerPkg == calleePkg {
 				continue
 			}
@@ -242,6 +274,74 @@ func LoadPackageFacts(componentRoot string) (facts.PackageFacts, error) {
 	}
 
 	return res, nil
+}
+
+func interfacePackagePatterns(interfaceFiles []string) []string {
+	seen := make(map[string]bool)
+	var patterns []string
+	for _, file := range interfaceFiles {
+		cleaned := filepath.Clean(file)
+		dir := filepath.ToSlash(filepath.Dir(cleaned))
+		pattern := "."
+		if dir != "." {
+			pattern += "/" + dir
+		}
+		if !seen[pattern] {
+			seen[pattern] = true
+			patterns = append(patterns, pattern)
+		}
+	}
+	return patterns
+}
+
+func validateDeclaredPackages(members []string, pkgs []*packages.Package) error {
+	for _, member := range members {
+		found := false
+		for _, pkg := range pkgs {
+			if hostpolicy.CanonicalizePath(pkg.PkgPath) != hostpolicy.CanonicalizePath(member) {
+				continue
+			}
+			found = true
+			if len(pkg.GoFiles) == 0 && len(pkg.CompiledGoFiles) == 0 {
+				return fmt.Errorf("declared member %q has no source package", member)
+			}
+			break
+		}
+		if !found {
+			return fmt.Errorf("declared member %q could not be loaded", member)
+		}
+	}
+	return nil
+}
+
+func packageIsDeclaredMember(pkg *packages.Package, members []string) bool {
+	path := hostpolicy.CanonicalizePath(pkg.PkgPath)
+	for _, member := range members {
+		if path == hostpolicy.CanonicalizePath(member) {
+			return true
+		}
+	}
+	return false
+}
+
+func packageContainsInterfaceFile(pkg *packages.Package, componentRoot string, interfaceFiles []string) bool {
+	if len(interfaceFiles) == 0 {
+		return false
+	}
+	files := make(map[string]bool, len(pkg.GoFiles)+len(pkg.CompiledGoFiles))
+	for _, file := range pkg.GoFiles {
+		files[filepath.Clean(file)] = true
+	}
+	for _, file := range pkg.CompiledGoFiles {
+		files[filepath.Clean(file)] = true
+	}
+	for _, interfaceFile := range interfaceFiles {
+		path := filepath.Clean(filepath.Join(componentRoot, interfaceFile))
+		if files[path] {
+			return true
+		}
+	}
+	return false
 }
 
 // stripGenericBrackets removes a trailing generic instantiation such as "[T]"

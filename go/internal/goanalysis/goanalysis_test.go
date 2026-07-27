@@ -17,6 +17,10 @@ import (
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/report"
 )
 
+func loadPackageFacts(root string) (facts.PackageFacts, error) {
+	return goanalysis.LoadPackageFacts(goanalysis.LoadRequest{ComponentRoot: root})
+}
+
 func TestLoadPackageFacts_Success(t *testing.T) {
 	// Find absolute path to testdata/success
 	root, err := filepath.Abs("testdata/success")
@@ -24,7 +28,7 @@ func TestLoadPackageFacts_Success(t *testing.T) {
 		t.Fatalf("failed to get absolute path to testdata: %v", err)
 	}
 
-	factsResult, err := goanalysis.LoadPackageFacts(root)
+	factsResult, err := loadPackageFacts(root)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -201,7 +205,7 @@ func TestLoadPackageFacts_Success(t *testing.T) {
 	}
 
 	// Verify repeat-load determinism and duplicate-edge coverage (AC5)
-	factsResult2, err := goanalysis.LoadPackageFacts(root)
+	factsResult2, err := loadPackageFacts(root)
 	if err != nil {
 		t.Fatalf("unexpected error on repeated load: %v", err)
 	}
@@ -212,7 +216,7 @@ func TestLoadPackageFacts_Success(t *testing.T) {
 
 func TestLoadPackageFacts_Errors(t *testing.T) {
 	// 1. Invalid component root (Scenario 3)
-	invalidFacts, err := goanalysis.LoadPackageFacts("/nonexistent/directory")
+	invalidFacts, err := loadPackageFacts("/nonexistent/directory")
 	if err == nil {
 		t.Errorf("expected error on nonexistent component root, got nil")
 	}
@@ -225,7 +229,7 @@ func TestLoadPackageFacts_Errors(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to get absolute path: %v", err)
 	}
-	brokenFacts, err := goanalysis.LoadPackageFacts(root)
+	brokenFacts, err := loadPackageFacts(root)
 	if err == nil {
 		t.Fatalf("expected error on package load with broken syntax, got nil")
 	}
@@ -249,7 +253,7 @@ func TestValidateInterfaceFiles(t *testing.T) {
 		t.Fatalf("failed to get absolute path to testdata: %v", err)
 	}
 
-	loaded, err := goanalysis.LoadPackageFacts(root)
+	loaded, err := loadPackageFacts(root)
 	if err != nil {
 		t.Fatalf("failed to load package facts: %v", err)
 	}
@@ -322,7 +326,7 @@ func TestValidateInterfaceFiles_RejectsNonRegularCachedPath(t *testing.T) {
 		t.Fatalf("failed to write fixture file: %v", err)
 	}
 
-	loaded, err := goanalysis.LoadPackageFacts(root)
+	loaded, err := loadPackageFacts(root)
 	if err != nil {
 		t.Fatalf("failed to load package facts: %v", err)
 	}
@@ -353,7 +357,7 @@ func TestVerticalSliceVerdict(t *testing.T) {
 	}
 
 	// 1. Call LoadPackageFacts
-	loadedFacts, err := goanalysis.LoadPackageFacts(root)
+	loadedFacts, err := loadPackageFacts(root)
 	if err != nil {
 		t.Fatalf("failed to load package facts: %v", err)
 	}
@@ -442,7 +446,7 @@ func TestValidateInterfaceFiles_UsesCachedMembership(t *testing.T) {
 	}
 
 	// Load facts (this populates cached membership with main.go and extra.go)
-	loaded, err := goanalysis.LoadPackageFacts(tmp)
+	loaded, err := loadPackageFacts(tmp)
 	if err != nil {
 		t.Fatalf("failed to load package facts: %v", err)
 	}
@@ -504,7 +508,7 @@ func TestGenericReceiverMethodOutsideInterfaceIsDetected(t *testing.T) {
 		t.Fatalf("failed to write method.go: %v", err)
 	}
 
-	loadedFacts, err := goanalysis.LoadPackageFacts(tmp)
+	loadedFacts, err := loadPackageFacts(tmp)
 	if err != nil {
 		t.Fatalf("failed to load package facts: %v", err)
 	}
@@ -535,5 +539,71 @@ func TestGenericReceiverMethodOutsideInterfaceIsDetected(t *testing.T) {
 }
 
 func TestLoadPackageFacts_Signature(t *testing.T) {
-	var _ func(string) (facts.PackageFacts, error) = goanalysis.LoadPackageFacts
+	var _ func(goanalysis.LoadRequest) (facts.PackageFacts, error) = goanalysis.LoadPackageFacts
+}
+
+func TestLoadPackageFacts_DeclaredMemberOutsideComponentRoot(t *testing.T) {
+	workspace := t.TempDir()
+	if err := os.WriteFile(filepath.Join(workspace, "go.mod"), []byte("module example.com/workspace\n\ngo 1.21\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	componentRoot := filepath.Join(workspace, "component")
+	outsideRoot := filepath.Join(workspace, "outside")
+	unrelatedRoot := filepath.Join(componentRoot, "unrelated")
+	for _, dir := range []string{componentRoot, outsideRoot, unrelatedRoot} {
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	files := map[string]string{
+		filepath.Join(componentRoot, "api.go"):       "package component\n\nfunc API() {}\n",
+		filepath.Join(outsideRoot, "outside.go"):     "package outside\n\nimport \"os\"\n\nfunc Outside() { _, _ = os.Getwd() }\n",
+		filepath.Join(unrelatedRoot, "unrelated.go"): "package unrelated\n\nfunc Unrelated() {}\n",
+	}
+	for file, content := range files {
+		if err := os.WriteFile(file, []byte(content), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	loaded, err := goanalysis.LoadPackageFacts(goanalysis.LoadRequest{
+		ComponentRoot:  componentRoot,
+		Members:        []string{"example.com/workspace/outside"},
+		InterfaceFiles: []string{"api.go"},
+	})
+	if err != nil {
+		t.Fatalf("LoadPackageFacts() error = %v", err)
+	}
+
+	var paths []string
+	for _, pkg := range loaded.Packages {
+		paths = append(paths, pkg.ImportPath)
+	}
+	want := []string{"example.com/workspace/component", "example.com/workspace/outside"}
+	if !reflect.DeepEqual(paths, want) {
+		t.Fatalf("loaded package paths = %v, want %v", paths, want)
+	}
+	if len(loaded.Packages[1].ExportedSymbols) == 0 ||
+		loaded.Packages[1].ExportedSymbols[0].Name != "example.com/workspace/outside.Outside" {
+		t.Fatalf("outside package symbols = %+v, want Outside", loaded.Packages[1].ExportedSymbols)
+	}
+}
+
+func TestLoadPackageFacts_DeclaredMemberMustResolve(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "go.mod"), []byte("module example.com/workspace\n\ngo 1.21\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "api.go"), []byte("package workspace\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := goanalysis.LoadPackageFacts(goanalysis.LoadRequest{
+		ComponentRoot:  root,
+		Members:        []string{"example.com/workspace/missing"},
+		InterfaceFiles: []string{"api.go"},
+	})
+	if err == nil || !strings.Contains(err.Error(), "example.com/workspace/missing") {
+		t.Fatalf("LoadPackageFacts() error = %v, want offending member", err)
+	}
 }

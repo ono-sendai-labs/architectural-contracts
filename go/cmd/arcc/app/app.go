@@ -28,8 +28,8 @@ import (
 
 const version = "0.0.0-dev"
 
-// PackageLoader is a function type that loads package facts for a given component root.
-type PackageLoader func(componentRoot string) (facts.PackageFacts, error)
+// PackageLoader is a function type that loads package facts for a component-scoped request.
+type PackageLoader func(goanalysis.LoadRequest) (facts.PackageFacts, error)
 
 // Runner orchestrates the CLI execution of the architectural contracts check.
 type Runner struct {
@@ -163,7 +163,11 @@ func (r *Runner) runCheck(manifestPath string, formatJSON bool, stdout, stderr i
 	}
 
 	// 3. Load facts for that root
-	loadedFacts, err := r.Loader(componentRoot)
+	loadedFacts, err := r.Loader(goanalysis.LoadRequest{
+		ComponentRoot:  componentRoot,
+		Members:        parsedManifest.Members,
+		InterfaceFiles: parsedManifest.InterfaceFiles,
+	})
 	if err != nil {
 		fmt.Fprintf(stderr, "error: failed to load package facts: %v\n", err)
 		return 2

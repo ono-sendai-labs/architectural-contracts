@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -172,8 +173,8 @@ interface_files: "api.go"
 	}
 	_, manifestPath := createTempComponent(t, "success", manifestContent, files)
 
-	loader := func(root string) (facts.PackageFacts, error) {
-		return goanalysis.LoadPackageFacts(root)
+	loader := func(req goanalysis.LoadRequest) (facts.PackageFacts, error) {
+		return goanalysis.LoadPackageFacts(req)
 	}
 
 	analyzer := &mockAnalyzer{}
@@ -204,6 +205,36 @@ interface_files: "api.go"
 	}
 }
 
+func TestRunner_PassesManifestMembershipToLoader(t *testing.T) {
+	manifestContent := `
+name: "test-comp"
+interface_files: "api.go"
+members: "example.com/temp/loader-request"
+`
+	files := map[string]string{
+		"api.go": "package main\n\nfunc Hello() {}\n",
+	}
+	_, manifestPath := createTempComponent(t, "loader-request", manifestContent, files)
+
+	var gotRequest goanalysis.LoadRequest
+	loader := func(req goanalysis.LoadRequest) (facts.PackageFacts, error) {
+		gotRequest = req
+		return goanalysis.LoadPackageFacts(req)
+	}
+	runner := &app.Runner{Loader: loader, Analyzer: &mockAnalyzer{}}
+
+	var stdout, stderr bytes.Buffer
+	if exitCode := runner.Run([]string{"check", manifestPath}, &stdout, &stderr); exitCode != 0 {
+		t.Fatalf("Run() returned %d. Stderr: %s", exitCode, stderr.String())
+	}
+
+	if gotRequest.ComponentRoot == "" ||
+		!reflect.DeepEqual(gotRequest.Members, []string{"example.com/temp/loader-request"}) ||
+		!reflect.DeepEqual(gotRequest.InterfaceFiles, []string{"api.go"}) {
+		t.Fatalf("loader request = %+v, want manifest membership and interface context", gotRequest)
+	}
+}
+
 func TestRunner_Check_Success_JSON(t *testing.T) {
 	manifestContent := `
 name: "test-comp"
@@ -214,8 +245,8 @@ interface_files: "api.go"
 	}
 	_, manifestPath := createTempComponent(t, "success-json", manifestContent, files)
 
-	loader := func(root string) (facts.PackageFacts, error) {
-		return goanalysis.LoadPackageFacts(root)
+	loader := func(req goanalysis.LoadRequest) (facts.PackageFacts, error) {
+		return goanalysis.LoadPackageFacts(req)
 	}
 
 	analyzer := &mockAnalyzer{}
@@ -261,8 +292,8 @@ interface_files: "api.go"
 	}
 	_, manifestPath := createTempComponent(t, "violation", manifestContent, files)
 
-	loader := func(root string) (facts.PackageFacts, error) {
-		return goanalysis.LoadPackageFacts(root)
+	loader := func(req goanalysis.LoadRequest) (facts.PackageFacts, error) {
+		return goanalysis.LoadPackageFacts(req)
 	}
 
 	analyzer := &mockAnalyzer{
@@ -306,8 +337,8 @@ declared_authority: "FILES"
 	}
 	_, manifestPath := createTempComponent(t, "declared-auth", manifestContent, files)
 
-	loader := func(root string) (facts.PackageFacts, error) {
-		return goanalysis.LoadPackageFacts(root)
+	loader := func(req goanalysis.LoadRequest) (facts.PackageFacts, error) {
+		return goanalysis.LoadPackageFacts(req)
 	}
 
 	analyzer := &mockAnalyzer{
@@ -371,8 +402,8 @@ interface_files: "../escaping.go"
 			}
 			_, manifestPath := createTempComponent(t, "iface-val-"+tt.name, tt.manifestContent, files)
 
-			loader := func(root string) (facts.PackageFacts, error) {
-				return goanalysis.LoadPackageFacts(root)
+			loader := func(req goanalysis.LoadRequest) (facts.PackageFacts, error) {
+				return goanalysis.LoadPackageFacts(req)
 			}
 
 			analyzer := &mockAnalyzer{}
@@ -415,7 +446,7 @@ interface_files: "api.go"
 	}
 	_, manifestPath := createTempComponent(t, "loader-error", manifestContent, files)
 
-	loader := func(root string) (facts.PackageFacts, error) {
+	loader := func(_ goanalysis.LoadRequest) (facts.PackageFacts, error) {
 		return facts.PackageFacts{}, fmt.Errorf("injected loader error")
 	}
 
@@ -451,8 +482,8 @@ interface_files: "api.go"
 	}
 	_, manifestPath := createTempComponent(t, "analyzer-error", manifestContent, files)
 
-	loader := func(root string) (facts.PackageFacts, error) {
-		return goanalysis.LoadPackageFacts(root)
+	loader := func(req goanalysis.LoadRequest) (facts.PackageFacts, error) {
+		return goanalysis.LoadPackageFacts(req)
 	}
 
 	analyzer := &mockAnalyzer{
@@ -491,8 +522,8 @@ interface_files: "api.go"
 	}
 	_, manifestPath := createTempComponent(t, "multipackage", manifestContent, files)
 
-	loader := func(root string) (facts.PackageFacts, error) {
-		return goanalysis.LoadPackageFacts(root)
+	loader := func(req goanalysis.LoadRequest) (facts.PackageFacts, error) {
+		return goanalysis.LoadPackageFacts(req)
 	}
 
 	analyzer := &mockAnalyzer{}
@@ -566,8 +597,8 @@ component_dependencies: {
 		t.Fatalf("failed to write analyzed api.go: %v", err)
 	}
 
-	loader := func(root string) (facts.PackageFacts, error) {
-		return goanalysis.LoadPackageFacts(root)
+	loader := func(req goanalysis.LoadRequest) (facts.PackageFacts, error) {
+		return goanalysis.LoadPackageFacts(req)
 	}
 
 	analyzer := &mockAnalyzer{}
@@ -648,8 +679,8 @@ absorbed_dependencies: {
 		t.Fatalf("failed to write analyzed api.go: %v", err)
 	}
 
-	loader := func(root string) (facts.PackageFacts, error) {
-		return goanalysis.LoadPackageFacts(root)
+	loader := func(req goanalysis.LoadRequest) (facts.PackageFacts, error) {
+		return goanalysis.LoadPackageFacts(req)
 	}
 
 	analyzer := &mockAnalyzer{}
