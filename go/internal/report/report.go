@@ -50,11 +50,21 @@ type Finding struct {
 	Evidence []string `json:"evidence,omitempty"`
 }
 
+// DependencyBoundary represents a component dependency boundary annotation in a report.
+// Both OwnCheckRuns and CertificationReference are the dependency's own self-declaration,
+// not something verified by arcc.
+type DependencyBoundary struct {
+	Component              string `json:"component"`
+	OwnCheckRuns           bool   `json:"own_check_runs"`
+	CertificationReference string `json:"certification_reference,omitempty"`
+}
+
 // ConformanceReport is the overall result of analyzing a component against its manifest.
 type ConformanceReport struct {
-	Component  string    `json:"component"`
-	Violations []Finding `json:"violations"`
-	Warnings   []Finding `json:"warnings"`
+	Component    string               `json:"component"`
+	Dependencies []DependencyBoundary `json:"dependencies,omitempty"`
+	Violations   []Finding            `json:"violations"`
+	Warnings     []Finding            `json:"warnings"`
 }
 
 // RenderText returns a deterministic, human-readable string representation of the ConformanceReport.
@@ -67,10 +77,23 @@ func (r ConformanceReport) RenderText() string {
 	var sb strings.Builder
 	if len(r.Violations) == 0 && len(r.Warnings) == 0 {
 		sb.WriteString(fmt.Sprintf("Component %q conforms; does not exceed declared authority\n", r.Component))
+		if len(r.Dependencies) > 0 {
+			sb.WriteString("\nDependencies:\n")
+			for _, dep := range r.Dependencies {
+				sb.WriteString(formatDependencyBoundary(dep) + "\n")
+			}
+		}
 		return sb.String()
 	}
 
 	sb.WriteString(fmt.Sprintf("Component: %s\n", r.Component))
+
+	if len(r.Dependencies) > 0 {
+		sb.WriteString("\nDependencies:\n")
+		for _, dep := range r.Dependencies {
+			sb.WriteString(formatDependencyBoundary(dep) + "\n")
+		}
+	}
 
 	if len(r.Violations) > 0 {
 		sb.WriteString("\nViolations:\n")
@@ -105,4 +128,15 @@ func (r ConformanceReport) RenderText() string {
 	}
 
 	return sb.String()
+}
+
+func formatDependencyBoundary(dep DependencyBoundary) string {
+	state := "asserted"
+	if dep.OwnCheckRuns {
+		state = "certified"
+	}
+	if dep.CertificationReference != "" {
+		return fmt.Sprintf("- %s: %s (%s)", dep.Component, state, dep.CertificationReference)
+	}
+	return fmt.Sprintf("- %s: %s", dep.Component, state)
 }

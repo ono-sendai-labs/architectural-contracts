@@ -52,6 +52,67 @@ func TestCheck_FR3_ConformingImports(t *testing.T) {
 	}
 }
 
+func TestCheck_PopulatesDependenciesListingAndNoFindings(t *testing.T) {
+	in := checker.Inputs{
+		Manifest: manifest.Manifest{
+			Name: "mycomponent",
+			ComponentDependencies: []manifest.ComponentDependency{
+				{Name: "b-dep"},
+				{Name: "a-dep"},
+			},
+			AbsorbedDependencies: []manifest.AbsorbedDependency{
+				{ImportPath: "github.com/absorbed/pkg"},
+			},
+		},
+		Facts: facts.PackageFacts{
+			Packages: []facts.PackageFact{
+				{
+					ImportPath: "mycomponent/pkg1",
+					Imports:    []string{"github.com/a-dep/pkg", "github.com/b-dep/pkg", "github.com/absorbed/pkg"},
+				},
+			},
+		},
+		DepIfaces: []facts.DependencyInterface{
+			{
+				Component:              "b-dep",
+				OwnCheckRuns:           false,
+				CertificationReference: "doc://b-dep-cert",
+				Packages:               []string{"github.com/b-dep/pkg"},
+			},
+			{
+				Component:    "a-dep",
+				OwnCheckRuns: true,
+				Packages:     []string{"github.com/a-dep/pkg"},
+			},
+		},
+	}
+
+	rep := checker.Check(in)
+
+	if len(rep.Violations) != 0 {
+		t.Errorf("expected 0 violations, got %d: %v", len(rep.Violations), rep.Violations)
+	}
+	if len(rep.Warnings) != 0 {
+		t.Errorf("expected 0 warnings, got %d: %v", len(rep.Warnings), rep.Warnings)
+	}
+
+	wantDeps := []report.DependencyBoundary{
+		{
+			Component:    "a-dep",
+			OwnCheckRuns: true,
+		},
+		{
+			Component:              "b-dep",
+			OwnCheckRuns:           false,
+			CertificationReference: "doc://b-dep-cert",
+		},
+	}
+
+	if !reflect.DeepEqual(rep.Dependencies, wantDeps) {
+		t.Errorf("rep.Dependencies =\n%#v\nwant:\n%#v", rep.Dependencies, wantDeps)
+	}
+}
+
 func TestCheck_DeclaredMembershipScopesPackageSweep(t *testing.T) {
 	in := checker.Inputs{
 		Manifest: manifest.Manifest{
@@ -1576,6 +1637,9 @@ func TestCheck_FR6_FeatureCompleteCompositeReport(t *testing.T) {
 
 	renderedComposite := report.RenderText(repComp)
 	expectedComposite := `Component: mycomponent
+
+Dependencies:
+- dep1: asserted
 
 Violations:
 - [CALLS_UNDECLARED_INTERFACE] call from "mycomponent/pkg1.Run" to undeclared interface symbol "github.com/dep1/pkg.PrivateFunc" of dependency "dep1"

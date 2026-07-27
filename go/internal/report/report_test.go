@@ -91,6 +91,128 @@ func TestRenderText_Conforms(t *testing.T) {
 	}
 }
 
+func TestRenderText_ConformsWithDependencies(t *testing.T) {
+	rep := report.ConformanceReport{
+		Component: "test-comp",
+		Dependencies: []report.DependencyBoundary{
+			{
+				Component:    "dep-certified",
+				OwnCheckRuns: true,
+			},
+			{
+				Component:              "dep-asserted-ref",
+				OwnCheckRuns:           false,
+				CertificationReference: "build://ref-123",
+			},
+			{
+				Component:              "dep-asserted-noref",
+				OwnCheckRuns:           false,
+				CertificationReference: "",
+			},
+		},
+	}
+
+	got := report.RenderText(rep)
+	want := `Component "test-comp" conforms; does not exceed declared authority
+
+Dependencies:
+- dep-certified: certified
+- dep-asserted-ref: asserted (build://ref-123)
+- dep-asserted-noref: asserted
+`
+
+	if got != want {
+		t.Errorf("RenderText(conforms with deps) =\n%q\nwant:\n%q", got, want)
+	}
+}
+
+func TestRenderText_WithFindingsAndDependencies(t *testing.T) {
+	rep := report.ConformanceReport{
+		Component: "test-comp",
+		Dependencies: []report.DependencyBoundary{
+			{
+				Component:    "dep-certified",
+				OwnCheckRuns: true,
+			},
+		},
+		Violations: []report.Finding{
+			{
+				Kind:    report.UndeclaredDependency,
+				Message: `imported package "os" is not declared in the manifest`,
+				Location: report.Location{
+					File: "main.go",
+					Line: 12,
+				},
+			},
+		},
+	}
+
+	got := report.RenderText(rep)
+	want := `Component: test-comp
+
+Dependencies:
+- dep-certified: certified
+
+Violations:
+- [UNDECLARED_DEPENDENCY] imported package "os" is not declared in the manifest
+  at main.go:12
+`
+
+	if got != want {
+		t.Errorf("RenderText(findings with deps) =\n%q\nwant:\n%q", got, want)
+	}
+}
+
+func TestJSON_DependenciesSerialization(t *testing.T) {
+	t.Run("with dependencies", func(t *testing.T) {
+		rep := report.ConformanceReport{
+			Component: "test-comp",
+			Dependencies: []report.DependencyBoundary{
+				{
+					Component:    "dep-certified",
+					OwnCheckRuns: true,
+				},
+				{
+					Component:              "dep-asserted-ref",
+					OwnCheckRuns:           false,
+					CertificationReference: "ref-456",
+				},
+			},
+		}
+
+		data, err := json.Marshal(rep)
+		if err != nil {
+			t.Fatalf("json.Marshal() error = %v", err)
+		}
+
+		got := string(data)
+		wantSubstrings := []string{
+			`"dependencies":[{"component":"dep-certified","own_check_runs":true}`,
+			`{"component":"dep-asserted-ref","own_check_runs":false,"certification_reference":"ref-456"}]`,
+		}
+		for _, want := range wantSubstrings {
+			if !strings.Contains(got, want) {
+				t.Errorf("JSON = %s, want substring %s", got, want)
+			}
+		}
+	})
+
+	t.Run("without dependencies omits dependencies field", func(t *testing.T) {
+		rep := report.ConformanceReport{
+			Component: "test-comp",
+		}
+
+		data, err := json.Marshal(rep)
+		if err != nil {
+			t.Fatalf("json.Marshal() error = %v", err)
+		}
+
+		if strings.Contains(string(data), `"dependencies"`) {
+			t.Errorf("JSON = %s, should omit dependencies field when empty", string(data))
+		}
+	})
+}
+
 func TestRenderText_WithFindings(t *testing.T) {
 	rep := report.ConformanceReport{
 		Component: "test-comp",

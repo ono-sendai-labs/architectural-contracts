@@ -356,10 +356,23 @@ func Check(in Inputs) report.ConformanceReport {
 		return warnings[i].Location.Line < warnings[j].Location.Line
 	})
 
+	var depBoundaries []report.DependencyBoundary
+	for _, di := range in.DepIfaces {
+		depBoundaries = append(depBoundaries, report.DependencyBoundary{
+			Component:              di.Component,
+			OwnCheckRuns:           di.OwnCheckRuns,
+			CertificationReference: di.CertificationReference,
+		})
+	}
+	sort.Slice(depBoundaries, func(i, j int) bool {
+		return depBoundaries[i].Component < depBoundaries[j].Component
+	})
+
 	return report.ConformanceReport{
-		Component:  in.Manifest.Name,
-		Violations: violations,
-		Warnings:   warnings,
+		Component:    in.Manifest.Name,
+		Dependencies: depBoundaries,
+		Violations:   violations,
+		Warnings:     warnings,
 	}
 }
 
