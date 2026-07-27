@@ -242,6 +242,30 @@ func TestResolveDependencyInterface_PackageSurface(t *testing.T) {
 	}
 }
 
+func TestResolveDependencyInterface_PackageSurface_NoCert(t *testing.T) {
+	declaringRoot, err := filepath.Abs("testdata/dep_resolve/declaring")
+	if err != nil {
+		t.Fatalf("failed to get absolute path to declaring: %v", err)
+	}
+
+	dep := manifest.ComponentDependency{
+		Name:     "dep",
+		Manifest: "../dep/pkg_surface_nocert.textproto",
+	}
+
+	result, err := goanalysis.ResolveDependencyInterface(declaringRoot, declaringRoot, dep)
+	if err != nil {
+		t.Fatalf("unexpected error resolving package-surface dependency: %v", err)
+	}
+
+	if result.OwnCheckRuns {
+		t.Errorf("expected OwnCheckRuns false, got true")
+	}
+	if result.CertificationReference != "" {
+		t.Errorf("expected empty CertificationReference, got %q", result.CertificationReference)
+	}
+}
+
 func TestResolveDependencyInterface_PatternMembership(t *testing.T) {
 	declaringRoot, err := filepath.Abs("testdata/dep_resolve/declaring_pattern")
 	if err != nil {

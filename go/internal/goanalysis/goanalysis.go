@@ -1367,16 +1367,8 @@ func ResolveDependencyInterface(
 	cleanAnalyzed := filepath.Clean(analyzedRoot)
 	cleanDepRoot := filepath.Clean(depRoot)
 
-	if depManifest.InterfaceStyle == manifest.InterfaceStylePackageSurface {
-		if isPatternMembership(depManifest) {
-			return resolvePatternMembershipDependencyInterface(cleanAnalyzed, dep, depManifest)
-		}
-		if cleanDepRoot == cleanAnalyzed ||
-			strings.HasPrefix(cleanDepRoot, cleanAnalyzed+string(filepath.Separator)) ||
-			strings.HasPrefix(cleanAnalyzed, cleanDepRoot+string(filepath.Separator)) {
-			return facts.DependencyInterface{}, fmt.Errorf("root overlap error: dependency root %q overlaps with analyzed root %q", cleanDepRoot, cleanAnalyzed)
-		}
-		return resolvePackageSurfaceDependencyInterface(cleanDepRoot, cleanAnalyzed, dep, depManifest, manifestPath)
+	if depManifest.InterfaceStyle == manifest.InterfaceStylePackageSurface && isPatternMembership(depManifest) {
+		return resolvePatternMembershipDependencyInterface(cleanAnalyzed, dep, depManifest)
 	}
 
 	// 4. Reject roots overlapping the analyzed component as actionable tool errors
@@ -1411,6 +1403,11 @@ func ResolveDependencyInterface(
 		f.Close()
 		if errParse != nil {
 			return facts.DependencyInterface{}, fmt.Errorf("failed to parse dependency package-layout: %w", errParse)
+		}
+		if len(depManifest.Members) > 0 {
+			if err := validateLayoutMembership(depManifest.Members, depLayout.Roots); err != nil {
+				return facts.DependencyInterface{}, err
+			}
 		}
 		patterns = depLayout.Roots
 
@@ -1451,6 +1448,12 @@ func ResolveDependencyInterface(
 	}
 	if err := validateLoaderPackagePaths(depPkgs); err != nil {
 		return facts.DependencyInterface{}, err
+	}
+
+	if len(depManifest.Members) > 0 && !packagelayout.IsLayoutMode() {
+		if err := validateDeclaredPackages(depManifest.Members, depPkgs); err != nil {
+			return facts.DependencyInterface{}, err
+		}
 	}
 
 	// Check package load/parse/type errors
@@ -1526,6 +1529,47 @@ func ResolveDependencyInterface(
 		Packages:      factsPkgs,
 		StdlibImports: normalizeStdlibImports(stdlibImportSet),
 	}
+
+	if depManifest.InterfaceStyle == manifest.InterfaceStylePackageSurface {
+		memberSet := make(map[string]bool)
+		var memberPkgPaths []string
+		for _, m := range depManifest.Members {
+			cm := hostpolicy.CanonicalizePath(m)
+			if !memberSet[cm] {
+				memberSet[cm] = true
+				memberPkgPaths = append(memberPkgPaths, cm)
+			}
+		}
+		sort.Strings(memberPkgPaths)
+
+		symbolSet := make(map[string]bool)
+		for _, p := range factsPkgs {
+			canonPkgPath := hostpolicy.CanonicalizePath(p.ImportPath)
+			if memberSet[canonPkgPath] {
+				for _, sym := range p.ExportedSymbols {
+					addSurfaceSymbol(symbolSet, sym)
+				}
+			}
+		}
+
+		var symbols []capanalyzer.InterfaceSymbol
+		for sym := range symbolSet {
+			symbols = append(symbols, capanalyzer.InterfaceSymbol(sym))
+		}
+		sort.Slice(symbols, func(i, j int) bool {
+			return symbols[i] < symbols[j]
+		})
+
+		return facts.DependencyInterface{
+			Component:              dep.Name,
+			InterfaceStyle:         depManifest.InterfaceStyle,
+			OwnCheckRuns:           depManifest.OwnCheckRuns,
+			CertificationReference: depManifest.CertificationReference,
+			Packages:               memberPkgPaths,
+			Symbols:                symbols,
+		}, nil
+	}
+
 	if len(factsPkgs) > 0 {
 		ptr := reflect.ValueOf(depPackageFacts.Packages).Pointer()
 		membershipMu.Lock()
@@ -1799,138 +1843,6 @@ func resolvePatternMembershipDependencyInterface(
 		OwnCheckRuns:           depManifest.OwnCheckRuns,
 		CertificationReference: depManifest.CertificationReference,
 		Packages:               matchedPkgPaths,
-		Symbols:                symbols,
-	}, nil
-}
-
-func resolvePackageSurfaceDependencyInterface(
-	cleanDepRoot string,
-	cleanAnalyzed string,
-	dep manifest.ComponentDependency,
-	depManifest manifest.Manifest,
-	manifestPath string,
-) (facts.DependencyInterface, error) {
-	var loadDir string
-	var patterns []string
-	var depPkgs []*packages.Package
-
-	if packagelayout.IsLayoutMode() {
-		loadDir = packagelayout.GetActiveWorkspaceDir()
-		depLayoutPath := strings.TrimSuffix(manifestPath, ".component.textproto") + ".package-layout.json"
-		f, errOpen := os.Open(depLayoutPath)
-		if errOpen != nil {
-			depLayoutPath2 := filepath.Join(cleanDepRoot, "package-layout.json")
-			f, errOpen = os.Open(depLayoutPath2)
-			if errOpen != nil {
-				return facts.DependencyInterface{}, fmt.Errorf("failed to open dependency package-layout: %w", errOpen)
-			}
-			depLayoutPath = depLayoutPath2
-		}
-
-		depLayout, errParse := packagelayout.Parse(f)
-		f.Close()
-		if errParse != nil {
-			return facts.DependencyInterface{}, fmt.Errorf("failed to parse dependency package-layout: %w", errParse)
-		}
-		patterns = depLayout.Roots
-
-		cfg := &packages.Config{
-			Mode: packages.NeedName | packages.NeedFiles | packages.NeedCompiledGoFiles |
-				packages.NeedImports | packages.NeedDeps | packages.NeedSyntax |
-				packages.NeedTypes | packages.NeedTypesInfo | packages.NeedModule,
-			Dir: loadDir,
-		}
-
-		err := packagelayout.WithTemporaryLayout(depLayoutPath, func() error {
-			var loadErr error
-			depPkgs, loadErr = loadPackages(cfg, patterns...)
-			return loadErr
-		})
-		if err != nil {
-			return facts.DependencyInterface{}, fmt.Errorf("failed to load dependency packages in layout mode: %w", err)
-		}
-	} else {
-		loadDir = cleanDepRoot
-		patterns = []string{"./..."}
-
-		cfg := &packages.Config{
-			Mode: packages.NeedName | packages.NeedFiles | packages.NeedCompiledGoFiles |
-				packages.NeedImports | packages.NeedDeps | packages.NeedSyntax |
-				packages.NeedTypes | packages.NeedTypesInfo | packages.NeedModule,
-			Dir: loadDir,
-		}
-
-		var err error
-		depPkgs, err = loadPackages(cfg, patterns...)
-		if err != nil {
-			return facts.DependencyInterface{}, fmt.Errorf("failed to load dependency packages: %w", err)
-		}
-	}
-
-	if len(depPkgs) == 0 {
-		return facts.DependencyInterface{}, fmt.Errorf("no packages found under dependency root %q", cleanDepRoot)
-	}
-	if err := validateLoaderPackagePaths(depPkgs); err != nil {
-		return facts.DependencyInterface{}, err
-	}
-
-	var errMsgs []string
-	packages.Visit(depPkgs, nil, func(p *packages.Package) {
-		for _, err := range p.Errors {
-			errMsgs = append(errMsgs, err.Msg)
-		}
-	})
-	if len(errMsgs) > 0 {
-		sort.Strings(errMsgs)
-		return facts.DependencyInterface{}, fmt.Errorf("dependency package load errors:\n%s", strings.Join(errMsgs, "\n"))
-	}
-
-	memberSet := make(map[string]bool)
-	var memberPkgPaths []string
-	for _, m := range depManifest.Members {
-		cm := hostpolicy.CanonicalizePath(m)
-		if !memberSet[cm] {
-			memberSet[cm] = true
-			memberPkgPaths = append(memberPkgPaths, cm)
-		}
-	}
-	sort.Strings(memberPkgPaths)
-
-	var extractRoot string
-	if packagelayout.IsLayoutMode() {
-		extractRoot = packagelayout.GetActiveWorkspaceDir()
-	} else {
-		extractRoot = cleanDepRoot
-	}
-
-	symbolSet := make(map[string]bool)
-	for _, p := range depPkgs {
-		canonPkgPath := hostpolicy.CanonicalizePath(p.PkgPath)
-		if memberSet[canonPkgPath] {
-			exportedSymbols, err := extractSymbols(p, extractRoot)
-			if err != nil {
-				return facts.DependencyInterface{}, err
-			}
-			for _, sym := range exportedSymbols {
-				addSurfaceSymbol(symbolSet, sym)
-			}
-		}
-	}
-
-	var symbols []capanalyzer.InterfaceSymbol
-	for sym := range symbolSet {
-		symbols = append(symbols, capanalyzer.InterfaceSymbol(sym))
-	}
-	sort.Slice(symbols, func(i, j int) bool {
-		return symbols[i] < symbols[j]
-	})
-
-	return facts.DependencyInterface{
-		Component:              dep.Name,
-		InterfaceStyle:         depManifest.InterfaceStyle,
-		OwnCheckRuns:           depManifest.OwnCheckRuns,
-		CertificationReference: depManifest.CertificationReference,
-		Packages:               memberPkgPaths,
 		Symbols:                symbols,
 	}, nil
 }

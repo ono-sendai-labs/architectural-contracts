@@ -338,6 +338,9 @@ interface_files: "api.go"
 	if len(analyzer.calledWith.PruneAt) != 0 {
 		t.Errorf("analyzer called with PruneAt %v, want empty", analyzer.calledWith.PruneAt)
 	}
+	if len(analyzer.calledWith.PruneAtPackages) != 0 {
+		t.Errorf("analyzer called with PruneAtPackages %v, want empty", analyzer.calledWith.PruneAtPackages)
+	}
 }
 
 func TestRunner_Check_InterfaceFileExclusion_WarnsInTextAndJSON(t *testing.T) {
@@ -1118,23 +1121,58 @@ func TestRunner_Check_PackageSurfacePruneAtPackages(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// 2. Package-surface dependency
-	surfDir := filepath.Join(parentDir, "dep-surf")
-	if err := os.MkdirAll(surfDir, 0755); err != nil {
+	// 2. Package-surface dependencies with overlapping members
+	surf1Dir := filepath.Join(parentDir, "dep-surf1")
+	if err := os.MkdirAll(filepath.Join(surf1Dir, "pkga"), 0755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(surfDir, "go.mod"), []byte("module example.com/temp/dep-surf\n\ngo 1.21\n"), 0644); err != nil {
+	if err := os.MkdirAll(filepath.Join(surf1Dir, "pkgb"), 0755); err != nil {
 		t.Fatal(err)
 	}
-	surfManifest := "name: \"dep-surf\"\ninterface_style: INTERFACE_STYLE_PACKAGE_SURFACE\nmembers: \"example.com/temp/dep-surf\"\n"
-	if err := os.WriteFile(filepath.Join(surfDir, "component.textproto"), []byte(surfManifest), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(surf1Dir, "go.mod"), []byte("module example.com/temp/dep-surf1\n\ngo 1.21\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(surfDir, "surf.go"), []byte("package depsurf\n\nfunc SurfFunc() {}\n"), 0644); err != nil {
+	surf1Manifest := `name: "dep-surf1"
+interface_style: INTERFACE_STYLE_PACKAGE_SURFACE
+members: "example.com/temp/dep-surf1/pkgb"
+members: "example.com/temp/dep-surf1/pkga"
+`
+	if err := os.WriteFile(filepath.Join(surf1Dir, "component.textproto"), []byte(surf1Manifest), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(surf1Dir, "pkga", "a.go"), []byte("package pkga\n\nfunc AFunc() {}\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(surf1Dir, "pkgb", "b.go"), []byte("package pkgb\n\nfunc BFunc() {}\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
 
-	// 3. Analyzed component depending on both
+	surf2Dir := filepath.Join(parentDir, "dep-surf2")
+	if err := os.MkdirAll(filepath.Join(surf2Dir, "pkgz"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(surf2Dir, "pkga"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(surf2Dir, "go.mod"), []byte("module example.com/temp/dep-surf2\n\ngo 1.21\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	surf2Manifest := `name: "dep-surf2"
+interface_style: INTERFACE_STYLE_PACKAGE_SURFACE
+members: "example.com/temp/dep-surf2/pkgz"
+members: "example.com/temp/dep-surf2/pkga"
+`
+	if err := os.WriteFile(filepath.Join(surf2Dir, "component.textproto"), []byte(surf2Manifest), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(surf2Dir, "pkgz", "z.go"), []byte("package pkgz\n\nfunc ZFunc() {}\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(surf2Dir, "pkga", "a2.go"), []byte("package pkga\n\nfunc A2Func() {}\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// 3. Analyzed component depending on all three
 	analyzedDir := filepath.Join(parentDir, "analyzed")
 	if err := os.MkdirAll(analyzedDir, 0755); err != nil {
 		t.Fatal(err)
@@ -1149,8 +1187,12 @@ component_dependencies: {
   manifest: "../dep-decl/component.textproto"
 }
 component_dependencies: {
-  name: "dep-surf"
-  manifest: "../dep-surf/component.textproto"
+  name: "dep-surf1"
+  manifest: "../dep-surf1/component.textproto"
+}
+component_dependencies: {
+  name: "dep-surf2"
+  manifest: "../dep-surf2/component.textproto"
 }
 `
 	manifestPath := filepath.Join(analyzedDir, "component.textproto")
@@ -1172,18 +1214,23 @@ component_dependencies: {
 		t.Fatalf("Run() returned %d, want 0. Stderr: %s", exitCode, stderr.String())
 	}
 
-	// AC 6: PruneAtPackages holds exactly package-surface package
-	wantPruneAtPackages := []string{"example.com/temp/dep-surf"}
+	// AC 6: PruneAtPackages holds deduplicated and sorted package-surface packages
+	wantPruneAtPackages := []string{
+		"example.com/temp/dep-surf1/pkga",
+		"example.com/temp/dep-surf1/pkgb",
+		"example.com/temp/dep-surf2/pkga",
+		"example.com/temp/dep-surf2/pkgz",
+	}
 	if !reflect.DeepEqual(analyzer.calledWith.PruneAtPackages, wantPruneAtPackages) {
 		t.Errorf("PruneAtPackages = %v, want %v", analyzer.calledWith.PruneAtPackages, wantPruneAtPackages)
 	}
 
-	// PruneAt contains symbols from both dependencies and init keys
+	// PruneAt contains symbols from all dependencies and init keys
 	mustPruneAt := []string{
 		"example.com/temp/dep-decl.DeclFunc",
 		"func example.com/temp/dep-decl.init",
-		"example.com/temp/dep-surf.SurfFunc",
-		"func example.com/temp/dep-surf.init",
+		"example.com/temp/dep-surf1/pkga.AFunc",
+		"func example.com/temp/dep-surf1/pkga.init",
 	}
 	for _, expected := range mustPruneAt {
 		found := false
