@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"sort"
 	"strings"
 	"testing"
 
@@ -164,6 +165,68 @@ func TestLoadPackageFactsRejectsLayoutMembershipMismatchBeforeLoading(t *testing
 				t.Fatal("loadPackages was called before layout membership mismatch was rejected")
 			}
 		})
+	}
+}
+
+func TestLoadPackageFactsUsesMatchingLayoutRoots(t *testing.T) {
+	workspace := t.TempDir()
+	if err := os.WriteFile(filepath.Join(workspace, "go.mod"), []byte("module example.com/layout\n\ngo 1.21\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	for _, pkg := range []string{"a", "b"} {
+		dir := filepath.Join(workspace, pkg)
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, pkg+".go"), []byte("package "+pkg+"\n\nfunc Exported() {}\n"), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	layoutPath := filepath.Join(workspace, "package-layout.json")
+	layout := `{
+		"roots": ["example.com/layout/b", "example.com/layout/a"],
+		"packages": [
+			{"id":"example.com/layout/a","name":"a","pkgPath":"example.com/layout/a","is_stdlib":false,"goFiles":["a/a.go"],"compiledGoFiles":["a/a.go"],"imports":{}},
+			{"id":"example.com/layout/b","name":"b","pkgPath":"example.com/layout/b","is_stdlib":false,"goFiles":["b/b.go"],"compiledGoFiles":["b/b.go"],"imports":{}}
+		]
+	}`
+	if err := os.WriteFile(layoutPath, []byte(layout), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	originalLoad := loadPackages
+	t.Cleanup(func() { loadPackages = originalLoad })
+	var gotPatterns []string
+	loadPackages = func(cfg *packages.Config, patterns ...string) ([]*packages.Package, error) {
+		gotPatterns = append([]string(nil), patterns...)
+		return originalLoad(cfg, patterns...)
+	}
+
+	var loaded facts.PackageFacts
+	err := packagelayout.WithDriverEnv(layoutPath, workspace, func() error {
+		var err error
+		loaded, err = LoadPackageFacts(LoadRequest{
+			ComponentRoot: workspace,
+			Members:       []string{"example.com/layout/a", "example.com/layout/b"},
+		})
+		return err
+	})
+	if err != nil {
+		t.Fatalf("LoadPackageFacts() error = %v", err)
+	}
+
+	if !reflect.DeepEqual(gotPatterns, []string{"example.com/layout/b", "example.com/layout/a"}) {
+		t.Fatalf("package load patterns = %v, want active layout roots in layout order", gotPatterns)
+	}
+	var gotPaths []string
+	for _, pkg := range loaded.Packages {
+		gotPaths = append(gotPaths, pkg.ImportPath)
+	}
+	sort.Strings(gotPaths)
+	wantPaths := []string{"example.com/layout/a", "example.com/layout/b"}
+	if !reflect.DeepEqual(gotPaths, wantPaths) {
+		t.Fatalf("loaded package facts = %v, want exactly the active layout roots %v", gotPaths, wantPaths)
 	}
 }
 

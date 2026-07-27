@@ -164,6 +164,140 @@ func createTempComponent(t *testing.T, name string, manifestContent string, file
 	return tmpDir, manifestPath
 }
 
+func writeRunnerLayoutFixture(t *testing.T, workspace string, roots []string) string {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(workspace, "go.mod"), []byte("module example.com/layout\n\ngo 1.21\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	packages := make([]map[string]any, 0, len(roots))
+	for _, root := range roots {
+		name := root[strings.LastIndex(root, "/")+1:]
+		relFile := filepath.ToSlash(filepath.Join(name, name+".go"))
+		if err := os.MkdirAll(filepath.Dir(filepath.Join(workspace, relFile)), 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(workspace, relFile), []byte("package "+name+"\n\nfunc Exported() {}\n"), 0644); err != nil {
+			t.Fatal(err)
+		}
+		packages = append(packages, map[string]any{
+			"id": root, "name": name, "pkgPath": root, "is_stdlib": false,
+			"goFiles": []string{relFile}, "compiledGoFiles": []string{relFile}, "imports": map[string]string{},
+		})
+	}
+	layout := map[string]any{"roots": roots, "packages": packages}
+	data, err := json.Marshal(layout)
+	if err != nil {
+		t.Fatal(err)
+	}
+	layoutPath := filepath.Join(workspace, "package-layout.json")
+	if err := os.WriteFile(layoutPath, data, 0644); err != nil {
+		t.Fatal(err)
+	}
+	return layoutPath
+}
+
+func runRunnerFromWorkspace(t *testing.T, workspace string, runner *app.Runner, args []string) (string, string, int) {
+	t.Helper()
+	originalWD, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(workspace); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := os.Chdir(originalWD); err != nil {
+			t.Errorf("restore working directory: %v", err)
+		}
+	})
+	var stdout, stderr bytes.Buffer
+	exitCode := runner.Run(args, &stdout, &stderr)
+	return stdout.String(), stderr.String(), exitCode
+}
+
+func TestRunner_Check_LayoutMembershipMismatchIsToolError(t *testing.T) {
+	tests := []struct {
+		name       string
+		members    []string
+		roots      []string
+		wantPieces []string
+	}{
+		{
+			name:       "missing layout root",
+			members:    []string{"example.com/layout/a", "example.com/layout/missing"},
+			roots:      []string{"example.com/layout/a"},
+			wantPieces: []string{"manifest members", "layout roots", "missing from layout: [example.com/layout/missing]"},
+		},
+		{
+			name:       "extra layout root",
+			members:    []string{"example.com/layout/a"},
+			roots:      []string{"example.com/layout/a", "example.com/layout/b"},
+			wantPieces: []string{"manifest members", "layout roots", "missing from manifest: [example.com/layout/b]"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			workspace := t.TempDir()
+			layoutPath := writeRunnerLayoutFixture(t, workspace, tt.roots)
+			manifestPath := filepath.Join(workspace, "component.textproto")
+			manifest := fmt.Sprintf("name: \"layout-mismatch\"\ninterface_files: \"a/a.go\"\nmembers: \"%s\"\n", strings.Join(tt.members, "\"\nmembers: \""))
+			if err := os.WriteFile(manifestPath, []byte(manifest), 0644); err != nil {
+				t.Fatal(err)
+			}
+
+			runner := &app.Runner{
+				Loader: func(req goanalysis.LoadRequest) (facts.PackageFacts, error) {
+					return goanalysis.LoadPackageFacts(req)
+				},
+				Analyzer: &mockAnalyzer{},
+			}
+			_, stderr, exitCode := runRunnerFromWorkspace(t, workspace, runner, []string{
+				"check", manifestPath, "--package-layout=" + layoutPath,
+			})
+			if exitCode != 2 {
+				t.Fatalf("Run() exit = %d, want tool error 2; stderr = %q", exitCode, stderr)
+			}
+			for _, piece := range tt.wantPieces {
+				if !strings.Contains(stderr, piece) {
+					t.Errorf("stderr = %q, want %q", stderr, piece)
+				}
+			}
+		})
+	}
+}
+
+func TestRunner_Check_MemberOverlapIsViolation(t *testing.T) {
+	workspace := t.TempDir()
+	manifestPath := filepath.Join(workspace, "component.textproto")
+	manifest := `name: "member-overlap"
+interface_style: INTERFACE_STYLE_PACKAGE_SURFACE
+members: "example.com/overlap/member"
+absorbed_dependencies { import_path: "example.com/overlap/*" }
+`
+	if err := os.WriteFile(manifestPath, []byte(manifest), 0644); err != nil {
+		t.Fatal(err)
+	}
+	runner := &app.Runner{
+		Loader: func(goanalysis.LoadRequest) (facts.PackageFacts, error) {
+			return facts.PackageFacts{Packages: []facts.PackageFact{{ImportPath: "example.com/overlap/member"}}}, nil
+		},
+		Analyzer: &mockAnalyzer{},
+	}
+
+	stdout, stderr, exitCode := runRunnerFromWorkspace(t, workspace, runner, []string{"check", manifestPath})
+	if exitCode != 1 {
+		t.Fatalf("Run() exit = %d, want violation 1; stdout = %q, stderr = %q", exitCode, stdout, stderr)
+	}
+	if stderr != "" {
+		t.Fatalf("stderr = %q, want empty", stderr)
+	}
+	for _, piece := range []string{"MEMBER_OVERLAP", "example.com/overlap/member", "example.com/overlap/*"} {
+		if !strings.Contains(stdout, piece) {
+			t.Errorf("stdout = %q, want %q", stdout, piece)
+		}
+	}
+}
+
 func TestRunner_Check_Success(t *testing.T) {
 	manifestContent := `
 name: "test-comp"
