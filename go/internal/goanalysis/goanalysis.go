@@ -16,6 +16,7 @@ import (
 	"go/token"
 	"go/types"
 	"os"
+	"path"
 	"path/filepath"
 	"reflect"
 	"sort"
@@ -27,6 +28,7 @@ import (
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/hostpolicy"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/manifest"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/packagelayout"
+	"golang.org/x/tools/go/callgraph"
 	"golang.org/x/tools/go/callgraph/vta"
 	"golang.org/x/tools/go/packages"
 	"golang.org/x/tools/go/ssa"
@@ -49,6 +51,7 @@ type LoadRequest struct {
 	ComponentRoot  string
 	Members        []string
 	InterfaceFiles []string
+	Absorbed       []string
 }
 
 // LoadPackageFacts loads Go package membership, direct-import, and standard-library facts
@@ -300,11 +303,14 @@ func LoadPackageFacts(req LoadRequest) (facts.PackageFacts, error) {
 		return callEdges[i].Callee < callEdges[j].Callee
 	})
 
+	escapes := scanFuncValueEscapes(prog, cg, isEffectiveMember, req.Absorbed, componentRoot)
+
 	res := facts.PackageFacts{
 		Packages:          factsPkgs,
 		CallEdges:         callEdges,
 		StdlibImports:     stdlibImports,
 		UnresolvedImports: unresolvedImports,
+		FuncValueEscapes:  escapes,
 	}
 
 	if len(factsPkgs) > 0 {
@@ -1663,4 +1669,210 @@ func packageSourceFiles(p *packages.Package) []string {
 	}
 	sort.Strings(files)
 	return files
+}
+
+func scanFuncValueEscapes(
+	prog *ssa.Program,
+	cg *callgraph.Graph,
+	isEffectiveMember func(string) bool,
+	absorbedPatterns []string,
+	componentRoot string,
+) []facts.FuncValueEscape {
+	if len(absorbedPatterns) == 0 {
+		return []facts.FuncValueEscape{}
+	}
+
+	isStdlib := stdlibClassifier()
+
+	isAbsorbed := func(pkgPath string) bool {
+		canonPkg := hostpolicy.CanonicalizePath(pkgPath)
+		for _, pattern := range absorbedPatterns {
+			matched, err := path.Match(pattern, canonPkg)
+			if err == nil && matched {
+				return true
+			}
+		}
+		return false
+	}
+
+	isReachedFromMember := func(fn *ssa.Function) bool {
+		node := cg.Nodes[fn]
+		if node == nil {
+			return false
+		}
+		for _, edge := range node.In {
+			if edge.Caller == nil || edge.Caller.Func == nil {
+				continue
+			}
+			callerPkg := hostpolicy.CanonicalizePath(getFuncPackagePath(edge.Caller.Func))
+			if isEffectiveMember(callerPkg) {
+				return true
+			}
+		}
+		return false
+	}
+
+	getRelFile := func(pos token.Pos) string {
+		position := prog.Fset.Position(pos)
+		absPath := position.Filename
+		if absPath == "" {
+			return ""
+		}
+		var rootDir string
+		if packagelayout.IsLayoutMode() {
+			rootDir = packagelayout.GetActiveWorkspaceDir()
+		} else {
+			rootDir = componentRoot
+		}
+		relPath, err := filepath.Rel(rootDir, absPath)
+		if err != nil {
+			return ""
+		}
+		return filepath.ToSlash(filepath.Clean(relPath))
+	}
+
+	type escapeKey struct {
+		Symbol  string
+		Package string
+		File    string
+		Line    int
+	}
+	seen := make(map[escapeKey]bool)
+	var escapes []facts.FuncValueEscape
+
+	allFuncs := ssautil.AllFunctions(prog)
+	for fn := range allFuncs {
+		if fn == nil {
+			continue
+		}
+		// Scan only functions whose package is an effective member (Requirement 4)
+		pkgPath := hostpolicy.CanonicalizePath(getFuncPackagePath(fn))
+		if !isEffectiveMember(pkgPath) {
+			continue
+		}
+
+		for _, block := range fn.Blocks {
+			if block == nil {
+				continue
+			}
+			for _, instr := range block.Instrs {
+				if instr == nil {
+					continue
+				}
+
+				var callCommon *ssa.CallCommon
+				switch s := instr.(type) {
+				case *ssa.Call:
+					callCommon = &s.Call
+				case *ssa.Go:
+					callCommon = &s.Call
+				case *ssa.Defer:
+					callCommon = &s.Call
+				}
+
+				var rarray [3]*ssa.Value
+				for _, op := range instr.Operands(rarray[:0]) {
+					if op == nil || *op == nil {
+						continue
+					}
+
+					// Exclude the static callee position of a call (Requirement 6)
+					if callCommon != nil && !callCommon.IsInvoke() && op == &callCommon.Value {
+						continue
+					}
+
+					val := *op
+					fnVal, ok := val.(*ssa.Function)
+					if !ok {
+						continue
+					}
+
+					// Resolve the defining package via the function's object (Requirement 7)
+					defPkg := resolveDefiningPackage(fnVal)
+					if defPkg == "" {
+						continue
+					}
+
+					// Report only when the resolved defining package is absorbed.
+					// A defining package that is a member, standard library, or unresolvable produces nothing (Requirement 8)
+					if isEffectiveMember(defPkg) {
+						continue
+					}
+					if isStdlib(defPkg, nil) {
+						continue
+					}
+					if !isAbsorbed(defPkg) {
+						continue
+					}
+
+					// Suppress when the call graph already reaches the function from member code (Requirement 9)
+					if isReachedFromMember(fnVal) {
+						continue
+					}
+
+					// Record the referencing site's File and Line (Requirement 10)
+					pos := instr.Pos()
+					if pos == token.NoPos && instr.Parent() != nil {
+						pos = instr.Parent().Pos()
+					}
+					var file string
+					var line int
+					if pos != token.NoPos {
+						file = getRelFile(pos)
+						line = prog.Fset.Position(pos).Line
+					}
+
+					key := escapeKey{
+						Symbol:  string(getFuncSymbol(fnVal)),
+						Package: pkgPath,
+						File:    file,
+						Line:    line,
+					}
+					if !seen[key] {
+						seen[key] = true
+						escapes = append(escapes, facts.FuncValueEscape{
+							Symbol:  key.Symbol,
+							Package: key.Package,
+							File:    key.File,
+							Line:    key.Line,
+						})
+					}
+				}
+			}
+		}
+	}
+
+	sort.Slice(escapes, func(i, j int) bool {
+		if escapes[i].Symbol != escapes[j].Symbol {
+			return escapes[i].Symbol < escapes[j].Symbol
+		}
+		if escapes[i].Package != escapes[j].Package {
+			return escapes[i].Package < escapes[j].Package
+		}
+		if escapes[i].File != escapes[j].File {
+			return escapes[i].File < escapes[j].File
+		}
+		return escapes[i].Line < escapes[j].Line
+	})
+
+	return escapes
+}
+
+func resolveDefiningPackage(fn *ssa.Function) string {
+	if fn == nil {
+		return ""
+	}
+	var obj types.Object
+	if fn.Origin() != nil {
+		obj = fn.Origin().Object()
+	} else {
+		obj = fn.Object()
+	}
+	if obj != nil && obj.Pkg() != nil {
+		return obj.Pkg().Path()
+	}
+	if fn.Pkg != nil && fn.Pkg.Pkg != nil {
+		return fn.Pkg.Pkg.Path()
+	}
+	return ""
 }

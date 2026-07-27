@@ -706,3 +706,52 @@ func TestLoadPackageFacts_DeclaredMemberWithNoSourceFails(t *testing.T) {
 		t.Fatalf("LoadPackageFacts() error = %v, want %q and no-source context", err, member)
 	}
 }
+
+func TestLoadPackageFacts_FuncValueEscapes(t *testing.T) {
+	root, err := filepath.Abs("testdata/escapes")
+	if err != nil {
+		t.Fatalf("failed to get absolute path to testdata/escapes: %v", err)
+	}
+
+	// We declare 'member' as a member, and 'absorbed' as an absorbed dependency pattern.
+	req := goanalysis.LoadRequest{
+		ComponentRoot: root,
+		Members:       []string{"github.com/ono-sendai-labs/architectural-contracts/go/internal/goanalysis/testdata/escapes/member"},
+		Absorbed:      []string{"github.com/ono-sendai-labs/architectural-contracts/go/internal/goanalysis/testdata/escapes/absorbed"},
+	}
+
+	res, err := goanalysis.LoadPackageFacts(req)
+	if err != nil {
+		t.Fatalf("unexpected error loading package facts: %v", err)
+	}
+
+	// Let's assert on the escapes produced!
+	// We expect exactly two escapes:
+	// 1. Symbol: "(*github.com/ono-sendai-labs/architectural-contracts/go/internal/goanalysis/testdata/escapes/absorbed.Backend).Read$bound"
+	//    Package: "github.com/ono-sendai-labs/architectural-contracts/go/internal/goanalysis/testdata/escapes/member"
+	//    File: "member/member.go"
+	//    Line: 17
+	// 2. Symbol: "github.com/ono-sendai-labs/architectural-contracts/go/internal/goanalysis/testdata/escapes/absorbed.Save"
+	//    Package: "github.com/ono-sendai-labs/architectural-contracts/go/internal/goanalysis/testdata/escapes/member"
+	//    File: "member/member.go"
+	//    Line: 10
+
+	if len(res.FuncValueEscapes) != 2 {
+		t.Fatalf("expected exactly 2 escapes, got %d: %+v", len(res.FuncValueEscapes), res.FuncValueEscapes)
+	}
+
+	esc1 := res.FuncValueEscapes[0]
+	esc2 := res.FuncValueEscapes[1]
+
+	wantSymbol1 := "(*github.com/ono-sendai-labs/architectural-contracts/go/internal/goanalysis/testdata/escapes/absorbed.Backend).Read$bound"
+	wantSymbol2 := "github.com/ono-sendai-labs/architectural-contracts/go/internal/goanalysis/testdata/escapes/absorbed.Save"
+	wantPkg := "github.com/ono-sendai-labs/architectural-contracts/go/internal/goanalysis/testdata/escapes/member"
+
+	if esc1.Symbol != wantSymbol1 || esc1.Package != wantPkg || esc1.File != "member/member.go" || esc1.Line != 17 {
+		t.Errorf("escape 1 mismatch: got %+v, want symbol %q, pkg %q, file \"member/member.go\", line 17", esc1, wantSymbol1, wantPkg)
+	}
+
+	if esc2.Symbol != wantSymbol2 || esc2.Package != wantPkg || esc2.File != "member/member.go" || esc2.Line != 10 {
+		t.Errorf("escape 2 mismatch: got %+v, want symbol %q, pkg %q, file \"member/member.go\", line 10", esc2, wantSymbol2, wantPkg)
+	}
+}

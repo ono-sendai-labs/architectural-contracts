@@ -11,6 +11,7 @@ go_library(
         "//go/internal/hostpolicy",
         "//go/internal/manifest",
         "//go/internal/packagelayout",
+        "@org_golang_x_tools//go/callgraph",
         "@org_golang_x_tools//go/callgraph/vta",
         "@org_golang_x_tools//go/packages",
         "@org_golang_x_tools//go/ssa",

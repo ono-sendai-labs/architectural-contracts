@@ -33,6 +33,11 @@ type PackageFacts struct {
 	// filtering but did not resolve to a layout or SDK package. The loader owns
 	// this observation; the pure checker renders it as an analysis limitation.
 	UnresolvedImports []UnresolvedImport
+
+	// FuncValueEscapes records member code taking the value of a function defined in
+	// an absorbed package. The body is analyzed by nobody — the component does not
+	// call it, and whoever does is behind a boundary.
+	FuncValueEscapes []FuncValueEscape
 }
 
 // UnresolvedImport is a pure observation of an import edge that the loader
@@ -82,4 +87,14 @@ type DependencyInterface struct {
 	Component string
 	Packages  []string                      // all packages under the dependency's component root (derived, not declared)
 	Symbols   []capanalyzer.InterfaceSymbol // the FR4 symbol set (derived, not declared)
+}
+
+// FuncValueEscape records member code taking the value of a function defined in
+// an absorbed package. The body is analyzed by nobody — the component does not
+// call it, and whoever does is behind a boundary.
+type FuncValueEscape struct {
+	Symbol  string // the absorbed function in canonical Capslock/go-types key form
+	Package string // the member package that referenced it
+	File    string
+	Line    int
 }

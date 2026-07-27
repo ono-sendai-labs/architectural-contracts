@@ -163,10 +163,15 @@ func (r *Runner) runCheck(manifestPath string, formatJSON bool, stdout, stderr i
 	}
 
 	// 3. Load facts for that root
+	var absorbed []string
+	for _, ad := range parsedManifest.AbsorbedDependencies {
+		absorbed = append(absorbed, ad.ImportPath)
+	}
 	loadedFacts, err := r.Loader(goanalysis.LoadRequest{
 		ComponentRoot:  componentRoot,
 		Members:        parsedManifest.Members,
 		InterfaceFiles: parsedManifest.InterfaceFiles,
+		Absorbed:       absorbed,
 	})
 	if err != nil {
 		fmt.Fprintf(stderr, "error: failed to load package facts: %v\n", err)

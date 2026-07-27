@@ -21,6 +21,10 @@ absorbed_dependencies {
   reason: "Package layout driver and loading helpers"
 }
 absorbed_dependencies {
+  import_path: "golang.org/x/tools/go/callgraph"
+  reason: "Callgraph data structures"
+}
+absorbed_dependencies {
   import_path: "golang.org/x/tools/go/callgraph/vta"
   reason: "VTA callgraph construction"
 }
