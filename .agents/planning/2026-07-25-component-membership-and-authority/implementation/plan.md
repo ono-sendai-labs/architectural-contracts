@@ -12,7 +12,7 @@ Requirement IDs (M*, A*, T*, B*) refer to §2 of the design.
 - [x] **Step 2** — Attribution follows ownership: members are roots, `INIT_OUTSIDE_INTERFACE` removed (A1, A2, A3)
 - [x] **Step 3** — The analysis platform becomes declared data, and layouts are held to it (T1, T2, T8, T8a)
 - [x] **Step 4** — Interface-file constraint reporting and report wording (T3, T7)
-- [ ] **Step 5** — Classification and canonicalization made fail-closed (T4, T4a, T5, T6)
+- [x] **Step 5** — Classification and canonicalization made fail-closed (T4, T4a, T5, T6)
 - [ ] **Step 6** — Bazel: adapter seam additions, `members` and `interface_style` attributes (B1, emitter half of T2)
 - [ ] **Step 7** — Bazel: declared classification, emission, and example migration (M4, M6, M7)
 - [ ] **Step 8** — The absorbed func-value escape warning (A5)
