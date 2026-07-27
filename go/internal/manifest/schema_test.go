@@ -91,7 +91,23 @@ declared_authority: "FILES"
 	if component.GetName() != "legacy" || !reflect.DeepEqual(component.GetInterfaceFiles(), []string{"legacy.go"}) {
 		t.Fatalf("legacy component fields changed: %v", &component)
 	}
-	if len(component.GetComponentDependencies()) != 1 || component.GetComponentDependencies()[0].GetAutoAttached() {
+	dependencies := component.GetComponentDependencies()
+	if len(dependencies) != 1 {
 		t.Fatalf("legacy dependency fields changed: %v", component.GetComponentDependencies())
+	}
+	dependency := dependencies[0]
+	if dependency.GetName() != "dependency" || dependency.GetManifest() != "../dependency/component.textproto" || dependency.GetAutoAttached() {
+		t.Fatalf("legacy dependency fields changed: %v", dependency)
+	}
+	absorbedDependencies := component.GetAbsorbedDependencies()
+	if len(absorbedDependencies) != 1 {
+		t.Fatalf("legacy absorbed dependencies changed: %v", absorbedDependencies)
+	}
+	absorbed := absorbedDependencies[0]
+	if absorbed.GetImportPath() != "example.com/absorbed" || absorbed.GetReason() != "implementation detail" {
+		t.Fatalf("legacy absorbed dependency changed: %v", absorbed)
+	}
+	if !reflect.DeepEqual(component.GetDeclaredAuthority(), []string{"FILES"}) {
+		t.Fatalf("legacy declared authority changed: %v", component.GetDeclaredAuthority())
 	}
 }
