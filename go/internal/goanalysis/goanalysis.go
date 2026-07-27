@@ -8,9 +8,11 @@
 package goanalysis
 
 import (
+	"bufio"
 	"fmt"
 	"go/ast"
 	"go/build"
+	"go/build/constraint"
 	"go/token"
 	"go/types"
 	"os"
@@ -554,9 +556,20 @@ func extractSymbols(p *packages.Package, componentRoot string) ([]facts.Exported
 	return symbols, nil
 }
 
+// InterfaceFileExclusion records a declared interface file that the active
+// analysis build context excludes. Constraint is a stable, human-readable
+// description of the build expression or filename constraint that caused the
+// exclusion. It deliberately contains no report-layer types.
+type InterfaceFileExclusion struct {
+	File       string
+	Constraint string
+}
+
 // ValidateInterfaceFiles verifies that each interface_files path exists, is relative,
-// does not escape, is a regular file, and belongs to a loaded Go package beneath componentRoot.
-func ValidateInterfaceFiles(componentRoot string, interfaceFiles []string, loaded facts.PackageFacts) error {
+// does not escape, is a regular file, and belongs to a loaded Go package beneath
+// componentRoot. It returns build-constraint exclusions separately so callers can
+// report them without making the loader depend on the report package.
+func ValidateInterfaceFiles(componentRoot string, interfaceFiles []string, loaded facts.PackageFacts) ([]InterfaceFileExclusion, error) {
 	var sourceFiles map[string]bool
 	if len(loaded.Packages) > 0 {
 		ptr := reflect.ValueOf(loaded.Packages).Pointer()
@@ -574,18 +587,20 @@ func ValidateInterfaceFiles(componentRoot string, interfaceFiles []string, loade
 		var err error
 		bctx, err = packagelayout.BuildContextForLayout(packagelayout.GetActiveLayout())
 		if err != nil {
-			return err
+			return nil, err
 		}
 	}
 
+	var exclusions []InterfaceFileExclusion
+	surviving := 0
 	for _, f := range interfaceFiles {
 		if filepath.IsAbs(f) {
-			return fmt.Errorf("interface file %q is absolute: all interface_files must be relative", f)
+			return nil, fmt.Errorf("interface file %q is absolute: all interface_files must be relative", f)
 		}
 
 		cleaned := filepath.Clean(f)
 		if strings.HasPrefix(cleaned, "..") {
-			return fmt.Errorf("interface file %q escapes the component root", f)
+			return nil, fmt.Errorf("interface file %q escapes the component root", f)
 		}
 		cleanedSlash := filepath.ToSlash(cleaned)
 
@@ -593,29 +608,123 @@ func ValidateInterfaceFiles(componentRoot string, interfaceFiles []string, loade
 		info, err := os.Stat(absPath)
 		if err != nil {
 			if os.IsNotExist(err) {
-				return fmt.Errorf("interface file %q does not exist", f)
+				return nil, fmt.Errorf("interface file %q does not exist", f)
 			}
-			return fmt.Errorf("failed to check interface file %q: %w", f, err)
+			return nil, fmt.Errorf("failed to check interface file %q: %w", f, err)
 		}
 		if !info.Mode().IsRegular() {
-			return fmt.Errorf("interface file %q is not a regular file", f)
+			return nil, fmt.Errorf("interface file %q is not a regular file", f)
 		}
 
 		if sourceFiles == nil || !sourceFiles[cleanedSlash] {
-			// A declared interface file that exists on disk but is absent from
-			// the loaded package was excluded by build constraints for the
-			// analysis platform (e.g. a //go:build-gated or _GOOS.go interface
-			// file, as when wrapping a cross-platform library). It is not part
-			// of the surface analyzed on this platform, so skip it; only a file
-			// that should compile here yet is missing is an error.
 			if !packagelayout.FileMatchesBuildConstraintsWithContext(absPath, bctx) {
+				exclusions = append(exclusions, InterfaceFileExclusion{
+					File:       cleanedSlash,
+					Constraint: describeInterfaceFileConstraint(absPath),
+				})
 				continue
 			}
-			return fmt.Errorf("interface file %q does not belong to any loaded Go package under component root", f)
+			return nil, fmt.Errorf("interface file %q does not belong to any loaded Go package under component root", f)
 		}
+		surviving++
 	}
 
-	return nil
+	sort.Slice(exclusions, func(i, j int) bool {
+		if exclusions[i].File != exclusions[j].File {
+			return exclusions[i].File < exclusions[j].File
+		}
+		return exclusions[i].Constraint < exclusions[j].Constraint
+	})
+	if len(interfaceFiles) > 0 && surviving == 0 {
+		var details []string
+		for _, exclusion := range exclusions {
+			details = append(details, fmt.Sprintf("%q (%s)", exclusion.File, exclusion.Constraint))
+		}
+		return exclusions, fmt.Errorf("no interface file survives the analysis platform; excluded files: %s", strings.Join(details, "; "))
+	}
+
+	return exclusions, nil
+}
+
+// describeInterfaceFileConstraint extracts the stable constraint form that is
+// useful to a human reviewing a warning. MatchFile remains the authoritative
+// verdict; failures while reading the file are intentionally not converted into
+// exclusions by FileMatchesBuildConstraintsWithContext.
+func describeInterfaceFileConstraint(path string) string {
+	if line := leadingBuildConstraint(path); line != "" {
+		return line
+	}
+	if suffix := filenameBuildConstraint(filepath.Base(path)); suffix != "" {
+		return suffix
+	}
+	return fmt.Sprintf("filename/build constraint in %q", filepath.Base(path))
+}
+
+func leadingBuildConstraint(path string) string {
+	file, err := os.Open(path)
+	if err != nil {
+		return ""
+	}
+	defer file.Close()
+
+	var legacy string
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" {
+			continue
+		}
+		if strings.HasPrefix(line, "//") {
+			if constraint.IsGoBuild(line) {
+				if _, err := constraint.Parse(line); err == nil {
+					return strings.Join(strings.Fields(line), " ")
+				}
+			}
+			if constraint.IsPlusBuild(line) && legacy == "" {
+				if _, err := constraint.Parse(line); err == nil {
+					legacy = strings.Join(strings.Fields(line), " ")
+				}
+			}
+			continue
+		}
+		break
+	}
+	return legacy
+}
+
+func filenameBuildConstraint(name string) string {
+	if !strings.HasSuffix(name, ".go") {
+		return ""
+	}
+	base := strings.TrimSuffix(name, ".go")
+	base = strings.TrimSuffix(base, "_test")
+	parts := strings.Split(base, "_")
+	if len(parts) < 2 {
+		return ""
+	}
+	knownOS := map[string]bool{
+		"aix": true, "android": true, "darwin": true, "dragonfly": true,
+		"freebsd": true, "illumos": true, "ios": true, "js": true,
+		"linux": true, "netbsd": true, "openbsd": true, "plan9": true,
+		"solaris": true, "wasip1": true, "windows": true,
+	}
+	knownArch := map[string]bool{
+		"386": true, "amd64": true, "arm": true, "arm64": true, "loong64": true,
+		"mips": true, "mips64": true, "mips64le": true, "mipsle": true,
+		"ppc64": true, "ppc64le": true, "riscv64": true, "s390x": true,
+		"wasm": true,
+	}
+	last := parts[len(parts)-1]
+	if len(parts) >= 3 {
+		secondLast := parts[len(parts)-2]
+		if knownOS[secondLast] && knownArch[last] {
+			return fmt.Sprintf("filename suffix %q", "_"+secondLast+"_"+last+".go")
+		}
+	}
+	if knownOS[last] || knownArch[last] {
+		return fmt.Sprintf("filename suffix %q", "_"+last+".go")
+	}
+	return ""
 }
 
 // stripAllBrackets recursively removes all brackets and their contents from a string,
@@ -910,7 +1019,7 @@ func ResolveDependencyInterface(
 	}
 
 	// 8. Validate interface files
-	err = ValidateInterfaceFiles(cleanDepRoot, depManifest.InterfaceFiles, depPackageFacts)
+	_, err = ValidateInterfaceFiles(cleanDepRoot, depManifest.InterfaceFiles, depPackageFacts)
 	if err != nil {
 		return facts.DependencyInterface{}, fmt.Errorf("invalid interface files in dependency %q: %w", dep.Name, err)
 	}

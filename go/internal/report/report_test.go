@@ -1,10 +1,35 @@
 package report_test
 
 import (
+	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/report"
 )
+
+func TestInterfaceFileExcluded_SerializesStableKind(t *testing.T) {
+	rep := report.ConformanceReport{
+		Component: "component",
+		Warnings: []report.Finding{{
+			Kind:     report.InterfaceFileExcluded,
+			Message:  `interface file "api_windows.go" excluded by filename suffix "_windows.go"`,
+			Location: report.Location{File: "api_windows.go", Line: 1},
+		}},
+	}
+
+	rendered := report.RenderText(rep)
+	if !strings.Contains(rendered, "[INTERFACE_FILE_EXCLUDED]") {
+		t.Fatalf("RenderText() = %q, want stable warning kind", rendered)
+	}
+	data, err := json.Marshal(rep)
+	if err != nil {
+		t.Fatalf("json.Marshal() error = %v", err)
+	}
+	if !strings.Contains(string(data), `"kind":"INTERFACE_FILE_EXCLUDED"`) {
+		t.Fatalf("JSON = %s, want stable warning kind", data)
+	}
+}
 
 func TestRenderText_Conforms(t *testing.T) {
 	rep := report.ConformanceReport{

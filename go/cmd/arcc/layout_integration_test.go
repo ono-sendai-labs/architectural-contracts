@@ -522,6 +522,65 @@ func TestIntegration_LayoutMode_PlatformVariantsUseSameBinary(t *testing.T) {
 	}
 }
 
+func TestIntegration_LayoutMode_InterfaceExclusionFollowsDeclaredPlatform(t *testing.T) {
+	root, manifestPath, linuxLayout, windowsLayout, _ := createPlatformLayoutFixtures(t)
+	manifest := "name: \"platform-interface\"\ninterface_files: \"member/api_linux.go\"\ninterface_files: \"member/api_windows.go\"\nabsorbed_dependencies { import_path: \"example.com/linux\" }\nabsorbed_dependencies { import_path: \"example.com/windows\" }\n"
+	if err := os.WriteFile(manifestPath, []byte(manifest), 0o644); err != nil {
+		t.Fatalf("write manifest: %v", err)
+	}
+
+	origWd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("get working directory: %v", err)
+	}
+	if err := os.Chdir(root); err != nil {
+		t.Fatalf("change working directory: %v", err)
+	}
+	defer os.Chdir(origWd)
+
+	for _, tc := range []struct {
+		layoutPath string
+		file       string
+	}{
+		{layoutPath: linuxLayout, file: "member/api_windows.go"},
+		{layoutPath: windowsLayout, file: "member/api_linux.go"},
+	} {
+		textOutput, stderr, exitCode := runArccHermetic(t, []string{"check", manifestPath, "--package-layout=" + tc.layoutPath})
+		if exitCode != 0 || stderr != "" {
+			t.Fatalf("layout %s text check failed: exit=%d stderr=%q stdout=%q", tc.layoutPath, exitCode, stderr, textOutput)
+		}
+		if !strings.Contains(textOutput, "INTERFACE_FILE_EXCLUDED") || !strings.Contains(textOutput, tc.file) {
+			t.Fatalf("text output = %q, want exclusion for %s", textOutput, tc.file)
+		}
+
+		jsonOutput, stderr, exitCode := runArccHermetic(t, []string{"check", manifestPath, "--package-layout=" + tc.layoutPath, "--format=json"})
+		if exitCode != 0 || stderr != "" {
+			t.Fatalf("layout %s JSON check failed: exit=%d stderr=%q stdout=%q", tc.layoutPath, exitCode, stderr, jsonOutput)
+		}
+		var rendered report.ConformanceReport
+		if err := json.Unmarshal([]byte(jsonOutput), &rendered); err != nil {
+			t.Fatalf("decode JSON output %q: %v", jsonOutput, err)
+		}
+		var found bool
+		for _, warning := range rendered.Warnings {
+			if warning.Kind == report.InterfaceFileExcluded && warning.Location.File == tc.file {
+				found = true
+			}
+		}
+		if !found {
+			t.Fatalf("JSON report = %#v, want exclusion warning for %s", rendered, tc.file)
+		}
+	}
+
+	if err := os.WriteFile(manifestPath, []byte("name: \"all-gated\"\ninterface_files: \"member/api_linux.go\"\n"), 0o644); err != nil {
+		t.Fatalf("write all-gated manifest: %v", err)
+	}
+	_, stderr, exitCode := runArccHermetic(t, []string{"check", manifestPath, "--package-layout=" + windowsLayout})
+	if exitCode != 2 || !strings.Contains(stderr, "no interface file survives") || !strings.Contains(stderr, "member/api_linux.go") {
+		t.Fatalf("all-gated layout result: exit=%d stderr=%q, want fail-closed exclusion error", exitCode, stderr)
+	}
+}
+
 func TestIntegration_LayoutMode_ExcludedUnresolvedImportHasNoWarning(t *testing.T) {
 	root, manifestPath, linuxLayout, _, _ := createPlatformLayoutFixtures(t)
 	excluded := filepath.Join(root, "member", "api_windows.go")

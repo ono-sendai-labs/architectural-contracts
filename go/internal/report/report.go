@@ -28,6 +28,7 @@ const (
 	AllowedWithWarning      Kind = "ALLOWED_WITH_WARNING"
 	HigherOrderBoundaryCall Kind = "HIGHER_ORDER_BOUNDARY_CALL"
 	UnusedDependency        Kind = "UNUSED_DEPENDENCY"
+	InterfaceFileExcluded   Kind = "INTERFACE_FILE_EXCLUDED"
 )
 
 // String returns the string representation of the Kind.

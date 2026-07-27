@@ -3,9 +3,11 @@
 package goanalysis_test
 
 import (
+	"go/build"
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 	"syscall"
 	"testing"
@@ -296,7 +298,7 @@ func TestValidateInterfaceFiles(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := goanalysis.ValidateInterfaceFiles(root, tt.files, loaded)
+			_, err := goanalysis.ValidateInterfaceFiles(root, tt.files, loaded)
 			if tt.wantErr == "" {
 				if err != nil {
 					t.Errorf("unexpected error: %v", err)
@@ -309,6 +311,83 @@ func TestValidateInterfaceFiles(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestValidateInterfaceFiles_ReturnsDeterministicExclusions(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "go.mod"), []byte("module example.com/exclusions\n\ngo 1.21\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gatedExpression := "!" + runtime.GOOS
+	filenameGated := "a_windows.go"
+	if runtime.GOOS == "windows" {
+		filenameGated = "a_linux.go"
+	}
+	files := map[string]string{
+		"api.go":          "package exclusions\n",
+		"z_gated.go":      "//go:build " + gatedExpression + "\n\npackage exclusions\n",
+		"legacy_gated.go": "// +build " + gatedExpression + "\n\npackage exclusions\n",
+		filenameGated:     "package exclusions\n",
+	}
+	for name, contents := range files {
+		if err := os.WriteFile(filepath.Join(root, name), []byte(contents), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	loaded, err := loadPackageFacts(root)
+	if err != nil {
+		t.Fatalf("loadPackageFacts() error = %v", err)
+	}
+	exclusions, err := goanalysis.ValidateInterfaceFiles(root, []string{"z_gated.go", "legacy_gated.go", filenameGated, "api.go"}, loaded)
+	if err != nil {
+		t.Fatalf("ValidateInterfaceFiles() error = %v", err)
+	}
+	if len(exclusions) != 3 {
+		t.Fatalf("exclusions = %#v, want three exclusions", exclusions)
+	}
+	if exclusions[0].File != filenameGated || exclusions[1].File != "legacy_gated.go" || exclusions[2].File != "z_gated.go" {
+		t.Fatalf("exclusions = %#v, want stable file order", exclusions)
+	}
+	if exclusions[0].Constraint == "" || exclusions[1].Constraint == "" || exclusions[2].Constraint == "" {
+		t.Fatalf("exclusions = %#v, want specific constraints", exclusions)
+	}
+	if exclusions[1].Constraint != "// +build "+gatedExpression {
+		t.Errorf("legacy constraint = %q, want %q", exclusions[1].Constraint, "// +build "+gatedExpression)
+	}
+	if exclusions[2].Constraint != "//go:build "+gatedExpression {
+		t.Errorf("gated constraint = %q, want %q", exclusions[2].Constraint, "//go:build "+gatedExpression)
+	}
+
+	if matched, err := build.Default.MatchFile(root, "z_gated.go"); err != nil || matched {
+		t.Fatalf("build.Default.MatchFile() = (%v, %v), want (false, nil)", matched, err)
+	}
+}
+
+func TestValidateInterfaceFiles_AllExcludedFailsClosed(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "go.mod"), []byte("module example.com/all-excluded\n\ngo 1.21\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	file := "api_" + runtime.GOOS + ".go"
+	if err := os.WriteFile(filepath.Join(root, file), []byte("//go:build never\n\npackage excluded\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "keep.go"), []byte("package excluded\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := loadPackageFacts(root)
+	if err != nil {
+		t.Fatalf("loadPackageFacts() error = %v", err)
+	}
+
+	exclusions, err := goanalysis.ValidateInterfaceFiles(root, []string{file}, loaded)
+	if err == nil {
+		t.Fatalf("ValidateInterfaceFiles() error = nil, exclusions = %#v", exclusions)
+	}
+	if !strings.Contains(err.Error(), "no interface file survives") || !strings.Contains(err.Error(), file) || !strings.Contains(err.Error(), "never") {
+		t.Fatalf("ValidateInterfaceFiles() error = %q, want no-survivor file/constraint context", err)
 	}
 }
 
@@ -341,7 +420,7 @@ func TestValidateInterfaceFiles_RejectsNonRegularCachedPath(t *testing.T) {
 		t.Skipf("mkfifo not supported on this platform: %v", err)
 	}
 
-	err = goanalysis.ValidateInterfaceFiles(root, []string{"a/a.go"}, loaded)
+	_, err = goanalysis.ValidateInterfaceFiles(root, []string{"a/a.go"}, loaded)
 	if err == nil {
 		t.Fatalf("expected error for non-regular cached path, got nil")
 	}
@@ -364,7 +443,7 @@ func TestVerticalSliceVerdict(t *testing.T) {
 
 	// 2. Validate fixture interface files
 	interfaceFiles := []string{"a/a.go", "a/api.go", "a/types.go", "a/init.go"}
-	err = goanalysis.ValidateInterfaceFiles(root, interfaceFiles, loadedFacts)
+	_, err = goanalysis.ValidateInterfaceFiles(root, interfaceFiles, loadedFacts)
 	if err != nil {
 		t.Fatalf("failed to validate interface files: %v", err)
 	}
@@ -464,12 +543,12 @@ func TestValidateInterfaceFiles_UsesCachedMembership(t *testing.T) {
 	}
 
 	// Prove that extra.go is STILL accepted because it exists on disk AND is in the cache
-	if err := goanalysis.ValidateInterfaceFiles(tmp, []string{"extra.go"}, loaded); err != nil {
+	if _, err := goanalysis.ValidateInterfaceFiles(tmp, []string{"extra.go"}, loaded); err != nil {
 		t.Errorf("expected extra.go to be accepted, got: %v", err)
 	}
 
 	// Prove that main.go is rejected because it does not exist on disk
-	err = goanalysis.ValidateInterfaceFiles(tmp, []string{"main.go"}, loaded)
+	_, err = goanalysis.ValidateInterfaceFiles(tmp, []string{"main.go"}, loaded)
 	if err == nil {
 		t.Errorf("expected main.go to be rejected (does not exist), got nil")
 	} else if !strings.Contains(err.Error(), "does not exist") {
@@ -477,7 +556,7 @@ func TestValidateInterfaceFiles_UsesCachedMembership(t *testing.T) {
 	}
 
 	// Prove that other.go is rejected because it was not in the original loaded membership
-	err = goanalysis.ValidateInterfaceFiles(tmp, []string{"other.go"}, loaded)
+	_, err = goanalysis.ValidateInterfaceFiles(tmp, []string{"other.go"}, loaded)
 	if err == nil {
 		t.Errorf("expected other.go to be rejected (not in loaded membership), got nil")
 	} else if !strings.Contains(err.Error(), "does not belong to any loaded Go package") {
@@ -514,7 +593,7 @@ func TestGenericReceiverMethodOutsideInterfaceIsDetected(t *testing.T) {
 	}
 
 	interfaceFiles := []string{"types.go"}
-	if err := goanalysis.ValidateInterfaceFiles(tmp, interfaceFiles, loadedFacts); err != nil {
+	if _, err := goanalysis.ValidateInterfaceFiles(tmp, interfaceFiles, loadedFacts); err != nil {
 		t.Fatalf("failed to validate interface files: %v", err)
 	}
 

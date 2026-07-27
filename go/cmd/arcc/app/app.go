@@ -174,7 +174,8 @@ func (r *Runner) runCheck(manifestPath string, formatJSON bool, stdout, stderr i
 	}
 
 	// 4. Validate every declared interface file with goanalysis.ValidateInterfaceFiles
-	if err := goanalysis.ValidateInterfaceFiles(componentRoot, parsedManifest.InterfaceFiles, loadedFacts); err != nil {
+	interfaceExclusions, err := goanalysis.ValidateInterfaceFiles(componentRoot, parsedManifest.InterfaceFiles, loadedFacts)
+	if err != nil {
 		fmt.Fprintf(stderr, "error: failed to validate interface files: %v\n", err)
 		return 2
 	}
@@ -234,6 +235,22 @@ func (r *Runner) runCheck(manifestPath string, formatJSON bool, stdout, stderr i
 	}
 
 	conformanceReport := checker.Check(inputs)
+	for _, exclusion := range interfaceExclusions {
+		conformanceReport.Warnings = append(conformanceReport.Warnings, report.Finding{
+			Kind:    report.InterfaceFileExcluded,
+			Message: fmt.Sprintf("interface file %q excluded by %s", exclusion.File, exclusion.Constraint),
+			Location: report.Location{
+				File: exclusion.File,
+				Line: 1,
+			},
+		})
+	}
+	sort.SliceStable(conformanceReport.Warnings, func(i, j int) bool {
+		if conformanceReport.Warnings[i].Message != conformanceReport.Warnings[j].Message {
+			return conformanceReport.Warnings[i].Message < conformanceReport.Warnings[j].Message
+		}
+		return conformanceReport.Warnings[i].Kind < conformanceReport.Warnings[j].Kind
+	})
 
 	// 7. Format output
 	if formatJSON {

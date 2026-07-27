@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -202,6 +203,74 @@ interface_files: "api.go"
 	}
 	if len(analyzer.calledWith.PruneAt) != 0 {
 		t.Errorf("analyzer called with PruneAt %v, want empty", analyzer.calledWith.PruneAt)
+	}
+}
+
+func TestRunner_Check_InterfaceFileExclusion_WarnsInTextAndJSON(t *testing.T) {
+	falseExpression := "!" + runtime.GOOS
+	manifestContent := `
+name: "excluded-interface"
+interface_files: "api.go"
+interface_files: "gated.go"
+`
+	files := map[string]string{
+		"api.go":   "package main\n\nfunc Hello() {}\n",
+		"gated.go": "//go:build " + falseExpression + "\n\npackage main\n\nfunc Gated() {}\n",
+	}
+	_, manifestPath := createTempComponent(t, "excluded-interface", manifestContent, files)
+	runner := &app.Runner{
+		Loader:   func(req goanalysis.LoadRequest) (facts.PackageFacts, error) { return goanalysis.LoadPackageFacts(req) },
+		Analyzer: &mockAnalyzer{},
+	}
+
+	for _, args := range [][]string{{"check", manifestPath}, {"check", manifestPath, "--format=json"}} {
+		var stdout, stderr bytes.Buffer
+		if got := runner.Run(args, &stdout, &stderr); got != 0 {
+			t.Fatalf("Run(%v) exit = %d, stderr = %q, stdout = %q", args, got, stderr.String(), stdout.String())
+		}
+		if !strings.Contains(stdout.String(), "INTERFACE_FILE_EXCLUDED") || !strings.Contains(stdout.String(), "gated.go") || !strings.Contains(stdout.String(), falseExpression) {
+			t.Fatalf("Run(%v) stdout = %q, want exclusion warning", args, stdout.String())
+		}
+		if stderr.Len() != 0 {
+			t.Fatalf("Run(%v) stderr = %q, want empty", args, stderr.String())
+		}
+	}
+
+	var stdout, stderr bytes.Buffer
+	if got := runner.Run([]string{"check", manifestPath, "--format=json"}, &stdout, &stderr); got != 0 {
+		t.Fatalf("JSON Run() exit = %d, stderr = %q", got, stderr.String())
+	}
+	var rendered report.ConformanceReport
+	if err := json.Unmarshal(stdout.Bytes(), &rendered); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v; output = %q", err, stdout.String())
+	}
+	if len(rendered.Violations) != 0 || len(rendered.Warnings) != 1 || rendered.Warnings[0].Kind != report.InterfaceFileExcluded {
+		t.Fatalf("rendered report = %#v, want one exclusion warning and no violations", rendered)
+	}
+}
+
+func TestRunner_Check_InterfaceFilesAllExcludedFailsClosed(t *testing.T) {
+	falseExpression := "!" + runtime.GOOS
+	manifestContent := `
+name: "all-excluded-interface"
+interface_files: "gated.go"
+`
+	files := map[string]string{
+		"keep.go":  "package main\n\nfunc Keep() {}\n",
+		"gated.go": "//go:build " + falseExpression + "\n\npackage main\n\nfunc Gated() {}\n",
+	}
+	_, manifestPath := createTempComponent(t, "all-excluded-interface", manifestContent, files)
+	runner := &app.Runner{
+		Loader:   func(req goanalysis.LoadRequest) (facts.PackageFacts, error) { return goanalysis.LoadPackageFacts(req) },
+		Analyzer: &mockAnalyzer{},
+	}
+
+	var stdout, stderr bytes.Buffer
+	if got := runner.Run([]string{"check", manifestPath}, &stdout, &stderr); got != 2 {
+		t.Fatalf("Run() exit = %d, want tool error 2; stdout = %q, stderr = %q", got, stdout.String(), stderr.String())
+	}
+	if stdout.Len() != 0 || !strings.Contains(stderr.String(), "no interface file survives") || !strings.Contains(stderr.String(), "gated.go") || !strings.Contains(stderr.String(), falseExpression) {
+		t.Fatalf("stdout = %q, stderr = %q, want fail-closed exclusion context", stdout.String(), stderr.String())
 	}
 }
 
