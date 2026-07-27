@@ -14,6 +14,10 @@ bazel_dep(name = "rules_go", version = "0.61.1")
 bazel_dep(name = "gazelle", version = "0.51.3")
 bazel_dep(name = "rules_shell", version = "0.8.0")
 
+# Used only by the Bazel analysis fixture that proves target-platform
+# extraction is independent of the execution SDK platform.
+bazel_dep(name = "platforms", version = "1.1.0", dev_dependency = True)
+
 # Analysis tests for the rules themselves; consumers never need it.
 bazel_dep(name = "rules_testing", version = "0.9.0", dev_dependency = True)
 

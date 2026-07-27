@@ -65,6 +65,45 @@ def go_build_platform(target):
         cgo_enabled = not mode.pure,
     )
 
+def go_attach_infra(target, infra):
+    """Reports whether an infrastructure component should attach to `target`.
+
+    `target` is the Go target being wrapped and `infra` is one entry from
+    `INFRA_COMPONENTS`. A host may inspect either input when its analysis-phase
+    graph exposes the relevant injected packages. Returning True
+    unconditionally is also conforming: hosts that cannot observe
+    toolchain-injected packages during analysis cannot evaluate a closure-based
+    predicate for those packages, and package-level pruning is a no-op until
+    the package is reached.
+    """
+    return True
+
+# Infrastructure components are intentionally empty for the upstream ruleset.
+# Hosts replace this registry with entries shaped like the examples below.
+# A concrete component label can be attached when the infrastructure target is
+# addressable:
+#
+#   struct(
+#       name = "runtime",
+#       component = "//toolchain/runtime:component",
+#       import_path_patterns = [],
+#   )
+#
+# A visibility-gated runtime can instead be described without turning its
+# packages into Bazel labels:
+#
+#   struct(
+#       name = "injected_runtime",
+#       component = None,
+#       import_path_patterns = ["example.com/toolchain/runtime/..."],
+#   )
+#
+# `name`, `component`, and `import_path_patterns` are the fields Step 9 uses
+# to name the attached component and its package-surface membership. Keeping
+# the examples commented means existing upstream components acquire no new
+# dependency until a host supplies a real registry entry.
+INFRA_COMPONENTS = []
+
 def go_library_srcs(target):
     """The compiled, build-constraint-filtered sources of a Go library target.
 

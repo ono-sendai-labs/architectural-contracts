@@ -8,8 +8,10 @@ diamonds, and the standard library.
 load("@rules_testing//lib:analysis_test.bzl", "analysis_test", "test_suite")
 load("//bazel_rules/go:providers.bzl", "ArccPackageInfo")
 load("//bazel_rules/go/private:aspect.bzl", "merge_by_importpath")
+load("//bazel_rules/go/tests:probe.bzl", "ArccGoPlatformInfo")
 
 _PROBE = "//bazel_rules/go/tests/testdata:api_closure"
+_PLATFORM_PROBE = "//bazel_rules/go/tests/testdata:go_platform_probe"
 
 def _merged(target):
     return merge_by_importpath(target[ArccPackageInfo].packages.to_list())
@@ -117,6 +119,34 @@ def _no_cgo_in_a_pure_go_closure_impl(env, target):
         env.expect.that_bool(pkg.cgo).equals(False)
         env.expect.that_str(pkg.importpath).equals(importpath)
 
+def _go_build_platform_uses_target_mode_test(name):
+    analysis_test(
+        name = name,
+        target = _PLATFORM_PROBE,
+        impl = _go_build_platform_uses_target_mode_impl,
+        attr_values = {"size": "small"},
+    )
+
+def _go_build_platform_uses_target_mode_impl(env, target):
+    platform = target[ArccGoPlatformInfo]
+    env.expect.that_str(platform.goos).equals("darwin")
+    env.expect.that_str(platform.goarch).equals("arm64")
+    env.expect.that_collection(platform.tags).contains_exactly(["adapter_probe"])
+    env.expect.that_bool(platform.cgo_enabled).equals(False)
+
+def _go_attach_infra_is_conforming_by_default_test(name):
+    analysis_test(
+        name = name,
+        target = _PLATFORM_PROBE,
+        impl = _go_attach_infra_is_conforming_by_default_impl,
+        attr_values = {"size": "small"},
+    )
+
+def _go_attach_infra_is_conforming_by_default_impl(env, target):
+    platform = target[ArccGoPlatformInfo]
+    env.expect.that_bool(platform.infra_attached).equals(True)
+    env.expect.that_collection(platform.registry).contains_exactly([])
+
 def arcc_deps_aspect_test_suite(name):
     test_suite(
         name = name,
@@ -126,5 +156,7 @@ def arcc_deps_aspect_test_suite(name):
             _embedded_srcs_merge_into_the_embedder_test,
             _embed_only_dependency_is_reached_test,
             _no_cgo_in_a_pure_go_closure_test,
+            _go_build_platform_uses_target_mode_test,
+            _go_attach_infra_is_conforming_by_default_test,
         ],
     )

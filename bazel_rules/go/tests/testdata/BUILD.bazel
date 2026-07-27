@@ -9,10 +9,29 @@
 # The sources are not part of the `go/` Go module and are never built by
 # `go build ./...`; they exist only as inputs to the analysis tests.
 
-load("//bazel_rules/go/tests:probe.bzl", "arcc_closure_probe")
+load(
+    "//bazel_rules/go/tests:probe.bzl",
+    "arcc_closure_probe",
+    "go_platform_probe",
+)
+
+platform(
+    name = "darwin_arm64",
+    constraint_values = [
+        "@platforms//cpu:arm64",
+        "@platforms//os:macos",
+    ],
+    visibility = ["//bazel_rules:__subpackages__"],
+)
 
 arcc_closure_probe(
     name = "api_closure",
     interface = "//bazel_rules/go/tests/testdata/api",
+    visibility = ["//bazel_rules:__subpackages__"],
+)
+
+go_platform_probe(
+    name = "go_platform_probe",
+    target = "//bazel_rules/go/tests/testdata/api:api",
     visibility = ["//bazel_rules:__subpackages__"],
 )
