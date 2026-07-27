@@ -10,7 +10,7 @@ Requirement IDs (M*, A*, T*, B*) refer to §2 of the design.
 
 - [x] **Step 1** — Declared membership: `members`, `interface_style` and the certification fields in the schema, honored end to end in native mode (M1, M3, M5, M8, M10)
 - [x] **Step 2** — Attribution follows ownership: members are roots, `INIT_OUTSIDE_INTERFACE` removed (A1, A2, A3)
-- [ ] **Step 3** — The analysis platform becomes declared data, and layouts are held to it (T1, T2, T8, T8a)
+- [x] **Step 3** — The analysis platform becomes declared data, and layouts are held to it (T1, T2, T8, T8a)
 - [ ] **Step 4** — Interface-file constraint reporting and report wording (T3, T7)
 - [ ] **Step 5** — Classification and canonicalization made fail-closed (T4, T4a, T5, T6)
 - [ ] **Step 6** — Bazel: adapter seam additions, `members` and `interface_style` attributes (B1, emitter half of T2)
