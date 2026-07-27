@@ -31,6 +31,29 @@ func TestInterfaceFileExcluded_SerializesStableKind(t *testing.T) {
 	}
 }
 
+func TestRenderText_InterfaceFileExcludedWarningUsesDetailedFormat(t *testing.T) {
+	rep := report.ConformanceReport{
+		Component: "excluded-interface",
+		Warnings: []report.Finding{{
+			Kind:     report.InterfaceFileExcluded,
+			Message:  `interface file "api_windows.go" excluded by filename suffix "_windows.go"`,
+			Location: report.Location{File: "api_windows.go", Line: 1},
+		}},
+	}
+
+	got := report.RenderText(rep)
+	want := `Component: excluded-interface
+
+Warnings:
+- [INTERFACE_FILE_EXCLUDED] interface file "api_windows.go" excluded by filename suffix "_windows.go"
+  at api_windows.go:1
+`
+
+	if got != want {
+		t.Errorf("RenderText(excluded interface warning) =\n%q\nwant:\n%q", got, want)
+	}
+}
+
 func TestRenderText_Conforms(t *testing.T) {
 	rep := report.ConformanceReport{
 		Component: "test-comp",
