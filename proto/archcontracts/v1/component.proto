@@ -12,10 +12,12 @@ package archcontracts.v1;
 option go_package = "github.com/ono-sendai-labs/architectural-contracts/go/internal/manifest/gen;gen";
 
 // A component's manifest, stored as component.textproto at the COMPONENT ROOT.
-// The component consists of all Go packages under the manifest file's
-// directory (FR1 — no explicit package list); all paths below are relative to
-// that directory (C9). There is no contract field: the component's informal
-// contract is doc-comment prose in its interface files (FR10).
+// When members is empty, the component consists of all Go packages under the
+// manifest file's directory (FR1). Otherwise, members declares the packages
+// the component owns; the interface package is an implicit member. Interface
+// file paths are relative to the component root (C9). There is no contract
+// field: the component's informal contract is doc-comment prose in its
+// interface files (FR10).
 message Component {
   string name = 1;                          // logical component name
   repeated string interface_files = 2;      // .go files holding the public surface, relative to the
@@ -25,6 +27,42 @@ message Component {
   repeated AbsorbedDependency  absorbed_dependencies  = 4;
   repeated string declared_authority = 5;   // capability names, validated at parse time against the
                                             // known capability set (C11); empty = ambient-authority-free
+
+  // Member packages: the code this component is responsible for and analyzes
+  // as roots. Entries are import paths or import-path patterns (the same
+  // pattern idiom absorbed_dependencies uses). The interface package is
+  // implicitly a member and need not be listed; a pattern matching it is not
+  // an error.
+  //
+  // Empty means FR1: every package under the component root. Emitters write
+  // the fully expanded literal list rather than patterns for declared-style
+  // components.
+  repeated string members = 6;
+
+  // How this component's exposed interface is determined.
+  InterfaceStyle interface_style = 7;
+
+  // Whether this component's own conformance check runs as part of the build.
+  // This is a self-declaration at the same trust level as declared_authority,
+  // not a fact verified by arcc.
+  bool own_check_runs = 8;
+
+  // Where this component's conformance is established when own_check_runs is
+  // false, such as a scheduled job, run record, or document. This is a
+  // self-declaration at the same trust level as declared_authority, not a fact
+  // verified by arcc; it makes an asserted boundary reviewable.
+  string certification_reference = 9;
+}
+
+// InterfaceStyle distinguishes a component that declares its surface from one
+// that wraps code never written to have an architectural interface.
+enum InterfaceStyle {
+  // The interface is declared by interface_files. This is the backward-
+  // compatible default.
+  INTERFACE_STYLE_UNSPECIFIED = 0;
+
+  // The interface is every exported symbol of every member package.
+  INTERFACE_STYLE_PACKAGE_SURFACE = 1;
 }
 
 message ComponentDependency {
@@ -36,6 +74,9 @@ message ComponentDependency {
                                             // source of truth for its declared interface symbols
                                             // (interface packages are DERIVED — packages containing
                                             // interface files, C10)
+  // The emitter injected this edge rather than an author writing it. An
+  // unused auto-attached edge is not the author's mistake.
+  bool auto_attached = 3;
 }
 
 message AbsorbedDependency {

@@ -29,11 +29,64 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
+// InterfaceStyle distinguishes a component that declares its surface from one
+// that wraps code never written to have an architectural interface.
+type InterfaceStyle int32
+
+const (
+	// The interface is declared by interface_files. This is the backward-
+	// compatible default.
+	InterfaceStyle_INTERFACE_STYLE_UNSPECIFIED InterfaceStyle = 0
+	// The interface is every exported symbol of every member package.
+	InterfaceStyle_INTERFACE_STYLE_PACKAGE_SURFACE InterfaceStyle = 1
+)
+
+// Enum value maps for InterfaceStyle.
+var (
+	InterfaceStyle_name = map[int32]string{
+		0: "INTERFACE_STYLE_UNSPECIFIED",
+		1: "INTERFACE_STYLE_PACKAGE_SURFACE",
+	}
+	InterfaceStyle_value = map[string]int32{
+		"INTERFACE_STYLE_UNSPECIFIED":     0,
+		"INTERFACE_STYLE_PACKAGE_SURFACE": 1,
+	}
+)
+
+func (x InterfaceStyle) Enum() *InterfaceStyle {
+	p := new(InterfaceStyle)
+	*p = x
+	return p
+}
+
+func (x InterfaceStyle) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (InterfaceStyle) Descriptor() protoreflect.EnumDescriptor {
+	return file_archcontracts_v1_component_proto_enumTypes[0].Descriptor()
+}
+
+func (InterfaceStyle) Type() protoreflect.EnumType {
+	return &file_archcontracts_v1_component_proto_enumTypes[0]
+}
+
+func (x InterfaceStyle) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use InterfaceStyle.Descriptor instead.
+func (InterfaceStyle) EnumDescriptor() ([]byte, []int) {
+	return file_archcontracts_v1_component_proto_rawDescGZIP(), []int{0}
+}
+
 // A component's manifest, stored as component.textproto at the COMPONENT ROOT.
-// The component consists of all Go packages under the manifest file's
-// directory (FR1 — no explicit package list); all paths below are relative to
-// that directory (C9). There is no contract field: the component's informal
-// contract is doc-comment prose in its interface files (FR10).
+// When members is empty, the component consists of all Go packages under the
+// manifest file's directory (FR1). Otherwise, members declares the packages
+// the component owns; the interface package is an implicit member. Interface
+// file paths are relative to the component root (C9). There is no contract
+// field: the component's informal contract is doc-comment prose in its
+// interface files (FR10).
 type Component struct {
 	state          protoimpl.MessageState `protogen:"open.v1"`
 	Name           string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`                                           // logical component name
@@ -43,8 +96,29 @@ type Component struct {
 	ComponentDependencies []*ComponentDependency `protobuf:"bytes,3,rep,name=component_dependencies,json=componentDependencies,proto3" json:"component_dependencies,omitempty"`
 	AbsorbedDependencies  []*AbsorbedDependency  `protobuf:"bytes,4,rep,name=absorbed_dependencies,json=absorbedDependencies,proto3" json:"absorbed_dependencies,omitempty"`
 	DeclaredAuthority     []string               `protobuf:"bytes,5,rep,name=declared_authority,json=declaredAuthority,proto3" json:"declared_authority,omitempty"` // capability names, validated at parse time against the
-	unknownFields         protoimpl.UnknownFields
-	sizeCache             protoimpl.SizeCache
+	// Member packages: the code this component is responsible for and analyzes
+	// as roots. Entries are import paths or import-path patterns (the same
+	// pattern idiom absorbed_dependencies uses). The interface package is
+	// implicitly a member and need not be listed; a pattern matching it is not
+	// an error.
+	//
+	// Empty means FR1: every package under the component root. Emitters write
+	// the fully expanded literal list rather than patterns for declared-style
+	// components.
+	Members []string `protobuf:"bytes,6,rep,name=members,proto3" json:"members,omitempty"`
+	// How this component's exposed interface is determined.
+	InterfaceStyle InterfaceStyle `protobuf:"varint,7,opt,name=interface_style,json=interfaceStyle,proto3,enum=archcontracts.v1.InterfaceStyle" json:"interface_style,omitempty"`
+	// Whether this component's own conformance check runs as part of the build.
+	// This is a self-declaration at the same trust level as declared_authority,
+	// not a fact verified by arcc.
+	OwnCheckRuns bool `protobuf:"varint,8,opt,name=own_check_runs,json=ownCheckRuns,proto3" json:"own_check_runs,omitempty"`
+	// Where this component's conformance is established when own_check_runs is
+	// false, such as a scheduled job, run record, or document. This is a
+	// self-declaration at the same trust level as declared_authority, not a fact
+	// verified by arcc; it makes an asserted boundary reviewable.
+	CertificationReference string `protobuf:"bytes,9,opt,name=certification_reference,json=certificationReference,proto3" json:"certification_reference,omitempty"`
+	unknownFields          protoimpl.UnknownFields
+	sizeCache              protoimpl.SizeCache
 }
 
 func (x *Component) Reset() {
@@ -112,11 +186,47 @@ func (x *Component) GetDeclaredAuthority() []string {
 	return nil
 }
 
+func (x *Component) GetMembers() []string {
+	if x != nil {
+		return x.Members
+	}
+	return nil
+}
+
+func (x *Component) GetInterfaceStyle() InterfaceStyle {
+	if x != nil {
+		return x.InterfaceStyle
+	}
+	return InterfaceStyle_INTERFACE_STYLE_UNSPECIFIED
+}
+
+func (x *Component) GetOwnCheckRuns() bool {
+	if x != nil {
+		return x.OwnCheckRuns
+	}
+	return false
+}
+
+func (x *Component) GetCertificationReference() string {
+	if x != nil {
+		return x.CertificationReference
+	}
+	return ""
+}
+
 type ComponentDependency struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	Name  string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"` // referenced component's name; must match the `name`
 	// in the resolved manifest (C12)
-	Manifest      string `protobuf:"bytes,2,opt,name=manifest,proto3" json:"manifest,omitempty"` // path to that component's manifest, relative to the
+	Manifest string `protobuf:"bytes,2,opt,name=manifest,proto3" json:"manifest,omitempty"` // path to that component's manifest, relative to the
+	// DECLARING manifest's directory; the resolved manifest's
+	// own directory is the dependency's component root and the
+	// source of truth for its declared interface symbols
+	// (interface packages are DERIVED — packages containing
+	// interface files, C10)
+	// The emitter injected this edge rather than an author writing it. An
+	// unused auto-attached edge is not the author's mistake.
+	AutoAttached  bool `protobuf:"varint,3,opt,name=auto_attached,json=autoAttached,proto3" json:"auto_attached,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -163,6 +273,13 @@ func (x *ComponentDependency) GetManifest() string {
 		return x.Manifest
 	}
 	return ""
+}
+
+func (x *ComponentDependency) GetAutoAttached() bool {
+	if x != nil {
+		return x.AutoAttached
+	}
+	return false
 }
 
 type AbsorbedDependency struct {
@@ -221,21 +338,29 @@ var File_archcontracts_v1_component_proto protoreflect.FileDescriptor
 
 const file_archcontracts_v1_component_proto_rawDesc = "" +
 	"\n" +
-	" archcontracts/v1/component.proto\x12\x10archcontracts.v1\"\xb0\x02\n" +
+	" archcontracts/v1/component.proto\x12\x10archcontracts.v1\"\xf4\x03\n" +
 	"\tComponent\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12'\n" +
 	"\x0finterface_files\x18\x02 \x03(\tR\x0einterfaceFiles\x12\\\n" +
 	"\x16component_dependencies\x18\x03 \x03(\v2%.archcontracts.v1.ComponentDependencyR\x15componentDependencies\x12Y\n" +
 	"\x15absorbed_dependencies\x18\x04 \x03(\v2$.archcontracts.v1.AbsorbedDependencyR\x14absorbedDependencies\x12-\n" +
-	"\x12declared_authority\x18\x05 \x03(\tR\x11declaredAuthority\"E\n" +
+	"\x12declared_authority\x18\x05 \x03(\tR\x11declaredAuthority\x12\x18\n" +
+	"\amembers\x18\x06 \x03(\tR\amembers\x12I\n" +
+	"\x0finterface_style\x18\a \x01(\x0e2 .archcontracts.v1.InterfaceStyleR\x0einterfaceStyle\x12$\n" +
+	"\x0eown_check_runs\x18\b \x01(\bR\fownCheckRuns\x127\n" +
+	"\x17certification_reference\x18\t \x01(\tR\x16certificationReference\"j\n" +
 	"\x13ComponentDependency\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x1a\n" +
-	"\bmanifest\x18\x02 \x01(\tR\bmanifest\"]\n" +
+	"\bmanifest\x18\x02 \x01(\tR\bmanifest\x12#\n" +
+	"\rauto_attached\x18\x03 \x01(\bR\fautoAttached\"]\n" +
 	"\x12AbsorbedDependency\x12\x1f\n" +
 	"\vimport_path\x18\x01 \x01(\tR\n" +
 	"importPath\x12\x1b\n" +
 	"\x06reason\x18\x02 \x01(\tH\x00R\x06reason\x88\x01\x01B\t\n" +
-	"\a_reasonBQZOgithub.com/ono-sendai-labs/architectural-contracts/go/internal/manifest/gen;genb\x06proto3"
+	"\a_reason*V\n" +
+	"\x0eInterfaceStyle\x12\x1f\n" +
+	"\x1bINTERFACE_STYLE_UNSPECIFIED\x10\x00\x12#\n" +
+	"\x1fINTERFACE_STYLE_PACKAGE_SURFACE\x10\x01BQZOgithub.com/ono-sendai-labs/architectural-contracts/go/internal/manifest/gen;genb\x06proto3"
 
 var (
 	file_archcontracts_v1_component_proto_rawDescOnce sync.Once
@@ -249,20 +374,23 @@ func file_archcontracts_v1_component_proto_rawDescGZIP() []byte {
 	return file_archcontracts_v1_component_proto_rawDescData
 }
 
+var file_archcontracts_v1_component_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
 var file_archcontracts_v1_component_proto_msgTypes = make([]protoimpl.MessageInfo, 3)
 var file_archcontracts_v1_component_proto_goTypes = []any{
-	(*Component)(nil),           // 0: archcontracts.v1.Component
-	(*ComponentDependency)(nil), // 1: archcontracts.v1.ComponentDependency
-	(*AbsorbedDependency)(nil),  // 2: archcontracts.v1.AbsorbedDependency
+	(InterfaceStyle)(0),         // 0: archcontracts.v1.InterfaceStyle
+	(*Component)(nil),           // 1: archcontracts.v1.Component
+	(*ComponentDependency)(nil), // 2: archcontracts.v1.ComponentDependency
+	(*AbsorbedDependency)(nil),  // 3: archcontracts.v1.AbsorbedDependency
 }
 var file_archcontracts_v1_component_proto_depIdxs = []int32{
-	1, // 0: archcontracts.v1.Component.component_dependencies:type_name -> archcontracts.v1.ComponentDependency
-	2, // 1: archcontracts.v1.Component.absorbed_dependencies:type_name -> archcontracts.v1.AbsorbedDependency
-	2, // [2:2] is the sub-list for method output_type
-	2, // [2:2] is the sub-list for method input_type
-	2, // [2:2] is the sub-list for extension type_name
-	2, // [2:2] is the sub-list for extension extendee
-	0, // [0:2] is the sub-list for field type_name
+	2, // 0: archcontracts.v1.Component.component_dependencies:type_name -> archcontracts.v1.ComponentDependency
+	3, // 1: archcontracts.v1.Component.absorbed_dependencies:type_name -> archcontracts.v1.AbsorbedDependency
+	0, // 2: archcontracts.v1.Component.interface_style:type_name -> archcontracts.v1.InterfaceStyle
+	3, // [3:3] is the sub-list for method output_type
+	3, // [3:3] is the sub-list for method input_type
+	3, // [3:3] is the sub-list for extension type_name
+	3, // [3:3] is the sub-list for extension extendee
+	0, // [0:3] is the sub-list for field type_name
 }
 
 func init() { file_archcontracts_v1_component_proto_init() }
@@ -276,13 +404,14 @@ func file_archcontracts_v1_component_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_archcontracts_v1_component_proto_rawDesc), len(file_archcontracts_v1_component_proto_rawDesc)),
-			NumEnums:      0,
+			NumEnums:      1,
 			NumMessages:   3,
 			NumExtensions: 0,
 			NumServices:   0,
 		},
 		GoTypes:           file_archcontracts_v1_component_proto_goTypes,
 		DependencyIndexes: file_archcontracts_v1_component_proto_depIdxs,
+		EnumInfos:         file_archcontracts_v1_component_proto_enumTypes,
 		MessageInfos:      file_archcontracts_v1_component_proto_msgTypes,
 	}.Build()
 	File_archcontracts_v1_component_proto = out.File
