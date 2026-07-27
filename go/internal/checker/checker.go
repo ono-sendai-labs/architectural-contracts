@@ -37,7 +37,7 @@ type Inputs struct {
 //
 // Implements:
 // - FR3 (dependency allowlist rules)
-// - FR4 (well-formedness rules: Method and Explicit Init rules)
+// - FR4 (well-formedness rule: Method placement)
 // - FR5 (cross-component call-boundary rule and higher-order boundary-call warning)
 // - FR6 (policy-aware ambient-authority rule, using StrictPolicy() merged with declared_authority)
 // - §5.5 (package-overlap check)
@@ -133,7 +133,7 @@ func Check(in Inputs) report.ConformanceReport {
 		}
 	}
 
-	// 4b. FR4 Well-formedness checks (Method and Explicit Init rules)
+	// 4b. FR4 Method placement check
 	typeDeclFiles := make(map[string]string)
 	for _, pkg := range in.Facts.Packages {
 		if !compPkgs[pkg.ImportPath] {
@@ -169,16 +169,6 @@ func Check(in Inputs) report.ConformanceReport {
 							},
 						})
 					}
-				}
-			} else if sym.Kind == "init" {
-				if !interfaceFiles[sym.File] {
-					violations = append(violations, report.Finding{
-						Kind:    report.InitOutsideInterface,
-						Message: fmt.Sprintf("explicit init declared in non-interface file %q in package %q", sym.File, pkg.ImportPath),
-						Location: report.Location{
-							File: sym.File,
-						},
-					})
 				}
 			}
 		}

@@ -531,11 +531,12 @@ func TestCheck_FR4_InterfaceTypeImplementationExempt(t *testing.T) {
 	}
 }
 
-func TestCheck_FR4_ExplicitInitOutsideInterface(t *testing.T) {
+func TestCheck_FR4_MemberImplementationInitClean(t *testing.T) {
 	in := checker.Inputs{
 		Manifest: manifest.Manifest{
 			Name:           "mycomponent",
 			InterfaceFiles: []string{"pkg/types.go"},
+			Members:        []string{"mycomponent/pkg/impl"},
 		},
 		Facts: facts.PackageFacts{
 			Packages: []facts.PackageFact{
@@ -543,47 +544,18 @@ func TestCheck_FR4_ExplicitInitOutsideInterface(t *testing.T) {
 					ImportPath: "mycomponent/pkg",
 					ExportedSymbols: []facts.ExportedSymbol{
 						{
-							Name: "mycomponent/pkg.init",
-							File: "pkg/impl.go",
-							Kind: "init",
+							Name: "mycomponent/pkg.API",
+							File: "pkg/types.go",
+							Kind: "type",
 						},
 					},
 				},
-			},
-		},
-	}
-
-	rep := checker.Check(in)
-	if len(rep.Violations) != 1 {
-		t.Fatalf("expected exactly 1 violation, got %d", len(rep.Violations))
-	}
-	v := rep.Violations[0]
-	if v.Kind != report.InitOutsideInterface {
-		t.Errorf("expected kind %s, got %s", report.InitOutsideInterface, v.Kind)
-	}
-	expectedMsg := `explicit init declared in non-interface file "pkg/impl.go" in package "mycomponent/pkg"`
-	if v.Message != expectedMsg {
-		t.Errorf("expected message %q, got %q", expectedMsg, v.Message)
-	}
-	if v.Location.File != "pkg/impl.go" {
-		t.Errorf("expected location file \"pkg/impl.go\", got %q", v.Location.File)
-	}
-}
-
-func TestCheck_FR4_ExplicitInitInInterfaceClean(t *testing.T) {
-	in := checker.Inputs{
-		Manifest: manifest.Manifest{
-			Name:           "mycomponent",
-			InterfaceFiles: []string{"pkg/types.go"},
-		},
-		Facts: facts.PackageFacts{
-			Packages: []facts.PackageFact{
 				{
-					ImportPath: "mycomponent/pkg",
+					ImportPath: "mycomponent/pkg/impl",
 					ExportedSymbols: []facts.ExportedSymbol{
 						{
-							Name: "mycomponent/pkg.init",
-							File: "pkg/types.go",
+							Name: "mycomponent/pkg/impl.init",
+							File: "pkg/impl/init.go",
 							Kind: "init",
 						},
 					},
@@ -1069,9 +1041,9 @@ func TestCheck_FR5_FR3_FR4_Combined_And_Deterministic(t *testing.T) {
 	for i := 0; i < 50; i++ {
 		rep := checker.Check(in)
 
-		// Assert exactly 6 violations
-		if len(rep.Violations) != 6 {
-			t.Fatalf("run %d: expected exactly 6 violations, got %d: %v", i, len(rep.Violations), rep.Violations)
+		// Assert exactly 5 violations after removing init placement.
+		if len(rep.Violations) != 5 {
+			t.Fatalf("run %d: expected exactly 5 violations, got %d: %v", i, len(rep.Violations), rep.Violations)
 		}
 
 		// Verify violations are in expected alphabetical sorted order
@@ -1086,23 +1058,18 @@ func TestCheck_FR5_FR3_FR4_Combined_And_Deterministic(t *testing.T) {
 		}
 
 		v2 := rep.Violations[2]
-		if v2.Kind != report.InitOutsideInterface {
-			t.Errorf("expected InitOutsideInterface at index 2, got kind %s: %s", v2.Kind, v2.Message)
+		if v2.Kind != report.MethodOutsideInterface {
+			t.Errorf("expected MethodOutsideInterface at index 2, got kind %s: %s", v2.Kind, v2.Message)
 		}
 
 		v3 := rep.Violations[3]
-		if v3.Kind != report.MethodOutsideInterface {
-			t.Errorf("expected MethodOutsideInterface at index 3, got kind %s: %s", v3.Kind, v3.Message)
+		if v3.Kind != report.UndeclaredDependency {
+			t.Errorf("expected UndeclaredDependency at index 3, got kind %s: %s", v3.Kind, v3.Message)
 		}
 
 		v4 := rep.Violations[4]
-		if v4.Kind != report.UndeclaredDependency {
-			t.Errorf("expected UndeclaredDependency at index 4, got kind %s: %s", v4.Kind, v4.Message)
-		}
-
-		v5 := rep.Violations[5]
-		if v5.Kind != report.PackageOverlap {
-			t.Errorf("expected PackageOverlap at index 5, got kind %s: %s", v5.Kind, v5.Message)
+		if v4.Kind != report.PackageOverlap {
+			t.Errorf("expected PackageOverlap at index 4, got kind %s: %s", v4.Kind, v4.Message)
 		}
 
 		// Assert exactly 3 warnings

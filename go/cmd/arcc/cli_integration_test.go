@@ -564,6 +564,95 @@ func Hello() {
 	}
 }
 
+func TestIntegration_MemberCallbackAuthority(t *testing.T) {
+	// The host receives the callback through its component interface. The editor
+	// never calls backend.Load directly; backend is charged because it is an
+	// owned member and therefore an analyzer root.
+	hostFiles := map[string]string{
+		"api.go": `package host
+
+func Register(func() ([]byte, error)) {}
+`,
+	}
+	hostManifest := `
+name: "callback-host"
+interface_files: "api.go"
+`
+	hostDir, hostManifestPath := createTempComponent(t, "callback-host", hostManifest, hostFiles)
+
+	moduleRoot, err := filepath.Abs("../..")
+	if err != nil {
+		t.Fatalf("failed to get module root: %v", err)
+	}
+	importPath := func(dir string) string {
+		rel, err := filepath.Rel(moduleRoot, dir)
+		if err != nil {
+			t.Fatalf("failed to resolve import path for %s: %v", dir, err)
+		}
+		return "github.com/ono-sendai-labs/architectural-contracts/go/" + filepath.ToSlash(rel)
+	}
+	hostImportPath := importPath(hostDir)
+
+	editorFiles := map[string]string{
+		"api.go": `package main
+
+func Editor() {}
+`,
+		"editor.go": `package main
+
+import (
+	backend "{{IMPORT_PATH}}/backend"
+	host "` + hostImportPath + `"
+)
+
+func Connect() {
+	host.Register(backend.Load)
+}
+`,
+		"backend/load.go": `package backend
+
+import "os"
+
+func Load() ([]byte, error) {
+	return os.ReadFile("backend.txt")
+}
+`,
+	}
+	editorManifest := `
+name: "callback-editor"
+interface_files: "api.go"
+`
+	editorDir, editorManifestPath := createTempComponent(t, "callback-editor", editorManifest, editorFiles)
+	memberImportPath := importPath(filepath.Join(editorDir, "backend"))
+	relHostManifest, err := filepath.Rel(editorDir, hostManifestPath)
+	if err != nil {
+		t.Fatalf("failed to resolve host manifest path: %v", err)
+	}
+	editorManifest = fmt.Sprintf(`
+name: "callback-editor"
+interface_files: "api.go"
+members: "%s"
+component_dependencies {
+	name: "callback-host"
+	manifest: "%s"
+}
+`, memberImportPath, filepath.ToSlash(relHostManifest))
+	if err := os.WriteFile(editorManifestPath, []byte(editorManifest), 0644); err != nil {
+		t.Fatalf("failed to write callback editor manifest: %v", err)
+	}
+
+	stdout, stderr, exitCode := runArcc([]string{"check", editorManifestPath})
+	if exitCode != 1 {
+		t.Fatalf("expected callback-only member authority to fail (exit 1), got %d. Stderr: %s\nStdout: %s", exitCode, stderr, stdout)
+	}
+	if !strings.Contains(stdout, `use of undeclared authority "FILES"`) {
+		t.Fatalf("expected FILES authority violation, got: %s", stdout)
+	}
+	if !strings.Contains(stdout, memberImportPath+".Load") || !strings.Contains(stdout, "load.go") {
+		t.Fatalf("expected evidence to identify member-owned backend.Load, got: %s", stdout)
+	}
+}
+
 func TestIntegration_InitPruningVsAbsorbedAuthority(t *testing.T) {
 	// 1. Create the authority-bearing dependency component "initdep" (authority only in init)
 	depManifest := `
