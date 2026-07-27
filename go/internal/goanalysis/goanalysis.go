@@ -855,7 +855,7 @@ func stripAllBrackets(s string) string {
 func canonicalizeSymbol(sym string) string {
 	if strings.HasPrefix(sym, "(*") || strings.HasPrefix(sym, "(") {
 		close := matchingSymbolParen(sym)
-		if close < 0 || close+2 >= len(sym) || sym[close+1] != '.' || !isIdentifier(sym[close+2:]) {
+		if close < 0 {
 			return sym
 		}
 		innerStart := 1
@@ -863,6 +863,9 @@ func canonicalizeSymbol(sym string) string {
 			innerStart = 2
 		}
 		if close <= innerStart {
+			return sym
+		}
+		if close != len(sym)-1 && (close+2 >= len(sym) || sym[close+1] != '.' || !isIdentifier(sym[close+2:])) {
 			return sym
 		}
 		rewritten, ok := rewriteSymbolTypeExpression(sym[innerStart:close])

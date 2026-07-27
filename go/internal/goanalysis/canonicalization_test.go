@@ -156,6 +156,7 @@ func TestCanonicalizeSymbolRewritesEveryPackagePath(t *testing.T) {
 	}{
 		{name: "generic pointer receiver", in: "(*a/b.T[c/d.U]).M", want: "(*canonical/a/b.T[canonical/c/d.U]).M"},
 		{name: "value receiver", in: "(a/b.T).M", want: "(canonical/a/b.T).M"},
+		{name: "receiver without method", in: "(*a/b.T[c/d.U])", want: "(*canonical/a/b.T[canonical/c/d.U])"},
 		{name: "ordinary function", in: "pkg.F", want: "canonical/pkg.F"},
 		{name: "multiple and nested arguments", in: "(*a/b.T[c/d.U, e/f.V[foo/bar.W]]).M", want: "(*canonical/a/b.T[canonical/c/d.U, canonical/e/f.V[canonical/foo/bar.W]]).M"},
 		{name: "overlapping prefixes", in: "(*a/b.T[a/bc.U]).M", want: "(*canonical/a/b.T[a/bc.U]).M"},
@@ -184,16 +185,17 @@ func TestResolveDependencyInterfaceCanonicalizesLocalFacts(t *testing.T) {
 		t.Fatal(err)
 	}
 	apiPath := filepath.Join(depRoot, "api.go")
-	if err := os.WriteFile(apiPath, []byte("package dep\nfunc Exported() {}\n"), 0644); err != nil {
+	apiSource := "package dep\ntype t struct{}\nfunc (t) Method() {}\nfunc Exported() {}\n"
+	if err := os.WriteFile(apiPath, []byte(apiSource), 0644); err != nil {
 		t.Fatal(err)
 	}
 	fset := token.NewFileSet()
-	file, err := parser.ParseFile(fset, apiPath, "package dep\nfunc Exported() {}\n", 0)
+	file, err := parser.ParseFile(fset, apiPath, apiSource, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
 	typesInfo := &types.Info{Defs: make(map[*ast.Ident]types.Object)}
-	typesPkg, err := (&types.Config{}).Check("canonical/dep", fset, []*ast.File{file}, typesInfo)
+	typesPkg, err := (&types.Config{}).Check("host/dep", fset, []*ast.File{file}, typesInfo)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -205,25 +207,29 @@ func TestResolveDependencyInterfaceCanonicalizesLocalFacts(t *testing.T) {
 		loadPackages = originalLoad
 	})
 	hostpolicy.CanonicalizePath = func(path string) string {
-		if path == "host/import" {
+		switch path {
+		case "host/dep":
+			return "canonical/dep"
+		case "host/import":
 			return "canonical/import"
 		}
 		return path
 	}
+	loadedPackage := &packages.Package{
+		ID:        "canonical/dep",
+		PkgPath:   "canonical/dep",
+		Name:      "dep",
+		GoFiles:   []string{apiPath},
+		Fset:      fset,
+		Syntax:    []*ast.File{file},
+		Types:     typesPkg,
+		TypesInfo: typesInfo,
+		Imports: map[string]*packages.Package{
+			"host/import": {ID: "canonical/import", PkgPath: "canonical/import"},
+		},
+	}
 	loadPackages = func(_ *packages.Config, _ ...string) ([]*packages.Package, error) {
-		return []*packages.Package{{
-			ID:        "canonical/dep",
-			PkgPath:   "canonical/dep",
-			Name:      "dep",
-			GoFiles:   []string{apiPath},
-			Fset:      fset,
-			Syntax:    []*ast.File{file},
-			Types:     typesPkg,
-			TypesInfo: typesInfo,
-			Imports: map[string]*packages.Package{
-				"host/import": {ID: "canonical/import", PkgPath: "canonical/import"},
-			},
-		}}, nil
+		return []*packages.Package{loadedPackage}, nil
 	}
 
 	result, err := ResolveDependencyInterface(declaringRoot, declaringRoot, manifest.ComponentDependency{
@@ -236,8 +242,31 @@ func TestResolveDependencyInterfaceCanonicalizesLocalFacts(t *testing.T) {
 	if got, want := result.Packages, []string{"canonical/dep"}; len(got) != len(want) || got[0] != want[0] {
 		t.Fatalf("result packages = %v, want %v", got, want)
 	}
-	if len(result.Symbols) != 1 || result.Symbols[0] != "canonical/dep.Exported" {
-		t.Fatalf("result symbols = %v, want canonical/dep.Exported", result.Symbols)
+	wantSymbols := map[string]bool{
+		"canonical/dep.Exported":   true,
+		"(canonical/dep.t).Method": true,
+	}
+	if len(result.Symbols) != len(wantSymbols) {
+		t.Fatalf("result symbols = %v, want %v", result.Symbols, wantSymbols)
+	}
+	for _, symbol := range result.Symbols {
+		if !wantSymbols[string(symbol)] {
+			t.Fatalf("result symbols = %v, unexpected symbol %q", result.Symbols, symbol)
+		}
+	}
+	extracted, err := extractSymbols(loadedPackage, depRoot)
+	if err != nil {
+		t.Fatalf("extractSymbols() error = %v", err)
+	}
+	var method facts.ExportedSymbol
+	for _, symbol := range extracted {
+		if symbol.Kind == "method" && symbol.Name == "(canonical/dep.t).Method" {
+			method = symbol
+			break
+		}
+	}
+	if method.Name != "(canonical/dep.t).Method" || method.Receiver != "(canonical/dep.t)" {
+		t.Fatalf("method symbol = %+v, want canonical name and receiver", method)
 	}
 }
 
