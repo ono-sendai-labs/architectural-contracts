@@ -907,9 +907,8 @@ func TestCheck_FR5_HigherOrderBoundaryCall(t *testing.T) {
 			},
 			CallEdges: []facts.CallEdge{
 				{
-					Caller:          "mycomponent/pkg.Run",
-					Callee:          "github.com/dep1/pkg.PublicFunc",
-					PassesFuncValue: true,
+					Caller: "mycomponent/pkg.Run",
+					Callee: "github.com/dep1/pkg.PublicFunc",
 				},
 			},
 		},
@@ -926,16 +925,8 @@ func TestCheck_FR5_HigherOrderBoundaryCall(t *testing.T) {
 	if len(rep.Violations) != 0 {
 		t.Errorf("expected 0 violations, got %d: %v", len(rep.Violations), rep.Violations)
 	}
-	if len(rep.Warnings) != 1 {
-		t.Fatalf("expected exactly 1 warning, got %d", len(rep.Warnings))
-	}
-	w := rep.Warnings[0]
-	if w.Kind != report.HigherOrderBoundaryCall {
-		t.Errorf("expected kind %s, got %s", report.HigherOrderBoundaryCall, w.Kind)
-	}
-	expectedMsg := `higher-order boundary call from "mycomponent/pkg.Run" to "github.com/dep1/pkg.PublicFunc" of dependency "dep1" passes function value`
-	if w.Message != expectedMsg {
-		t.Errorf("expected message %q, got %q", expectedMsg, w.Message)
+	if len(rep.Warnings) != 0 {
+		t.Errorf("expected 0 warnings, got %d: %v", len(rep.Warnings), rep.Warnings)
 	}
 }
 
@@ -1090,11 +1081,6 @@ func TestCheck_FR5_FR3_FR4_Combined_And_Deterministic(t *testing.T) {
 					Callee: "github.com/dep_clean/pkg.PublicFunc",
 				},
 				{
-					Caller:          "mycomponent/pkg1.Run",
-					Callee:          "github.com/dep_clean/pkg.PublicFunc",
-					PassesFuncValue: true,
-				},
-				{
 					Caller: "mycomponent/pkg1.Run",
 					Callee: "github.com/dep_clean/pkg.PrivateFunc",
 				},
@@ -1161,9 +1147,9 @@ func TestCheck_FR5_FR3_FR4_Combined_And_Deterministic(t *testing.T) {
 			t.Errorf("expected UndeclaredDependency at index 4, got kind %s: %s", v4.Kind, v4.Message)
 		}
 
-		// Assert exactly 3 warnings
-		if len(rep.Warnings) != 3 {
-			t.Fatalf("run %d: expected exactly 3 warnings, got %d: %v", i, len(rep.Warnings), rep.Warnings)
+		// Assert exactly 2 warnings
+		if len(rep.Warnings) != 2 {
+			t.Fatalf("run %d: expected exactly 2 warnings, got %d: %v", i, len(rep.Warnings), rep.Warnings)
 		}
 
 		w0 := rep.Warnings[0]
@@ -1174,11 +1160,6 @@ func TestCheck_FR5_FR3_FR4_Combined_And_Deterministic(t *testing.T) {
 		w1 := rep.Warnings[1]
 		if w1.Kind != report.UnusedDependency || !strings.Contains(w1.Message, "unused_dep") {
 			t.Errorf("expected UnusedDependency warning for unused_dep at index 1, got kind %s: %s", w1.Kind, w1.Message)
-		}
-
-		w2 := rep.Warnings[2]
-		if w2.Kind != report.HigherOrderBoundaryCall {
-			t.Errorf("expected HigherOrderBoundaryCall warning at index 2, got kind %s: %s", w2.Kind, w2.Message)
 		}
 	}
 }

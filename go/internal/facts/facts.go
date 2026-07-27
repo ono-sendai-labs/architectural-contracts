@@ -70,11 +70,6 @@ type ExportedSymbol struct {
 type CallEdge struct {
 	Caller capanalyzer.InterfaceSymbol // calling function/method (in some package)
 	Callee capanalyzer.InterfaceSymbol // called function/method
-
-	// PassesFuncValue flags call sites passing function-typed values.
-	// This drives the FR5 HIGHER_ORDER_BOUNDARY_CALL warning (to warn that authority
-	// exercised by the passed function might escape pruned attribution when called).
-	PassesFuncValue bool
 }
 
 // DependencyInterface is a direct component dependency's manifest and interface files

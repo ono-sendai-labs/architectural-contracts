@@ -879,20 +879,17 @@ component_dependencies {
 	stdout, stderr, exitCode := runArcc([]string{"check", callerManifestPath})
 
 	if exitCode != 0 {
-		t.Fatalf("expected exit code 0 (warning is non-fatal), got %d. Stderr: %s\nStdout: %s", exitCode, stderr, stdout)
+		t.Fatalf("expected exit code 0, got %d. Stderr: %s\nStdout: %s", exitCode, stderr, stdout)
 	}
 	if stderr != "" {
 		t.Errorf("expected empty stderr, got %q", stderr)
 	}
 
-	if !strings.Contains(stdout, "HIGHER_ORDER_BOUNDARY_CALL") {
-		t.Errorf("expected stdout to contain HIGHER_ORDER_BOUNDARY_CALL, got: %s", stdout)
+	if strings.Contains(stdout, "HIGHER_ORDER_BOUNDARY_CALL") {
+		t.Errorf("expected stdout to NOT contain HIGHER_ORDER_BOUNDARY_CALL, got: %s", stdout)
 	}
-	if !strings.Contains(stdout, `higher-order boundary call from "github.com/ono-sendai-labs/architectural-contracts/go/examples/csvtool/temp-integration-app-higher-order-`) {
-		t.Errorf("expected stdout to contain caller signature, got: %s", stdout)
-	}
-	if !strings.Contains(stdout, `to "github.com/ono-sendai-labs/architectural-contracts/go/examples/csvtool/csvfile.ReadWithCallback" of dependency "csvfile" passes function value`) {
-		t.Errorf("expected stdout to contain callee ReadWithCallback warning message, got: %s", stdout)
+	if strings.Contains(stdout, "passes function value") {
+		t.Errorf("expected stdout to NOT contain 'passes function value', got: %s", stdout)
 	}
 }
 

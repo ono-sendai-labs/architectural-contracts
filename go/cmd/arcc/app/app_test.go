@@ -1033,14 +1033,14 @@ absorbed_dependencies: {
 	if !strings.Contains(gotOut, "CALLS_UNDECLARED_INTERFACE") {
 		t.Errorf("expected stdout to contain CALLS_UNDECLARED_INTERFACE, got: %s", gotOut)
 	}
-	if !strings.Contains(gotOut, "HIGHER_ORDER_BOUNDARY_CALL") {
-		t.Errorf("expected stdout to contain HIGHER_ORDER_BOUNDARY_CALL, got: %s", gotOut)
+	if strings.Contains(gotOut, "HIGHER_ORDER_BOUNDARY_CALL") {
+		t.Errorf("expected stdout to NOT contain HIGHER_ORDER_BOUNDARY_CALL, got: %s", gotOut)
 	}
 	if !strings.Contains(gotOut, `call from "example.com/temp/analyzed.Hello" to undeclared interface symbol "example.com/temp/dep-a.UndeclaredFunc" of dependency "dep-a"`) {
 		t.Errorf("expected stdout to contain the undeclared call violation message, got: %s", gotOut)
 	}
-	if !strings.Contains(gotOut, `higher-order boundary call from "example.com/temp/analyzed.Hello" to "example.com/temp/dep-a.HigherOrder" of dependency "dep-a" passes function value`) {
-		t.Errorf("expected stdout to contain the higher-order warning message, got: %s", gotOut)
+	if strings.Contains(gotOut, `passes function value`) {
+		t.Errorf("expected stdout to NOT contain the higher-order warning message, got: %s", gotOut)
 	}
 
 	// 3. Verify that PruneAt contains both dependency interface symbols and package init keys, sorted

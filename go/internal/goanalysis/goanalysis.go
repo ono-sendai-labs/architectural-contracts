@@ -257,7 +257,7 @@ func LoadPackageFacts(req LoadRequest) (facts.PackageFacts, error) {
 		caller string
 		callee string
 	}
-	edgesMap := make(map[edgeKey]bool)
+	edgesMap := make(map[edgeKey]struct{})
 
 	for fn, node := range cg.Nodes {
 		if fn == nil || node == nil {
@@ -281,21 +281,15 @@ func LoadPackageFacts(req LoadRequest) (facts.PackageFacts, error) {
 			calleeSym := getFuncSymbol(calleeFn)
 
 			key := edgeKey{caller: string(callerSym), callee: string(calleeSym)}
-			passes := passesFuncValue(edge.Site)
-			if oldPasses, exists := edgesMap[key]; exists {
-				edgesMap[key] = oldPasses || passes
-			} else {
-				edgesMap[key] = passes
-			}
+			edgesMap[key] = struct{}{}
 		}
 	}
 
 	var callEdges []facts.CallEdge
-	for k, passes := range edgesMap {
+	for k := range edgesMap {
 		callEdges = append(callEdges, facts.CallEdge{
-			Caller:          capanalyzer.InterfaceSymbol(k.caller),
-			Callee:          capanalyzer.InterfaceSymbol(k.callee),
-			PassesFuncValue: passes,
+			Caller: capanalyzer.InterfaceSymbol(k.caller),
+			Callee: capanalyzer.InterfaceSymbol(k.callee),
 		})
 	}
 
@@ -1332,26 +1326,6 @@ func getFuncSymbol(fn *ssa.Function) capanalyzer.InterfaceSymbol {
 		return ""
 	}
 	return capanalyzer.InterfaceSymbol(canonicalizeSymbol(stripAllBrackets(fn.String())))
-}
-
-// passesFuncValue checks if a call site passes any function-typed value.
-func passesFuncValue(site ssa.CallInstruction) bool {
-	if site == nil {
-		return false
-	}
-	common := site.Common()
-	if common == nil {
-		return false
-	}
-	for _, arg := range common.Args {
-		if arg == nil {
-			continue
-		}
-		if _, ok := arg.Type().Underlying().(*types.Signature); ok {
-			return true
-		}
-	}
-	return false
 }
 
 // ResolveDependencyInterface turns a component dependency into its derived facts.

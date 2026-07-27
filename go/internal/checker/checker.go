@@ -256,12 +256,6 @@ func Check(in Inputs) report.ConformanceReport {
 					Kind:    report.CallsUndeclaredInterface,
 					Message: fmt.Sprintf("call from %q to undeclared interface symbol %q of dependency %q", edge.Caller, edge.Callee, info.di.Component),
 				})
-			} else if edge.PassesFuncValue {
-				// Declared call passing func value -> Warning
-				warnings = append(warnings, report.Finding{
-					Kind:    report.HigherOrderBoundaryCall,
-					Message: fmt.Sprintf("higher-order boundary call from %q to %q of dependency %q passes function value", edge.Caller, edge.Callee, info.di.Component),
-				})
 			}
 		}
 	}

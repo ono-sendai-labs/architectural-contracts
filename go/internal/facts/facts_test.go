@@ -37,9 +37,8 @@ func TestFactsRoundTrip(t *testing.T) {
 
 	// 3. Construct CallEdge
 	edge := facts.CallEdge{
-		Caller:          "example.com/caller.Run",
-		Callee:          "(*example.com/store.DB).Get",
-		PassesFuncValue: true,
+		Caller: "example.com/caller.Run",
+		Callee: "(*example.com/store.DB).Get",
 	}
 
 	// 4. Construct PackageFacts
@@ -91,7 +90,7 @@ func TestFactsRoundTrip(t *testing.T) {
 		t.Fatalf("expected 1 call edge, got %d", len(pkgFacts.CallEdges))
 	}
 	e := pkgFacts.CallEdges[0]
-	if e.Caller != "example.com/caller.Run" || e.Callee != "(*example.com/store.DB).Get" || !e.PassesFuncValue {
+	if e.Caller != "example.com/caller.Run" || e.Callee != "(*example.com/store.DB).Get" {
 		t.Errorf("unexpected call edge fields: %+v", e)
 	}
 
