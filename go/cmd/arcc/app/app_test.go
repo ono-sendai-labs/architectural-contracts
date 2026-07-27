@@ -235,6 +235,136 @@ members: "example.com/temp/loader-request"
 	}
 }
 
+func TestRunner_Check_DeclaredOutsideRootAndFR1Fallback(t *testing.T) {
+	workspace := t.TempDir()
+	if err := os.WriteFile(filepath.Join(workspace, "go.mod"), []byte("module example.com/workspace\n\ngo 1.21\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	componentDir := filepath.Join(workspace, "component")
+	outsideDir := filepath.Join(workspace, "outside")
+	unrelatedDir := filepath.Join(componentDir, "unrelated")
+	for _, dir := range []string{componentDir, outsideDir, unrelatedDir} {
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	files := map[string]string{
+		filepath.Join(componentDir, "api.go"):       "package component\n\nfunc API() {}\n",
+		filepath.Join(outsideDir, "outside.go"):     "package outside\n\nimport \"os\"\n\nfunc Outside() { _, _ = os.Getwd() }\n",
+		filepath.Join(unrelatedDir, "unrelated.go"): "package unrelated\n\nfunc Unrelated() {}\n",
+	}
+	for file, content := range files {
+		if err := os.WriteFile(file, []byte(content), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	manifestPath := filepath.Join(componentDir, "component.textproto")
+	manifestWithMembers := `
+name: "component"
+interface_files: "api.go"
+members: "example.com/workspace/outside"
+`
+	if err := os.WriteFile(manifestPath, []byte(manifestWithMembers), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	var loaded facts.PackageFacts
+	// Capture facts through a wrapper so the test observes the complete app path
+	// while retaining the production loader and its package graph.
+	loader := func(req goanalysis.LoadRequest) (facts.PackageFacts, error) {
+		got, err := goanalysis.LoadPackageFacts(req)
+		if err == nil {
+			loaded = got
+		}
+		return got, err
+	}
+	analyzer := &mockAnalyzer{findings: []capanalyzer.CapabilityFinding{{
+		Package:    "os",
+		Capability: "FILES",
+		Class:      capanalyzer.TrueAuthority,
+		CallPath: []capanalyzer.Frame{{
+			Func: "example.com/workspace/outside.Outside",
+			File: "../outside/outside.go",
+			Line: 5,
+		}},
+	}}}
+	runner := &app.Runner{Loader: loader, Analyzer: analyzer}
+
+	var stdout, stderr bytes.Buffer
+	if exitCode := runner.Run([]string{"check", manifestPath}, &stdout, &stderr); exitCode != 1 {
+		t.Fatalf("declared run exit code = %d, want 1; stdout=%s stderr=%s", exitCode, stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "UNDECLARED_AUTHORITY") {
+		t.Fatalf("declared run output = %q, want authority finding", stdout.String())
+	}
+	assertDeclaredOutsideFacts(t, loaded)
+	wantDeclaredPackages := []string{"example.com/workspace/component", "example.com/workspace/outside"}
+	if !reflect.DeepEqual(analyzer.calledWith.Packages, wantDeclaredPackages) {
+		t.Fatalf("declared analyzer packages = %v, want %v", analyzer.calledWith.Packages, wantDeclaredPackages)
+	}
+
+	if err := os.WriteFile(manifestPath, []byte(`
+name: "component"
+interface_files: "api.go"
+`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	analyzer.findings = nil
+	stdout.Reset()
+	stderr.Reset()
+	if exitCode := runner.Run([]string{"check", manifestPath}, &stdout, &stderr); exitCode != 0 {
+		t.Fatalf("FR1 fallback exit code = %d, want 0; stdout=%s stderr=%s", exitCode, stdout.String(), stderr.String())
+	}
+	wantFR1Packages := []string{"example.com/workspace/component", "example.com/workspace/component/unrelated"}
+	if !reflect.DeepEqual(analyzer.calledWith.Packages, wantFR1Packages) {
+		t.Fatalf("FR1 analyzer packages = %v, want %v", analyzer.calledWith.Packages, wantFR1Packages)
+	}
+	for _, pkg := range loaded.Packages {
+		if pkg.ImportPath == "example.com/workspace/outside" {
+			t.Fatalf("FR1 facts unexpectedly retained outside package: %+v", loaded.Packages)
+		}
+	}
+}
+
+func assertDeclaredOutsideFacts(t *testing.T, loaded facts.PackageFacts) {
+	t.Helper()
+	if len(loaded.Packages) != 2 {
+		t.Fatalf("declared facts packages = %+v, want component and outside only", loaded.Packages)
+	}
+	var outside facts.PackageFact
+	for _, pkg := range loaded.Packages {
+		if pkg.ImportPath == "example.com/workspace/outside" {
+			outside = pkg
+		}
+		if pkg.ImportPath == "example.com/workspace/component/unrelated" {
+			t.Fatalf("declared facts unexpectedly retained unrelated package: %+v", loaded.Packages)
+		}
+	}
+	if !reflect.DeepEqual(outside.Imports, []string{"os"}) {
+		t.Fatalf("outside imports = %v, want [os]", outside.Imports)
+	}
+	foundSymbol := false
+	for _, symbol := range outside.ExportedSymbols {
+		if symbol.Name == "example.com/workspace/outside.Outside" {
+			foundSymbol = true
+		}
+	}
+	if !foundSymbol {
+		t.Fatalf("outside symbols = %+v, want Outside", outside.ExportedSymbols)
+	}
+	foundCall := false
+	for _, edge := range loaded.CallEdges {
+		if strings.HasPrefix(string(edge.Caller), "example.com/workspace/outside.Outside") && strings.HasPrefix(string(edge.Callee), "os.") {
+			foundCall = true
+		}
+	}
+	if !foundCall {
+		t.Fatalf("outside call edges = %+v, want Outside -> os edge", loaded.CallEdges)
+	}
+}
+
 func TestRunner_Check_Success_JSON(t *testing.T) {
 	manifestContent := `
 name: "test-comp"

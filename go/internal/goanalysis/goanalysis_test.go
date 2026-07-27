@@ -607,3 +607,29 @@ func TestLoadPackageFacts_DeclaredMemberMustResolve(t *testing.T) {
 		t.Fatalf("LoadPackageFacts() error = %v, want offending member", err)
 	}
 }
+
+func TestLoadPackageFacts_DeclaredMemberWithNoSourceFails(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "go.mod"), []byte("module example.com/workspace\n\ngo 1.21\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "api.go"), []byte("package workspace\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(filepath.Join(root, "empty"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "empty", "empty.go"), []byte("//go:build never\n\npackage empty\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	member := "example.com/workspace/empty"
+	_, err := goanalysis.LoadPackageFacts(goanalysis.LoadRequest{
+		ComponentRoot:  root,
+		Members:        []string{member},
+		InterfaceFiles: []string{"api.go"},
+	})
+	if err == nil || !strings.Contains(err.Error(), member) || !strings.Contains(err.Error(), "no source package") {
+		t.Fatalf("LoadPackageFacts() error = %v, want %q and no-source context", err, member)
+	}
+}
