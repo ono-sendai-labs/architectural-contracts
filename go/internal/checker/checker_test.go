@@ -1696,3 +1696,211 @@ func TestCheck_AbsorbedFuncValueEscape_MultipleEscapesDeterministic(t *testing.T
 		t.Fatalf("rendered text outputs differ: %q vs %q", text1, text2)
 	}
 }
+
+func TestCheck_PackageSurface_CallsUndeclaredInterfaceSkipped(t *testing.T) {
+	in := checker.Inputs{
+		Manifest: manifest.Manifest{
+			Name: "mycomponent",
+			ComponentDependencies: []manifest.ComponentDependency{
+				{Name: "pkg_surface_dep"},
+			},
+		},
+		Facts: facts.PackageFacts{
+			Packages: []facts.PackageFact{
+				{
+					ImportPath: "mycomponent/pkg",
+					Imports:    []string{"example.com/pkgsurface"},
+				},
+			},
+			CallEdges: []facts.CallEdge{
+				{
+					Caller: "mycomponent/pkg.DoStuff",
+					Callee: "example.com/pkgsurface.UndeclaredSymbol",
+				},
+			},
+		},
+		DepIfaces: []facts.DependencyInterface{
+			{
+				Component:      "pkg_surface_dep",
+				Packages:       []string{"example.com/pkgsurface"},
+				InterfaceStyle: manifest.InterfaceStylePackageSurface,
+				Symbols:        nil, // Package surface has no explicit interface symbols
+			},
+		},
+	}
+
+	rep := checker.Check(in)
+	if len(rep.Violations) != 0 {
+		t.Fatalf("expected 0 violations for package-surface call, got %d: %+v", len(rep.Violations), rep.Violations)
+	}
+	if len(rep.Warnings) != 0 {
+		t.Fatalf("expected 0 warnings, got %d: %+v", len(rep.Warnings), rep.Warnings)
+	}
+}
+
+func TestCheck_DeclaredStyle_CallsUndeclaredInterfaceReported(t *testing.T) {
+	in := checker.Inputs{
+		Manifest: manifest.Manifest{
+			Name: "mycomponent",
+			ComponentDependencies: []manifest.ComponentDependency{
+				{Name: "declared_dep"},
+			},
+		},
+		Facts: facts.PackageFacts{
+			Packages: []facts.PackageFact{
+				{
+					ImportPath: "mycomponent/pkg",
+					Imports:    []string{"example.com/declared"},
+				},
+			},
+			CallEdges: []facts.CallEdge{
+				{
+					Caller: "mycomponent/pkg.DoStuff",
+					Callee: "example.com/declared.UndeclaredSymbol",
+				},
+			},
+		},
+		DepIfaces: []facts.DependencyInterface{
+			{
+				Component:      "declared_dep",
+				Packages:       []string{"example.com/declared"},
+				InterfaceStyle: manifest.InterfaceStyleUnspecified,
+				Symbols:        []capanalyzer.InterfaceSymbol{"example.com/declared.DeclaredSymbol"},
+			},
+		},
+	}
+
+	rep := checker.Check(in)
+	if len(rep.Violations) != 1 {
+		t.Fatalf("expected 1 violation for declared-style call to undeclared symbol, got %d: %+v", len(rep.Violations), rep.Violations)
+	}
+	if rep.Violations[0].Kind != report.CallsUndeclaredInterface {
+		t.Errorf("expected kind %s, got %s", report.CallsUndeclaredInterface, rep.Violations[0].Kind)
+	}
+}
+
+func TestCheck_PackageSurfaceWrapper_UsedVsUnused(t *testing.T) {
+	in := checker.Inputs{
+		Manifest: manifest.Manifest{
+			Name: "mycomponent",
+			ComponentDependencies: []manifest.ComponentDependency{
+				{Name: "used_wrapper"},
+				{Name: "unused_wrapper"},
+			},
+		},
+		Facts: facts.PackageFacts{
+			Packages: []facts.PackageFact{
+				{
+					ImportPath: "mycomponent/pkg",
+					Imports:    []string{"example.com/usedwrapper"},
+				},
+			},
+		},
+		DepIfaces: []facts.DependencyInterface{
+			{
+				Component:      "used_wrapper",
+				Packages:       []string{"example.com/usedwrapper"},
+				InterfaceStyle: manifest.InterfaceStylePackageSurface,
+			},
+			{
+				Component:      "unused_wrapper",
+				Packages:       []string{"example.com/unusedwrapper"},
+				InterfaceStyle: manifest.InterfaceStylePackageSurface,
+			},
+		},
+	}
+
+	rep := checker.Check(in)
+	if len(rep.Warnings) != 1 {
+		t.Fatalf("expected exactly 1 warning (for unused_wrapper), got %d: %+v", len(rep.Warnings), rep.Warnings)
+	}
+	if rep.Warnings[0].Kind != report.UnusedDependency || !strings.Contains(rep.Warnings[0].Message, "unused_wrapper") {
+		t.Errorf("expected UnusedDependency for unused_wrapper, got %+v", rep.Warnings[0])
+	}
+}
+
+func TestCheck_AutoAttachedDependencies_NeverWarnUnused(t *testing.T) {
+	// Matrix of 4 combinations: {used, unused} x {package-surface, declared-style}
+	// plus an unused absorbed dependency to verify it still warns.
+	in := checker.Inputs{
+		Manifest: manifest.Manifest{
+			Name: "mycomponent",
+			ComponentDependencies: []manifest.ComponentDependency{
+				{Name: "dep_used_pkgsurf", AutoAttached: true},
+				{Name: "dep_unused_pkgsurf", AutoAttached: true},
+				{Name: "dep_used_declared", AutoAttached: true},
+				{Name: "dep_unused_declared", AutoAttached: true},
+			},
+			AbsorbedDependencies: []manifest.AbsorbedDependency{
+				{ImportPath: "example.com/unused_absorbed"},
+			},
+		},
+		Facts: facts.PackageFacts{
+			Packages: []facts.PackageFact{
+				{
+					ImportPath: "mycomponent/pkg",
+					Imports:    []string{"example.com/used_pkgsurf", "example.com/used_declared"},
+				},
+			},
+		},
+		DepIfaces: []facts.DependencyInterface{
+			{
+				Component:      "dep_used_pkgsurf",
+				Packages:       []string{"example.com/used_pkgsurf"},
+				InterfaceStyle: manifest.InterfaceStylePackageSurface,
+			},
+			{
+				Component:      "dep_unused_pkgsurf",
+				Packages:       []string{"example.com/unused_pkgsurf"},
+				InterfaceStyle: manifest.InterfaceStylePackageSurface,
+			},
+			{
+				Component:      "dep_used_declared",
+				Packages:       []string{"example.com/used_declared"},
+				InterfaceStyle: manifest.InterfaceStyleUnspecified,
+			},
+			{
+				Component:      "dep_unused_declared",
+				Packages:       []string{"example.com/unused_declared"},
+				InterfaceStyle: manifest.InterfaceStyleUnspecified,
+			},
+		},
+	}
+
+	rep := checker.Check(in)
+	// Only example.com/unused_absorbed should produce a warning
+	if len(rep.Warnings) != 1 {
+		t.Fatalf("expected 1 warning (for unused absorbed dep), got %d: %+v", len(rep.Warnings), rep.Warnings)
+	}
+	if rep.Warnings[0].Kind != report.UnusedDependency || !strings.Contains(rep.Warnings[0].Message, "example.com/unused_absorbed") {
+		t.Errorf("expected warning for example.com/unused_absorbed, got %+v", rep.Warnings[0])
+	}
+}
+
+func TestCheck_FR4_EmptyInterfaceFilesVacuous(t *testing.T) {
+	// A component with empty interface_files and exported methods in member packages
+	// should produce no METHOD_OUTSIDE_INTERFACE violation.
+	in := checker.Inputs{
+		Manifest: manifest.Manifest{
+			Name:           "mycomponent",
+			InterfaceFiles: nil,
+			Members:        []string{"mycomponent/pkg"},
+		},
+		Facts: facts.PackageFacts{
+			Packages: []facts.PackageFact{
+				{
+					ImportPath: "mycomponent/pkg",
+					ExportedSymbols: []facts.ExportedSymbol{
+						{Name: "Foo", Kind: "type", File: "pkg/foo.go"},
+						{Name: "Bar", Kind: "method", Receiver: "(*mycomponent/pkg.Foo)", File: "pkg/foo.go"},
+					},
+				},
+			},
+		},
+	}
+
+	rep := checker.Check(in)
+	if len(rep.Violations) != 0 {
+		t.Fatalf("expected 0 violations for empty interface_files, got %d: %+v", len(rep.Violations), rep.Violations)
+	}
+}

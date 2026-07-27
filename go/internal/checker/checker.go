@@ -260,6 +260,10 @@ func Check(in Inputs) report.ConformanceReport {
 				}
 			}
 
+			if info.di.InterfaceStyle == manifest.InterfaceStylePackageSurface {
+				continue
+			}
+
 			normCallee := NormalizeInterfaceSymbol(edge.Callee)
 			if !info.normSymbols[normCallee] {
 				// Undeclared call -> Violation
@@ -275,6 +279,9 @@ func Check(in Inputs) report.ConformanceReport {
 
 	// Check component dependencies
 	for _, dep := range in.Manifest.ComponentDependencies {
+		if dep.AutoAttached {
+			continue
+		}
 		if !compDepMatched[dep.Name] {
 			warnings = append(warnings, report.Finding{
 				Kind:    report.UnusedDependency,
