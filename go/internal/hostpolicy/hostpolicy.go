@@ -23,18 +23,22 @@ package hostpolicy
 
 import "strings"
 
-// CanonicalizePath maps a raw package or import path to arcc's canonical
-// comparison form. The shell routes every path that will be compared by the
-// checker through this hook: package import paths, a package's direct imports,
-// the packages of a resolved dependency interface, absorbed-dependency patterns,
+// CanonicalizePath maps a host/external package or import spelling into the
+// loader's canonical package namespace. The shell routes every path that will
+// be compared by the checker through this hook: package import paths, a
+// package's direct imports, the packages of a resolved dependency interface,
+// absorbed-dependency patterns,
 // and capability-finding package paths.
 //
 // The default is the identity function, which is correct whenever the loader and
 // the manifests already agree on a single namespace. A host that rewrites import
 // paths overrides this with a total, idempotent function that maps every form a
 // logical package may take (as reported by the loader, and as written in
-// manifests) to one canonical string. Idempotence matters because a path may be
-// canonicalized more than once as it flows through the shell.
+// manifests) to one canonical string. Every package path reported by the loader
+// must already be a fixed point: CanonicalizePath(loaderPath) == loaderPath.
+// The loader enforces that invariant before it filters packages or constructs
+// facts. Idempotence matters because a path may be canonicalized more than once
+// as it flows through the shell.
 //
 // It must remain safe for concurrent reads; hosts set it once during init.
 var CanonicalizePath = func(p string) string { return p }

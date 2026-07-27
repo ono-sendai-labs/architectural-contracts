@@ -88,6 +88,9 @@ func LoadPackageFacts(req LoadRequest) (facts.PackageFacts, error) {
 	if len(pkgs) == 0 {
 		return facts.PackageFacts{}, fmt.Errorf("no packages found under root %q", componentRoot)
 	}
+	if err := validateLoaderPackagePaths(pkgs); err != nil {
+		return facts.PackageFacts{}, err
+	}
 
 	if len(req.Members) > 0 && !packagelayout.IsLayoutMode() {
 		if err := validateDeclaredPackages(req.Members, pkgs); err != nil {
@@ -367,6 +370,24 @@ func validateDeclaredPackages(members []string, pkgs []*packages.Package) error 
 		}
 	}
 	return nil
+}
+
+// validateLoaderPackagePaths enforces the host-policy contract at the loader
+// boundary. packages.Visit traverses roots and every reachable dependency once,
+// so a rewritten transitive dependency cannot disappear during later
+// membership filtering.
+func validateLoaderPackagePaths(pkgs []*packages.Package) error {
+	var validationErr error
+	packages.Visit(pkgs, nil, func(pkg *packages.Package) {
+		if validationErr != nil || pkg == nil || pkg.PkgPath == "" {
+			return
+		}
+		canonical := hostpolicy.CanonicalizePath(pkg.PkgPath)
+		if canonical != pkg.PkgPath {
+			validationErr = fmt.Errorf("loader package path %q is not canonical: CanonicalizePath rewrites it to %q", pkg.PkgPath, canonical)
+		}
+	})
+	return validationErr
 }
 
 func packageIsDeclaredMember(pkg *packages.Package, members []string) bool {
@@ -826,24 +847,189 @@ func stripAllBrackets(s string) string {
 	return sb.String()
 }
 
-// canonicalizeSymbol rewrites the package-path portion embedded in a formatted
-// function/method symbol key (e.g. "pkg/path.Fn", "(*pkg/path.T).M") through
-// hostpolicy.CanonicalizePath, leaving the type/function/method tail unchanged.
-// This keeps interface symbols and call-edge symbols in the same namespace as the
-// canonicalized package paths, so the checker's boundary comparisons and the
-// capability analyzer's prune keys line up. Default identity => no-op upstream.
+// canonicalizeSymbol rewrites package-qualified components in supported
+// formatted function and method symbols. It parses the outer receiver/method
+// shape first, then scans type expressions token by token so package paths in
+// nested generic arguments are handled without replacing type or method names.
+// Unsupported or malformed shapes are returned byte-for-byte unchanged.
 func canonicalizeSymbol(sym string) string {
-	pkg := extractPackageFromStr(sym)
-	if pkg == "" {
+	if strings.HasPrefix(sym, "(*") || strings.HasPrefix(sym, "(") {
+		close := matchingSymbolParen(sym)
+		if close < 0 || close+2 >= len(sym) || sym[close+1] != '.' || !isIdentifier(sym[close+2:]) {
+			return sym
+		}
+		innerStart := 1
+		if strings.HasPrefix(sym, "(*") {
+			innerStart = 2
+		}
+		if close <= innerStart {
+			return sym
+		}
+		return sym[:innerStart] + canonicalizeTypeExpression(sym[innerStart:close]) + sym[close:]
+	}
+
+	dot := topLevelSymbolDot(sym)
+	if dot <= 0 || dot+1 >= len(sym) || !isPackagePath(sym[:dot]) {
 		return sym
 	}
-	canon := hostpolicy.CanonicalizePath(pkg)
-	if canon == pkg {
+	name, arguments, ok := splitSymbolTail(sym[dot+1:])
+	if !ok {
 		return sym
 	}
-	// The package path occurs once, ahead of the type/func tail (as a bare prefix
-	// or inside a receiver), so replacing its first occurrence is unambiguous.
-	return strings.Replace(sym, pkg, canon, 1)
+	return hostpolicy.CanonicalizePath(sym[:dot]) + "." + name + canonicalizeTypeExpression(arguments)
+}
+
+// canonicalizePackageFact puts dependency-interface package facts in the same
+// namespace as the loader's package paths, preserving duplicate imports and
+// deterministic ordering.
+func canonicalizePackageFact(pkg facts.PackageFact) facts.PackageFact {
+	pkg.ImportPath = hostpolicy.CanonicalizePath(pkg.ImportPath)
+	imports := make([]string, len(pkg.Imports))
+	for i, imp := range pkg.Imports {
+		imports[i] = hostpolicy.CanonicalizePath(imp)
+	}
+	sort.Strings(imports)
+	pkg.Imports = imports
+	return pkg
+}
+
+func canonicalizeTypeExpression(expr string) string {
+	var out strings.Builder
+	for i := 0; i < len(expr); {
+		if !isPackagePathChar(expr[i]) {
+			out.WriteByte(expr[i])
+			i++
+			continue
+		}
+		start := i
+		for i < len(expr) && isPackagePathChar(expr[i]) {
+			i++
+		}
+		token := expr[start:i]
+		if dot := strings.LastIndexByte(token, '.'); dot > 0 && dot+1 < len(token) {
+			packagePath := token[:dot]
+			token = hostpolicy.CanonicalizePath(packagePath) + token[dot:]
+		}
+		out.WriteString(token)
+	}
+	return out.String()
+}
+
+func matchingSymbolParen(sym string) int {
+	parenDepth := 0
+	bracketDepth := 0
+	for i := 0; i < len(sym); i++ {
+		switch sym[i] {
+		case '[':
+			bracketDepth++
+		case ']':
+			if bracketDepth == 0 {
+				return -1
+			}
+			bracketDepth--
+		case '(':
+			if bracketDepth == 0 {
+				parenDepth++
+			}
+		case ')':
+			if bracketDepth != 0 {
+				continue
+			}
+			parenDepth--
+			if parenDepth == 0 {
+				return i
+			}
+			if parenDepth < 0 {
+				return -1
+			}
+		}
+	}
+	return -1
+}
+
+func topLevelSymbolDot(sym string) int {
+	bracketDepth := 0
+	last := -1
+	for i := 0; i < len(sym); i++ {
+		switch sym[i] {
+		case '[':
+			bracketDepth++
+		case ']':
+			if bracketDepth == 0 {
+				return -1
+			}
+			bracketDepth--
+		case '.':
+			if bracketDepth == 0 {
+				last = i
+			}
+		}
+	}
+	if bracketDepth != 0 {
+		return -1
+	}
+	return last
+}
+
+func isPackagePath(s string) bool {
+	if s == "" {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		if !isPackagePathChar(s[i]) {
+			return false
+		}
+	}
+	return true
+}
+
+func isPackagePathChar(ch byte) bool {
+	return (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') ||
+		(ch >= '0' && ch <= '9') || ch == '_' || ch == '-' || ch == '.' || ch == '/'
+}
+
+func isIdentifier(s string) bool {
+	if s == "" || !((s[0] >= 'a' && s[0] <= 'z') || (s[0] >= 'A' && s[0] <= 'Z') || s[0] == '_') {
+		return false
+	}
+	for i := 1; i < len(s); i++ {
+		if !((s[i] >= 'a' && s[i] <= 'z') || (s[i] >= 'A' && s[i] <= 'Z') ||
+			(s[i] >= '0' && s[i] <= '9') || s[i] == '_') {
+			return false
+		}
+	}
+	return true
+}
+
+func splitSymbolTail(s string) (name, arguments string, ok bool) {
+	for i := 0; i < len(s); i++ {
+		if !((s[i] >= 'a' && s[i] <= 'z') || (s[i] >= 'A' && s[i] <= 'Z') ||
+			(s[i] >= '0' && s[i] <= '9') || s[i] == '_') {
+			if i == 0 || s[i] != '[' {
+				return "", "", false
+			}
+			name = s[:i]
+			arguments = s[i:]
+			return name, arguments, balancedBrackets(arguments)
+		}
+	}
+	return s, "", isIdentifier(s)
+}
+
+func balancedBrackets(s string) bool {
+	depth := 0
+	for i := 0; i < len(s); i++ {
+		switch s[i] {
+		case '[':
+			depth++
+		case ']':
+			if depth == 0 {
+				return false
+			}
+			depth--
+		}
+	}
+	return depth == 0
 }
 
 // extractPackageFromStr parses the package path from a formatted function/method string.
@@ -994,7 +1180,7 @@ func ResolveDependencyInterface(
 
 		err = packagelayout.WithTemporaryLayout(depLayoutPath, func() error {
 			var loadErr error
-			depPkgs, loadErr = packages.Load(cfg, patterns...)
+			depPkgs, loadErr = loadPackages(cfg, patterns...)
 			return loadErr
 		})
 		if err != nil {
@@ -1011,7 +1197,7 @@ func ResolveDependencyInterface(
 			Dir: loadDir,
 		}
 
-		depPkgs, err = packages.Load(cfg, patterns...)
+		depPkgs, err = loadPackages(cfg, patterns...)
 		if err != nil {
 			return facts.DependencyInterface{}, fmt.Errorf("failed to load dependency packages: %w", err)
 		}
@@ -1019,6 +1205,9 @@ func ResolveDependencyInterface(
 
 	if len(depPkgs) == 0 {
 		return facts.DependencyInterface{}, fmt.Errorf("no packages found under dependency root %q", cleanDepRoot)
+	}
+	if err := validateLoaderPackagePaths(depPkgs); err != nil {
+		return facts.DependencyInterface{}, err
 	}
 
 	// Check package load/parse/type errors
@@ -1059,7 +1248,7 @@ func ResolveDependencyInterface(
 	for _, p := range depPkgs {
 		var imports []string
 		for impPath := range p.Imports {
-			imports = append(imports, impPath)
+			imports = append(imports, hostpolicy.CanonicalizePath(impPath))
 		}
 		sort.Strings(imports)
 
@@ -1076,12 +1265,12 @@ func ResolveDependencyInterface(
 			return facts.DependencyInterface{}, err
 		}
 
-		factsPkgs = append(factsPkgs, facts.PackageFact{
+		factsPkgs = append(factsPkgs, canonicalizePackageFact(facts.PackageFact{
 			ImportPath:      p.PkgPath,
 			IsStdlib:        isStd,
 			Imports:         imports,
 			ExportedSymbols: exportedSymbols,
-		})
+		}))
 	}
 
 	sort.Slice(factsPkgs, func(i, j int) bool {
