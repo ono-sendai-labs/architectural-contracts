@@ -1,0 +1,19 @@
+load("@rules_go//go:def.bzl", "go_library")
+load("@rules_arcc//bazel_rules/go:defs.bzl", "go_component")
+
+go_library(
+    name = "consumer",
+    srcs = ["consumer.go"],
+    importpath = "example.com/infra/consumer",
+    visibility = ["//visibility:public"],
+    deps = ["//bazel_rules/go/tests/testdata/infra/runtime"],
+)
+
+go_component(
+    name = "consumer_component",
+    infra_deps = ["//bazel_rules/go/tests/testdata/infra/runtime:runtime_component"],
+    interface = ":consumer",
+    test_infra_attach = "ALWAYS",
+    test_infra_patterns = ["example.com/infra/runtime*"],
+    visibility = ["//visibility:public"],
+)

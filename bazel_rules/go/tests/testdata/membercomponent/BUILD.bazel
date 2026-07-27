@@ -42,6 +42,49 @@ go_component(
     visibility = ["//bazel_rules:__subpackages__"],
 )
 
+# A package-surface component with pattern membership.
+go_component(
+    name = "pattern_membership_component",
+    interface_style = PACKAGE_SURFACE,
+    members = [
+        "example.com/aspect/*",
+    ],
+    tags = ["manual"],
+    visibility = ["//bazel_rules:__subpackages__"],
+)
+
+# Test target for auto-attached infra component.
+go_component(
+    name = "auto_attached_infra_component",
+    interface = "//bazel_rules/go/tests/testdata/api:api",
+    infra_deps = [":package_surface_component"],
+    test_infra_attach = "ALWAYS",
+    test_infra_patterns = ["example.com/aspect/member*"],
+    tags = ["manual"],
+    visibility = ["//bazel_rules:__subpackages__"],
+)
+
+# Test target for declining infra component attachment.
+go_component(
+    name = "declining_infra_component",
+    interface = "//bazel_rules/go/tests/testdata/api:api",
+    infra_deps = [":package_surface_component"],
+    test_infra_attach = "NEVER",
+    tags = ["manual"],
+    visibility = ["//bazel_rules:__subpackages__"],
+)
+
+# Test target where authored edge wins over auto-attachment.
+go_component(
+    name = "authored_wins_infra_component",
+    interface = "//bazel_rules/go/tests/testdata/api:api",
+    component_deps = [":package_surface_component"],
+    infra_deps = [":package_surface_component"],
+    test_infra_attach = "ALWAYS",
+    tags = ["manual"],
+    visibility = ["//bazel_rules:__subpackages__"],
+)
+
 # Design §7.1 fixture 3: a member importing a package that is neither member,
 # covered, absorbed, nor stdlib.
 go_component(

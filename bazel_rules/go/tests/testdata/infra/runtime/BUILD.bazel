@@ -1,0 +1,17 @@
+load("@rules_go//go:def.bzl", "go_library")
+load("@rules_arcc//bazel_rules/go:defs.bzl", "FILES", "PACKAGE_SURFACE", "go_component")
+
+go_library(
+    name = "runtime",
+    srcs = ["runtime.go"],
+    importpath = "example.com/infra/runtime",
+    visibility = ["//visibility:public"],
+)
+
+go_component(
+    name = "runtime_component",
+    declared_authority = [FILES],
+    interface_style = PACKAGE_SURFACE,
+    members = [":runtime"],
+    visibility = ["//visibility:public"],
+)

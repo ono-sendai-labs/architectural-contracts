@@ -16,7 +16,7 @@ Requirement IDs (M*, A*, T*, B*) refer to §2 of the design.
 - [x] **Step 6** — Bazel: adapter seam additions, `members` and `interface_style` attributes (B1, emitter half of T2)
 - [x] **Step 7** — Bazel: declared classification, emission, and example migration (M4, M6, M7)
 - [x] **Step 8** — The absorbed func-value escape warning (A5)
-- [ ] **Step 9** — Package-surface components, auto-attached edges, pattern membership (A6, A7, A8, A9, M8)
+- [x] **Step 9** — Package-surface components, auto-attached edges, pattern membership (A6, A7, A8, A9, M8)
 - [ ] **Step 10** — Bazelified self-check (B3)
 - [ ] **Step 11** — Documentation and design-record sync
 

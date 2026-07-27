@@ -18,12 +18,15 @@ load(
     "GO_PROVIDERS",
     "GO_TOOLCHAINS",
     "forward_go_providers",
+    "go_attach_infra",
     "go_build_platform",
     "go_importpath",
+    "go_infra_components",
+    "go_infra_deps",
     "go_library_srcs",
     "go_sdk_root",
 )
-load(":paths.bzl", "runfiles_path")
+load(":paths.bzl", "match_path", "runfiles_path")
 
 def _relativize(target_path, base_dir):
     """`target_path` as seen from the directory `base_dir`."""
@@ -64,7 +67,7 @@ def _package_name(importpath):
 def _textproto_string(value):
     return '"' + value.replace("\\", "\\\\").replace('"', '\\"') + '"'
 
-def _manifest_content(ctx, interface_files, component_deps, absorbed, declared_authority, manifest_dir, interface_style, members):
+def _manifest_content(ctx, interface_files, component_deps, auto_attached_deps, absorbed, declared_authority, manifest_dir, interface_style, members):
     lines = ["name: " + _textproto_string(ctx.label.name)]
 
     if interface_style == "PACKAGE_SURFACE":
@@ -73,17 +76,24 @@ def _manifest_content(ctx, interface_files, component_deps, absorbed, declared_a
     for path in interface_files:
         lines.append("interface_files: " + _textproto_string(path))
 
+    all_deps = []
     for dep in component_deps:
         info = dep[ArccComponentInfo]
-        lines.append("component_dependencies {")
-        lines.append("  name: " + _textproto_string(info.component_name))
-
-        # arcc resolves a dependency's manifest relative to the declaring
-        # manifest's own directory, and derives the dependency's layout from
-        # that path by convention. Both files sit in the same output tree, so
-        # the relative path is well defined.
         manifest_path = _relativize(runfiles_path(ctx, info.manifest), manifest_dir)
+        all_deps.append((info.component_name, manifest_path, False))
+
+    for info in auto_attached_deps:
+        manifest_path = _relativize(runfiles_path(ctx, info.manifest), manifest_dir)
+        all_deps.append((info.component_name, manifest_path, True))
+
+    all_deps = sorted(all_deps)
+
+    for dep_name, manifest_path, auto_attached in all_deps:
+        lines.append("component_dependencies {")
+        lines.append("  name: " + _textproto_string(dep_name))
         lines.append("  manifest: " + _textproto_string(manifest_path))
+        if auto_attached:
+            lines.append("  auto_attached: true")
         lines.append("}")
 
     for importpath in absorbed:
@@ -144,17 +154,9 @@ def _layout_content(ctx, merged, roots, go_sdk_root, platform):
         indent = "  ",
     ) + "\n"
 
-def _classify(ctx, merged, effective_members):
+def _classify(ctx, merged, effective_members, covered):
     """Splits the closure into covered, member, absorbed, and unclassified (design §5.3)."""
 
-    # 1. Covered: a listed component dependency already accounts for it.
-    covered = {}
-    for dep in ctx.attr.component_deps:
-        info = dep[ArccComponentInfo]
-        for pkg in info.closure.to_list():
-            covered[pkg.importpath] = info.component_name
-
-    # 2. Absorbed: inside an explicitly absorbed label's transitive closure.
     absorbed_closure = {}
     for dep in ctx.attr.absorbed_deps:
         for pkg in dep[ArccPackageInfo].packages.to_list():
@@ -186,14 +188,67 @@ def _go_component_impl(ctx):
                 ", ".join(ALL_AUTHORITIES),
             ))
 
-    # 1. Gather all covered import paths to allow direct member conflict checking.
+    authored_dep_names = {}
+    for dep in ctx.attr.component_deps:
+        info = dep[ArccComponentInfo]
+        authored_dep_names[info.component_name] = True
+
+    roots = ([ctx.attr.interface] if ctx.attr.interface else []) + ctx.attr.members
+
+    infra_registry = go_infra_components(ctx)
+    auto_attached_deps = []
+    auto_attached_targets = []
+    auto_attached_patterns = []
+
+    for dep in ctx.attr.infra_deps:
+        info = dep[ArccComponentInfo]
+        if info.component_name == ctx.label.name:
+            continue
+
+        entry = None
+        for reg in infra_registry:
+            reg_comp = getattr(reg, "component", None)
+            if reg_comp != None:
+                if str(reg_comp) == str(dep.label) or (hasattr(reg_comp, "name") and reg_comp == dep.label):
+                    entry = reg
+                    break
+            if getattr(reg, "name", None) == info.component_name:
+                entry = reg
+                break
+
+        if entry == None:
+            entry = struct(
+                name = info.component_name,
+                component = str(dep.label),
+                import_path_patterns = [],
+            )
+
+        attach_fn = getattr(entry, "attach_predicate", None)
+        if attach_fn != None:
+            should_attach = attach_fn(roots, entry)
+        else:
+            should_attach = go_attach_infra(roots, entry)
+
+        if should_attach:
+            if info.component_name in authored_dep_names:
+                continue
+
+            auto_attached_deps.append(info)
+            auto_attached_targets.append(dep)
+            patterns = getattr(entry, "import_path_patterns", [])
+            for p in patterns:
+                auto_attached_patterns.append((p, info.component_name))
+
     covered = {}
     for dep in ctx.attr.component_deps:
         info = dep[ArccComponentInfo]
         for pkg in info.closure.to_list():
             covered[pkg.importpath] = info.component_name
 
-    # 2. Gather exact import paths of authored absorbed dependencies labels.
+    for info in auto_attached_deps:
+        for pkg in info.closure.to_list():
+            covered[pkg.importpath] = info.component_name
+
     absorbed_label_importpaths = {}
     for dep in ctx.attr.absorbed_deps:
         importpath = go_importpath(dep)
@@ -210,18 +265,12 @@ def _go_component_impl(ctx):
                 covered[importpath],
             ))
 
-    # 3. Get exact import paths of authored members and validate they are non-empty.
     member_importpaths = []
     for m in ctx.attr.members:
         m_path = go_importpath(m)
         if not m_path:
             fail("component %s: member %s has no importpath" % (ctx.label.name, m.label))
         member_importpaths.append(m_path)
-
-    # 4. Fail analysis when an authored member label is also directly listed in absorbed_deps,
-    #    or its import path is covered by a component_dep.
-    for m in ctx.attr.members:
-        m_path = go_importpath(m)
         if m_path in covered:
             fail("component %s: member %s is already covered by component_dep %s" % (
                 ctx.label.name,
@@ -238,7 +287,6 @@ def _go_component_impl(ctx):
     interface = ctx.attr.interface
     interface_importpath = go_importpath(interface) if interface else ""
 
-    # Validate interface conflicts
     if interface:
         if interface_importpath in covered:
             fail("component %s: its own interface package %s is covered by component_dep %s" % (
@@ -253,14 +301,6 @@ def _go_component_impl(ctx):
                 absorbed_label_importpaths[interface_importpath],
             ))
 
-    # Construct the effective members set (implicit interface + authored members)
-    effective_members = {}
-    if interface_importpath:
-        effective_members[interface_importpath] = True
-    for m_path in member_importpaths:
-        effective_members[m_path] = True
-
-    roots = ([interface] if interface else []) + ctx.attr.members
     root_packages = []
     for root in roots:
         root_packages.extend(root[ArccPackageInfo].packages.to_list())
@@ -274,9 +314,25 @@ def _go_component_impl(ctx):
                 importpath,
             ))
 
-    members, absorbed, unclassified = _classify(ctx, merged, effective_members)
+    for pattern, comp_name in auto_attached_patterns:
+        for importpath in merged.keys():
+            if match_path(pattern, importpath):
+                covered[importpath] = comp_name
 
-    # Validate roots == members check on interface
+    effective_members = {}
+    if interface_importpath:
+        effective_members[interface_importpath] = True
+    for m_path in member_importpaths:
+        effective_members[m_path] = True
+
+    member_patterns = getattr(ctx.attr, "member_patterns", [])
+    for pattern in member_patterns:
+        for importpath in merged.keys():
+            if match_path(pattern, importpath):
+                effective_members[importpath] = True
+
+    members, absorbed, unclassified = _classify(ctx, merged, effective_members, covered)
+
     if interface and interface_importpath not in members:
         fail(("component %s: its own interface package %s is covered by a component_dep or listed in " +
               "absorbed_deps, which would leave the component with nothing to check.") % (
@@ -284,10 +340,21 @@ def _go_component_impl(ctx):
             interface_importpath,
         ))
 
+    all_manifest_members = {}
+    for m_path in members:
+        all_manifest_members[m_path] = True
+    for pattern in member_patterns:
+        all_manifest_members[pattern] = True
+    manifest_members = sorted(list(all_manifest_members.keys()))
+
+    if roots:
+        layout_roots = sorted(list(effective_members.keys()))
+    else:
+        layout_roots = []
+
     manifest = ctx.actions.declare_file(ctx.label.name + ".component.textproto")
     layout = ctx.actions.declare_file(ctx.label.name + ".package-layout.json")
 
-    # Get target platform settings using go_build_platform
     platform = go_build_platform(roots[0]) if roots else None
 
     interface_files = []
@@ -297,17 +364,19 @@ def _go_component_impl(ctx):
             for src in go_library_srcs(interface)
             if src.extension == "go"
         ])
+
     ctx.actions.write(
         output = manifest,
         content = _manifest_content(
             ctx,
             interface_files = interface_files,
             component_deps = ctx.attr.component_deps,
+            auto_attached_deps = auto_attached_deps,
             absorbed = absorbed,
             declared_authority = ctx.attr.declared_authority,
             manifest_dir = _dirname(runfiles_path(ctx, manifest)),
             interface_style = ctx.attr.interface_style,
-            members = members,
+            members = manifest_members,
         ),
     )
 
@@ -316,46 +385,44 @@ def _go_component_impl(ctx):
         content = _layout_content(
             ctx,
             merged = merged,
-            roots = members,
+            roots = layout_roots,
             go_sdk_root = go_sdk_root(ctx),
             platform = platform,
         ),
     )
 
-    # The layout names every package in the closure, not just this component's
-    # own: a member package cannot be type-checked without the sources of what
-    # it imports, whoever else covers them.
     closure_srcs = []
     for importpath in merged:
         closure_srcs.extend(merged[importpath].srcs)
 
     transitive_manifests = depset(
         direct = [manifest],
-        transitive = [dep[ArccComponentInfo].transitive_manifests for dep in ctx.attr.component_deps],
+        transitive = [dep[ArccComponentInfo].transitive_manifests for dep in ctx.attr.component_deps] + [info.transitive_manifests for info in auto_attached_deps],
     )
     transitive_layouts = depset(
         direct = [layout],
-        transitive = [dep[ArccComponentInfo].transitive_layouts for dep in ctx.attr.component_deps],
+        transitive = [dep[ArccComponentInfo].transitive_layouts for dep in ctx.attr.component_deps] + [info.transitive_layouts for info in auto_attached_deps],
     )
     contracts = depset(
         direct = ctx.files.contract,
-        transitive = [dep[ArccComponentInfo].contracts for dep in ctx.attr.component_deps],
+        transitive = [dep[ArccComponentInfo].contracts for dep in ctx.attr.component_deps] + [info.contracts for info in auto_attached_deps],
     )
 
     covered_or_member = {importpath: True for importpath in members}
     for importpath in absorbed:
         covered_or_member[importpath] = True
 
+    base_runfiles = ctx.runfiles(
+        files = closure_srcs,
+        transitive_files = depset(transitive = [transitive_manifests, transitive_layouts]),
+    )
+    dep_runfiles = [dep[DefaultInfo].default_runfiles for dep in ctx.attr.component_deps] + [target[DefaultInfo].default_runfiles for target in auto_attached_targets]
+    runfiles = base_runfiles.merge_all(dep_runfiles)
+
     providers = [
         DefaultInfo(
             files = depset([manifest, layout]),
-            # Enough to run the check: the manifests and layouts of this
-            # component and everything it depends on, plus every source the
-            # layouts name.
-            runfiles = ctx.runfiles(
-                files = closure_srcs,
-                transitive_files = depset(transitive = [transitive_manifests, transitive_layouts]),
-            ),
+            runfiles = runfiles,
         ),
         ArccComponentInfo(
             component_name = ctx.label.name,
@@ -376,11 +443,9 @@ def _go_component_impl(ctx):
         ),
     ]
     if interface:
-        # Declared-style components remain usable as Go deps by forwarding the
-        # interface providers verbatim. Package-surface components have no
-        # distinguished interface target to forward.
         providers.extend(forward_go_providers(interface))
     return providers
+
 go_component_rule = rule(
     implementation = _go_component_impl,
     attrs = {
@@ -400,9 +465,16 @@ go_component_rule = rule(
             doc = "Concrete Go library labels whose transitive closures are analyzed " +
                   "alongside the interface closure.",
         ),
+        "member_patterns": attr.string_list(
+            doc = "Unexpanded import-path patterns authored as membership under PACKAGE_SURFACE.",
+        ),
         "component_deps": attr.label_list(
             providers = [ArccComponentInfo],
             doc = "Other components this one depends on; their packages are excluded from this one.",
+        ),
+        "infra_deps": attr.label_list(
+            providers = [ArccComponentInfo],
+            doc = "Auto-attached infrastructure component dependencies.",
         ),
         "absorbed_deps": attr.label_list(
             providers = GO_PROVIDERS,
@@ -415,6 +487,12 @@ go_component_rule = rule(
         ),
         "declared_authority": attr.string_list(
             doc = "Ambient authority the component declares, from //bazel_rules:authority.bzl.",
+        ),
+        "test_infra_patterns": attr.string_list(
+            doc = "Undocumented testing attribute for test infra patterns.",
+        ),
+        "test_infra_attach": attr.string(
+            doc = "Undocumented testing attribute for test attachment mode.",
         ),
     },
     toolchains = GO_TOOLCHAINS,

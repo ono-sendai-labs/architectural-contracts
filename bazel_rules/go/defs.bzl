@@ -10,6 +10,10 @@ statement; they are equally available from their language-neutral home,
 load("//bazel_rules/go/private:check.bzl", "arcc_check_test")
 load("//bazel_rules/go/private:component.bzl", "go_component_rule")
 load(
+    "//bazel_rules/go/private:go_adapter.bzl",
+    "go_infra_deps",
+)
+load(
     "//bazel_rules:authority.bzl",
     _ALL_AUTHORITIES = "ALL_AUTHORITIES",
     _ARBITRARY_EXECUTION = "ARBITRARY_EXECUTION",
@@ -47,6 +51,15 @@ ALL_AUTHORITIES = _ALL_AUTHORITIES
 # the declared-interface style.
 PACKAGE_SURFACE = "PACKAGE_SURFACE"
 
+def _is_label(s):
+    return s.startswith("//") or s.startswith(":") or s.startswith("@")
+
+def _has_wildcards(s):
+    for c in ["*", "?", "[", "]", "\\"]:
+        if c in s:
+            return True
+    return False
+
 def _validate_component_shape(name, kwargs):
     style = kwargs.get("interface_style")
     interface = kwargs.get("interface")
@@ -66,6 +79,10 @@ def _validate_component_shape(name, kwargs):
     if declared_style:
         if interface == None:
             fail("component %s: declared interface_style requires interface." % name)
+        for m in members:
+            m_str = str(m)
+            if not _is_label(m_str) or _has_wildcards(m_str):
+                fail("component %s: declared-style members must be literal target labels: %r" % (name, m_str))
         return
 
     if interface != None:
@@ -88,6 +105,22 @@ def _go_component_impl(name, visibility, **kwargs):
     # Unset inherited attributes arrive as None; the rule wants its own
     # defaults for those, not a null.
     set_kwargs = {key: value for key, value in kwargs.items() if value != None}
+
+    raw_members = set_kwargs.get("members", [])
+    target_members = []
+    pattern_members = []
+    for m in raw_members:
+        m_str = str(m)
+        if _is_label(m_str) and not _has_wildcards(m_str):
+            target_members.append(m_str)
+        else:
+            pattern_members.append(m_str)
+
+    set_kwargs["members"] = target_members
+    set_kwargs["member_patterns"] = pattern_members
+    if "infra_deps" not in set_kwargs:
+        set_kwargs["infra_deps"] = go_infra_deps()
+
     go_component_rule(
         name = name,
         visibility = visibility,
@@ -125,10 +158,9 @@ go_component = macro(
             doc = "Interface shape: unset for declared style, or PACKAGE_SURFACE for " +
                  "components whose complete surface is their concrete members.",
         ),
-        "members": attr.label_list(
+        "members": attr.string_list(
             configurable = False,
-            doc = "Concrete go_library labels declared as component members. Their " +
-                  "transitive Go closures are analyzed alongside the interface closure.",
+            doc = "Concrete go_library labels or import-path patterns (under PACKAGE_SURFACE) declared as component members.",
         ),
         "component_deps": attr.label_list(
             configurable = False,
@@ -150,6 +182,18 @@ go_component = macro(
             configurable = False,
             doc = "The ambient authority this component declares, as constants from this file " +
                   "(FILES, NETWORK, ...). Empty means the component claims to be authority-free.",
+        ),
+        "infra_deps": attr.label_list(
+            configurable = False,
+            doc = "Infrastructure components evaluated for auto-attachment.",
+        ),
+        "test_infra_patterns": attr.string_list(
+            configurable = False,
+            doc = "Undocumented testing attribute for test infra patterns.",
+        ),
+        "test_infra_attach": attr.string(
+            configurable = False,
+            doc = "Undocumented testing attribute for test attachment mode.",
         ),
     },
     doc = """Declares a checkable arcc component around a Go interface library.

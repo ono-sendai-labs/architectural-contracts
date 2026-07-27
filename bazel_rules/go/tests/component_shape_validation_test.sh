@@ -6,6 +6,7 @@ set -euo pipefail
 invalid_root="${TEST_TMPDIR:-${TMPDIR:-/tmp}}/component_shape_packages_$$"
 trap 'rm -rf "${invalid_root}"' EXIT
 mkdir -p "${invalid_root}/declared_missing"
+mkdir -p "${invalid_root}/declared_pattern"
 mkdir -p "${invalid_root}/surface_interface"
 mkdir -p "${invalid_root}/surface_members"
 mkdir -p "${invalid_root}/surface_empty"
@@ -16,6 +17,16 @@ load("@rules_arcc//bazel_rules/go:defs.bzl", "go_component")
 
 go_component(
     name = "declared_missing",
+)
+EOF
+
+cat > "${invalid_root}/declared_pattern/BUILD.bazel" <<'EOF'
+load("@rules_arcc//bazel_rules/go:defs.bzl", "go_component")
+
+go_component(
+    name = "declared_pattern",
+    interface = "//bazel_rules/go/tests/testdata/api:api",
+    members = ["example.com/app/*"],
 )
 EOF
 
@@ -83,6 +94,8 @@ run_failure() {
 
 run_failure declared_missing "${invalid_root}/declared_missing.txt" \
   "component declared_missing" "requires interface"
+run_failure declared_pattern "${invalid_root}/declared_pattern.txt" \
+  "component declared_pattern" "declared-style members must be literal target labels"
 run_failure surface_interface "${invalid_root}/surface_interface.txt" \
   "component surface_interface" "interface" "does not allow"
 run_failure surface_members "${invalid_root}/surface_members.txt" \

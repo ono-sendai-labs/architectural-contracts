@@ -15,6 +15,10 @@ _API_COMPONENT = "//bazel_rules/go/tests/testdata/api:api_component"
 _MEMBER_COMPONENT = "//bazel_rules/go/tests/testdata/membercomponent:member_component"
 _REVERSED_MEMBER_COMPONENT = "//bazel_rules/go/tests/testdata/membercomponent:member_component_reversed"
 _PACKAGE_SURFACE_COMPONENT = "//bazel_rules/go/tests/testdata/membercomponent:package_surface_component"
+_PATTERN_MEMBERSHIP_COMPONENT = "//bazel_rules/go/tests/testdata/membercomponent:pattern_membership_component"
+_AUTO_ATTACHED_INFRA_COMPONENT = "//bazel_rules/go/tests/testdata/membercomponent:auto_attached_infra_component"
+_DECLINING_INFRA_COMPONENT = "//bazel_rules/go/tests/testdata/membercomponent:declining_infra_component"
+_AUTHORED_WINS_INFRA_COMPONENT = "//bazel_rules/go/tests/testdata/membercomponent:authored_wins_infra_component"
 
 def _membership_classification_test(name):
     analysis_test(
@@ -234,6 +238,68 @@ def _nested_component_root_allowed_impl(env, target):
         [pkg.importpath for pkg in info.closure.to_list()],
     ).contains_exactly(["example.com/aspect/nested"])
 
+def _pattern_membership_test(name):
+    analysis_test(
+        name = name,
+        target = _PATTERN_MEMBERSHIP_COMPONENT,
+        impl = _pattern_membership_impl,
+        attr_values = {"size": "small"},
+    )
+
+def _pattern_membership_impl(env, target):
+    info = target[ArccComponentInfo]
+    env.expect.that_str(info.component_name).equals("pattern_membership_component")
+
+def _auto_attached_infra_test(name):
+    analysis_test(
+        name = name,
+        target = _AUTO_ATTACHED_INFRA_COMPONENT,
+        impl = _auto_attached_infra_impl,
+        attr_values = {"size": "small"},
+    )
+
+def _auto_attached_infra_impl(env, target):
+    info = target[ArccComponentInfo]
+    env.expect.that_collection(
+        [file.basename for file in info.transitive_manifests.to_list()],
+    ).contains_exactly([
+        "auto_attached_infra_component.component.textproto",
+        "package_surface_component.component.textproto",
+    ])
+
+def _declining_infra_test(name):
+    analysis_test(
+        name = name,
+        target = _DECLINING_INFRA_COMPONENT,
+        impl = _declining_infra_impl,
+        attr_values = {"size": "small"},
+    )
+
+def _declining_infra_impl(env, target):
+    info = target[ArccComponentInfo]
+    env.expect.that_collection(
+        [file.basename for file in info.transitive_manifests.to_list()],
+    ).contains_exactly([
+        "declining_infra_component.component.textproto",
+    ])
+
+def _authored_wins_infra_test(name):
+    analysis_test(
+        name = name,
+        target = _AUTHORED_WINS_INFRA_COMPONENT,
+        impl = _authored_wins_infra_impl,
+        attr_values = {"size": "small"},
+    )
+
+def _authored_wins_infra_impl(env, target):
+    info = target[ArccComponentInfo]
+    env.expect.that_collection(
+        [file.basename for file in info.transitive_manifests.to_list()],
+    ).contains_exactly([
+        "authored_wins_infra_component.component.textproto",
+        "package_surface_component.component.textproto",
+    ])
+
 def go_component_test_suite(name):
     test_suite(
         name = name,
@@ -248,5 +314,9 @@ def go_component_test_suite(name):
             _member_absorbed_conflict_fails_test,
             _member_covered_conflict_fails_test,
             _nested_component_root_allowed_test,
+            _pattern_membership_test,
+            _auto_attached_infra_test,
+            _declining_infra_test,
+            _authored_wins_infra_test,
         ],
     )

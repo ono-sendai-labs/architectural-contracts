@@ -18,6 +18,8 @@ constant instead; that is conforming behavior, not a degraded fallback.
 """
 
 load("@rules_go//go:def.bzl", "GoArchive", "GoInfo")
+load("//bazel_rules:providers.bzl", "ArccComponentInfo")
+load("//bazel_rules/go:providers.bzl", "ArccPackageInfo")
 load(":paths.bzl", "runfiles_path")
 
 # Providers a Go library target must carry to take part as a component
@@ -95,7 +97,7 @@ def go_attach_infra(target, infra):
 #   struct(
 #       name = "injected_runtime",
 #       component = "//toolchain/runtime:component",
-#       import_path_patterns = ["example.com/toolchain/runtime/..."],
+#       import_path_patterns = ["example.com/toolchain/runtime/*"],
 #   )
 #
 # Here `component` is the target attached by Step 9, while
@@ -106,6 +108,48 @@ def go_attach_infra(target, infra):
 # means existing upstream components acquire no new dependency until a host
 # supplies a real registry entry.
 INFRA_COMPONENTS = []
+
+def go_infra_deps():
+    """Returns the list of component labels from INFRA_COMPONENTS."""
+    deps = []
+    for entry in INFRA_COMPONENTS:
+        if hasattr(entry, "component") and entry.component:
+            deps.append(entry.component)
+    return deps
+
+def go_infra_components(ctx = None):
+    """Returns the infra component registry entries."""
+    if ctx != None and hasattr(ctx.attr, "test_infra_attach") and ctx.attr.test_infra_attach:
+        patterns = getattr(ctx.attr, "test_infra_patterns", [])
+        attach_mode = ctx.attr.test_infra_attach
+        deps = getattr(ctx.attr, "infra_deps", [])
+        comp_label = str(deps[0].label) if deps else ""
+        comp_name = deps[0][ArccComponentInfo].component_name if deps else "test_infra"
+
+        def _test_predicate(roots, entry):
+            if attach_mode == "ALWAYS":
+                return True
+            if attach_mode == "NEVER":
+                return False
+            if attach_mode == "CLOSURE":
+                for root in roots:
+                    if ArccPackageInfo in root:
+                        for pkg in root[ArccPackageInfo].packages.to_list():
+                            if "runtime" in pkg.importpath or "injected" in pkg.importpath:
+                                return True
+                return False
+            return True
+
+        return [struct(
+            name = comp_name,
+            component = comp_label,
+            import_path_patterns = patterns,
+            attach_predicate = _test_predicate,
+        )]
+
+    if ctx != None and hasattr(ctx.attr, "infra_components") and ctx.attr.infra_components:
+        return ctx.attr.infra_components
+    return INFRA_COMPONENTS
 
 def go_library_srcs(target):
     """The compiled, build-constraint-filtered sources of a Go library target.
