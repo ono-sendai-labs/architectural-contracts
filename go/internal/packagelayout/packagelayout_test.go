@@ -1560,6 +1560,27 @@ func TestValidateAndResolve_PlatformImportShapes(t *testing.T) {
 		}
 	})
 
+	for _, tc := range []struct {
+		name    string
+		imports map[string]*packages.Package
+	}{
+		{name: "declared imports from CompiledGoFiles", imports: map[string]*packages.Package{"example.com/linux": {ID: "example.com/linux"}}},
+		{name: "omitted imports from CompiledGoFiles", imports: nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			layout := newLayout(tc.imports)
+			api := packageByID(layout.Packages, "example.com/api")
+			api.CompiledGoFiles = append([]string{}, api.GoFiles...)
+			api.GoFiles = nil
+			if err := ValidateAndResolve(layout, workspace); err != nil {
+				t.Fatalf("ValidateAndResolve() error = %v", err)
+			}
+			if got := sortedImportIDs(api); !reflect.DeepEqual(got, []string{"example.com/linux"}) {
+				t.Fatalf("imports = %v, want linux import", got)
+			}
+		})
+	}
+
 	t.Run("declared union is rejected", func(t *testing.T) {
 		layout := newLayout(map[string]*packages.Package{
 			"example.com/linux":   {ID: "example.com/linux"},
@@ -1602,14 +1623,21 @@ func TestValidateAndResolve_UnresolvedImportsAreFacts(t *testing.T) {
 	}
 
 	for _, tc := range []struct {
-		name    string
-		imports map[string]*packages.Package
+		name         string
+		imports      map[string]*packages.Package
+		compiledOnly bool
 	}{
 		{name: "omitted", imports: nil},
 		{name: "declared", imports: map[string]*packages.Package{}},
+		{name: "compiled-only", imports: nil, compiledOnly: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			layout := newLayout(tc.imports)
+			if tc.compiledOnly {
+				api := packageByID(layout.Packages, "example.com/api")
+				api.CompiledGoFiles = append([]string{}, api.GoFiles...)
+				api.GoFiles = nil
+			}
 			if err := ValidateAndResolve(layout, workspace); err != nil {
 				t.Fatalf("ValidateAndResolve() error = %v", err)
 			}
@@ -1904,6 +1932,32 @@ func TestValidateAndResolve_ImportRecovery_Errors(t *testing.T) {
 			t.Errorf("unexpected error message: %v", err)
 		}
 	})
+}
+
+func TestValidateAndResolve_ExcludedUnresolvedImportIsIgnored(t *testing.T) {
+	workspace := t.TempDir()
+	for name, content := range map[string]string{
+		"api_linux.go":   "package api\n",
+		"api_windows.go": "package api\nimport \"example.com/excluded\"\n",
+	} {
+		if err := os.WriteFile(filepath.Join(workspace, name), []byte(content), 0644); err != nil {
+			t.Fatalf("write %s: %v", name, err)
+		}
+	}
+	layout := &Layout{
+		Platform: &Platform{GOOS: "linux", GOARCH: "amd64"},
+		Roots:    []string{"example.com/api"},
+		Packages: []*packages.Package{{
+			ID: "example.com/api", Name: "api", PkgPath: "example.com/api",
+			GoFiles: []string{"api_linux.go", "api_windows.go"},
+		}},
+	}
+	if err := ValidateAndResolve(layout, workspace); err != nil {
+		t.Fatalf("ValidateAndResolve() error = %v", err)
+	}
+	if len(layout.UnresolvedImports) != 0 {
+		t.Fatalf("UnresolvedImports = %#v, want none from excluded source", layout.UnresolvedImports)
+	}
 }
 
 func TestValidateAndResolve_ImportRecovery_IncompleteGraph(t *testing.T) {

@@ -518,9 +518,7 @@ func ValidateAndResolve(l *Layout, workspaceDir string) error {
 	for _, p := range l.Packages {
 		if !IsStdlib(p.PkgPath) {
 			fset := token.NewFileSet()
-			sortedFiles := make([]string, len(p.GoFiles))
-			copy(sortedFiles, p.GoFiles)
-			sort.Strings(sortedFiles)
+			sortedFiles := survivingSourceFiles(p)
 
 			importSources := make(map[string][]string)
 			for _, file := range sortedFiles {
@@ -670,7 +668,7 @@ func ValidateAndResolve(l *Layout, workspaceDir string) error {
 		if !ok {
 			rootPkg = byPath[root]
 		}
-		if len(rootPkg.GoFiles) == 0 {
+		if len(survivingSourceFiles(rootPkg)) == 0 {
 			return fmt.Errorf("package %q has no source files", rootPkg.PkgPath)
 		}
 	}
@@ -733,6 +731,23 @@ func hasGoSources(files []string) bool {
 		}
 	}
 	return false
+}
+
+// survivingSourceFiles returns the deterministic, de-duplicated union of the
+// source fields that the packages driver may provide. Some providers expose a
+// source only through CompiledGoFiles, so import recovery and root validation
+// must consider both fields after platform filtering.
+func survivingSourceFiles(p *packages.Package) []string {
+	seen := make(map[string]bool, len(p.GoFiles)+len(p.CompiledGoFiles))
+	files := make([]string, 0, len(p.GoFiles)+len(p.CompiledGoFiles))
+	for _, file := range append(append([]string{}, p.GoFiles...), p.CompiledGoFiles...) {
+		if !seen[file] {
+			seen[file] = true
+			files = append(files, file)
+		}
+	}
+	sort.Strings(files)
+	return files
 }
 
 func resolveAndCheckFiles(p *packages.Package, files []string, sdkRoot, workspaceDir string) ([]string, error) {

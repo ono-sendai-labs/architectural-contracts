@@ -195,7 +195,7 @@ func LoadPackageFacts(req LoadRequest) (facts.PackageFacts, error) {
 		if !isEffectiveMember(p.PkgPath) && !isEffectiveMember(p.ID) {
 			continue
 		}
-		for _, absFile := range p.GoFiles {
+		for _, absFile := range packageSourceFiles(p) {
 			var rel string
 			var err error
 			if packagelayout.IsLayoutMode() {
@@ -849,7 +849,7 @@ func ResolveDependencyInterface(
 	sourceFiles := make(map[string]bool)
 	for _, p := range depPkgs {
 		pkgPaths = append(pkgPaths, hostpolicy.CanonicalizePath(p.PkgPath))
-		for _, absFile := range p.GoFiles {
+		for _, absFile := range packageSourceFiles(p) {
 			var rel string
 			var err error
 			if packagelayout.IsLayoutMode() {
@@ -1045,4 +1045,17 @@ func ResolveDependencyInterface(
 		Packages:  pkgPaths,
 		Symbols:   symbols,
 	}, nil
+}
+
+func packageSourceFiles(p *packages.Package) []string {
+	seen := make(map[string]bool, len(p.GoFiles)+len(p.CompiledGoFiles))
+	files := make([]string, 0, len(p.GoFiles)+len(p.CompiledGoFiles))
+	for _, file := range append(append([]string{}, p.GoFiles...), p.CompiledGoFiles...) {
+		if !seen[file] {
+			seen[file] = true
+			files = append(files, file)
+		}
+	}
+	sort.Strings(files)
+	return files
 }

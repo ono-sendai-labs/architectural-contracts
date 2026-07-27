@@ -1,6 +1,7 @@
 package checker_test
 
 import (
+	"encoding/json"
 	"reflect"
 	"strings"
 	"testing"
@@ -1368,10 +1369,15 @@ func TestCheck_UnresolvedImportsAreDeterministicLimitations(t *testing.T) {
 	in := checker.Inputs{
 		Manifest: manifest.Manifest{Name: "component"},
 		Facts: facts.PackageFacts{
-			Packages: []facts.PackageFact{{ImportPath: "component/member"}},
+			Packages: []facts.PackageFact{
+				{ImportPath: "component/member-b"},
+				{ImportPath: "component/member-a"},
+			},
 			UnresolvedImports: []facts.UnresolvedImport{
-				{Package: "component/member", File: "z.go", ImportPath: "example.com/missing"},
-				{Package: "component/member", File: "a.go", ImportPath: "example.com/other"},
+				{Package: "component/member-b", File: "z.go", ImportPath: "example.com/missing"},
+				{Package: "component/member-a", File: "z.go", ImportPath: "example.com/missing"},
+				{Package: "component/member-a", File: "a.go", ImportPath: "example.com/other"},
+				{Package: "component/member-a", File: "a.go", ImportPath: "example.com/other"},
 			},
 		},
 	}
@@ -1381,17 +1387,41 @@ func TestCheck_UnresolvedImportsAreDeterministicLimitations(t *testing.T) {
 	if !reflect.DeepEqual(rep1, rep2) {
 		t.Fatalf("repeated checks differ: %#v vs %#v", rep1, rep2)
 	}
-	if len(rep1.Violations) != 0 || len(rep1.Warnings) != 2 {
-		t.Fatalf("report = %#v, want two warnings and no violations", rep1)
+	if len(rep1.Violations) != 0 || len(rep1.Warnings) != 4 {
+		t.Fatalf("report = %#v, want four deduplicated warnings and no violations", rep1)
 	}
 	if got := rep1.Warnings[0].Message; !strings.Contains(got, `z.go`) || !strings.Contains(got, `example.com/missing`) {
 		t.Fatalf("first warning = %q, want deterministic z.go/missing diagnostic", got)
 	}
-	if rep1.Warnings[0].Kind != report.AnalysisLimitation || rep1.Warnings[1].Kind != report.AnalysisLimitation {
+	for _, warning := range rep1.Warnings {
+		if warning.Kind != report.AnalysisLimitation {
+			t.Fatalf("warnings = %#v, want ANALYSIS_LIMITATION", rep1.Warnings)
+		}
+	}
+	if rep1.Warnings[0].Message == rep1.Warnings[1].Message {
+		t.Fatalf("warnings = %#v, want distinct file/import observations", rep1.Warnings)
+	}
+	text1 := report.RenderText(rep1)
+	text2 := report.RenderText(rep2)
+	if text1 != text2 {
+		t.Fatalf("repeated text rendering differs: %q vs %q", text1, text2)
+	}
+	json1, err := json.Marshal(rep1)
+	if err != nil {
+		t.Fatalf("marshal report: %v", err)
+	}
+	json2, err := json.Marshal(rep2)
+	if err != nil {
+		t.Fatalf("marshal repeated report: %v", err)
+	}
+	if !reflect.DeepEqual(json1, json2) {
+		t.Fatalf("repeated JSON rendering differs: %s vs %s", json1, json2)
+	}
+	if rep1.Warnings[0].Kind != report.AnalysisLimitation {
 		t.Fatalf("warnings = %#v, want ANALYSIS_LIMITATION", rep1.Warnings)
 	}
-	if got := report.RenderText(rep1); !strings.Contains(got, "ANALYSIS_LIMITATION") || !strings.Contains(got, "z.go") {
-		t.Fatalf("rendered report = %q, want both limitation diagnostics", got)
+	if !strings.Contains(text1, "ANALYSIS_LIMITATION") || !strings.Contains(text1, "z.go") {
+		t.Fatalf("rendered report = %q, want limitation diagnostics from both packages", text1)
 	}
 }
 

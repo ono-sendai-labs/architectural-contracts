@@ -16,6 +16,7 @@ import (
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/capslockadapter"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/goanalysis"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/packagelayout"
+	"github.com/ono-sendai-labs/architectural-contracts/go/internal/report"
 )
 
 // runArccHermetic runs the compiled arcc binary with no Go toolchain reachable
@@ -180,6 +181,92 @@ func ToLower(s string) string {
 	}
 
 	return absTmpDir, manifestPath, layoutPath
+}
+
+func createPlatformLayoutFixtures(t *testing.T) (string, string, string, string, string) {
+	t.Helper()
+
+	root := t.TempDir()
+	manifestPath := filepath.Join(root, "component.textproto")
+	manifest := "name: \"platformmember\"\ninterface_files: \"member/interface.go\"\nabsorbed_dependencies { import_path: \"example.com/linux\" }\nabsorbed_dependencies { import_path: \"example.com/windows\" }\n"
+	if err := os.WriteFile(manifestPath, []byte(manifest), 0644); err != nil {
+		t.Fatalf("write manifest: %v", err)
+	}
+	for name, content := range map[string]string{
+		"member/interface.go":   "package member\n",
+		"member/api_linux.go":   "package member\nimport _ \"example.com/linux\"\nfunc Hello() {}\n",
+		"member/api_windows.go": "package member\nimport _ \"example.com/windows\"\nfunc Hello() {}\n",
+		"linux/impl.go":         "package linux\n",
+		"windows/impl.go":       "package windows\n",
+	} {
+		path := filepath.Join(root, name)
+		if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+			t.Fatalf("create source directory: %v", err)
+		}
+		if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+			t.Fatalf("write source %s: %v", name, err)
+		}
+	}
+	sdkRoot := filepath.Join(root, "mock_sdk")
+	for name, content := range map[string]string{
+		"fmt/fmt.go":         "package fmt\n",
+		"os/os.go":           "package os\ntype File struct{}\nvar DevNull string\n",
+		"strings/strings.go": "package strings\nfunc ToLower(s string) string { return s }\n",
+		"syscall/syscall.go": "package syscall\nfunc Open(string, int, uint32) (int, error) { return 0, nil }\n",
+	} {
+		path := filepath.Join(sdkRoot, name)
+		if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+			t.Fatalf("create SDK directory: %v", err)
+		}
+		if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+			t.Fatalf("write SDK file %s: %v", name, err)
+		}
+	}
+
+	packages := []map[string]any{
+		{
+			"id": "example.com/member", "name": "member", "pkgPath": "example.com/member",
+			"goFiles":         []string{"member/api_linux.go", "member/api_windows.go", "member/interface.go"},
+			"compiledGoFiles": []string{"member/api_linux.go", "member/api_windows.go", "member/interface.go"},
+		},
+		{
+			"id": "example.com/linux", "name": "linux", "pkgPath": "example.com/linux",
+			"goFiles": []string{"linux/impl.go"}, "compiledGoFiles": []string{"linux/impl.go"},
+		},
+		{
+			"id": "example.com/windows", "name": "windows", "pkgPath": "example.com/windows",
+			"goFiles": []string{"windows/impl.go"}, "compiledGoFiles": []string{"windows/impl.go"},
+		},
+	}
+	write := func(name, goos string, imports map[string]string) string {
+		t.Helper()
+		layout := map[string]any{
+			"go_sdk_root": sdkRoot,
+			"platform":    map[string]any{"goos": goos, "goarch": "amd64", "build_tags": []string{}, "cgo_enabled": false},
+			"roots":       []string{"example.com/member"},
+			"packages":    append([]map[string]any(nil), packages...),
+		}
+		layoutPackages := layout["packages"].([]map[string]any)
+		if imports != nil {
+			layoutPackages[0]["imports"] = imports
+		}
+		data, err := json.MarshalIndent(layout, "", "  ")
+		if err != nil {
+			t.Fatalf("marshal %s layout: %v", name, err)
+		}
+		path := filepath.Join(root, name+".json")
+		if err := os.WriteFile(path, data, 0644); err != nil {
+			t.Fatalf("write %s layout: %v", name, err)
+		}
+		return path
+	}
+	linux := write("linux", "linux", nil)
+	windows := write("windows", "windows", nil)
+	inconsistent := write("inconsistent", "linux", map[string]string{
+		"example.com/linux":   "example.com/linux",
+		"example.com/windows": "example.com/windows",
+	})
+	return root, manifestPath, linux, windows, inconsistent
 }
 
 // createLayoutFixtureInModule is like createLayoutFixture but creates the temp dir inside the go module tree to preserve go.mod resolution.
@@ -396,6 +483,169 @@ func Hello() {}
 	}
 	if !strings.Contains(stdout, "ANALYSIS_LIMITATION") || !strings.Contains(stdout, "member/api.go") || !strings.Contains(stdout, "example.com/missing") {
 		t.Fatalf("stdout = %q, want unresolved-import analysis limitation", stdout)
+	}
+}
+
+func TestIntegration_LayoutMode_PlatformVariantsUseSameBinary(t *testing.T) {
+	root, manifestPath, linuxLayout, windowsLayout, inconsistentLayout := createPlatformLayoutFixtures(t)
+	origWd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("get working directory: %v", err)
+	}
+	if err := os.Chdir(root); err != nil {
+		t.Fatalf("change working directory: %v", err)
+	}
+	defer os.Chdir(origWd)
+
+	for _, tc := range []struct {
+		layoutPath   string
+		unusedImport string
+	}{{linuxLayout, "example.com/windows"}, {windowsLayout, "example.com/linux"}} {
+		stdout, stderr, exitCode := runArccHermetic(t, []string{"check", manifestPath, "--package-layout=" + tc.layoutPath})
+		if exitCode != 0 || stderr != "" {
+			t.Fatalf("platform layout %s failed: exit=%d stderr=%q stdout=%q", tc.layoutPath, exitCode, stderr, stdout)
+		}
+		if !strings.Contains(stdout, "Component: platformmember") || strings.Contains(stdout, "UNDECLARED_DEPENDENCY") {
+			t.Fatalf("platform layout %s stdout = %q, want only platform-correct dependency findings", tc.layoutPath, stdout)
+		}
+		if !strings.Contains(stdout, "UNUSED_DEPENDENCY") || !strings.Contains(stdout, tc.unusedImport) {
+			t.Fatalf("platform layout %s stdout = %q, want excluded dependency %q", tc.layoutPath, stdout, tc.unusedImport)
+		}
+	}
+
+	_, stderr, exitCode := runArccHermetic(t, []string{"check", manifestPath, "--package-layout=" + inconsistentLayout})
+	if exitCode != 2 {
+		t.Fatalf("inconsistent layout exit code = %d, want 2; stderr = %q", exitCode, stderr)
+	}
+	if !strings.Contains(stderr, "not contributed") || !strings.Contains(stderr, "example.com/windows") || !strings.Contains(stderr, "example.com/member") {
+		t.Fatalf("inconsistent layout stderr = %q, want precise platform import mismatch", stderr)
+	}
+}
+
+func TestIntegration_LayoutMode_ExcludedUnresolvedImportHasNoWarning(t *testing.T) {
+	root, manifestPath, linuxLayout, _, _ := createPlatformLayoutFixtures(t)
+	excluded := filepath.Join(root, "member", "api_windows.go")
+	if err := os.WriteFile(excluded, []byte("package member\nimport \"example.com/excluded\"\nfunc Hello() {}\n"), 0644); err != nil {
+		t.Fatalf("write excluded source: %v", err)
+	}
+
+	origWd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("get working directory: %v", err)
+	}
+	if err := os.Chdir(root); err != nil {
+		t.Fatalf("change working directory: %v", err)
+	}
+	defer os.Chdir(origWd)
+
+	stdout, stderr, exitCode := runArccHermetic(t, []string{"check", manifestPath, "--package-layout=" + linuxLayout})
+	if exitCode != 0 || stderr != "" {
+		t.Fatalf("excluded unresolved layout failed: exit=%d stderr=%q stdout=%q", exitCode, stderr, stdout)
+	}
+	if strings.Contains(stdout, "example.com/excluded") || strings.Contains(stdout, "ANALYSIS_LIMITATION") {
+		t.Fatalf("stdout = %q, want no limitation for excluded import", stdout)
+	}
+}
+
+func TestIntegration_LayoutMode_UnresolvedDiagnosticsAreStable(t *testing.T) {
+	root := t.TempDir()
+	manifestPath := filepath.Join(root, "component.textproto")
+	manifest := "name: \"deterministic\"\ninterface_files: \"member/interface.go\"\n"
+	if err := os.WriteFile(manifestPath, []byte(manifest), 0644); err != nil {
+		t.Fatalf("write manifest: %v", err)
+	}
+	for name, content := range map[string]string{
+		"member/interface.go": "package member\n",
+		"member/a_linux.go":   "package member\nimport \"example.com/missing\"\nfunc A() {}\n",
+		"member/z_linux.go":   "package member\nimport \"example.com/missing\"\nfunc Z() {}\n",
+		"other/impl_linux.go": "package other\nimport \"example.com/other-missing\"\nfunc Other() {}\n",
+	} {
+		path := filepath.Join(root, name)
+		if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+			t.Fatalf("create source directory: %v", err)
+		}
+		if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+			t.Fatalf("write source %s: %v", name, err)
+		}
+	}
+	sdkRoot := filepath.Join(root, "mock_sdk")
+	for name, content := range map[string]string{
+		"fmt/fmt.go":         "package fmt\n",
+		"os/os.go":           "package os\ntype File struct{}\nvar DevNull string\n",
+		"strings/strings.go": "package strings\nfunc ToLower(s string) string { return s }\n",
+		"syscall/syscall.go": "package syscall\nfunc Open(string, int, uint32) (int, error) { return 0, nil }\n",
+	} {
+		path := filepath.Join(sdkRoot, name)
+		if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+			t.Fatalf("create SDK directory: %v", err)
+		}
+		if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+			t.Fatalf("write SDK file %s: %v", name, err)
+		}
+	}
+	source := func(files ...string) map[string]any {
+		return map[string]any{"goFiles": files, "compiledGoFiles": files}
+	}
+	member := source("member/a_linux.go", "member/z_linux.go", "member/interface.go")
+	member["id"] = "example.com/member"
+	member["name"] = "member"
+	member["pkgPath"] = "example.com/member"
+	other := source("other/impl_linux.go")
+	other["id"] = "example.com/other"
+	other["name"] = "other"
+	other["pkgPath"] = "example.com/other"
+	layout := map[string]any{
+		"go_sdk_root": sdkRoot,
+		"platform":    map[string]any{"goos": "linux", "goarch": "amd64", "build_tags": []string{}, "cgo_enabled": false},
+		"roots":       []string{"example.com/member", "example.com/other"},
+		"packages":    []map[string]any{member, other},
+	}
+	layoutPath := filepath.Join(root, "layout.json")
+	data, err := json.MarshalIndent(layout, "", "  ")
+	if err != nil {
+		t.Fatalf("marshal layout: %v", err)
+	}
+	if err := os.WriteFile(layoutPath, data, 0644); err != nil {
+		t.Fatalf("write layout: %v", err)
+	}
+
+	origWd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("get working directory: %v", err)
+	}
+	if err := os.Chdir(root); err != nil {
+		t.Fatalf("change working directory: %v", err)
+	}
+	defer os.Chdir(origWd)
+
+	textArgs := []string{"check", manifestPath, "--package-layout=" + layoutPath}
+	text1, stderr, exitCode := runArccHermetic(t, textArgs)
+	if exitCode != 0 || stderr != "" {
+		t.Fatalf("first text check failed: exit=%d stderr=%q stdout=%q", exitCode, stderr, text1)
+	}
+	text2, stderr, exitCode := runArccHermetic(t, textArgs)
+	if exitCode != 0 || stderr != "" || text1 != text2 {
+		t.Fatalf("repeated text check differed: exit=%d stderr=%q first=%q second=%q", exitCode, stderr, text1, text2)
+	}
+
+	jsonArgs := append(textArgs, "--format=json")
+	json1, stderr, exitCode := runArccHermetic(t, jsonArgs)
+	if exitCode != 0 || stderr != "" {
+		t.Fatalf("first JSON check failed: exit=%d stderr=%q stdout=%q", exitCode, stderr, json1)
+	}
+	json2, stderr, exitCode := runArccHermetic(t, jsonArgs)
+	if exitCode != 0 || stderr != "" || json1 != json2 {
+		t.Fatalf("repeated JSON check differed: exit=%d stderr=%q first=%q second=%q", exitCode, stderr, json1, json2)
+	}
+	var rendered report.ConformanceReport
+	if err := json.Unmarshal([]byte(json1), &rendered); err != nil {
+		t.Fatalf("decode JSON report: %v", err)
+	}
+	if len(rendered.Violations) != 0 || len(rendered.Warnings) != 3 {
+		t.Fatalf("rendered report = %#v, want three limitation warnings", rendered)
+	}
+	if !strings.Contains(text1, "member/a_linux.go") || !strings.Contains(text1, "member/z_linux.go") || !strings.Contains(text1, "other/impl_linux.go") {
+		t.Fatalf("text report = %q, want all source-level observations", text1)
 	}
 }
 
