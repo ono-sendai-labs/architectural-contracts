@@ -24,10 +24,11 @@ const (
 	MemberOverlap            Kind = "MEMBER_OVERLAP"
 
 	// Warnings
-	AnalysisLimitation    Kind = "ANALYSIS_LIMITATION"
-	AllowedWithWarning    Kind = "ALLOWED_WITH_WARNING"
-	UnusedDependency      Kind = "UNUSED_DEPENDENCY"
-	InterfaceFileExcluded Kind = "INTERFACE_FILE_EXCLUDED"
+	AnalysisLimitation      Kind = "ANALYSIS_LIMITATION"
+	AllowedWithWarning      Kind = "ALLOWED_WITH_WARNING"
+	UnusedDependency        Kind = "UNUSED_DEPENDENCY"
+	InterfaceFileExcluded   Kind = "INTERFACE_FILE_EXCLUDED"
+	AbsorbedFuncValueEscape Kind = "ABSORBED_FUNC_VALUE_ESCAPE"
 )
 
 // String returns the string representation of the Kind.

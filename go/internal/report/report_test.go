@@ -31,6 +31,29 @@ func TestInterfaceFileExcluded_SerializesStableKind(t *testing.T) {
 	}
 }
 
+func TestAbsorbedFuncValueEscape_SerializesStableKind(t *testing.T) {
+	rep := report.ConformanceReport{
+		Component: "component",
+		Warnings: []report.Finding{{
+			Kind:     report.AbsorbedFuncValueEscape,
+			Message:  `member package "example.com/app/member" takes function value "example.com/app/absorbed.Load" from absorbed package; body is unanalyzed`,
+			Location: report.Location{File: "member/member.go", Line: 15},
+		}},
+	}
+
+	rendered := report.RenderText(rep)
+	if !strings.Contains(rendered, "[ABSORBED_FUNC_VALUE_ESCAPE]") {
+		t.Fatalf("RenderText() = %q, want stable warning kind", rendered)
+	}
+	data, err := json.Marshal(rep)
+	if err != nil {
+		t.Fatalf("json.Marshal() error = %v", err)
+	}
+	if !strings.Contains(string(data), `"kind":"ABSORBED_FUNC_VALUE_ESCAPE"`) {
+		t.Fatalf("JSON = %s, want stable warning kind", data)
+	}
+}
+
 func TestRenderText_InterfaceFileExcludedWarningUsesDetailedFormat(t *testing.T) {
 	rep := report.ConformanceReport{
 		Component: "excluded-interface",

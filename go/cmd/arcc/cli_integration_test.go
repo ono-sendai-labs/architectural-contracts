@@ -947,3 +947,158 @@ func ViolateCorePurity() {
 		t.Errorf("expected stdout evidence to reference os.Open at regression_authority.go, got: %s", stdout)
 	}
 }
+
+func TestIntegration_Fixture2_CallbackEscapePair(t *testing.T) {
+	// Design §7.1 Fixture 2 regression pair:
+	// Host component accepts callback.
+	// Editor component passes backend.Load across boundary to host.
+	hostFiles := map[string]string{
+		"api.go": `package host
+
+func Register(f func() ([]byte, error)) {}
+`,
+	}
+	hostManifest := `
+name: "fixture2-host"
+interface_files: "api.go"
+`
+	hostDir, hostManifestPath := createTempComponent(t, "fixture2-host", hostManifest, hostFiles)
+
+	moduleRoot, err := filepath.Abs("../..")
+	if err != nil {
+		t.Fatalf("failed to get module root: %v", err)
+	}
+	importPath := func(dir string) string {
+		rel, err := filepath.Rel(moduleRoot, dir)
+		if err != nil {
+			t.Fatalf("failed to resolve import path for %s: %v", dir, err)
+		}
+		return "github.com/ono-sendai-labs/architectural-contracts/go/" + filepath.ToSlash(rel)
+	}
+	hostImportPath := importPath(hostDir)
+
+	editorFiles := map[string]string{
+		"api.go": `package main
+
+func Editor() {}
+`,
+		"editor.go": `package main
+
+import (
+	backend "{{IMPORT_PATH}}/backend"
+	host "` + hostImportPath + `"
+)
+
+func Connect() {
+	host.Register(backend.Load)
+}
+`,
+		"backend/load.go": `package backend
+
+func Load() ([]byte, error) {
+	return []byte("data"), nil
+}
+`,
+	}
+	editorManifest := `
+name: "fixture2-editor"
+interface_files: "api.go"
+`
+	editorDir, editorManifestPath := createTempComponent(t, "fixture2-editor", editorManifest, editorFiles)
+	backendImportPath := importPath(filepath.Join(editorDir, "backend"))
+	relHostManifest, err := filepath.Rel(editorDir, hostManifestPath)
+	if err != nil {
+		t.Fatalf("failed to resolve host manifest path: %v", err)
+	}
+
+	// Part 1: backend is ABSORBED -> warns ABSORBED_FUNC_VALUE_ESCAPE, exit code 0
+	editorImportPath := importPath(editorDir)
+	absorbedManifest := fmt.Sprintf(`
+name: "fixture2-editor"
+interface_files: "api.go"
+members: "%s"
+absorbed_dependencies {
+	import_path: "%s"
+}
+component_dependencies {
+	name: "fixture2-host"
+	manifest: "%s"
+}
+`, editorImportPath, backendImportPath, filepath.ToSlash(relHostManifest))
+	if err := os.WriteFile(editorManifestPath, []byte(absorbedManifest), 0644); err != nil {
+		t.Fatalf("failed to write absorbed manifest: %v", err)
+	}
+
+	// Text format
+	stdoutAbs, stderrAbs, exitCodeAbs := runArcc([]string{"check", editorManifestPath})
+	if exitCodeAbs != 0 {
+		t.Fatalf("expected absorbed callback escape to warn with exit code 0, got %d. Stderr: %s\nStdout: %s", exitCodeAbs, stderrAbs, stdoutAbs)
+	}
+	if stderrAbs != "" {
+		t.Errorf("expected empty stderr for absorbed variant, got %q", stderrAbs)
+	}
+	if !strings.Contains(stdoutAbs, "ABSORBED_FUNC_VALUE_ESCAPE") {
+		t.Errorf("expected absorbed variant stdout to contain ABSORBED_FUNC_VALUE_ESCAPE, got: %s", stdoutAbs)
+	}
+	if !strings.Contains(stdoutAbs, "backend.Load") {
+		t.Errorf("expected absorbed variant stdout to name absorbed function backend.Load, got: %s", stdoutAbs)
+	}
+	if !strings.Contains(stdoutAbs, "at editor.go:") {
+		t.Errorf("expected absorbed variant stdout to carry file and line, got: %s", stdoutAbs)
+	}
+
+	// JSON format
+	stdoutJSON, stderrJSON, exitCodeJSON := runArcc([]string{"check", editorManifestPath, "--format=json"})
+	if exitCodeJSON != 0 {
+		t.Fatalf("expected JSON check exit code 0, got %d. Stderr: %s\nStdout: %s", exitCodeJSON, stderrJSON, stdoutJSON)
+	}
+	if stderrJSON != "" {
+		t.Errorf("expected empty stderr for JSON format, got %q", stderrJSON)
+	}
+	var jsonRep report.ConformanceReport
+	if err := json.Unmarshal([]byte(stdoutJSON), &jsonRep); err != nil {
+		t.Fatalf("failed to unmarshal JSON report: %v, raw: %s", err, stdoutJSON)
+	}
+	if len(jsonRep.Violations) != 0 || len(jsonRep.Warnings) != 1 {
+		t.Fatalf("expected 0 violations and 1 warning in JSON report, got %d violations, %d warnings: %+v", len(jsonRep.Violations), len(jsonRep.Warnings), jsonRep)
+	}
+	wJSON := jsonRep.Warnings[0]
+	if wJSON.Kind != report.AbsorbedFuncValueEscape {
+		t.Errorf("expected JSON warning kind ABSORB_FUNC_VALUE_ESCAPE, got %s", wJSON.Kind)
+	}
+	if !strings.Contains(wJSON.Message, "backend.Load") {
+		t.Errorf("expected JSON warning message to name backend.Load, got %q", wJSON.Message)
+	}
+	if wJSON.Location.File != "editor.go" || wJSON.Location.Line <= 0 {
+		t.Errorf("expected JSON warning location editor.go with positive line number, got %+v", wJSON.Location)
+	}
+
+	// Part 2: backend body in MEMBER -> no warning, clean conforming report, exit code 0
+	memberManifest := fmt.Sprintf(`
+name: "fixture2-editor"
+interface_files: "api.go"
+members: "%s"
+members: "%s"
+component_dependencies {
+	name: "fixture2-host"
+	manifest: "%s"
+}
+`, editorImportPath, backendImportPath, filepath.ToSlash(relHostManifest))
+	if err := os.WriteFile(editorManifestPath, []byte(memberManifest), 0644); err != nil {
+		t.Fatalf("failed to write member manifest: %v", err)
+	}
+
+	stdoutMem, stderrMem, exitCodeMem := runArcc([]string{"check", editorManifestPath})
+	if exitCodeMem != 0 {
+		t.Fatalf("expected member callback to pass with exit code 0, got %d. Stderr: %s\nStdout: %s", exitCodeMem, stderrMem, stdoutMem)
+	}
+	if stderrMem != "" {
+		t.Errorf("expected empty stderr for member variant, got %q", stderrMem)
+	}
+	if strings.Contains(stdoutMem, "ABSORBED_FUNC_VALUE_ESCAPE") {
+		t.Errorf("expected member variant stdout to NOT contain ABSORBED_FUNC_VALUE_ESCAPE, got: %s", stdoutMem)
+	}
+	if !strings.Contains(stdoutMem, `Component "fixture2-editor" conforms; does not exceed declared authority`) {
+		t.Errorf("expected member variant stdout to be conforming success line, got: %s", stdoutMem)
+	}
+}

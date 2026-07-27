@@ -1588,3 +1588,105 @@ Violations:
 		t.Errorf("composite report output mismatch.\nexpected:\n%s\ngot:\n%s", expectedComposite, renderedComposite)
 	}
 }
+
+func TestCheck_AbsorbedFuncValueEscape_OneEscape(t *testing.T) {
+	in := checker.Inputs{
+		Manifest: manifest.Manifest{Name: "mycomponent"},
+		Facts: facts.PackageFacts{
+			Packages: []facts.PackageFact{
+				{ImportPath: "mycomponent/member"},
+			},
+			FuncValueEscapes: []facts.FuncValueEscape{
+				{
+					Symbol:  "example.com/absorbed.Load",
+					Package: "mycomponent/member",
+					File:    "member/member.go",
+					Line:    15,
+				},
+			},
+		},
+	}
+
+	rep := checker.Check(in)
+	if len(rep.Violations) != 0 {
+		t.Fatalf("expected 0 violations, got %d: %+v", len(rep.Violations), rep.Violations)
+	}
+	if len(rep.Warnings) != 1 {
+		t.Fatalf("expected 1 warning, got %d: %+v", len(rep.Warnings), rep.Warnings)
+	}
+
+	w := rep.Warnings[0]
+	if w.Kind != report.AbsorbedFuncValueEscape {
+		t.Errorf("expected warning kind %s, got %s", report.AbsorbedFuncValueEscape, w.Kind)
+	}
+	if w.Location.File != "member/member.go" || w.Location.Line != 15 {
+		t.Errorf("expected location member/member.go:15, got %+v", w.Location)
+	}
+	if !strings.Contains(w.Message, "mycomponent/member") || !strings.Contains(w.Message, "example.com/absorbed.Load") {
+		t.Errorf("expected message to name member package and absorbed function symbol, got %q", w.Message)
+	}
+}
+
+func TestCheck_AbsorbedFuncValueEscape_EmptyOrNil(t *testing.T) {
+	inNil := checker.Inputs{
+		Manifest: manifest.Manifest{Name: "mycomponent"},
+		Facts: facts.PackageFacts{
+			Packages:         []facts.PackageFact{{ImportPath: "mycomponent/member"}},
+			FuncValueEscapes: nil,
+		},
+	}
+	repNil := checker.Check(inNil)
+	for _, w := range repNil.Warnings {
+		if w.Kind == report.AbsorbedFuncValueEscape {
+			t.Errorf("unexpected ABSORBED_FUNC_VALUE_ESCAPE warning for nil escapes: %+v", w)
+		}
+	}
+
+	inEmpty := checker.Inputs{
+		Manifest: manifest.Manifest{Name: "mycomponent"},
+		Facts: facts.PackageFacts{
+			Packages:         []facts.PackageFact{{ImportPath: "mycomponent/member"}},
+			FuncValueEscapes: []facts.FuncValueEscape{},
+		},
+	}
+	repEmpty := checker.Check(inEmpty)
+	for _, w := range repEmpty.Warnings {
+		if w.Kind == report.AbsorbedFuncValueEscape {
+			t.Errorf("unexpected ABSORBED_FUNC_VALUE_ESCAPE warning for empty escapes: %+v", w)
+		}
+	}
+}
+
+func TestCheck_AbsorbedFuncValueEscape_MultipleEscapesDeterministic(t *testing.T) {
+	in := checker.Inputs{
+		Manifest: manifest.Manifest{Name: "mycomponent"},
+		Facts: facts.PackageFacts{
+			Packages: []facts.PackageFact{
+				{ImportPath: "mycomponent/member-a"},
+				{ImportPath: "mycomponent/member-b"},
+			},
+			FuncValueEscapes: []facts.FuncValueEscape{
+				{Symbol: "example.com/absorbed.Z", Package: "mycomponent/member-b", File: "b.go", Line: 20},
+				{Symbol: "example.com/absorbed.A", Package: "mycomponent/member-a", File: "a.go", Line: 10},
+				{Symbol: "example.com/absorbed.M", Package: "mycomponent/member-a", File: "a.go", Line: 5},
+			},
+		},
+	}
+
+	rep1 := checker.Check(in)
+	rep2 := checker.Check(in)
+
+	if !reflect.DeepEqual(rep1, rep2) {
+		t.Fatalf("repeated Check calls differ: %#v vs %#v", rep1, rep2)
+	}
+	if len(rep1.Warnings) != 3 {
+		t.Fatalf("expected 3 warnings, got %d", len(rep1.Warnings))
+	}
+
+	// Verify warnings are sorted deterministically
+	text1 := report.RenderText(rep1)
+	text2 := report.RenderText(rep2)
+	if text1 != text2 {
+		t.Fatalf("rendered text outputs differ: %q vs %q", text1, text2)
+	}
+}

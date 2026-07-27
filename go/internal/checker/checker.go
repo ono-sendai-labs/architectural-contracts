@@ -237,6 +237,17 @@ func Check(in Inputs) report.ConformanceReport {
 		})
 	}
 
+	for _, esc := range in.Facts.FuncValueEscapes {
+		warnings = append(warnings, report.Finding{
+			Kind:    report.AbsorbedFuncValueEscape,
+			Message: fmt.Sprintf("member package %q takes function value %q from absorbed package; body is unanalyzed", esc.Package, esc.Symbol),
+			Location: report.Location{
+				File: esc.File,
+				Line: esc.Line,
+			},
+		})
+	}
+
 	for _, edge := range in.Facts.CallEdges {
 		calleePkg := ExtractPackagePath(string(edge.Callee))
 		if info, exists := pkgToDep[calleePkg]; exists {
@@ -318,12 +329,24 @@ func Check(in Inputs) report.ConformanceReport {
 		}
 	}
 
-	// 6. Ensure deterministic sorting (sorted alphabetically by Message)
+	// 6. Ensure deterministic sorting (sorted alphabetically by Message, then Location)
 	sort.Slice(violations, func(i, j int) bool {
-		return violations[i].Message < violations[j].Message
+		if violations[i].Message != violations[j].Message {
+			return violations[i].Message < violations[j].Message
+		}
+		if violations[i].Location.File != violations[j].Location.File {
+			return violations[i].Location.File < violations[j].Location.File
+		}
+		return violations[i].Location.Line < violations[j].Location.Line
 	})
 	sort.Slice(warnings, func(i, j int) bool {
-		return warnings[i].Message < warnings[j].Message
+		if warnings[i].Message != warnings[j].Message {
+			return warnings[i].Message < warnings[j].Message
+		}
+		if warnings[i].Location.File != warnings[j].Location.File {
+			return warnings[i].Location.File < warnings[j].Location.File
+		}
+		return warnings[i].Location.Line < warnings[j].Location.Line
 	})
 
 	return report.ConformanceReport{
