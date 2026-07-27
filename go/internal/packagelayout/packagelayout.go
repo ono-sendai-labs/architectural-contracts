@@ -72,21 +72,58 @@ func discoverStdlib(sdkRoot string) ([]*packages.Package, error) {
 	return discoverStdlibWithContext(sdkRoot, bctx)
 }
 
-var knownGOOS = map[string]bool{
-	"aix": true, "android": true, "darwin": true, "dragonfly": true,
-	"freebsd": true, "hurd": true, "illumos": true, "ios": true,
-	"js": true, "linux": true, "nacl": true, "netbsd": true,
-	"openbsd": true, "plan9": true, "solaris": true, "wasip1": true,
-	"windows": true, "zos": true,
+// supportedGoTargets mirrors the Go 1.26 target list reported by
+// `go tool dist list`, the supported-target source for this module's Go
+// toolchain. Keep this list synchronized when the module's Go version changes;
+// unlike go/build's internal tag tables, it excludes retired and broken ports.
+var supportedGoTargets = [...]string{
+	"aix/ppc64",
+	"android/386", "android/amd64", "android/arm", "android/arm64",
+	"darwin/amd64", "darwin/arm64",
+	"dragonfly/amd64",
+	"freebsd/386", "freebsd/amd64", "freebsd/arm", "freebsd/arm64",
+	"illumos/amd64",
+	"ios/amd64", "ios/arm64",
+	"js/wasm",
+	"linux/386", "linux/amd64", "linux/arm", "linux/arm64", "linux/loong64",
+	"linux/mips", "linux/mips64", "linux/mips64le", "linux/mipsle",
+	"linux/ppc64", "linux/ppc64le", "linux/riscv64", "linux/s390x",
+	"netbsd/386", "netbsd/amd64", "netbsd/arm", "netbsd/arm64",
+	"openbsd/386", "openbsd/amd64", "openbsd/arm", "openbsd/arm64",
+	"openbsd/ppc64", "openbsd/riscv64",
+	"plan9/386", "plan9/amd64", "plan9/arm",
+	"solaris/amd64",
+	"wasip1/wasm",
+	"windows/386", "windows/amd64", "windows/arm64",
 }
 
-var knownGOARCH = map[string]bool{
-	"386": true, "amd64": true, "amd64p32": true, "arm": true,
-	"armbe": true, "arm64": true, "arm64be": true, "loong64": true,
-	"mips": true, "mipsle": true, "mips64": true, "mips64le": true,
-	"mips64p32": true, "mips64p32le": true, "ppc": true, "ppc64": true,
-	"ppc64le": true, "riscv": true, "riscv64": true, "s390": true,
-	"s390x": true, "sparc": true, "sparc64": true, "wasm": true,
+func supportedGOOS(goos string) bool {
+	for _, target := range supportedGoTargets {
+		if targetOS, _, _ := strings.Cut(target, "/"); targetOS == goos {
+			return true
+		}
+	}
+	return false
+}
+
+func supportedGOARCH(goarch string) bool {
+	for _, target := range supportedGoTargets {
+		_, targetArch, _ := strings.Cut(target, "/")
+		if targetArch == goarch {
+			return true
+		}
+	}
+	return false
+}
+
+func supportedGoTarget(goos, goarch string) bool {
+	target := goos + "/" + goarch
+	for _, supported := range supportedGoTargets {
+		if supported == target {
+			return true
+		}
+	}
+	return false
 }
 
 // BuildContextForLayout returns the build context declared by l. It always
@@ -102,11 +139,14 @@ func BuildContextForLayout(l *Layout) (build.Context, error) {
 	}
 
 	platform := l.Platform
-	if platform.GOOS == "" || !knownGOOS[platform.GOOS] {
+	if !supportedGOOS(platform.GOOS) {
 		return build.Context{}, fmt.Errorf("platform.goos has invalid value %q", platform.GOOS)
 	}
-	if platform.GOARCH == "" || !knownGOARCH[platform.GOARCH] {
+	if !supportedGOARCH(platform.GOARCH) {
 		return build.Context{}, fmt.Errorf("platform.goarch has invalid value %q", platform.GOARCH)
+	}
+	if !supportedGoTarget(platform.GOOS, platform.GOARCH) {
+		return build.Context{}, fmt.Errorf("platform.goarch has unsupported value %q for goos %q", platform.GOARCH, platform.GOOS)
 	}
 	bctx.GOOS = platform.GOOS
 	bctx.GOARCH = platform.GOARCH

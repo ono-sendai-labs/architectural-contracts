@@ -2060,8 +2060,11 @@ func TestBuildContextForLayout(t *testing.T) {
 	}{
 		{name: "empty goos", platform: Platform{GOARCH: "amd64"}, want: `platform.goos has invalid value ""`},
 		{name: "unsupported goos", platform: Platform{GOOS: "unknown", GOARCH: "amd64"}, want: `platform.goos has invalid value "unknown"`},
+		{name: "retired goos", platform: Platform{GOOS: "hurd", GOARCH: "amd64"}, want: `platform.goos has invalid value "hurd"`},
 		{name: "empty goarch", platform: Platform{GOOS: "linux"}, want: `platform.goarch has invalid value ""`},
 		{name: "unsupported goarch", platform: Platform{GOOS: "linux", GOARCH: "unknown"}, want: `platform.goarch has invalid value "unknown"`},
+		{name: "retired goarch", platform: Platform{GOOS: "linux", GOARCH: "amd64p32"}, want: `platform.goarch has invalid value "amd64p32"`},
+		{name: "unsupported target combination", platform: Platform{GOOS: "windows", GOARCH: "arm"}, want: `platform.goarch has unsupported value "arm" for goos "windows"`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			_, err := BuildContextForLayout(&Layout{Platform: &tc.platform})
