@@ -1404,7 +1404,7 @@ func ResolveDependencyInterface(
 		if errParse != nil {
 			return facts.DependencyInterface{}, fmt.Errorf("failed to parse dependency package-layout: %w", errParse)
 		}
-		if len(depManifest.Members) > 0 {
+		if depManifest.InterfaceStyle == manifest.InterfaceStylePackageSurface && len(depManifest.Members) > 0 {
 			if err := validateLayoutMembership(depManifest.Members, depLayout.Roots); err != nil {
 				return facts.DependencyInterface{}, err
 			}
@@ -1450,7 +1450,7 @@ func ResolveDependencyInterface(
 		return facts.DependencyInterface{}, err
 	}
 
-	if len(depManifest.Members) > 0 && !packagelayout.IsLayoutMode() {
+	if depManifest.InterfaceStyle == manifest.InterfaceStylePackageSurface && len(depManifest.Members) > 0 && !packagelayout.IsLayoutMode() {
 		if err := validateDeclaredPackages(depManifest.Members, depPkgs); err != nil {
 			return facts.DependencyInterface{}, err
 		}
@@ -1793,7 +1793,8 @@ func resolvePatternMembershipDependencyInterface(
 	packages.Visit(dependerPkgs, nil, func(p *packages.Package) {
 		canonPath := hostpolicy.CanonicalizePath(p.PkgPath)
 		for _, pattern := range depManifest.Members {
-			matched, err := path.Match(pattern, canonPath)
+			canonPattern := hostpolicy.CanonicalizePath(pattern)
+			matched, err := path.Match(canonPattern, canonPath)
 			if err == nil && matched {
 				if !seenMatched[canonPath] {
 					seenMatched[canonPath] = true

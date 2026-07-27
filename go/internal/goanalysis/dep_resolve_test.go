@@ -80,6 +80,33 @@ func TestResolveDependencyInterface_Success(t *testing.T) {
 	}
 }
 
+func TestResolveDependencyInterface_DeclaredStyleWithMembers(t *testing.T) {
+	declaringRoot, err := filepath.Abs("testdata/dep_resolve/declaring")
+	if err != nil {
+		t.Fatalf("failed to get absolute path to declaring: %v", err)
+	}
+
+	dep := manifest.ComponentDependency{
+		Name:     "dep",
+		Manifest: "../dep/declared_with_members.textproto",
+	}
+
+	result, err := goanalysis.ResolveDependencyInterface(declaringRoot, declaringRoot, dep)
+	if err != nil {
+		t.Fatalf("unexpected error resolving declared-style dependency with members: %v", err)
+	}
+
+	if result.Component != "dep" {
+		t.Errorf("expected component name %q, got %q", "dep", result.Component)
+	}
+	if result.InterfaceStyle != manifest.InterfaceStyleUnspecified {
+		t.Errorf("expected InterfaceStyleUnspecified, got %v", result.InterfaceStyle)
+	}
+	if len(result.Symbols) == 0 {
+		t.Errorf("expected non-empty symbols from declared interface files")
+	}
+}
+
 func TestResolveDependencyInterface_Errors(t *testing.T) {
 	declaringRoot, err := filepath.Abs("testdata/dep_resolve/declaring")
 	if err != nil {

@@ -1129,13 +1129,13 @@ func TestRunner_Check_PackageSurfacePruneAtPackages(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(surf1Dir, "pkgb"), 0755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(surf1Dir, "go.mod"), []byte("module example.com/temp/dep-surf1\n\ngo 1.21\n"), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(surf1Dir, "go.mod"), []byte("module example.com/temp/shared-dep\n\ngo 1.21\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
 	surf1Manifest := `name: "dep-surf1"
 interface_style: INTERFACE_STYLE_PACKAGE_SURFACE
-members: "example.com/temp/dep-surf1/pkgb"
-members: "example.com/temp/dep-surf1/pkga"
+members: "example.com/temp/shared-dep/pkgb"
+members: "example.com/temp/shared-dep/pkga"
 `
 	if err := os.WriteFile(filepath.Join(surf1Dir, "component.textproto"), []byte(surf1Manifest), 0644); err != nil {
 		t.Fatal(err)
@@ -1154,13 +1154,13 @@ members: "example.com/temp/dep-surf1/pkga"
 	if err := os.MkdirAll(filepath.Join(surf2Dir, "pkga"), 0755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(surf2Dir, "go.mod"), []byte("module example.com/temp/dep-surf2\n\ngo 1.21\n"), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(surf2Dir, "go.mod"), []byte("module example.com/temp/shared-dep\n\ngo 1.21\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
 	surf2Manifest := `name: "dep-surf2"
 interface_style: INTERFACE_STYLE_PACKAGE_SURFACE
-members: "example.com/temp/dep-surf2/pkgz"
-members: "example.com/temp/dep-surf2/pkga"
+members: "example.com/temp/shared-dep/pkgz"
+members: "example.com/temp/shared-dep/pkga"
 `
 	if err := os.WriteFile(filepath.Join(surf2Dir, "component.textproto"), []byte(surf2Manifest), 0644); err != nil {
 		t.Fatal(err)
@@ -1216,10 +1216,9 @@ component_dependencies: {
 
 	// AC 6: PruneAtPackages holds deduplicated and sorted package-surface packages
 	wantPruneAtPackages := []string{
-		"example.com/temp/dep-surf1/pkga",
-		"example.com/temp/dep-surf1/pkgb",
-		"example.com/temp/dep-surf2/pkga",
-		"example.com/temp/dep-surf2/pkgz",
+		"example.com/temp/shared-dep/pkga",
+		"example.com/temp/shared-dep/pkgb",
+		"example.com/temp/shared-dep/pkgz",
 	}
 	if !reflect.DeepEqual(analyzer.calledWith.PruneAtPackages, wantPruneAtPackages) {
 		t.Errorf("PruneAtPackages = %v, want %v", analyzer.calledWith.PruneAtPackages, wantPruneAtPackages)
@@ -1229,8 +1228,8 @@ component_dependencies: {
 	mustPruneAt := []string{
 		"example.com/temp/dep-decl.DeclFunc",
 		"func example.com/temp/dep-decl.init",
-		"example.com/temp/dep-surf1/pkga.AFunc",
-		"func example.com/temp/dep-surf1/pkga.init",
+		"example.com/temp/shared-dep/pkga.AFunc",
+		"func example.com/temp/shared-dep/pkga.init",
 	}
 	for _, expected := range mustPruneAt {
 		found := false

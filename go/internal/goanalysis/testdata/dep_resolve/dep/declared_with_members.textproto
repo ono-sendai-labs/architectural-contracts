@@ -1,0 +1,4 @@
+name: "dep"
+interface_files: "types.go"
+interface_files: "api.go"
+members: "nonexistent/member/path"

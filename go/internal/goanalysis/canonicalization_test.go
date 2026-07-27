@@ -660,7 +660,7 @@ func TestResolveDependencyInterface_PatternMembership_Canonicalization(t *testin
 	}
 	manifestContent := `name: "dep"
 interface_style: INTERFACE_STYLE_PACKAGE_SURFACE
-members: "canonical/*"
+members: "host/*"
 `
 	if err := os.WriteFile(filepath.Join(depRoot, "component.textproto"), []byte(manifestContent), 0644); err != nil {
 		t.Fatal(err)
@@ -677,8 +677,8 @@ members: "canonical/*"
 		loadPackages = originalLoad
 	})
 	hostpolicy.CanonicalizePath = func(path string) string {
-		if path == "host/dep" {
-			return "canonical/dep"
+		if strings.HasPrefix(path, "host/") {
+			return "canonical/" + strings.TrimPrefix(path, "host/")
 		}
 		return path
 	}
