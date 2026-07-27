@@ -1364,6 +1364,37 @@ func TestCheck_FR6_PurityNoMutation(t *testing.T) {
 	}
 }
 
+func TestCheck_UnresolvedImportsAreDeterministicLimitations(t *testing.T) {
+	in := checker.Inputs{
+		Manifest: manifest.Manifest{Name: "component"},
+		Facts: facts.PackageFacts{
+			Packages: []facts.PackageFact{{ImportPath: "component/member"}},
+			UnresolvedImports: []facts.UnresolvedImport{
+				{Package: "component/member", File: "z.go", ImportPath: "example.com/missing"},
+				{Package: "component/member", File: "a.go", ImportPath: "example.com/other"},
+			},
+		},
+	}
+
+	rep1 := checker.Check(in)
+	rep2 := checker.Check(in)
+	if !reflect.DeepEqual(rep1, rep2) {
+		t.Fatalf("repeated checks differ: %#v vs %#v", rep1, rep2)
+	}
+	if len(rep1.Violations) != 0 || len(rep1.Warnings) != 2 {
+		t.Fatalf("report = %#v, want two warnings and no violations", rep1)
+	}
+	if got := rep1.Warnings[0].Message; !strings.Contains(got, `z.go`) || !strings.Contains(got, `example.com/missing`) {
+		t.Fatalf("first warning = %q, want deterministic z.go/missing diagnostic", got)
+	}
+	if rep1.Warnings[0].Kind != report.AnalysisLimitation || rep1.Warnings[1].Kind != report.AnalysisLimitation {
+		t.Fatalf("warnings = %#v, want ANALYSIS_LIMITATION", rep1.Warnings)
+	}
+	if got := report.RenderText(rep1); !strings.Contains(got, "ANALYSIS_LIMITATION") || !strings.Contains(got, "z.go") {
+		t.Fatalf("rendered report = %q, want both limitation diagnostics", got)
+	}
+}
+
 func TestCheck_FR6_FeatureCompleteCompositeReport(t *testing.T) {
 	// 1. Conforming (empty) report case
 	inClean := checker.Inputs{

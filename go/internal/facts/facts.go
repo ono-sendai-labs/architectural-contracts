@@ -30,6 +30,19 @@ type PackageFacts struct {
 	// the checker falls back to its own string heuristic. A real load always
 	// sets it (possibly empty, but non-nil).
 	StdlibImports []string
+
+	// UnresolvedImports records source-level imports that survived layout
+	// filtering but did not resolve to a layout or SDK package. The loader owns
+	// this observation; the pure checker renders it as an analysis limitation.
+	UnresolvedImports []UnresolvedImport
+}
+
+// UnresolvedImport is a pure observation of an import edge that the loader
+// could not resolve. File is component-relative when produced by goanalysis.
+type UnresolvedImport struct {
+	Package    string
+	File       string
+	ImportPath string
 }
 
 // PackageFact represents metadata and extracted facts about a single loaded Go package.

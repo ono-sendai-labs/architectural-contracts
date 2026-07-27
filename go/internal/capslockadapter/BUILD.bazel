@@ -7,6 +7,7 @@ go_library(
     visibility = ["//go:__subpackages__"],
     deps = [
         "//go/internal/capanalyzer",
+        "//go/internal/packagelayout",
         "@com_github_google_capslock//analyzer",
         "@com_github_google_capslock//interesting",
         "@org_golang_x_tools//go/packages",

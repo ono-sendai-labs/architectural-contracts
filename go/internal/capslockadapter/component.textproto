@@ -13,6 +13,10 @@ absorbed_dependencies {
   reason: "Capslock classifier loading"
 }
 absorbed_dependencies {
+  import_path: "github.com/ono-sendai-labs/architectural-contracts/go/internal/packagelayout"
+  reason: "Layout-mode unresolved import tolerance"
+}
+absorbed_dependencies {
   import_path: "golang.org/x/tools/go/packages"
   reason: "Gopackages loading"
 }

@@ -214,6 +214,15 @@ func Check(in Inputs) report.ConformanceReport {
 	}
 
 	var warnings []report.Finding
+	for _, unresolved := range in.Facts.UnresolvedImports {
+		warnings = append(warnings, report.Finding{
+			Kind:    report.AnalysisLimitation,
+			Message: fmt.Sprintf("unresolved import %q in source file %q of package %q is an analysis limitation", unresolved.ImportPath, unresolved.File, unresolved.Package),
+			Location: report.Location{
+				File: unresolved.File,
+			},
+		})
+	}
 
 	for _, edge := range in.Facts.CallEdges {
 		calleePkg := ExtractPackagePath(string(edge.Callee))

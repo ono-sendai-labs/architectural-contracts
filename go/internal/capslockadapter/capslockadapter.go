@@ -15,6 +15,7 @@ import (
 	"github.com/google/capslock/analyzer"
 	"github.com/google/capslock/interesting"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/capanalyzer"
+	"github.com/ono-sendai-labs/architectural-contracts/go/internal/packagelayout"
 	"golang.org/x/tools/go/packages"
 )
 
@@ -135,8 +136,17 @@ func (a *Adapter) Analyze(req capanalyzer.AnalyzeRequest) ([]capanalyzer.Capabil
 	}
 
 	var errs []string
+	unresolvedPaths := make(map[string]bool)
+	if packagelayout.IsLayoutMode() {
+		for _, observation := range packagelayout.GetActiveLayout().UnresolvedImports {
+			unresolvedPaths[observation.ImportPath] = true
+		}
+	}
 	packages.Visit(pkgs, nil, func(p *packages.Package) {
 		for _, e := range p.Errors {
+			if isExpectedUnresolvedLayoutImport(e.Error(), unresolvedPaths) {
+				continue
+			}
 			errs = append(errs, e.Error())
 		}
 	})
@@ -186,6 +196,18 @@ func (a *Adapter) Analyze(req capanalyzer.AnalyzeRequest) ([]capanalyzer.Capabil
 
 	sortFindings(findings)
 	return findings, nil
+}
+
+func isExpectedUnresolvedLayoutImport(message string, unresolvedPaths map[string]bool) bool {
+	if len(unresolvedPaths) == 0 || !strings.Contains(message, "no metadata for ") {
+		return false
+	}
+	for importPath := range unresolvedPaths {
+		if strings.Contains(message, "no metadata for "+importPath) {
+			return true
+		}
+	}
+	return false
 }
 
 // sortFindings sorts the slice of capability findings deterministically.

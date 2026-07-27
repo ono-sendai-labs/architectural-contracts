@@ -9,10 +9,6 @@
         "_main/bazel_rules/go/tests/testdata/api/api.go"
       ],
       "ID": "example.com/aspect/api",
-      "Imports": {
-        "example.com/aspect/core": "example.com/aspect/core",
-        "example.com/aspect/shared": "example.com/aspect/shared"
-      },
       "Name": "api",
       "PkgPath": "example.com/aspect/api"
     },
@@ -28,11 +24,6 @@
         "_main/bazel_rules/go/tests/testdata/core/extra_impl.go"
       ],
       "ID": "example.com/aspect/core",
-      "Imports": {
-        "example.com/aspect/extradep": "example.com/aspect/extradep",
-        "example.com/aspect/lowlevel": "example.com/aspect/lowlevel",
-        "example.com/aspect/shared": "example.com/aspect/shared"
-      },
       "Name": "core",
       "PkgPath": "example.com/aspect/core"
     },
@@ -44,7 +35,6 @@
         "_main/bazel_rules/go/tests/testdata/extradep/extradep.go"
       ],
       "ID": "example.com/aspect/extradep",
-      "Imports": {},
       "Name": "extradep",
       "PkgPath": "example.com/aspect/extradep"
     },
@@ -56,7 +46,6 @@
         "_main/bazel_rules/go/tests/testdata/lowlevel/lowlevel.go"
       ],
       "ID": "example.com/aspect/lowlevel",
-      "Imports": {},
       "Name": "lowlevel",
       "PkgPath": "example.com/aspect/lowlevel"
     },
@@ -68,7 +57,6 @@
         "_main/bazel_rules/go/tests/testdata/shared/shared.go"
       ],
       "ID": "example.com/aspect/shared",
-      "Imports": {},
       "Name": "shared",
       "PkgPath": "example.com/aspect/shared"
     }

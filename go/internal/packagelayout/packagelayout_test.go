@@ -237,7 +237,7 @@ func TestValidateAndResolve_Valid(t *testing.T) {
 		t.Fatalf("failed to create workspace fixture: %v", err)
 	}
 	for path, content := range map[string]string{
-		filepath.Join(workspace, "foo.go"):          "package foo",
+		filepath.Join(workspace, "foo.go"):          "package foo\nimport \"fmt\"\n",
 		filepath.Join(workspace, "foo_compiled.go"): "package foo",
 		filepath.Join(sdkRoot, "fmt", "format.go"):  "package fmt",
 	} {
@@ -351,7 +351,6 @@ func TestValidateAndResolve_RootSourceFiles(t *testing.T) {
 			Packages: []*packages.Package{
 				{
 					ID: "root-id", Name: "root", PkgPath: "example.com/root", GoFiles: []string{"root.go"},
-					Imports: map[string]*packages.Package{"example.com/dep": {ID: "dep-id"}},
 				},
 				{ID: "dep-id", Name: "dep", PkgPath: "example.com/dep"},
 			},
@@ -1134,7 +1133,6 @@ func TestValidateAndResolve_ImportRecovery(t *testing.T) {
 				Name:    "api",
 				PkgPath: "example.com/api",
 				GoFiles: []string{"api.go"},
-				Imports: map[string]*packages.Package{}, // empty imports
 			},
 		},
 	}
@@ -1515,6 +1513,120 @@ func TestValidateAndResolve_ImportRecovery_Focused(t *testing.T) {
 	}
 }
 
+func TestValidateAndResolve_PlatformImportShapes(t *testing.T) {
+	workspace := t.TempDir()
+	writeLayoutSource := func(name, content string) {
+		t.Helper()
+		if err := os.WriteFile(filepath.Join(workspace, name), []byte(content), 0644); err != nil {
+			t.Fatalf("write %s: %v", name, err)
+		}
+	}
+	writeLayoutSource("api_linux.go", "package api\nimport \"example.com/linux\"\n")
+	writeLayoutSource("api_windows.go", "package api\nimport \"example.com/windows\"\n")
+	writeLayoutSource("linux.go", "package linux\n")
+	writeLayoutSource("windows.go", "package windows\n")
+
+	newLayout := func(imports map[string]*packages.Package) *Layout {
+		return &Layout{
+			Platform: &Platform{GOOS: "linux", GOARCH: "amd64"},
+			Roots:    []string{"example.com/api"},
+			Packages: []*packages.Package{
+				{ID: "example.com/api", Name: "api", PkgPath: "example.com/api", GoFiles: []string{"api_linux.go", "api_windows.go"}, Imports: imports},
+				{ID: "example.com/linux", Name: "linux", PkgPath: "example.com/linux", GoFiles: []string{"linux.go"}, Imports: map[string]*packages.Package{}},
+				{ID: "example.com/windows", Name: "windows", PkgPath: "example.com/windows", GoFiles: []string{"windows.go"}, Imports: map[string]*packages.Package{}},
+			},
+		}
+	}
+
+	t.Run("filtered declared imports pass", func(t *testing.T) {
+		layout := newLayout(map[string]*packages.Package{"example.com/linux": {ID: "example.com/linux"}})
+		if err := ValidateAndResolve(layout, workspace); err != nil {
+			t.Fatalf("ValidateAndResolve() error = %v", err)
+		}
+		api := packageByID(layout.Packages, "example.com/api")
+		if _, ok := api.Imports["example.com/linux"]; !ok {
+			t.Fatalf("resolved imports = %v, want linux import", api.Imports)
+		}
+	})
+
+	t.Run("imports omitted are recovered after filtering", func(t *testing.T) {
+		layout := newLayout(nil)
+		if err := ValidateAndResolve(layout, workspace); err != nil {
+			t.Fatalf("ValidateAndResolve() error = %v", err)
+		}
+		api := packageByID(layout.Packages, "example.com/api")
+		if got := sortedImportIDs(api); !reflect.DeepEqual(got, []string{"example.com/linux"}) {
+			t.Fatalf("recovered imports = %v, want linux only", got)
+		}
+	})
+
+	t.Run("declared union is rejected", func(t *testing.T) {
+		layout := newLayout(map[string]*packages.Package{
+			"example.com/linux":   {ID: "example.com/linux"},
+			"example.com/windows": {ID: "example.com/windows"},
+		})
+		err := ValidateAndResolve(layout, workspace)
+		if err == nil || !strings.Contains(err.Error(), "example.com/windows") || !strings.Contains(err.Error(), "not contributed") {
+			t.Fatalf("ValidateAndResolve() error = %v, want union mismatch naming windows", err)
+		}
+	})
+
+	t.Run("surviving import missing from declarations is rejected", func(t *testing.T) {
+		layout := newLayout(map[string]*packages.Package{})
+		err := ValidateAndResolve(layout, workspace)
+		if err == nil || !strings.Contains(err.Error(), "example.com/api") || !strings.Contains(err.Error(), "api_linux.go") || !strings.Contains(err.Error(), "example.com/linux") {
+			t.Fatalf("ValidateAndResolve() error = %v, want source import mismatch, got %v", err, err)
+		}
+	})
+}
+
+func TestValidateAndResolve_UnresolvedImportsAreFacts(t *testing.T) {
+	workspace := t.TempDir()
+	for name, content := range map[string]string{
+		"api_a.go": "package api\nimport \"example.com/missing\"\n",
+		"api_b.go": "package api\nimport \"example.com/missing\"\n",
+		"dep.go":   "package dep\n",
+	} {
+		if err := os.WriteFile(filepath.Join(workspace, name), []byte(content), 0644); err != nil {
+			t.Fatalf("write %s: %v", name, err)
+		}
+	}
+	newLayout := func(imports map[string]*packages.Package) *Layout {
+		return &Layout{
+			Roots: []string{"example.com/api"},
+			Packages: []*packages.Package{
+				{ID: "example.com/api", Name: "api", PkgPath: "example.com/api", GoFiles: []string{"api_b.go", "api_a.go"}, Imports: imports},
+				{ID: "example.com/dep", Name: "dep", PkgPath: "example.com/dep", GoFiles: []string{"dep.go"}, Imports: map[string]*packages.Package{}},
+			},
+		}
+	}
+
+	for _, tc := range []struct {
+		name    string
+		imports map[string]*packages.Package
+	}{
+		{name: "omitted", imports: nil},
+		{name: "declared", imports: map[string]*packages.Package{}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			layout := newLayout(tc.imports)
+			if err := ValidateAndResolve(layout, workspace); err != nil {
+				t.Fatalf("ValidateAndResolve() error = %v", err)
+			}
+			want := []UnresolvedImport{
+				{Package: "example.com/api", SourceFile: filepath.Join(workspace, "api_a.go"), ImportPath: "example.com/missing"},
+				{Package: "example.com/api", SourceFile: filepath.Join(workspace, "api_b.go"), ImportPath: "example.com/missing"},
+			}
+			if !reflect.DeepEqual(layout.UnresolvedImports, want) {
+				t.Fatalf("UnresolvedImports = %#v, want %#v", layout.UnresolvedImports, want)
+			}
+			if got := sortedImportIDs(packageByID(layout.Packages, "example.com/api")); len(got) != 0 {
+				t.Fatalf("unresolved import was added to package graph: %v", got)
+			}
+		})
+	}
+}
+
 func TestValidateAndResolve_LayoutPrecedence_Focused(t *testing.T) {
 	tmpDir := t.TempDir()
 	sdkSrc := filepath.Join(tmpDir, "sdk", "src")
@@ -1671,7 +1783,9 @@ func TestValidateAndResolve_ImportRecovery_Comprehensive(t *testing.T) {
 				PkgPath: "example.com/api",
 				GoFiles: []string{"api1.go", "api2.go", "api_bad.go"},
 				Imports: map[string]*packages.Package{
-					"fmt": {ID: "layout-fmt"}, // already-provided stdlib edge targeting a distinct ID
+					"fmt":     {ID: "layout-fmt"}, // already-provided stdlib edge targeting a distinct ID
+					"os":      {ID: "os"},
+					"strings": {ID: "strings"},
 				},
 			},
 			{
@@ -1688,7 +1802,7 @@ func TestValidateAndResolve_ImportRecovery_Comprehensive(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	// Verify api package's imports got recovered correctly
+	// Verify api package's declared imports remain intact.
 	apiPkg := packageByID(l.Packages, "example.com/api")
 	if apiPkg == nil {
 		t.Fatal("api package not found in layout")
@@ -1701,11 +1815,11 @@ func TestValidateAndResolve_ImportRecovery_Comprehensive(t *testing.T) {
 	} else if fmtImport.ID != "layout-fmt" {
 		t.Errorf("expected already-provided import 'fmt' to preserve custom ID 'layout-fmt', got %q", fmtImport.ID)
 	}
-	// os got recovered from blank import
+	// os was declared for the blank import
 	if _, ok := apiPkg.Imports["os"]; !ok {
 		t.Error("expected recovered blank import 'os'")
 	}
-	// strings got recovered from dot/aliased imports
+	// strings was declared for the dot/aliased imports
 	if _, ok := apiPkg.Imports["strings"]; !ok {
 		t.Error("expected recovered aliased/dot import 'strings'")
 	}

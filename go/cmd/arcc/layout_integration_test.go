@@ -128,7 +128,7 @@ func ToLower(s string) string {
 		PkgPath         string            `json:"pkgPath"`
 		GoFiles         []string          `json:"goFiles"`
 		CompiledGoFiles []string          `json:"compiledGoFiles"`
-		Imports         map[string]string `json:"imports"`
+		Imports         map[string]string `json:"imports,omitempty"`
 	}
 	type layout struct {
 		GoSDKRoot string   `json:"go_sdk_root"`
@@ -150,9 +150,9 @@ func ToLower(s string) string {
 			PkgPath:         "example.com/member",
 			GoFiles:         []string{"member/api.go"},
 			CompiledGoFiles: []string{"member/api.go"},
-			Imports:         make(map[string]string),
 		}
 		if _, ok := files["dep/impl.go"]; ok {
+			p.Imports = make(map[string]string)
 			p.Imports["example.com/dep"] = "example.com/dep"
 		}
 		lay.Packages = append(lay.Packages, p)
@@ -165,7 +165,6 @@ func ToLower(s string) string {
 			PkgPath:         "example.com/dep",
 			GoFiles:         []string{"dep/impl.go"},
 			CompiledGoFiles: []string{"dep/impl.go"},
-			Imports:         make(map[string]string),
 		}
 		lay.Packages = append(lay.Packages, p)
 	}
@@ -266,7 +265,7 @@ func ToLower(s string) string {
 		PkgPath         string            `json:"pkgPath"`
 		GoFiles         []string          `json:"goFiles"`
 		CompiledGoFiles []string          `json:"compiledGoFiles"`
-		Imports         map[string]string `json:"imports"`
+		Imports         map[string]string `json:"imports,omitempty"`
 	}
 	type layout struct {
 		GoSDKRoot string   `json:"go_sdk_root"`
@@ -288,9 +287,9 @@ func ToLower(s string) string {
 			PkgPath:         "example.com/member",
 			GoFiles:         []string{"member/api.go"},
 			CompiledGoFiles: []string{"member/api.go"},
-			Imports:         make(map[string]string),
 		}
 		if _, ok := files["dep/impl.go"]; ok {
+			p.Imports = make(map[string]string)
 			p.Imports["example.com/dep"] = "example.com/dep"
 		}
 		lay.Packages = append(lay.Packages, p)
@@ -303,7 +302,6 @@ func ToLower(s string) string {
 			PkgPath:         "example.com/dep",
 			GoFiles:         []string{"dep/impl.go"},
 			CompiledGoFiles: []string{"dep/impl.go"},
-			Imports:         make(map[string]string),
 		}
 		lay.Packages = append(lay.Packages, p)
 	}
@@ -366,6 +364,38 @@ func Hello() string {
 	want := `Component "puremember" conforms / ambient-authority-free`
 	if !strings.Contains(stdout, want) {
 		t.Errorf("stdout = %q, want it to contain %q", stdout, want)
+	}
+}
+
+func TestIntegration_LayoutMode_UnresolvedImportWarning(t *testing.T) {
+	manifest := `
+name: "unresolvedmember"
+interface_files: "member/api.go"
+`
+	files := map[string]string{
+		"member/api.go": `package member
+
+import _ "example.com/missing"
+
+func Hello() {}
+`,
+	}
+
+	absTmpDir, manifestPath, layoutPath := createLayoutFixture(t, "unresolved", []string{"example.com/member"}, manifest, files)
+	origWd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("get working directory: %v", err)
+	}
+	if err := os.Chdir(absTmpDir); err != nil {
+		t.Fatalf("change working directory: %v", err)
+	}
+	defer os.Chdir(origWd)
+	stdout, stderr, exitCode := runArccEnv(os.Environ(), []string{"check", manifestPath, "--package-layout=" + layoutPath})
+	if exitCode != 0 {
+		t.Fatalf("expected exit code 0, got %d. Stderr: %s\nStdout: %s", exitCode, stderr, stdout)
+	}
+	if !strings.Contains(stdout, "ANALYSIS_LIMITATION") || !strings.Contains(stdout, "member/api.go") || !strings.Contains(stdout, "example.com/missing") {
+		t.Fatalf("stdout = %q, want unresolved-import analysis limitation", stdout)
 	}
 }
 

@@ -107,8 +107,6 @@ def _layout_content(ctx, merged, roots, go_sdk_root):
 
         # Package IDs are import paths: the closure is already folded by
         # import path, so they are unique, and it keeps the layout readable.
-        imports = {dep: dep for dep in pkg.deps}
-
         packages.append({
             "ID": importpath,
             "Name": _package_name(importpath),
@@ -117,7 +115,6 @@ def _layout_content(ctx, merged, roots, go_sdk_root):
             # Identical until cgo is supported; a cgo package compiles from
             # preprocessed sources, which is why the rule rejects one below.
             "CompiledGoFiles": go_files,
-            "Imports": imports,
         })
 
     return json.encode_indent(

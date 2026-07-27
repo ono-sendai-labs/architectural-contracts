@@ -31,6 +31,20 @@ type Layout struct {
 	Platform  *Platform           `json:"platform,omitempty"`
 	Roots     []string            `json:"roots"`
 	Packages  []*packages.Package `json:"packages"`
+
+	// UnresolvedImports contains imports observed in surviving source files that
+	// do not resolve to a layout or SDK package. It is loader-owned state and is
+	// deliberately excluded from the layout JSON schema.
+	UnresolvedImports []UnresolvedImport `json:"-"`
+	importsOmitted    map[string]bool
+}
+
+// UnresolvedImport records a surviving source-level import for which the
+// layout has no package node. The source file is absolute after validation.
+type UnresolvedImport struct {
+	Package    string
+	SourceFile string
+	ImportPath string
 }
 
 // Platform declares the target used when evaluating Go build constraints.
@@ -362,13 +376,12 @@ func ValidateAndResolve(l *Layout, workspaceDir string) error {
 	if err != nil {
 		return err
 	}
+	l.UnresolvedImports = nil
 	for idx, p := range l.Packages {
 		if p == nil {
 			return fmt.Errorf("package entry at index %d is null", idx)
 		}
 	}
-
-	stdPkgIDs := make(map[string]bool)
 
 	// First, discover and merge standard library packages if GoSDKRoot is set.
 	if l.GoSDKRoot != "" {
@@ -377,10 +390,6 @@ func ValidateAndResolve(l *Layout, workspaceDir string) error {
 		stdPkgs, err := discoverStdlibWithContext(l.GoSDKRoot, stdlibContext)
 		if err != nil {
 			return fmt.Errorf("discovering standard library: %w", err)
-		}
-		for _, p := range stdPkgs {
-			stdPkgIDs[p.ID] = true
-			stdPkgIDs[p.PkgPath] = true
 		}
 		existing := make(map[string]bool)
 		for _, p := range l.Packages {
@@ -415,6 +424,9 @@ func ValidateAndResolve(l *Layout, workspaceDir string) error {
 	// Index packages by ID and PkgPath to detect duplicates and enable graph traversal.
 	byID := make(map[string]*packages.Package, len(l.Packages))
 	byPath := make(map[string]*packages.Package, len(l.Packages))
+	if l.importsOmitted == nil {
+		l.importsOmitted = make(map[string]bool)
+	}
 
 	for _, p := range l.Packages {
 		if p.ID == "" {
@@ -436,6 +448,9 @@ func ValidateAndResolve(l *Layout, workspaceDir string) error {
 
 		byID[p.ID] = p
 		byPath[p.PkgPath] = p
+		if _, recorded := l.importsOmitted[p.ID]; !recorded {
+			l.importsOmitted[p.ID] = p.Imports == nil
+		}
 	}
 
 	// Validate roots.
@@ -482,7 +497,24 @@ func ValidateAndResolve(l *Layout, workspaceDir string) error {
 		}
 	}
 
-	// Phase 2: Recover standard library imports for non-stdlib packages.
+	// Phase 2: Recover imports from surviving non-stdlib sources. The source
+	// scan happens before mutating omitted import maps so T8 can distinguish the
+	// two emitter shapes and retain file provenance for unresolved imports.
+	resolveImport := func(importPath string) (*packages.Package, bool) {
+		if target, ok := byPath[importPath]; ok {
+			return target, true
+		}
+		// A standard-library package may be discovered under vendor/ while its
+		// source-level import remains the bare path. The target's path is the
+		// authoritative indication here because the source-level path may be a
+		// dotted vendored path.
+		if target, ok := byPath["vendor/"+importPath]; ok && IsStdlib(target.PkgPath) {
+			return target, true
+		}
+		return nil, false
+	}
+
+	var unresolvedImports []UnresolvedImport
 	for _, p := range l.Packages {
 		if !IsStdlib(p.PkgPath) {
 			fset := token.NewFileSet()
@@ -490,7 +522,7 @@ func ValidateAndResolve(l *Layout, workspaceDir string) error {
 			copy(sortedFiles, p.GoFiles)
 			sort.Strings(sortedFiles)
 
-			importMap := make(map[string]bool)
+			importSources := make(map[string][]string)
 			for _, file := range sortedFiles {
 				f, err := parser.ParseFile(fset, file, nil, parser.ImportsOnly)
 				if err != nil {
@@ -504,28 +536,95 @@ func ValidateAndResolve(l *Layout, workspaceDir string) error {
 					if err != nil {
 						return fmt.Errorf("invalid import literal %s in source file %q of package %q: %w", impSpec.Path.Value, file, p.ID, err)
 					}
-					importMap[impPath] = true
+					if impPath == "C" {
+						// C is cgo's pseudo-package, not a graph node.
+						continue
+					}
+					importSources[impPath] = append(importSources[impPath], file)
 				}
 			}
 
 			var sortedImports []string
-			for impPath := range importMap {
+			for impPath := range importSources {
 				sortedImports = append(sortedImports, impPath)
 			}
 			sort.Strings(sortedImports)
 
 			for _, impPath := range sortedImports {
-				if IsStdlib(impPath) && stdPkgIDs[impPath] {
-					if p.Imports == nil {
-						p.Imports = make(map[string]*packages.Package)
+				sources := importSources[impPath]
+				if target, resolvable := resolveImport(impPath); resolvable {
+					if l.importsOmitted[p.ID] {
+						if p.Imports == nil {
+							p.Imports = make(map[string]*packages.Package)
+						}
+						if _, exists := p.Imports[impPath]; !exists {
+							p.Imports[impPath] = &packages.Package{ID: target.ID}
+						}
 					}
-					if _, exists := p.Imports[impPath]; !exists {
-						p.Imports[impPath] = &packages.Package{ID: impPath}
+				} else {
+					for _, file := range sources {
+						unresolvedImports = append(unresolvedImports, UnresolvedImport{
+							Package:    p.PkgPath,
+							SourceFile: file,
+							ImportPath: impPath,
+						})
 					}
+				}
+
+			}
+
+			if !l.importsOmitted[p.ID] {
+				declared := make(map[string]bool)
+				for impPath := range p.Imports {
+					if impPath == "C" {
+						continue
+					}
+					if _, resolvable := resolveImport(impPath); resolvable {
+						declared[impPath] = true
+					}
+				}
+				var extra []string
+				for impPath := range declared {
+					if _, contributed := importSources[impPath]; !contributed {
+						extra = append(extra, impPath)
+					}
+				}
+				var missing []string
+				for impPath, sources := range importSources {
+					if _, resolvable := resolveImport(impPath); !resolvable || declared[impPath] {
+						continue
+					}
+					for _, file := range sources {
+						missing = append(missing, fmt.Sprintf("%q from source file %q", impPath, file))
+					}
+				}
+				sort.Strings(extra)
+				sort.Strings(missing)
+				if len(extra) > 0 {
+					return fmt.Errorf("package %q declares resolvable imports not contributed by surviving sources: %s", p.PkgPath, strings.Join(extra, ", "))
+				}
+				if len(missing) > 0 {
+					return fmt.Errorf("package %q has resolvable imports absent from declared Imports: %s", p.PkgPath, strings.Join(missing, "; "))
 				}
 			}
 		}
 	}
+	sort.Slice(unresolvedImports, func(i, j int) bool {
+		if unresolvedImports[i].Package != unresolvedImports[j].Package {
+			return unresolvedImports[i].Package < unresolvedImports[j].Package
+		}
+		if unresolvedImports[i].SourceFile != unresolvedImports[j].SourceFile {
+			return unresolvedImports[i].SourceFile < unresolvedImports[j].SourceFile
+		}
+		return unresolvedImports[i].ImportPath < unresolvedImports[j].ImportPath
+	})
+	uniqueUnresolved := unresolvedImports[:0]
+	for _, observation := range unresolvedImports {
+		if len(uniqueUnresolved) == 0 || uniqueUnresolved[len(uniqueUnresolved)-1] != observation {
+			uniqueUnresolved = append(uniqueUnresolved, observation)
+		}
+	}
+	l.UnresolvedImports = uniqueUnresolved
 
 	// Phase 3: Validate imports for all packages.
 	for _, p := range l.Packages {
@@ -536,6 +635,10 @@ func ValidateAndResolve(l *Layout, workspaceDir string) error {
 		sort.Strings(impPaths)
 
 		for _, impPath := range impPaths {
+			if impPath == "C" {
+				// C is cgo's pseudo-package, not a package in the graph.
+				continue
+			}
 			impID := p.Imports[impPath]
 			if impPath == "" {
 				return fmt.Errorf("package %q has empty import path key in Imports map", p.ID)

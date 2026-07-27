@@ -91,8 +91,17 @@ func LoadPackageFacts(req LoadRequest) (facts.PackageFacts, error) {
 
 	// Collect all load/parse/type errors in the loaded package graph
 	var errMsgs []string
+	unresolvedPaths := make(map[string]bool)
+	if packagelayout.IsLayoutMode() {
+		for _, observation := range packagelayout.GetActiveLayout().UnresolvedImports {
+			unresolvedPaths[observation.ImportPath] = true
+		}
+	}
 	packages.Visit(pkgs, nil, func(p *packages.Package) {
 		for _, err := range p.Errors {
+			if isExpectedUnresolvedLayoutImport(err.Msg, unresolvedPaths) {
+				continue
+			}
 			errMsgs = append(errMsgs, err.Msg)
 		}
 	})
@@ -201,6 +210,32 @@ func LoadPackageFacts(req LoadRequest) (facts.PackageFacts, error) {
 		}
 	}
 
+	var unresolvedImports []facts.UnresolvedImport
+	if packagelayout.IsLayoutMode() {
+		layout := packagelayout.GetActiveLayout()
+		workspaceDir := packagelayout.GetActiveWorkspaceDir()
+		for _, observation := range layout.UnresolvedImports {
+			rel, err := filepath.Rel(workspaceDir, observation.SourceFile)
+			if err != nil {
+				continue
+			}
+			unresolvedImports = append(unresolvedImports, facts.UnresolvedImport{
+				Package:    hostpolicy.CanonicalizePath(observation.Package),
+				File:       filepath.ToSlash(filepath.Clean(rel)),
+				ImportPath: hostpolicy.CanonicalizePath(observation.ImportPath),
+			})
+		}
+		sort.Slice(unresolvedImports, func(i, j int) bool {
+			if unresolvedImports[i].Package != unresolvedImports[j].Package {
+				return unresolvedImports[i].Package < unresolvedImports[j].Package
+			}
+			if unresolvedImports[i].File != unresolvedImports[j].File {
+				return unresolvedImports[i].File < unresolvedImports[j].File
+			}
+			return unresolvedImports[i].ImportPath < unresolvedImports[j].ImportPath
+		})
+	}
+
 	// Build SSA and construct the VTA call graph
 	prog, _ := ssautil.AllPackages(pkgs, ssa.InstantiateGenerics)
 	prog.Build()
@@ -262,9 +297,10 @@ func LoadPackageFacts(req LoadRequest) (facts.PackageFacts, error) {
 	})
 
 	res := facts.PackageFacts{
-		Packages:      factsPkgs,
-		CallEdges:     callEdges,
-		StdlibImports: stdlibImports,
+		Packages:          factsPkgs,
+		CallEdges:         callEdges,
+		StdlibImports:     stdlibImports,
+		UnresolvedImports: unresolvedImports,
 	}
 
 	if len(factsPkgs) > 0 {
@@ -275,6 +311,18 @@ func LoadPackageFacts(req LoadRequest) (facts.PackageFacts, error) {
 	}
 
 	return res, nil
+}
+
+func isExpectedUnresolvedLayoutImport(message string, unresolvedPaths map[string]bool) bool {
+	if len(unresolvedPaths) == 0 || !strings.Contains(message, "no metadata for ") {
+		return false
+	}
+	for importPath := range unresolvedPaths {
+		if strings.Contains(message, "no metadata for "+importPath) {
+			return true
+		}
+	}
+	return false
 }
 
 func interfacePackagePatterns(interfaceFiles []string) []string {
