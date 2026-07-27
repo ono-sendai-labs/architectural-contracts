@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/google/capslock/interesting"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/capanalyzer"
 )
 
@@ -125,8 +126,21 @@ func TestClassifier_FailuresExplicit(t *testing.T) {
 	}
 }
 
-// TestClassifier_PruneAtPackages_NilUnchanged verifies that empty/nil PruneAtPackages works.
+// TestClassifier_PruneAtPackages_NilUnchanged verifies that empty/nil PruneAtPackages produces bit-for-bit identical classifier text (AC6).
 func TestClassifier_PruneAtPackages_NilUnchanged(t *testing.T) {
+	txtNil, err1 := buildClassifierText(nil, nil)
+	if err1 != nil {
+		t.Fatalf("buildClassifierText(nil, nil) failed: %v", err1)
+	}
+	txtEmpty, err2 := buildClassifierText(nil, []string{})
+	if err2 != nil {
+		t.Fatalf("buildClassifierText(nil, []) failed: %v", err2)
+	}
+
+	if txtNil != txtEmpty {
+		t.Errorf("expected buildClassifierText with nil and empty []string to be bit-for-bit identical:\nnil:\n%s\nempty:\n%s", txtNil, txtEmpty)
+	}
+
 	cl1, err1 := buildClassifier(nil, nil)
 	if err1 != nil {
 		t.Fatalf("buildClassifier(nil, nil) failed: %v", err1)
@@ -137,6 +151,71 @@ func TestClassifier_PruneAtPackages_NilUnchanged(t *testing.T) {
 	}
 	if cl1 == nil || cl2 == nil {
 		t.Fatalf("expected non-nil classifiers")
+	}
+}
+
+// TestClassifierText_Invariants verifies bit-level classifier text output contracts: deduplication, sorting, namespace separation, and determinism (AC5).
+func TestClassifierText_Invariants(t *testing.T) {
+	// 1. Deduplication and Sorting
+	inputPkgs := []string{"example.com/pkgB", "example.com/pkgA", "example.com/pkgA", "example.com/pkgC"}
+	txt, err := buildClassifierText(nil, inputPkgs)
+	if err != nil {
+		t.Fatalf("buildClassifierText failed: %v", err)
+	}
+
+	expectedTail := "package example.com/pkgA CAPABILITY_SAFE\npackage example.com/pkgB CAPABILITY_SAFE\npackage example.com/pkgC CAPABILITY_SAFE\n"
+	if !strings.HasSuffix(txt, expectedTail) {
+		t.Errorf("expected classifier text to end with sorted, deduplicated package lines:\n%q\ngot:\n%q", expectedTail, txt)
+	}
+
+	// 2. Namespace Separation (equal function and package strings emit both keyword forms)
+	syms := []capanalyzer.InterfaceSymbol{"example.com/foo"}
+	pkgs := []string{"example.com/foo"}
+	txtBoth, err := buildClassifierText(syms, pkgs)
+	if err != nil {
+		t.Fatalf("buildClassifierText failed: %v", err)
+	}
+
+	expectedFuncLine := "func example.com/foo CAPABILITY_SAFE\n"
+	expectedPkgLine := "package example.com/foo CAPABILITY_SAFE\n"
+	if !strings.Contains(txtBoth, expectedFuncLine) {
+		t.Errorf("expected text to contain function rule line %q, got:\n%s", expectedFuncLine, txtBoth)
+	}
+	if !strings.Contains(txtBoth, expectedPkgLine) {
+		t.Errorf("expected text to contain package rule line %q, got:\n%s", expectedPkgLine, txtBoth)
+	}
+
+	// 3. Determinism across repeated invocations
+	for i := 0; i < 10; i++ {
+		txtIter, err := buildClassifierText(syms, inputPkgs)
+		if err != nil {
+			t.Fatalf("iteration %d failed: %v", i, err)
+		}
+		if i == 0 {
+			txt = txtIter
+		} else if txtIter != txt {
+			t.Fatalf("iteration %d output diverged from iteration 0:\niter 0:\n%s\niter %d:\n%s", i, txt, i, txtIter)
+		}
+	}
+}
+
+// TestClassifier_FunctionOverridesPackagePrecedence verifies that a per-function key overrides a package key in Capslock lookup order (AC2).
+func TestClassifier_FunctionOverridesPackagePrecedence(t *testing.T) {
+	// Directly test Capslock classifier resolution order when a package rule and a function rule with a distinct category coexist.
+	customRules := "package example.com/pkgA CAPABILITY_SAFE\nfunc example.com/pkgA.SpecificFunc CAPABILITY_FILES\n"
+	cl, err := interesting.LoadClassifier("test-precedence", strings.NewReader(customRules), false /* excludeBuiltin */)
+	if err != nil {
+		t.Fatalf("LoadClassifier failed: %v", err)
+	}
+
+	// Function with explicit rule returns function category "FILES", overriding package "SAFE"
+	if cat := cl.FunctionCategory("example.com/pkgA", "example.com/pkgA.SpecificFunc"); cat != "FILES" {
+		t.Errorf("expected FunctionCategory for example.com/pkgA.SpecificFunc to be FILES (function override), got %q", cat)
+	}
+
+	// Other function in same package falls back to package category "SAFE"
+	if cat := cl.FunctionCategory("example.com/pkgA", "example.com/pkgA.OtherFunc"); cat != "SAFE" {
+		t.Errorf("expected FunctionCategory for example.com/pkgA.OtherFunc to be SAFE (package fallback), got %q", cat)
 	}
 }
 
@@ -177,8 +256,8 @@ func TestClassifier_PruneAtPackages_Malformed(t *testing.T) {
 	}
 }
 
-// TestClassifier_PruneAtPackages_DedupAndSortAndPrecedence verifies package pruning, deduplication, sorting, and function precedence.
-func TestClassifier_PruneAtPackages_DedupAndSortAndPrecedence(t *testing.T) {
+// TestClassifier_PruneAtPackages_PackageResolution verifies that package entries in buildClassifier result in SAFE categories for functions in those packages.
+func TestClassifier_PruneAtPackages_PackageResolution(t *testing.T) {
 	pkgs := []string{"example.com/pkgB", "example.com/pkgA", "example.com/pkgA"}
 	cl, err := buildClassifier(nil, pkgs)
 	if err != nil {
@@ -186,25 +265,11 @@ func TestClassifier_PruneAtPackages_DedupAndSortAndPrecedence(t *testing.T) {
 	}
 
 	// Verify function inside pruned package resolves to SAFE
-	if cat := cl.FunctionCategory("example.com/pkgA", "SomeFunc"); cat != "SAFE" {
+	if cat := cl.FunctionCategory("example.com/pkgA", "example.com/pkgA.SomeFunc"); cat != "SAFE" {
 		t.Errorf("expected FunctionCategory for example.com/pkgA.SomeFunc to be SAFE, got %q", cat)
 	}
-	if cat := cl.FunctionCategory("example.com/pkgB", "AnotherFunc"); cat != "SAFE" {
+	if cat := cl.FunctionCategory("example.com/pkgB", "example.com/pkgB.AnotherFunc"); cat != "SAFE" {
 		t.Errorf("expected FunctionCategory for example.com/pkgB.AnotherFunc to be SAFE, got %q", cat)
-	}
-
-	// Function override precedence:
-	// Adding a specific function symbol in PruneAt or testing precedence.
-	// Capslock resolves function keys before package keys.
-	// If pruneAt specifies a function key, say "example.com/pkgA.SpecificFunc", it takes precedence.
-	syms := []capanalyzer.InterfaceSymbol{"example.com/pkgA.SpecificFunc"}
-	cl2, err := buildClassifier(syms, pkgs)
-	if err != nil {
-		t.Fatalf("failed to build classifier: %v", err)
-	}
-
-	if cat := cl2.FunctionCategory("example.com/pkgA", "SpecificFunc"); cat != "SAFE" {
-		t.Errorf("expected FunctionCategory for example.com/pkgA.SpecificFunc to be SAFE, got %q", cat)
 	}
 }
 

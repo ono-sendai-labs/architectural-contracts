@@ -39,12 +39,10 @@ var fileHandleUseMethods = []string{
 	"(*os.File).WriteAt", "(*os.File).WriteString",
 }
 
-// buildClassifier constructs a per-run custom capability classifier that:
-// 1. Reclassifies the 22 (*os.File) handle-use methods as CAPABILITY_SAFE.
-// 2. Adds boundary-prune safe keys (both per-symbol and per-package) to the custom capability map (FR5b).
-// 3. Merges the custom map with Capslock's built-ins (excludeBuiltin=false).
-// 4. Wraps the result to exclude UNANALYZED helper leaves.
-func buildClassifier(pruneAt []capanalyzer.InterfaceSymbol, pruneAtPackages []string) (analyzer.Classifier, error) {
+// buildClassifierText constructs the raw custom capability classifier text string for:
+// 1. Reclassifying the 22 (*os.File) handle-use methods as CAPABILITY_SAFE.
+// 2. Adding boundary-prune safe keys (both per-symbol and per-package).
+func buildClassifierText(pruneAt []capanalyzer.InterfaceSymbol, pruneAtPackages []string) (string, error) {
 	var b strings.Builder
 	seenFunc := make(map[string]bool)
 
@@ -59,10 +57,10 @@ func buildClassifier(pruneAt []capanalyzer.InterfaceSymbol, pruneAtPackages []st
 	for _, sym := range pruneAt {
 		s := string(sym)
 		if s == "" {
-			return nil, fmt.Errorf("empty prune symbol key")
+			return "", fmt.Errorf("empty prune symbol key")
 		}
 		if strings.ContainsAny(s, "\r\n") {
-			return nil, fmt.Errorf("prune symbol key %q contains newline characters", s)
+			return "", fmt.Errorf("prune symbol key %q contains newline characters", s)
 		}
 
 		var funcKey string
@@ -85,10 +83,10 @@ func buildClassifier(pruneAt []capanalyzer.InterfaceSymbol, pruneAtPackages []st
 		var uniquePkgs []string
 		for _, pkg := range pruneAtPackages {
 			if pkg == "" {
-				return nil, fmt.Errorf("empty prune package key")
+				return "", fmt.Errorf("empty prune package key")
 			}
 			if strings.ContainsAny(pkg, "\r\n") {
-				return nil, fmt.Errorf("prune package key %q contains newline characters", pkg)
+				return "", fmt.Errorf("prune package key %q contains newline characters", pkg)
 			}
 			if seenPkg[pkg] {
 				continue
@@ -102,7 +100,21 @@ func buildClassifier(pruneAt []capanalyzer.InterfaceSymbol, pruneAtPackages []st
 		}
 	}
 
-	merged, err := interesting.LoadClassifier("arcc-ocap", strings.NewReader(b.String()), false /* excludeBuiltin */)
+	return b.String(), nil
+}
+
+// buildClassifier constructs a per-run custom capability classifier that:
+// 1. Reclassifies the 22 (*os.File) handle-use methods as CAPABILITY_SAFE.
+// 2. Adds boundary-prune safe keys (both per-symbol and per-package) to the custom capability map (FR5b).
+// 3. Merges the custom map with Capslock's built-ins (excludeBuiltin=false).
+// 4. Wraps the result to exclude UNANALYZED helper leaves.
+func buildClassifier(pruneAt []capanalyzer.InterfaceSymbol, pruneAtPackages []string) (analyzer.Classifier, error) {
+	text, err := buildClassifierText(pruneAt, pruneAtPackages)
+	if err != nil {
+		return nil, err
+	}
+
+	merged, err := interesting.LoadClassifier("arcc-ocap", strings.NewReader(text), false /* excludeBuiltin */)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load custom capslock classifier: %w", err)
 	}
