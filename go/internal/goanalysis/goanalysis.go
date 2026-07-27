@@ -1738,7 +1738,7 @@ func scanFuncValueEscapes(
 		Line    int
 	}
 	seen := make(map[escapeKey]bool)
-	var escapes []facts.FuncValueEscape
+	escapes := make([]facts.FuncValueEscape, 0)
 
 	allFuncs := ssautil.AllFunctions(prog)
 	for fn := range allFuncs {

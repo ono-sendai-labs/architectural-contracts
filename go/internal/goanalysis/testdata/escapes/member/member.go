@@ -1,7 +1,9 @@
 package member
 
 import (
+	"fmt"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/goanalysis/testdata/escapes/absorbed"
+	"github.com/ono-sendai-labs/architectural-contracts/go/internal/goanalysis/testdata/escapes/otherpkg"
 )
 
 // Fixture 1: struct-literal field escape (detected)
@@ -31,4 +33,9 @@ func LocalIndirection() {
 // Fixture 5: member-defined function values (ignored)
 func MemberCallback() {
 	_ = func() {}
+}
+
+// Fixture 6: non-absorbed external package and standard library function values (ignored)
+func SilentExternalEscapes() (func(), func(string, ...any) (int, error)) {
+	return otherpkg.Helper, fmt.Printf
 }
