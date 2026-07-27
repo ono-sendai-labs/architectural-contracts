@@ -55,7 +55,7 @@ func TestClassifier_FileHandleUse_Safe(t *testing.T) {
 		}
 	}
 
-	cl, err := buildClassifier(nil)
+	cl, err := buildClassifier(nil, nil)
 	if err != nil {
 		t.Fatalf("failed to build classifier: %v", err)
 	}
@@ -71,7 +71,7 @@ func TestClassifier_FileHandleUse_Safe(t *testing.T) {
 
 // TestClassifier_UNANALYZED_Excluded verifies that UNANALYZED helpers are descended through.
 func TestClassifier_UNANALYZED_Excluded(t *testing.T) {
-	cl, err := buildClassifier(nil)
+	cl, err := buildClassifier(nil, nil)
 	if err != nil {
 		t.Fatalf("failed to build classifier: %v", err)
 	}
@@ -86,7 +86,7 @@ func TestClassifier_UNANALYZED_Excluded(t *testing.T) {
 
 // TestClassifier_AmbientMinting_FILES verifies that ambient minting functions remain visible.
 func TestClassifier_AmbientMinting_FILES(t *testing.T) {
-	cl, err := buildClassifier(nil)
+	cl, err := buildClassifier(nil, nil)
 	if err != nil {
 		t.Fatalf("failed to build classifier: %v", err)
 	}
@@ -102,7 +102,7 @@ func TestClassifier_AmbientMinting_FILES(t *testing.T) {
 
 // TestClassifier_Chdir_Unsafe verifies that (*os.File).Chdir is not safe and retains its system-state-modifying classification.
 func TestClassifier_Chdir_Unsafe(t *testing.T) {
-	cl, err := buildClassifier(nil)
+	cl, err := buildClassifier(nil, nil)
 	if err != nil {
 		t.Fatalf("failed to build classifier: %v", err)
 	}
@@ -119,9 +119,140 @@ func TestClassifier_Chdir_Unsafe(t *testing.T) {
 // TestClassifier_FailuresExplicit verifies that malformed input returns an error instead of falling back.
 func TestClassifier_FailuresExplicit(t *testing.T) {
 	// Passing an invalid capability category via newline injection to trigger parse errors in LoadClassifier
-	_, err := buildClassifier([]capanalyzer.InterfaceSymbol{"invalidKey\nfunc invalidFn INVALID_CAPABILITY_NAME"})
+	_, err := buildClassifier([]capanalyzer.InterfaceSymbol{"invalidKey\nfunc invalidFn INVALID_CAPABILITY_NAME"}, nil)
 	if err == nil {
 		t.Errorf("expected buildClassifier to fail with malformed custom classifier input")
+	}
+}
+
+// TestClassifier_PruneAtPackages_NilUnchanged verifies that empty/nil PruneAtPackages works.
+func TestClassifier_PruneAtPackages_NilUnchanged(t *testing.T) {
+	cl1, err1 := buildClassifier(nil, nil)
+	if err1 != nil {
+		t.Fatalf("buildClassifier(nil, nil) failed: %v", err1)
+	}
+	cl2, err2 := buildClassifier(nil, []string{})
+	if err2 != nil {
+		t.Fatalf("buildClassifier(nil, []) failed: %v", err2)
+	}
+	if cl1 == nil || cl2 == nil {
+		t.Fatalf("expected non-nil classifiers")
+	}
+}
+
+// TestClassifier_PruneAtPackages_Malformed verifies that malformed package entries fail closed.
+func TestClassifier_PruneAtPackages_Malformed(t *testing.T) {
+	testCases := []struct {
+		name    string
+		pkgs    []string
+		wantErr string
+	}{
+		{
+			name:    "empty package entry",
+			pkgs:    []string{""},
+			wantErr: "empty prune package key",
+		},
+		{
+			name:    "package entry with newline",
+			pkgs:    []string{"foo/bar\nforged"},
+			wantErr: "prune package key \"foo/bar\\nforged\" contains newline characters",
+		},
+		{
+			name:    "package entry with carriage return",
+			pkgs:    []string{"foo/bar\rforged"},
+			wantErr: "prune package key \"foo/bar\\rforged\" contains newline characters",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := buildClassifier(nil, tc.pkgs)
+			if err == nil {
+				t.Fatalf("expected error for %s, got nil", tc.name)
+			}
+			if !strings.Contains(err.Error(), tc.wantErr) {
+				t.Errorf("expected error containing %q, got %q", tc.wantErr, err.Error())
+			}
+		})
+	}
+}
+
+// TestClassifier_PruneAtPackages_DedupAndSortAndPrecedence verifies package pruning, deduplication, sorting, and function precedence.
+func TestClassifier_PruneAtPackages_DedupAndSortAndPrecedence(t *testing.T) {
+	pkgs := []string{"example.com/pkgB", "example.com/pkgA", "example.com/pkgA"}
+	cl, err := buildClassifier(nil, pkgs)
+	if err != nil {
+		t.Fatalf("failed to build classifier: %v", err)
+	}
+
+	// Verify function inside pruned package resolves to SAFE
+	if cat := cl.FunctionCategory("example.com/pkgA", "SomeFunc"); cat != "SAFE" {
+		t.Errorf("expected FunctionCategory for example.com/pkgA.SomeFunc to be SAFE, got %q", cat)
+	}
+	if cat := cl.FunctionCategory("example.com/pkgB", "AnotherFunc"); cat != "SAFE" {
+		t.Errorf("expected FunctionCategory for example.com/pkgB.AnotherFunc to be SAFE, got %q", cat)
+	}
+
+	// Function override precedence:
+	// Adding a specific function symbol in PruneAt or testing precedence.
+	// Capslock resolves function keys before package keys.
+	// If pruneAt specifies a function key, say "example.com/pkgA.SpecificFunc", it takes precedence.
+	syms := []capanalyzer.InterfaceSymbol{"example.com/pkgA.SpecificFunc"}
+	cl2, err := buildClassifier(syms, pkgs)
+	if err != nil {
+		t.Fatalf("failed to build classifier: %v", err)
+	}
+
+	if cat := cl2.FunctionCategory("example.com/pkgA", "SpecificFunc"); cat != "SAFE" {
+		t.Errorf("expected FunctionCategory for example.com/pkgA.SpecificFunc to be SAFE, got %q", cat)
+	}
+}
+
+// TestClassifier_PruneAtPackages_NamespaceSeparation verifies that identical string keys across function and package namespaces do not suppress each other.
+func TestClassifier_PruneAtPackages_NamespaceSeparation(t *testing.T) {
+	// A package import path "example.com/foo" and a function key "example.com/foo"
+	syms := []capanalyzer.InterfaceSymbol{"example.com/foo"}
+	pkgs := []string{"example.com/foo"}
+
+	cl, err := buildClassifier(syms, pkgs)
+	if err != nil {
+		t.Fatalf("failed to build classifier: %v", err)
+	}
+
+	if cat := cl.FunctionCategory("example.com/foo", "Bar"); cat != "SAFE" {
+		t.Errorf("expected package prune to classify example.com/foo.Bar as SAFE, got %q", cat)
+	}
+}
+
+// TestAdapter_Analyze_PruneAtPackages_Success verifies that package granularity pruning suppresses findings end-to-end.
+func TestAdapter_Analyze_PruneAtPackages_Success(t *testing.T) {
+	adapter := NewAdapter()
+	pkgPath := "github.com/ono-sendai-labs/architectural-contracts/go/internal/capslockadapter/testdata/packageprune"
+	depPath := "github.com/ono-sendai-labs/architectural-contracts/go/internal/capslockadapter/testdata/filereader"
+
+	// 1. Without package pruning: reports FILES
+	reqUnpruned := capanalyzer.AnalyzeRequest{
+		Packages: []string{pkgPath},
+	}
+	findingsUnpruned, err := adapter.Analyze(reqUnpruned)
+	if err != nil {
+		t.Fatalf("failed to analyze unpruned: %v", err)
+	}
+	if len(findingsUnpruned) == 0 {
+		t.Fatalf("expected findings when unpruned, got none")
+	}
+
+	// 2. With package pruning: 0 findings
+	reqPruned := capanalyzer.AnalyzeRequest{
+		Packages:        []string{pkgPath},
+		PruneAtPackages: []string{depPath},
+	}
+	findingsPruned, err := adapter.Analyze(reqPruned)
+	if err != nil {
+		t.Fatalf("failed to analyze pruned: %v", err)
+	}
+	if len(findingsPruned) != 0 {
+		t.Errorf("expected 0 findings when dependency package %q is pruned, got %d findings: %+v", depPath, len(findingsPruned), findingsPruned)
 	}
 }
 

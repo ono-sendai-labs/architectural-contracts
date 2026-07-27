@@ -41,18 +41,18 @@ var fileHandleUseMethods = []string{
 
 // buildClassifier constructs a per-run custom capability classifier that:
 // 1. Reclassifies the 22 (*os.File) handle-use methods as CAPABILITY_SAFE.
-// 2. Adds boundary-prune safe keys to the custom capability map (FR5b).
+// 2. Adds boundary-prune safe keys (both per-symbol and per-package) to the custom capability map (FR5b).
 // 3. Merges the custom map with Capslock's built-ins (excludeBuiltin=false).
 // 4. Wraps the result to exclude UNANALYZED helper leaves.
-func buildClassifier(pruneAt []capanalyzer.InterfaceSymbol) (analyzer.Classifier, error) {
+func buildClassifier(pruneAt []capanalyzer.InterfaceSymbol, pruneAtPackages []string) (analyzer.Classifier, error) {
 	var b strings.Builder
-	seen := make(map[string]bool)
+	seenFunc := make(map[string]bool)
 
 	for _, k := range fileHandleUseMethods {
-		if seen[k] {
+		if seenFunc[k] {
 			continue
 		}
-		seen[k] = true
+		seenFunc[k] = true
 		fmt.Fprintf(&b, "func %s CAPABILITY_SAFE\n", k)
 	}
 
@@ -72,13 +72,36 @@ func buildClassifier(pruneAt []capanalyzer.InterfaceSymbol) (analyzer.Classifier
 			funcKey = s
 		}
 
-		if seen[funcKey] {
+		if seenFunc[funcKey] {
 			continue
 		}
-		seen[funcKey] = true
+		seenFunc[funcKey] = true
 
 		fmt.Fprintf(&b, "func %s CAPABILITY_SAFE\n", funcKey)
 	}
+
+	if len(pruneAtPackages) > 0 {
+		seenPkg := make(map[string]bool)
+		var uniquePkgs []string
+		for _, pkg := range pruneAtPackages {
+			if pkg == "" {
+				return nil, fmt.Errorf("empty prune package key")
+			}
+			if strings.ContainsAny(pkg, "\r\n") {
+				return nil, fmt.Errorf("prune package key %q contains newline characters", pkg)
+			}
+			if seenPkg[pkg] {
+				continue
+			}
+			seenPkg[pkg] = true
+			uniquePkgs = append(uniquePkgs, pkg)
+		}
+		sort.Strings(uniquePkgs)
+		for _, pkg := range uniquePkgs {
+			fmt.Fprintf(&b, "package %s CAPABILITY_SAFE\n", pkg)
+		}
+	}
+
 	merged, err := interesting.LoadClassifier("arcc-ocap", strings.NewReader(b.String()), false /* excludeBuiltin */)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load custom capslock classifier: %w", err)
@@ -121,7 +144,7 @@ func (a *Adapter) Analyze(req capanalyzer.AnalyzeRequest) ([]capanalyzer.Capabil
 		return nil, fmt.Errorf("package request is empty; at least one package path must be provided")
 	}
 
-	classifier, err := buildClassifier(req.PruneAt)
+	classifier, err := buildClassifier(req.PruneAt, req.PruneAtPackages)
 	if err != nil {
 		return nil, err
 	}

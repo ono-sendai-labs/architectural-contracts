@@ -49,12 +49,17 @@ type InterfaceSymbol string
 // AnalyzeRequest asks the analyzer for the capabilities of a component's packages.
 //
 // Scope Semantics:
-// - Analyzes every function in Packages (Capslock's native behavior).
-// - "_test.go" files are excluded by construction.
-// - Traversal is pruned at PruneAt.
+//   - Analyzes every function in Packages (Capslock's native behavior).
+//   - "_test.go" files are excluded by construction.
+//   - Traversal is pruned per-symbol at PruneAt and at package granularity at
+//     PruneAtPackages. Every function in a package listed in PruneAtPackages is
+//     treated as capability-safe, with PruneAt's per-symbol keys taking
+//     precedence. Package pruning is weaker than symbol pruning and is what a
+//     PACKAGE_SURFACE dependency gets.
 type AnalyzeRequest struct {
-	Packages []string
-	PruneAt  []InterfaceSymbol
+	Packages        []string
+	PruneAt         []InterfaceSymbol
+	PruneAtPackages []string
 }
 
 // CapabilityAnalyzer is the port the checker depends on; the Capslock adapter
