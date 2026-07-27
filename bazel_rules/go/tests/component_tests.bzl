@@ -73,7 +73,9 @@ def _unimported_member_closure_impl(env, target):
 
     # The interface does not import either package; both are reached only by
     # the explicit members root and its direct dependency.
-    env.expect.that_collection(packages.keys()).contains_exactly([
+    env.expect.that_collection(
+        [pkg.importpath for pkg in info.closure.to_list()],
+    ).contains_exactly([
         "example.com/aspect/api",
         "example.com/aspect/core",
         "example.com/aspect/extradep",
@@ -81,7 +83,21 @@ def _unimported_member_closure_impl(env, target):
         "example.com/aspect/member",
         "example.com/aspect/memberdep",
         "example.com/aspect/shared",
-    ])
+    ]).in_order()
+    env.expect.that_collection(
+        [src.basename for pkg in info.closure.to_list() for src in pkg.srcs],
+    ).contains_exactly([
+        "api.go",
+        "core.go",
+        "core_extra.go",
+        "extra_impl.go",
+        "extradep.go",
+        "lowlevel.go",
+        "member.go",
+        "memberdep.go",
+        "shared.go",
+    ]).in_order()
+
     env.expect.that_collection(
         [src.basename for src in packages["example.com/aspect/member"].srcs],
     ).contains_exactly(["member.go"])
