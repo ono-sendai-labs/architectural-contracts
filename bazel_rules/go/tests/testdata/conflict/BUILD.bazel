@@ -12,3 +12,21 @@ go_component(
     tags = ["manual"],
     visibility = ["//bazel_rules:__subpackages__"],
 )
+
+go_component(
+    name = "member_absorbed_conflict_component",
+    absorbed_deps = ["//bazel_rules/go/tests/testdata/core"],
+    interface = "//bazel_rules/go/tests/testdata/api",
+    members = ["//bazel_rules/go/tests/testdata/core"],
+    tags = ["manual"],
+    visibility = ["//bazel_rules:__subpackages__"],
+)
+
+go_component(
+    name = "member_covered_conflict_component",
+    component_deps = ["//bazel_rules/go/tests/testdata/shared:shared_component"],
+    interface = "//bazel_rules/go/tests/testdata/api",
+    members = ["//bazel_rules/go/tests/testdata/shared"],
+    tags = ["manual"],
+    visibility = ["//bazel_rules:__subpackages__"],
+)

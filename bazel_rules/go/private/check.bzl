@@ -107,3 +107,84 @@ arcc_check_test = rule(
     toolchains = GO_TOOLCHAINS,
     doc = "Runs `arcc check` on a go_component's generated manifest and layout, hermetically.",
 )
+
+def _launcher_content_with_grep(argv, expected_strings):
+    command = " ".join([_shell_quote(arg) for arg in argv])
+    
+    grep_commands = []
+    for s in expected_strings:
+        grep_commands.append('if ! grep -F "%s" "$output_file" > /dev/null; then' % s)
+        grep_commands.append('  echo "arcc_check_test: expected string \'%s\' not found in output" >&2' % s)
+        grep_commands.append('  cat "$output_file" >&2')
+        grep_commands.append('  rm -f "$output_file"')
+        grep_commands.append('  exit 1')
+        grep_commands.append('fi')
+
+    return "\n".join([
+        "#!/bin/sh",
+        "set -u",
+        'cd "${TEST_SRCDIR:?TEST_SRCDIR is not set}" || exit 2',
+        "",
+        'output_file=$(mktemp)',
+        "status=0",
+        command + ' > "$output_file" 2>&1 || status=$?',
+        "",
+        'if [ "$status" -ne 1 ]; then',
+        '  echo "arcc_check_test: expected a violation (exit 1), got exit $status" >&2',
+        '  cat "$output_file" >&2',
+        '  rm -f "$output_file"',
+        '  exit 1',
+        'fi',
+        "",
+    ] + grep_commands + [
+        "",
+        'rm -f "$output_file"',
+        "exit 0",
+        ""
+    ])
+
+def _arcc_check_grep_impl(ctx):
+    info = ctx.attr.component[ArccComponentInfo]
+
+    argv = arcc_check_argv(
+        arcc = runfiles_path(ctx, ctx.executable._arcc),
+        manifest = runfiles_path(ctx, info.manifest),
+        layout = runfiles_path(ctx, info.layout),
+    )
+
+    launcher = ctx.actions.declare_file(ctx.label.name + ".sh")
+    ctx.actions.write(
+        output = launcher,
+        content = _launcher_content_with_grep(argv, ctx.attr.expected_strings),
+        is_executable = True,
+    )
+
+    runfiles = ctx.runfiles(transitive_files = go_sdk_srcs(ctx))
+    runfiles = runfiles.merge(ctx.attr.component[DefaultInfo].default_runfiles)
+    runfiles = runfiles.merge(ctx.attr._arcc[DefaultInfo].default_runfiles)
+
+    return [DefaultInfo(executable = launcher, runfiles = runfiles)]
+
+arcc_check_grep_test = rule(
+    implementation = _arcc_check_grep_impl,
+    test = True,
+    attrs = {
+        "component": attr.label(
+            mandatory = True,
+            providers = [ArccComponentInfo],
+            doc = "The go_component target to check.",
+        ),
+        "expected_strings": attr.string_list(
+            mandatory = True,
+            doc = "List of strings to grep in the output of the check.",
+        ),
+        "_arcc": attr.label(
+            default = ARCC_TARGET,
+            executable = True,
+            cfg = "target",
+            doc = "The arcc binary the check runs.",
+        ),
+    },
+    toolchains = GO_TOOLCHAINS,
+    doc = "Runs `arcc check` on a go_component, expects exit 1, and greps stdout/stderr for specific strings.",
+)

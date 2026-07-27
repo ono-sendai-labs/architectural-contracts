@@ -186,6 +186,40 @@ def _absorb_covered_conflict_fails_impl(env, target):
         matching.str_matches("*is already covered by component_dep shared_component*"),
     )
 
+def _member_absorbed_conflict_fails_test(name):
+    analysis_test(
+        name = name,
+        target = "//bazel_rules/go/tests/testdata/conflict:member_absorbed_conflict_component",
+        impl = _member_absorbed_conflict_fails_impl,
+        attr_values = {"size": "small"},
+        expect_failure = True,
+    )
+
+def _member_absorbed_conflict_fails_impl(env, target):
+    env.expect.that_target(target).failures().contains_predicate(
+        matching.str_matches("*component member_absorbed_conflict_component:*"),
+    )
+    env.expect.that_target(target).failures().contains_predicate(
+        matching.str_matches("*member *//bazel_rules/go/tests/testdata/core:core is also listed in absorbed_deps (*//bazel_rules/go/tests/testdata/core:core)*"),
+    )
+
+def _member_covered_conflict_fails_test(name):
+    analysis_test(
+        name = name,
+        target = "//bazel_rules/go/tests/testdata/conflict:member_covered_conflict_component",
+        impl = _member_covered_conflict_fails_impl,
+        attr_values = {"size": "small"},
+        expect_failure = True,
+    )
+
+def _member_covered_conflict_fails_impl(env, target):
+    env.expect.that_target(target).failures().contains_predicate(
+        matching.str_matches("*component member_covered_conflict_component:*"),
+    )
+    env.expect.that_target(target).failures().contains_predicate(
+        matching.str_matches("*member *//bazel_rules/go/tests/testdata/shared:shared is already covered by component_dep shared_component*"),
+    )
+
 def _nested_component_root_allowed_test(name):
     analysis_test(
         name = name,
@@ -211,6 +245,8 @@ def go_component_test_suite(name):
             _package_surface_closure_test,
             _transitive_files_test,
             _absorb_covered_conflict_fails_test,
+            _member_absorbed_conflict_fails_test,
+            _member_covered_conflict_fails_test,
             _nested_component_root_allowed_test,
         ],
     )

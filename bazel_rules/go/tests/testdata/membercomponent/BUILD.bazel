@@ -41,3 +41,15 @@ go_component(
     tags = ["manual"],
     visibility = ["//bazel_rules:__subpackages__"],
 )
+
+# Design §7.1 fixture 3: a member importing a package that is neither member,
+# covered, absorbed, nor stdlib.
+go_component(
+    name = "undeclared_dep_component",
+    interface = "//bazel_rules/go/tests/testdata/api:api",
+    members = [
+        "//bazel_rules/go/tests/testdata/member",
+    ],
+    tags = ["manual"],
+    visibility = ["//bazel_rules:__subpackages__"],
+)

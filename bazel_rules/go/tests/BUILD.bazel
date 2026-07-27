@@ -1,11 +1,32 @@
+load("@rules_go//go:def.bzl", "go_test")
 load("@rules_shell//shell:sh_test.bzl", "sh_test")
-load("//bazel_rules/go/private:check.bzl", "arcc_check_test")
+load("//bazel_rules/go/private:check.bzl", "arcc_check_grep_test", "arcc_check_test")
 load(":aspect_tests.bzl", "arcc_deps_aspect_test_suite")
 load(":component_tests.bzl", "go_component_test_suite")
+load(":probe.bzl", "transitioned_component_layout")
 
 arcc_deps_aspect_test_suite(name = "arcc_deps_aspect_tests")
 
 go_component_test_suite(name = "go_component_tests")
+
+transitioned_component_layout(
+    name = "darwin_arm64_layout",
+    component = "//bazel_rules/go/tests/testdata/api:api_component",
+)
+
+# Design §7.1 fixture 3: a member importing a package that is neither member,
+# covered, absorbed, nor stdlib must report UNDECLARED_DEPENDENCY naming the
+# member package (example.com/aspect/member) and the undeclared package
+# (example.com/aspect/memberdep).
+arcc_check_grep_test(
+    name = "undeclared_member_dep_fails_test",
+    component = "//bazel_rules/go/tests/testdata/membercomponent:undeclared_dep_component",
+    expected_strings = [
+        "UNDECLARED_DEPENDENCY",
+        "example.com/aspect/member",
+        "example.com/aspect/memberdep",
+    ],
+)
 
 # The positive check is the macro-generated
 # //bazel_rules/go/tests/testdata/api:api_component.check, which runs the
@@ -73,4 +94,12 @@ sh_test(
         "//bazel_rules/go/tests/testdata/membercomponent:member_component",
         "//bazel_rules/go/tests/testdata/membercomponent:member_component_reversed",
     ],
+)
+
+go_test(
+    name = "platform_layout_test",
+    size = "small",
+    srcs = ["platform_layout_test.go"],
+    data = [":darwin_arm64_layout"],
+    deps = ["//go/internal/packagelayout"],
 )

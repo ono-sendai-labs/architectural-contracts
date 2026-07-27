@@ -4,7 +4,10 @@ go_library(
     name = "packagelayout",
     srcs = ["packagelayout.go"],
     importpath = "github.com/ono-sendai-labs/architectural-contracts/go/internal/packagelayout",
-    visibility = ["//go:__subpackages__"],
+    visibility = [
+        "//bazel_rules:__subpackages__",
+        "//go:__subpackages__",
+    ],
     deps = [
         "//go/internal/hostpolicy",
         "@org_golang_x_tools//go/packages",

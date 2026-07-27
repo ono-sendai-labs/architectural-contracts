@@ -5,6 +5,7 @@ it. This is the smallest thing that can.
 """
 
 load("@rules_go//go:def.bzl", "GoInfo")
+load("//bazel_rules:providers.bzl", "ArccComponentInfo")
 load("//bazel_rules/go:providers.bzl", "ArccPackageInfo")
 load("//bazel_rules/go/private:aspect.bzl", "arcc_deps_aspect")
 load(
@@ -82,4 +83,25 @@ go_platform_probe = rule(
         ),
     },
     doc = "Exposes adapter platform and infrastructure-seam results for analysis tests.",
+)
+
+def _transitioned_component_layout_impl(ctx):
+    info = ctx.attr.component[0][ArccComponentInfo]
+    return [
+        DefaultInfo(
+            files = depset([info.layout]),
+            runfiles = ctx.runfiles(files = [info.layout]),
+        ),
+    ]
+
+transitioned_component_layout = rule(
+    implementation = _transitioned_component_layout_impl,
+    attrs = {
+        "component": attr.label(
+            mandatory = True,
+            providers = [ArccComponentInfo],
+            cfg = _darwin_arm64_transition,
+            doc = "The component to build in darwin/arm64 configuration.",
+        ),
+    },
 )
