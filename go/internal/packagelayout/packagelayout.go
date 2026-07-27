@@ -442,6 +442,22 @@ func ValidateAndResolve(l *Layout, workspaceDir string) error {
 		}
 	}
 
+	// Roots are the packages whose source is owned by the component. A root
+	// without any source left after normalization and constraint filtering
+	// cannot be analyzed, so reject it while leaving bodiless transitive
+	// packages available for later reporting.
+	rootNames := append([]string{}, l.Roots...)
+	sort.Strings(rootNames)
+	for _, root := range rootNames {
+		rootPkg, ok := byID[root]
+		if !ok {
+			rootPkg = byPath[root]
+		}
+		if len(rootPkg.GoFiles) == 0 {
+			return fmt.Errorf("package %q has no source files", rootPkg.PkgPath)
+		}
+	}
+
 	return nil
 }
 

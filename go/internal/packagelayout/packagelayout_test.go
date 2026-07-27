@@ -289,6 +289,79 @@ func TestValidateAndResolve_Valid(t *testing.T) {
 	}
 }
 
+func TestValidateAndResolve_RootSourceFiles(t *testing.T) {
+	tests := []struct {
+		name      string
+		root      string
+		wantError string
+	}{
+		{
+			name:      "root addressed by ID",
+			root:      "root-id",
+			wantError: `package "example.com/root" has no source files`,
+		},
+		{
+			name:      "root addressed by import path",
+			root:      "example.com/root",
+			wantError: `package "example.com/root" has no source files`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			layout := &Layout{
+				Roots: []string{tt.root},
+				Packages: []*packages.Package{
+					{ID: "root-id", Name: "root", PkgPath: "example.com/root"},
+				},
+			}
+			if err := ValidateAndResolve(layout, t.TempDir()); err == nil {
+				t.Fatal("expected bodiless root validation error")
+			} else if err.Error() != tt.wantError {
+				t.Fatalf("ValidateAndResolve() error = %q, want %q", err, tt.wantError)
+			}
+		})
+	}
+
+	t.Run("sourced root remains valid", func(t *testing.T) {
+		workspace := t.TempDir()
+		if err := os.WriteFile(filepath.Join(workspace, "root.go"), []byte("package root\n"), 0644); err != nil {
+			t.Fatalf("writing root fixture: %v", err)
+		}
+
+		layout := &Layout{
+			Roots: []string{"root-id"},
+			Packages: []*packages.Package{
+				{ID: "root-id", Name: "root", PkgPath: "example.com/root", GoFiles: []string{"root.go"}},
+			},
+		}
+		if err := ValidateAndResolve(layout, workspace); err != nil {
+			t.Fatalf("ValidateAndResolve() unexpected error: %v", err)
+		}
+	})
+
+	t.Run("bodiless non-root remains valid", func(t *testing.T) {
+		workspace := t.TempDir()
+		if err := os.WriteFile(filepath.Join(workspace, "root.go"), []byte("package root\n"), 0644); err != nil {
+			t.Fatalf("writing root fixture: %v", err)
+		}
+
+		layout := &Layout{
+			Roots: []string{"root-id"},
+			Packages: []*packages.Package{
+				{
+					ID: "root-id", Name: "root", PkgPath: "example.com/root", GoFiles: []string{"root.go"},
+					Imports: map[string]*packages.Package{"example.com/dep": {ID: "dep-id"}},
+				},
+				{ID: "dep-id", Name: "dep", PkgPath: "example.com/dep"},
+			},
+		}
+		if err := ValidateAndResolve(layout, workspace); err != nil {
+			t.Fatalf("ValidateAndResolve() rejected bodiless non-root: %v", err)
+		}
+	})
+}
+
 func TestValidateAndResolve_Errors(t *testing.T) {
 	tests := []struct {
 		name      string
@@ -981,6 +1054,11 @@ func TestDiscoverStdlib_RealSDK(t *testing.T) {
 		}
 	}
 
+	workspace := t.TempDir()
+	if err := os.WriteFile(filepath.Join(workspace, "member.go"), []byte("package member\n"), 0644); err != nil {
+		t.Fatalf("failed to write member fixture: %v", err)
+	}
+
 	l := &Layout{
 		GoSDKRoot: sdkSrc,
 		Roots:     []string{"example.com/member"},
@@ -988,9 +1066,10 @@ func TestDiscoverStdlib_RealSDK(t *testing.T) {
 			ID:      "example.com/member",
 			Name:    "member",
 			PkgPath: "example.com/member",
+			GoFiles: []string{"member.go"},
 		}},
 	}
-	if err := ValidateAndResolve(l, t.TempDir()); err != nil {
+	if err := ValidateAndResolve(l, workspace); err != nil {
 		t.Fatalf("minimal layout with real SDK failed validation: %v", err)
 	}
 }
