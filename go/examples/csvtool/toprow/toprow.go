@@ -36,7 +36,7 @@ func Pick(rows [][]string, col, n int) [][]string {
 	return rows[:n]
 }
 
-// TopN parses CSV text (via the absorbed parsecsv dependency) and returns the
+// TopN parses CSV text (via the parsecsv component-boundary dependency) and returns the
 // top n rows by col.
 func TopN(csvText string, col, n int) ([][]string, error) {
 	rows, err := parsecsv.Parse(csvText)
