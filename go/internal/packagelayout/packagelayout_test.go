@@ -70,6 +70,44 @@ func TestValidateAndResolveRejectsStdlibProvenanceDisagreement(t *testing.T) {
 	}
 }
 
+func TestValidateAndResolveRejectsOmittedStdlibProvenance(t *testing.T) {
+	originalPolicy := hostpolicy.IsStdlibPath
+	t.Cleanup(func() { hostpolicy.IsStdlibPath = originalPolicy })
+	hostpolicy.IsStdlibPath = func(path string) bool { return path == "fmt" }
+
+	workspace := t.TempDir()
+	if err := os.WriteFile(filepath.Join(workspace, "fmt.go"), []byte("package fmt\n"), 0644); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+
+	l, err := Parse(strings.NewReader(`{
+		"roots": ["fmt"],
+		"packages": [{
+			"id": "fmt",
+			"name": "fmt",
+			"pkgPath": "fmt",
+			"goFiles": ["fmt.go"],
+			"compiledGoFiles": ["fmt.go"]
+		}]
+	}`))
+	if err != nil {
+		t.Fatalf("Parse() error = %v", err)
+	}
+	if l.stdlibByID["fmt"] {
+		t.Fatal("omitted is_stdlib did not preserve the backward-compatible false value")
+	}
+
+	err = ValidateAndResolve(l, workspace)
+	if err == nil {
+		t.Fatal("ValidateAndResolve() succeeded for omitted stdlib provenance")
+	}
+	for _, want := range []string{"fmt", "declared false", "path-policy true"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("ValidateAndResolve() error = %q, want substring %q", err, want)
+		}
+	}
+}
+
 func TestValidateAndResolveUsesSDKDiscoveryAsStructuralStdlib(t *testing.T) {
 	originalPolicy := hostpolicy.IsStdlibPath
 	t.Cleanup(func() { hostpolicy.IsStdlibPath = originalPolicy })

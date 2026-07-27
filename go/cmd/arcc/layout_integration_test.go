@@ -14,7 +14,10 @@ import (
 
 	"github.com/ono-sendai-labs/architectural-contracts/go/cmd/arcc/app"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/capslockadapter"
+	"github.com/ono-sendai-labs/architectural-contracts/go/internal/checker"
+	"github.com/ono-sendai-labs/architectural-contracts/go/internal/facts"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/goanalysis"
+	"github.com/ono-sendai-labs/architectural-contracts/go/internal/manifest"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/packagelayout"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/report"
 )
@@ -454,6 +457,90 @@ func Hello() string {
 	if !strings.Contains(stdout, want) {
 		t.Errorf("stdout = %q, want it to contain %q", stdout, want)
 	}
+}
+
+func TestIntegration_LayoutMode_ExplicitStdlibFactsAndConformance(t *testing.T) {
+	root := t.TempDir()
+	sdkRoot := filepath.Join(root, "mock_sdk")
+	for name, content := range map[string]string{
+		"fmt/fmt.go": "package fmt\nfunc Println(...any) (int, error) { return 0, nil }\n",
+		"os/os.go":   "package os\nvar DevNull string\n",
+	} {
+		path := filepath.Join(sdkRoot, name)
+		if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+			t.Fatalf("create SDK directory: %v", err)
+		}
+		if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+			t.Fatalf("write SDK file %s: %v", name, err)
+		}
+	}
+	memberPath := filepath.Join(root, "member", "api.go")
+	if err := os.MkdirAll(filepath.Dir(memberPath), 0755); err != nil {
+		t.Fatalf("create member directory: %v", err)
+	}
+	if err := os.WriteFile(memberPath, []byte("package member\nimport (\"fmt\"; \"os\")\nfunc Hello() { fmt.Println(os.DevNull) }\n"), 0644); err != nil {
+		t.Fatalf("write member file: %v", err)
+	}
+
+	layoutPath := filepath.Join(root, "package-layout.json")
+	layout := map[string]any{
+		"go_sdk_root": sdkRoot,
+		"roots":       []string{"example.com/member"},
+		"packages": []map[string]any{
+			{
+				"id": "example.com/member", "name": "member", "pkgPath": "example.com/member",
+				"goFiles": []string{"member/api.go"}, "compiledGoFiles": []string{"member/api.go"},
+				"imports": map[string]string{"fmt": "fmt", "os": "os"},
+			},
+			{
+				"id": "fmt", "name": "fmt", "pkgPath": "fmt", "is_stdlib": true,
+				"goFiles": []string{"fmt/fmt.go"}, "compiledGoFiles": []string{"fmt/fmt.go"},
+			},
+		},
+	}
+	data, err := json.MarshalIndent(layout, "", "  ")
+	if err != nil {
+		t.Fatalf("marshal layout: %v", err)
+	}
+	if err := os.WriteFile(layoutPath, data, 0644); err != nil {
+		t.Fatalf("write layout: %v", err)
+	}
+
+	var loaded facts.PackageFacts
+	err = packagelayout.WithDriverEnv(layoutPath, root, func() error {
+		var loadErr error
+		loaded, loadErr = goanalysis.LoadPackageFacts(goanalysis.LoadRequest{ComponentRoot: root})
+		return loadErr
+	})
+	if err != nil {
+		t.Fatalf("layout LoadPackageFacts() error = %v", err)
+	}
+	if len(loaded.Packages) != 1 || loaded.Packages[0].ImportPath != "example.com/member" {
+		t.Fatalf("loaded package facts = %+v, want member root", loaded.Packages)
+	}
+	for _, want := range []string{"fmt", "os"} {
+		if !containsString(loaded.StdlibImports, want) {
+			t.Errorf("StdlibImports = %v, want %q", loaded.StdlibImports, want)
+		}
+	}
+	reportResult := checker.Check(checker.Inputs{
+		Manifest: manifest.Manifest{Name: "explicit-stdlib", InterfaceFiles: []string{"member/api.go"}},
+		Facts:    loaded,
+	})
+	for _, violation := range reportResult.Violations {
+		if violation.Kind == report.UndeclaredDependency && (strings.Contains(violation.Message, `"fmt"`) || strings.Contains(violation.Message, `"os"`)) {
+			t.Fatalf("stdlib import produced undeclared dependency: %+v", violation)
+		}
+	}
+}
+
+func containsString(values []string, want string) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
 }
 
 func TestIntegration_LayoutMode_UnresolvedImportWarning(t *testing.T) {

@@ -36,6 +36,10 @@ import (
 var (
 	membershipMu sync.RWMutex
 	loadedFiles  = make(map[uintptr]map[string]bool)
+	// loadPackages is a loader seam for exercising driver-specific package
+	// provenance. Production loads use go/packages directly; integration tests
+	// can model a rewriting host without replacing the package analysis graph.
+	loadPackages = packages.Load
 )
 
 // LoadRequest describes the component-scoped package roots to load. Members are
@@ -73,7 +77,7 @@ func LoadPackageFacts(req LoadRequest) (facts.PackageFacts, error) {
 		Dir: dir,
 	}
 
-	pkgs, err := packages.Load(cfg, patterns...)
+	pkgs, err := loadPackages(cfg, patterns...)
 	if err != nil {
 		if len(req.Members) > 0 && !packagelayout.IsLayoutMode() {
 			return facts.PackageFacts{}, fmt.Errorf("failed to load declared members %v: %w", req.Members, err)
