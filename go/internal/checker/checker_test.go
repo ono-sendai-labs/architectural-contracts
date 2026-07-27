@@ -105,11 +105,18 @@ func TestCheck_EmptyMembersRetainsFR1PackageMembership(t *testing.T) {
 	}
 
 	rep := checker.Check(in)
-	if len(rep.Violations) != 1 {
-		t.Fatalf("expected the transitive package to be swept under FR1, got %d: %v", len(rep.Violations), rep.Violations)
+	want := report.ConformanceReport{
+		Component: "component",
+		Violations: []report.Finding{{
+			Kind:    report.UndeclaredDependency,
+			Message: `package "component/transitive" imports undeclared dependency "example.com/only-in-transitive"`,
+			Location: report.Location{
+				File: "transitive.go",
+			},
+		}},
 	}
-	if got := rep.Violations[0].Message; got != `package "component/transitive" imports undeclared dependency "example.com/only-in-transitive"` {
-		t.Fatalf("unexpected violation: %q", got)
+	if !reflect.DeepEqual(rep, want) {
+		t.Fatalf("FR1 empty-members result changed: got %#v, want %#v", rep, want)
 	}
 }
 
@@ -178,6 +185,46 @@ func TestCheck_InterfacePackageSelectionIsIdempotent(t *testing.T) {
 				t.Fatalf("expected one interface-package violation, got %d: %v", len(rep.Violations), rep.Violations)
 			}
 		})
+	}
+}
+
+func TestCheck_FR4_IgnoresNonMemberPackageFacts(t *testing.T) {
+	in := checker.Inputs{
+		Manifest: manifest.Manifest{
+			Name:           "component",
+			InterfaceFiles: []string{"api.go"},
+			Members:        []string{"component/member"},
+		},
+		Facts: facts.PackageFacts{
+			Packages: []facts.PackageFact{
+				{
+					ImportPath: "component/member",
+					ExportedSymbols: []facts.ExportedSymbol{
+						{
+							Name: "component/member.Widget",
+							File: "api.go",
+							Kind: "type",
+						},
+					},
+				},
+				{
+					ImportPath: "example.com/non-member",
+					ExportedSymbols: []facts.ExportedSymbol{
+						{
+							Name:     "(*component/member.Widget).Run",
+							File:     "non-member_impl.go",
+							Kind:     "method",
+							Receiver: "(*component/member.Widget)",
+						},
+					},
+				},
+			},
+		},
+	}
+
+	rep := checker.Check(in)
+	if len(rep.Violations) != 0 {
+		t.Fatalf("non-member facts must not produce FR4 findings, got %v", rep.Violations)
 	}
 }
 
