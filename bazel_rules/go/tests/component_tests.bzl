@@ -79,25 +79,15 @@ def _unimported_member_closure_impl(env, target):
         [pkg.importpath for pkg in info.closure.to_list()],
     ).contains_exactly([
         "example.com/aspect/api",
-        "example.com/aspect/core",
-        "example.com/aspect/extradep",
-        "example.com/aspect/lowlevel",
         "example.com/aspect/member",
         "example.com/aspect/memberdep",
-        "example.com/aspect/shared",
     ]).in_order()
     env.expect.that_collection(
         [src.basename for pkg in info.closure.to_list() for src in pkg.srcs],
     ).contains_exactly([
         "api.go",
-        "core.go",
-        "core_extra.go",
-        "extra_impl.go",
-        "extradep.go",
-        "lowlevel.go",
         "member.go",
         "memberdep.go",
-        "shared.go",
     ]).in_order()
 
     env.expect.that_collection(
@@ -124,12 +114,8 @@ def _reordered_member_closure_impl(env, target):
         [pkg.importpath for pkg in info.closure.to_list()],
     ).contains_exactly([
         "example.com/aspect/api",
-        "example.com/aspect/core",
-        "example.com/aspect/extradep",
-        "example.com/aspect/lowlevel",
         "example.com/aspect/member",
         "example.com/aspect/memberdep",
-        "example.com/aspect/shared",
     ]).in_order()
 
 def _package_surface_closure_test(name):

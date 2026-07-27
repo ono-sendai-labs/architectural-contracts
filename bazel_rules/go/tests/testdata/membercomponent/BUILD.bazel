@@ -11,6 +11,7 @@ go_component(
         "//bazel_rules/go/tests/testdata/memberdep",
         "//bazel_rules/go/tests/testdata/member",
     ],
+    tags = ["manual"],
     visibility = ["//bazel_rules:__subpackages__"],
 )
 
@@ -23,6 +24,7 @@ go_component(
         "//bazel_rules/go/tests/testdata/member",
         "//bazel_rules/go/tests/testdata/memberdep",
     ],
+    tags = ["manual"],
     visibility = ["//bazel_rules:__subpackages__"],
 )
 

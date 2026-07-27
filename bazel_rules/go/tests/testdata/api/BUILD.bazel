@@ -23,6 +23,10 @@ go_component(
     contract = ["contract.md"],
     declared_authority = [FILES],
     interface = ":api",
+    members = [
+        "//bazel_rules/go/tests/testdata/core",
+        "//bazel_rules/go/tests/testdata/lowlevel",
+    ],
     visibility = ["//bazel_rules:__subpackages__"],
 )
 

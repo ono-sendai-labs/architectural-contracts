@@ -18,6 +18,7 @@ load(
     "GO_PROVIDERS",
     "GO_TOOLCHAINS",
     "forward_go_providers",
+    "go_build_platform",
     "go_importpath",
     "go_library_srcs",
     "go_sdk_root",
@@ -63,8 +64,11 @@ def _package_name(importpath):
 def _textproto_string(value):
     return '"' + value.replace("\\", "\\\\").replace('"', '\\"') + '"'
 
-def _manifest_content(ctx, interface_files, component_deps, absorbed, declared_authority, manifest_dir):
+def _manifest_content(ctx, interface_files, component_deps, absorbed, declared_authority, manifest_dir, interface_style, members):
     lines = ["name: " + _textproto_string(ctx.label.name)]
+
+    if interface_style == "PACKAGE_SURFACE":
+        lines.append("interface_style: INTERFACE_STYLE_PACKAGE_SURFACE")
 
     for path in interface_files:
         lines.append("interface_files: " + _textproto_string(path))
@@ -91,12 +95,15 @@ def _manifest_content(ctx, interface_files, component_deps, absorbed, declared_a
         # justification (design §7.3).
         lines.append("}")
 
+    for m in members:
+        lines.append("members: " + _textproto_string(m))
+
     for authority in declared_authority:
         lines.append("declared_authority: " + _textproto_string(authority))
 
     return "\n".join(lines) + "\n"
 
-def _layout_content(ctx, merged, roots, go_sdk_root):
+def _layout_content(ctx, merged, roots, go_sdk_root, platform):
     packages = []
     for importpath in sorted(merged.keys()):
         pkg = merged[importpath]
@@ -116,19 +123,29 @@ def _layout_content(ctx, merged, roots, go_sdk_root):
             # Identical until cgo is supported; a cgo package compiles from
             # preprocessed sources, which is why the rule rejects one below.
             "CompiledGoFiles": go_files,
+            "is_stdlib": False,
         })
 
+    layout_data = {
+        "go_sdk_root": go_sdk_root,
+        "roots": roots,
+        "packages": packages,
+    }
+    if platform:
+        layout_data["platform"] = {
+            "goos": platform.goos,
+            "goarch": platform.goarch,
+            "build_tags": sorted(platform.tags),
+            "cgo_enabled": platform.cgo_enabled,
+        }
+
     return json.encode_indent(
-        {
-            "go_sdk_root": go_sdk_root,
-            "roots": roots,
-            "packages": packages,
-        },
+        layout_data,
         indent = "  ",
     ) + "\n"
 
-def _classify(ctx, merged):
-    """Splits the closure into covered / absorbed / member (design §5.3)."""
+def _classify(ctx, merged, effective_members):
+    """Splits the closure into covered, member, absorbed, and unclassified (design §5.3)."""
 
     # 1. Covered: a listed component dependency already accounts for it.
     covered = {}
@@ -137,44 +154,28 @@ def _classify(ctx, merged):
         for pkg in info.closure.to_list():
             covered[pkg.importpath] = info.component_name
 
-    # 2. Absorbed: a listed label, or anything in its closure.
-    absorbed = {}
+    # 2. Absorbed: inside an explicitly absorbed label's transitive closure.
+    absorbed_closure = {}
     for dep in ctx.attr.absorbed_deps:
-        importpath = go_importpath(dep)
-        if not importpath:
-            fail("component %s: absorbed_dep %s has no importpath; only importable Go libraries can be absorbed." % (
-                ctx.label.name,
-                dep.label,
-            ))
-
-        # Coverage wins over absorption, so absorbing a package a component
-        # dependency already covers is a contradiction rather than a silent
-        # no-op. Only the label the author wrote down is an error; a package
-        # that merely happens to be inside an absorbed library's closure is
-        # left to the coverage rule.
-        if importpath in covered:
-            fail("component %s: %s is already covered by component_dep %s; remove it from absorbed_deps." % (
-                ctx.label.name,
-                dep.label,
-                covered[importpath],
-            ))
-
         for pkg in dep[ArccPackageInfo].packages.to_list():
-            absorbed[pkg.importpath] = True
+            absorbed_closure[pkg.importpath] = True
 
-    # 3. Member: everything else. With explicit membership there is no
-    #    unaccounted fall-through — every closure package lands in one bucket.
     members = []
-    absorbed_members = []
+    absorbed = []
+    unclassified = []
+
     for importpath in sorted(merged.keys()):
         if importpath in covered:
             continue
-        if importpath in absorbed:
-            absorbed_members.append(importpath)
-        else:
+        elif importpath in effective_members:
             members.append(importpath)
+        elif importpath in absorbed_closure:
+            # Coverage precedence has priority, but covered is checked first so we're good.
+            absorbed.append(importpath)
+        else:
+            unclassified.append(importpath)
 
-    return members, absorbed_members
+    return sorted(members), sorted(absorbed), sorted(unclassified)
 
 def _go_component_impl(ctx):
     for authority in ctx.attr.declared_authority:
@@ -185,7 +186,80 @@ def _go_component_impl(ctx):
                 ", ".join(ALL_AUTHORITIES),
             ))
 
+    # 1. Gather all covered import paths to allow direct member conflict checking.
+    covered = {}
+    for dep in ctx.attr.component_deps:
+        info = dep[ArccComponentInfo]
+        for pkg in info.closure.to_list():
+            covered[pkg.importpath] = info.component_name
+
+    # 2. Gather exact import paths of authored absorbed dependencies labels.
+    absorbed_label_importpaths = {}
+    for dep in ctx.attr.absorbed_deps:
+        importpath = go_importpath(dep)
+        if not importpath:
+            fail("component %s: absorbed_dep %s has no importpath; only importable Go libraries can be absorbed." % (
+                ctx.label.name,
+                dep.label,
+            ))
+        absorbed_label_importpaths[importpath] = dep.label
+        if importpath in covered:
+            fail("component %s: %s is already covered by component_dep %s; remove it from absorbed_deps." % (
+                ctx.label.name,
+                dep.label,
+                covered[importpath],
+            ))
+
+    # 3. Get exact import paths of authored members and validate they are non-empty.
+    member_importpaths = []
+    for m in ctx.attr.members:
+        m_path = go_importpath(m)
+        if not m_path:
+            fail("component %s: member %s has no importpath" % (ctx.label.name, m.label))
+        member_importpaths.append(m_path)
+
+    # 4. Fail analysis when an authored member label is also directly listed in absorbed_deps,
+    #    or its import path is covered by a component_dep.
+    for m in ctx.attr.members:
+        m_path = go_importpath(m)
+        if m_path in covered:
+            fail("component %s: member %s is already covered by component_dep %s" % (
+                ctx.label.name,
+                m.label,
+                covered[m_path],
+            ))
+        if m_path in absorbed_label_importpaths:
+            fail("component %s: member %s is also listed in absorbed_deps (%s)" % (
+                ctx.label.name,
+                m.label,
+                absorbed_label_importpaths[m_path],
+            ))
+
     interface = ctx.attr.interface
+    interface_importpath = go_importpath(interface) if interface else ""
+
+    # Validate interface conflicts
+    if interface:
+        if interface_importpath in covered:
+            fail("component %s: its own interface package %s is covered by component_dep %s" % (
+                ctx.label.name,
+                interface_importpath,
+                covered[interface_importpath],
+            ))
+        if interface_importpath in absorbed_label_importpaths:
+            fail("component %s: its own interface package %s is listed in absorbed_deps (%s)" % (
+                ctx.label.name,
+                interface_importpath,
+                absorbed_label_importpaths[interface_importpath],
+            ))
+
+    # Construct the effective members set (implicit interface + authored members)
+    effective_members = {}
+    if interface_importpath:
+        effective_members[interface_importpath] = True
+    for m_path in member_importpaths:
+        effective_members[m_path] = True
+
     roots = ([interface] if interface else []) + ctx.attr.members
     root_packages = []
     for root in roots:
@@ -200,8 +274,9 @@ def _go_component_impl(ctx):
                 importpath,
             ))
 
-    members, absorbed = _classify(ctx, merged)
-    interface_importpath = go_importpath(interface) if interface else ""
+    members, absorbed, unclassified = _classify(ctx, merged, effective_members)
+
+    # Validate roots == members check on interface
     if interface and interface_importpath not in members:
         fail(("component %s: its own interface package %s is covered by a component_dep or listed in " +
               "absorbed_deps, which would leave the component with nothing to check.") % (
@@ -211,6 +286,9 @@ def _go_component_impl(ctx):
 
     manifest = ctx.actions.declare_file(ctx.label.name + ".component.textproto")
     layout = ctx.actions.declare_file(ctx.label.name + ".package-layout.json")
+
+    # Get target platform settings using go_build_platform
+    platform = go_build_platform(roots[0]) if roots else None
 
     interface_files = []
     if interface:
@@ -228,6 +306,8 @@ def _go_component_impl(ctx):
             absorbed = absorbed,
             declared_authority = ctx.attr.declared_authority,
             manifest_dir = _dirname(runfiles_path(ctx, manifest)),
+            interface_style = ctx.attr.interface_style,
+            members = members,
         ),
     )
 
@@ -238,6 +318,7 @@ def _go_component_impl(ctx):
             merged = merged,
             roots = members,
             go_sdk_root = go_sdk_root(ctx),
+            platform = platform,
         ),
     )
 

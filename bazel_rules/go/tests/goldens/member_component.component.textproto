@@ -1,2 +1,5 @@
 name: "member_component"
 interface_files: "_main/bazel_rules/go/tests/testdata/api/api.go"
+members: "example.com/aspect/api"
+members: "example.com/aspect/member"
+members: "example.com/aspect/memberdep"
