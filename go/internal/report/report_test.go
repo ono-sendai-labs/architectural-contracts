@@ -36,7 +36,7 @@ func TestAbsorbedFuncValueEscape_SerializesStableKind(t *testing.T) {
 		Component: "component",
 		Warnings: []report.Finding{{
 			Kind:     report.AbsorbedFuncValueEscape,
-			Message:  `member package "example.com/app/member" takes function value "example.com/app/absorbed.Load" from absorbed package; body is unanalyzed`,
+			Message:  `member package "example.com/app/member" takes function value "example.com/app/absorbed.Load" from absorbed package without calling it; body is unanalyzed`,
 			Location: report.Location{File: "member/member.go", Line: 15},
 		}},
 	}

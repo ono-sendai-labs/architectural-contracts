@@ -1625,6 +1625,12 @@ func TestCheck_AbsorbedFuncValueEscape_OneEscape(t *testing.T) {
 	if !strings.Contains(w.Message, "mycomponent/member") || !strings.Contains(w.Message, "example.com/absorbed.Load") {
 		t.Errorf("expected message to name member package and absorbed function symbol, got %q", w.Message)
 	}
+	if !strings.Contains(w.Message, "without calling it") {
+		t.Errorf("expected message to explain no-direct-call ('without calling it'), got %q", w.Message)
+	}
+	if !strings.Contains(w.Message, "body is unanalyzed") {
+		t.Errorf("expected message to explain unanalyzed body ('body is unanalyzed'), got %q", w.Message)
+	}
 }
 
 func TestCheck_AbsorbedFuncValueEscape_EmptyOrNil(t *testing.T) {

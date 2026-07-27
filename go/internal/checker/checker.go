@@ -240,7 +240,7 @@ func Check(in Inputs) report.ConformanceReport {
 	for _, esc := range in.Facts.FuncValueEscapes {
 		warnings = append(warnings, report.Finding{
 			Kind:    report.AbsorbedFuncValueEscape,
-			Message: fmt.Sprintf("member package %q takes function value %q from absorbed package; body is unanalyzed", esc.Package, esc.Symbol),
+			Message: fmt.Sprintf("member package %q takes function value %q from absorbed package without calling it; body is unanalyzed", esc.Package, esc.Symbol),
 			Location: report.Location{
 				File: esc.File,
 				Line: esc.Line,
