@@ -152,6 +152,9 @@ func Check(in Inputs) report.ConformanceReport {
 	}
 
 	for _, pkg := range in.Facts.Packages {
+		if !compPkgs[pkg.ImportPath] {
+			continue
+		}
 		for _, sym := range pkg.ExportedSymbols {
 			if sym.Kind == "method" {
 				recvType := cleanReceiverType(sym.Receiver)
