@@ -89,19 +89,22 @@ def go_attach_infra(target, infra):
 #       import_path_patterns = [],
 #   )
 #
-# A visibility-gated runtime can instead be described without turning its
-# packages into Bazel labels:
+# A visibility-gated runtime can instead keep its component target addressable
+# while describing the runtime's inaccessible packages by import-path pattern:
 #
 #   struct(
 #       name = "injected_runtime",
-#       component = None,
+#       component = "//toolchain/runtime:component",
 #       import_path_patterns = ["example.com/toolchain/runtime/..."],
 #   )
 #
-# `name`, `component`, and `import_path_patterns` are the fields Step 9 uses
-# to name the attached component and its package-surface membership. Keeping
-# the examples commented means existing upstream components acquire no new
-# dependency until a host supplies a real registry entry.
+# Here `component` is the target attached by Step 9, while
+# `import_path_patterns` identifies the package-surface membership that cannot
+# be named as labels because of visibility. `name`, `component`, and
+# `import_path_patterns` are the fields Step 9 uses to name the attached
+# component and its package-surface membership. Keeping the examples commented
+# means existing upstream components acquire no new dependency until a host
+# supplies a real registry entry.
 INFRA_COMPONENTS = []
 
 def go_library_srcs(target):
