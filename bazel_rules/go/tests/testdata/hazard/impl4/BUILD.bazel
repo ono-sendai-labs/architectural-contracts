@@ -1,0 +1,13 @@
+load("@rules_go//go:def.bzl", "go_library")
+
+go_library(
+    name = "impl4",
+    srcs = ["impl4.go"],
+    importpath = "example.com/hazard/impl4",
+    visibility = ["//bazel_rules:__subpackages__"],
+    deps = [
+        "//bazel_rules/go/tests/testdata/hazard/util1",
+        "//bazel_rules/go/tests/testdata/hazard/util2",
+        "//bazel_rules/go/tests/testdata/hazard/util3",
+    ],
+)

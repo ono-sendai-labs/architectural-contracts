@@ -1,0 +1,9 @@
+load("@rules_go//go:def.bzl", "go_library")
+
+go_library(
+    name = "impl2",
+    srcs = ["impl2.go"],
+    importpath = "example.com/hazard/impl2",
+    visibility = ["//bazel_rules:__subpackages__"],
+    deps = ["//bazel_rules/go/tests/testdata/hazard/impl3"],
+)

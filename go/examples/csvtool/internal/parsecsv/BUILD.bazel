@@ -1,3 +1,4 @@
+load("@rules_arcc//bazel_rules/go:defs.bzl", "go_component")
 load("@rules_go//go:def.bzl", "go_library")
 
 go_library(
@@ -6,3 +7,13 @@ go_library(
     importpath = "github.com/ono-sendai-labs/architectural-contracts/go/examples/csvtool/internal/parsecsv",
     visibility = ["//go/examples/csvtool:__subpackages__"],
 )
+
+# Shared parser utility component declaration. It has no authority.
+go_component(
+    name = "parsecsv_component",
+    interface = ":parsecsv",
+    visibility = ["//visibility:public"],
+)
+
+exports_files(["component.textproto"])
+

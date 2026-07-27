@@ -1,6 +1,7 @@
 name: "toprow"
 interface_files: "toprow.go"
-absorbed_dependencies {
-  import_path: "github.com/ono-sendai-labs/architectural-contracts/go/examples/csvtool/internal/parsecsv"
-  reason: "CSV parsing implementation detail"
+members: "github.com/ono-sendai-labs/architectural-contracts/go/examples/csvtool/toprow"
+component_dependencies {
+  name: "parsecsv"
+  manifest: "../internal/parsecsv/component.textproto"
 }

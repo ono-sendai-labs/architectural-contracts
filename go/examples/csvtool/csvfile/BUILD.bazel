@@ -20,11 +20,11 @@ go_test(
 )
 
 # Mirrors the checked-in csvfile/component.textproto: declares FILES (it reads a
-# named file via os.ReadFile) and absorbs parsecsv. Only csvfile.go is the
-# interface; private.go stays architecture-private.
+# named file via os.ReadFile) and depends on the parsecsv component. Only
+# csvfile.go is the interface; private.go stays architecture-private.
 go_component(
     name = "csvfile_component",
-    absorbed_deps = ["//go/examples/csvtool/internal/parsecsv"],
+    component_deps = ["//go/examples/csvtool/internal/parsecsv:parsecsv_component"],
     declared_authority = [FILES],
     interface = ":csvfile",
     visibility = ["//visibility:public"],

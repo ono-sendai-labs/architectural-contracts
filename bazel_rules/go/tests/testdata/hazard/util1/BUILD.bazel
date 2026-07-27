@@ -1,0 +1,8 @@
+load("@rules_go//go:def.bzl", "go_library")
+
+go_library(
+    name = "util1",
+    srcs = ["util1.go"],
+    importpath = "example.com/hazard/util1",
+    visibility = ["//bazel_rules:__subpackages__"],
+)

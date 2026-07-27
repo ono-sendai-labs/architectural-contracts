@@ -108,6 +108,16 @@ func compare(t *testing.T, dir string, gen, chk manifest.Manifest) {
 		}
 	}
 
+	// Members: same set.
+	if got, want := sorted(gen.Members), sorted(chk.Members); !slices.Equal(got, want) {
+		t.Errorf("%s: members = %v, want %v", dir, got, want)
+	}
+
+	// Interface style: same style.
+	if gen.InterfaceStyle != chk.InterfaceStyle {
+		t.Errorf("%s: interface style = %v, want %v", dir, gen.InterfaceStyle, chk.InterfaceStyle)
+	}
+
 	// Absorbed dependencies: same import paths, reasons ignored.
 	if got, want := importPaths(gen.AbsorbedDependencies), importPaths(chk.AbsorbedDependencies); !slices.Equal(got, want) {
 		t.Errorf("%s: absorbed import paths = %v, want %v", dir, got, want)

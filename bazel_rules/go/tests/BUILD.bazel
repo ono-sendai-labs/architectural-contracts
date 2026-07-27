@@ -28,6 +28,27 @@ arcc_check_grep_test(
     ],
 )
 
+# End-to-end regression hazard: uncorrected component with four member packages
+# reaching three utility packages reports UNDECLARED_DEPENDENCY for all three.
+arcc_check_grep_test(
+    name = "regression_hazard_failing_test",
+    component = "//bazel_rules/go/tests/testdata/hazard:failing_hazard_component",
+    expected_strings = [
+        "UNDECLARED_DEPENDENCY",
+        "example.com/hazard/util1",
+        "example.com/hazard/util2",
+        "example.com/hazard/util3",
+    ],
+)
+
+# End-to-end regression hazard passing repaired form: accounts for the three
+# utilities and conforms.
+arcc_check_test(
+    name = "regression_hazard_passing_test",
+    size = "small",
+    component = "//bazel_rules/go/tests/testdata/hazard:repaired_hazard_component",
+)
+
 # The positive check is the macro-generated
 # //bazel_rules/go/tests/testdata/api:api_component.check, which runs the
 # stdlib-resolving path end to end (its closure imports "strings"). This is the

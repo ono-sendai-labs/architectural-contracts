@@ -1,7 +1,8 @@
 name: "csvfile"
 interface_files: "csvfile.go"
-absorbed_dependencies {
-  import_path: "github.com/ono-sendai-labs/architectural-contracts/go/examples/csvtool/internal/parsecsv"
-  reason: "CSV parsing implementation detail"
+members: "github.com/ono-sendai-labs/architectural-contracts/go/examples/csvtool/csvfile"
+component_dependencies {
+  name: "parsecsv"
+  manifest: "../internal/parsecsv/component.textproto"
 }
 declared_authority: "FILES"

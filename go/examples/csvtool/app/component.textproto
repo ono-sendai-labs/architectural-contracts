@@ -1,5 +1,6 @@
 name: "app"
 interface_files: "app.go"
+members: "github.com/ono-sendai-labs/architectural-contracts/go/examples/csvtool/app"
 component_dependencies {
   name: "csvfile"
   manifest: "../csvfile/component.textproto"

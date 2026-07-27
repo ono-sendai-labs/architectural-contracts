@@ -48,9 +48,11 @@ go_test(
     args = [
         "$(rootpaths //go/examples/csvtool/toprow:toprow_component)",
         "$(rootpaths //go/examples/csvtool/csvfile:csvfile_component)",
+        "$(rootpaths //go/examples/csvtool/internal/parsecsv:parsecsv_component)",
         "$(rootpaths //go/examples/csvtool/app:app_component)",
         "$(rootpath //go/examples/csvtool/toprow:component.textproto)",
         "$(rootpath //go/examples/csvtool/csvfile:component.textproto)",
+        "$(rootpath //go/examples/csvtool/internal/parsecsv:component.textproto)",
         "$(rootpath :component.textproto)",
     ],
     data = [
@@ -60,6 +62,8 @@ go_test(
         "//go/examples/csvtool/csvfile:csvfile_component",
         "//go/examples/csvtool/toprow:component.textproto",
         "//go/examples/csvtool/toprow:toprow_component",
+        "//go/examples/csvtool/internal/parsecsv:component.textproto",
+        "//go/examples/csvtool/internal/parsecsv:parsecsv_component",
     ],
     deps = ["//go/internal/manifest"],
 )

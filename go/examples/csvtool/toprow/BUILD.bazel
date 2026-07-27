@@ -17,11 +17,11 @@ go_test(
 )
 
 # Mirrors the checked-in toprow/component.textproto: no declared authority, and
-# parsecsv absorbed as an implementation detail. Its `.check` conforms because
+# depends on parsecsv across a component boundary. Its `.check` conforms because
 # parsecsv touches no filesystem.
 go_component(
     name = "toprow_component",
-    absorbed_deps = ["//go/examples/csvtool/internal/parsecsv"],
+    component_deps = ["//go/examples/csvtool/internal/parsecsv:parsecsv_component"],
     interface = ":toprow",
     visibility = ["//visibility:public"],
 )

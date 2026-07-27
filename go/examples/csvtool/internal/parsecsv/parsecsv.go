@@ -1,8 +1,7 @@
-// Package parsecsv is an absorbed implementation-detail dependency: it wraps
-// encoding/csv to turn in-memory CSV text into rows. It has no manifest of its
-// own — a component that uses it lists it as an absorbed_dependency, and any
-// ambient authority it reached would be absorbed into (and surfaced by) that
-// component (FR7). It reaches none: it only parses an in-memory string.
+// Package parsecsv is a shared parser utility component: it wraps encoding/csv
+// to turn in-memory CSV text into rows. It is declared as its own component, and
+// other components depend on it across a component boundary rather than absorbing it.
+// It reaches no ambient authority, only parsing in-memory strings.
 package parsecsv
 
 import (

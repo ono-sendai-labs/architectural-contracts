@@ -1,12 +1,12 @@
 // Package toprow selects the top N rows of a CSV table, ordered by a column.
 //
 // Contract (informal — FR10):
-//   - does:      parses in-memory CSV text (via the absorbed parsecsv helper)
+//   - does:      parses in-memory CSV text (via the parsecsv helper across a component boundary)
 //     and/or sorts already-parsed rows, returning the first N. Pure computation.
 //   - requires:  CSV text or rows supplied by the caller. No I/O, no filesystem.
 //   - provides:  TopN, Pick — deterministic, descending order by column.
-//   - authority: NONE. This component holds no ambient authority. parsecsv's use
-//     is absorbed here, but parsecsv touches no filesystem, so toprow stays
+//   - authority: NONE. This component holds no ambient authority. parsecsv is resolved
+//     across a component boundary, and parsecsv touches no filesystem, so toprow stays
 //     ambient-authority-free (FR7).
 package toprow
 
