@@ -42,7 +42,49 @@ REFLECT = _REFLECT
 UNANALYZED = _UNANALYZED
 ALL_AUTHORITIES = _ALL_AUTHORITIES
 
+# Stable authoring spelling for the generated
+# INTERFACE_STYLE_PACKAGE_SURFACE enum value. Unset interface_style retains
+# the declared-interface style.
+PACKAGE_SURFACE = "PACKAGE_SURFACE"
+
+def _validate_component_shape(name, kwargs):
+    style = kwargs.get("interface_style")
+    interface = kwargs.get("interface")
+    members = kwargs.get("members") or []
+
+    if style == None or style == "":
+        declared_style = True
+    elif style == PACKAGE_SURFACE:
+        declared_style = False
+    else:
+        fail("component %s: unknown interface_style %r; accepted values are unset (declared style) and %s." % (
+            name,
+            style,
+            PACKAGE_SURFACE,
+        ))
+
+    if declared_style:
+        if interface == None:
+            fail("component %s: declared interface_style requires interface." % name)
+        return
+
+    if interface != None:
+        fail("component %s: interface_style %s does not allow interface; remove interface." % (
+            name,
+            PACKAGE_SURFACE,
+        ))
+    if not members:
+        fail("component %s: interface_style %s requires non-empty members." % (
+            name,
+            PACKAGE_SURFACE,
+        ))
+
 def _go_component_impl(name, visibility, **kwargs):
+    # Validate the authoring shape before dropping unset inherited attributes
+    # or invoking the private rule, so errors point at the component declaration
+    # rather than at a later artifact-generation assumption.
+    _validate_component_shape(name, kwargs)
+
     # Unset inherited attributes arrive as None; the rule wants its own
     # defaults for those, not a null.
     set_kwargs = {key: value for key, value in kwargs.items() if value != None}
@@ -73,10 +115,15 @@ go_component = macro(
     inherit_attrs = "common",
     attrs = {
         "interface": attr.label(
-            mandatory = True,
+            mandatory = False,
             configurable = False,
             doc = "The single go_library holding the component's public surface. " +
-                  "A component has exactly one interface library; passing a list is an error.",
+                  "Required for declared style and omitted for PACKAGE_SURFACE.",
+        ),
+        "interface_style": attr.string(
+            configurable = False,
+            doc = "Interface shape: unset for declared style, or PACKAGE_SURFACE for " +
+                 "components whose complete surface is their concrete members.",
         ),
         "members": attr.label_list(
             configurable = False,

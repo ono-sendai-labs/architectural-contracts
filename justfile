@@ -56,6 +56,7 @@ bazel-test:
 	bazel build //...
 	bazel test //...
 	TEST_SRCDIR="$PWD" TEST_TMPDIR="${TMPDIR:-/tmp}" bazel_rules/go/tests/members_label_validation_test.sh
+	TEST_SRCDIR="$PWD" TEST_TMPDIR="${TMPDIR:-/tmp}" bazel_rules/go/tests/component_shape_validation_test.sh
 
 ci: gen-is-clean lint build test test-integration selfcheck bazel-test
 

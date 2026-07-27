@@ -9,8 +9,9 @@ go_library(
     deps = ["//bazel_rules/go/tests/testdata/nested/child"],
 )
 
-# Depends on a component rooted inside its own root, which arcc rejects as
-# overlapping roots. `manual`: the analysis failure is the point.
+# A component dependency may be rooted inside the consumer's package subtree;
+# directory nesting no longer describes ownership. `manual` keeps this
+# analysis-only fixture's deferred check out of the default test suite.
 go_component(
     name = "nested_component",
     component_deps = ["//bazel_rules/go/tests/testdata/nested/child:child_component"],

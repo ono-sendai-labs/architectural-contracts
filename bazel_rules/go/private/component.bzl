@@ -176,19 +176,6 @@ def _classify(ctx, merged):
 
     return members, absorbed_members
 
-def _check_component_roots(ctx):
-    """No component dependency may be rooted inside this component."""
-    root = ctx.label.package
-    for dep in ctx.attr.component_deps:
-        dep_root = dep[ArccComponentInfo].component_root
-        if dep_root == root or dep_root.startswith(root + "/") or root == "":
-            fail("component %s: component_dep %s has root %s, nested inside this component's root %s." % (
-                ctx.label.name,
-                dep[ArccComponentInfo].component_name,
-                dep_root if dep_root else "(repository root)",
-                root if root else "(repository root)",
-            ))
-
 def _go_component_impl(ctx):
     for authority in ctx.attr.declared_authority:
         if authority not in ALL_AUTHORITIES:
@@ -198,10 +185,8 @@ def _go_component_impl(ctx):
                 ", ".join(ALL_AUTHORITIES),
             ))
 
-    _check_component_roots(ctx)
-
     interface = ctx.attr.interface
-    roots = [interface] + ctx.attr.members
+    roots = ([interface] if interface else []) + ctx.attr.members
     root_packages = []
     for root in roots:
         root_packages.extend(root[ArccPackageInfo].packages.to_list())
@@ -216,8 +201,8 @@ def _go_component_impl(ctx):
             ))
 
     members, absorbed = _classify(ctx, merged)
-    interface_importpath = go_importpath(interface)
-    if interface_importpath not in members:
+    interface_importpath = go_importpath(interface) if interface else ""
+    if interface and interface_importpath not in members:
         fail(("component %s: its own interface package %s is covered by a component_dep or listed in " +
               "absorbed_deps, which would leave the component with nothing to check.") % (
             ctx.label.name,
@@ -227,11 +212,13 @@ def _go_component_impl(ctx):
     manifest = ctx.actions.declare_file(ctx.label.name + ".component.textproto")
     layout = ctx.actions.declare_file(ctx.label.name + ".package-layout.json")
 
-    interface_files = sorted([
-        runfiles_path(ctx, src)
-        for src in go_library_srcs(interface)
-        if src.extension == "go"
-    ])
+    interface_files = []
+    if interface:
+        interface_files = sorted([
+            runfiles_path(ctx, src)
+            for src in go_library_srcs(interface)
+            if src.extension == "go"
+        ])
     ctx.actions.write(
         output = manifest,
         content = _manifest_content(
@@ -278,7 +265,7 @@ def _go_component_impl(ctx):
     for importpath in absorbed:
         covered_or_member[importpath] = True
 
-    return [
+    providers = [
         DefaultInfo(
             files = depset([manifest, layout]),
             # Enough to run the check: the manifests and layouts of this
@@ -306,19 +293,25 @@ def _go_component_impl(ctx):
             ]),
             contracts = contracts,
         ),
-    ] + forward_go_providers(interface)
-    # The interface library's Go providers are forwarded verbatim so
-    # `deps = [":some_component"]` works from any Go rule: the component target
-    # stands in for its interface library.
-
+    ]
+    if interface:
+        # Declared-style components remain usable as Go deps by forwarding the
+        # interface providers verbatim. Package-surface components have no
+        # distinguished interface target to forward.
+        providers.extend(forward_go_providers(interface))
+    return providers
 go_component_rule = rule(
     implementation = _go_component_impl,
     attrs = {
         "interface": attr.label(
-            mandatory = True,
+            mandatory = False,
             providers = GO_PROVIDERS,
             aspects = [arcc_deps_aspect],
-            doc = "The single go_library holding the component's public surface.",
+            doc = "The declared-style public surface; absent for PACKAGE_SURFACE.",
+        ),
+        "interface_style": attr.string(
+            default = "",
+            doc = "Unset for declared style, or PACKAGE_SURFACE for member-only components.",
         ),
         "members": attr.label_list(
             providers = GO_PROVIDERS,

@@ -8,11 +8,13 @@ analysis-time errors, which is what is asserted here.
 
 load("@rules_testing//lib:analysis_test.bzl", "analysis_test", "test_suite")
 load("@rules_testing//lib:truth.bzl", "matching")
+load("@rules_go//go:def.bzl", "GoInfo")
 load("//bazel_rules:providers.bzl", "ArccComponentInfo")
 
 _API_COMPONENT = "//bazel_rules/go/tests/testdata/api:api_component"
 _MEMBER_COMPONENT = "//bazel_rules/go/tests/testdata/membercomponent:member_component"
 _REVERSED_MEMBER_COMPONENT = "//bazel_rules/go/tests/testdata/membercomponent:member_component_reversed"
+_PACKAGE_SURFACE_COMPONENT = "//bazel_rules/go/tests/testdata/membercomponent:package_surface_component"
 
 def _membership_classification_test(name):
     analysis_test(
@@ -129,19 +131,28 @@ def _reordered_member_closure_impl(env, target):
         "example.com/aspect/memberdep",
         "example.com/aspect/shared",
     ]).in_order()
+
+def _package_surface_closure_test(name):
+    analysis_test(
+        name = name,
+        target = _PACKAGE_SURFACE_COMPONENT,
+        impl = _package_surface_closure_impl,
+        attr_values = {"size": "small"},
+    )
+
+def _package_surface_closure_impl(env, target):
+    info = target[ArccComponentInfo]
+
+    # No interface target is present: both closure roots come from members,
+    # and the component must not accidentally forward an absent interface's
+    # Go providers.
     env.expect.that_collection(
-        [src.basename for pkg in info.closure.to_list() for src in pkg.srcs],
+        [pkg.importpath for pkg in info.closure.to_list()],
     ).contains_exactly([
-        "api.go",
-        "core.go",
-        "core_extra.go",
-        "extra_impl.go",
-        "extradep.go",
-        "lowlevel.go",
-        "member.go",
-        "memberdep.go",
-        "shared.go",
+        "example.com/aspect/member",
+        "example.com/aspect/memberdep",
     ]).in_order()
+    env.expect.that_bool(GoInfo in target).equals(False)
 
 def _transitive_files_test(name):
     analysis_test(
@@ -189,19 +200,19 @@ def _absorb_covered_conflict_fails_impl(env, target):
         matching.str_matches("*is already covered by component_dep shared_component*"),
     )
 
-def _nested_component_root_fails_test(name):
+def _nested_component_root_allowed_test(name):
     analysis_test(
         name = name,
         target = "//bazel_rules/go/tests/testdata/nested:nested_component",
-        impl = _nested_component_root_fails_impl,
+        impl = _nested_component_root_allowed_impl,
         attr_values = {"size": "small"},
-        expect_failure = True,
     )
 
-def _nested_component_root_fails_impl(env, target):
-    env.expect.that_target(target).failures().contains_predicate(
-        matching.str_matches("*nested inside this component's root*"),
-    )
+def _nested_component_root_allowed_impl(env, target):
+    info = target[ArccComponentInfo]
+    env.expect.that_collection(
+        [pkg.importpath for pkg in info.closure.to_list()],
+    ).contains_exactly(["example.com/aspect/nested"])
 
 def go_component_test_suite(name):
     test_suite(
@@ -211,8 +222,9 @@ def go_component_test_suite(name):
             _generated_files_test,
             _unimported_member_closure_test,
             _reordered_member_closure_test,
+            _package_surface_closure_test,
             _transitive_files_test,
             _absorb_covered_conflict_fails_test,
-            _nested_component_root_fails_test,
+            _nested_component_root_allowed_test,
         ],
     )

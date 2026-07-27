@@ -1,4 +1,4 @@
-load("@rules_arcc//bazel_rules/go:defs.bzl", "go_component")
+load("@rules_arcc//bazel_rules/go:defs.bzl", "PACKAGE_SURFACE", "go_component")
 
 # The interface does not import //member. Its explicit member root must still
 # contribute both itself and its member-only dependency to the closure/layout.
@@ -23,5 +23,19 @@ go_component(
         "//bazel_rules/go/tests/testdata/member",
         "//bazel_rules/go/tests/testdata/memberdep",
     ],
+    visibility = ["//bazel_rules:__subpackages__"],
+)
+
+# A package-surface component has no distinguished interface. Its member roots
+# must still be analyzed and its generated check is deferred until Step 7 emits
+# the style and member declarations into the manifest.
+go_component(
+    name = "package_surface_component",
+    interface_style = PACKAGE_SURFACE,
+    members = [
+        "//bazel_rules/go/tests/testdata/memberdep",
+        "//bazel_rules/go/tests/testdata/member",
+    ],
+    tags = ["manual"],
     visibility = ["//bazel_rules:__subpackages__"],
 )
