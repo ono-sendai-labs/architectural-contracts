@@ -1,0 +1,9 @@
+load("@rules_go//go:def.bzl", "go_library")
+
+go_library(
+    name = "member",
+    srcs = ["member.go"],
+    importpath = "example.com/aspect/member",
+    visibility = ["//bazel_rules:__subpackages__"],
+    deps = ["//bazel_rules/go/tests/testdata/memberdep"],
+)

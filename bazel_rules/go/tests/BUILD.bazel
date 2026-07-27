@@ -44,3 +44,19 @@ sh_test(
         "//bazel_rules/go/tests/testdata/api:api_component",
     ],
 )
+
+sh_test(
+    name = "member_golden_test",
+    srcs = ["golden_test.sh"],
+    size = "small",
+    args = [
+        "$(rootpaths //bazel_rules/go/tests/testdata/membercomponent:member_component)",
+        "$(rootpath goldens/member_component.component.textproto)",
+        "$(rootpath goldens/member_component.package-layout.json)",
+    ],
+    data = [
+        "goldens/member_component.component.textproto",
+        "goldens/member_component.package-layout.json",
+        "//bazel_rules/go/tests/testdata/membercomponent:member_component",
+    ],
+)

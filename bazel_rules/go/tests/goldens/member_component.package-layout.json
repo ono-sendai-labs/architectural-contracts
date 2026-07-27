@@ -1,0 +1,95 @@
+{
+  "go_sdk_root": "<GO_SDK_ROOT>",
+  "packages": [
+    {
+      "CompiledGoFiles": [
+        "_main/bazel_rules/go/tests/testdata/api/api.go"
+      ],
+      "GoFiles": [
+        "_main/bazel_rules/go/tests/testdata/api/api.go"
+      ],
+      "ID": "example.com/aspect/api",
+      "Name": "api",
+      "PkgPath": "example.com/aspect/api"
+    },
+    {
+      "CompiledGoFiles": [
+        "_main/bazel_rules/go/tests/testdata/core/core.go",
+        "_main/bazel_rules/go/tests/testdata/core/core_extra.go",
+        "_main/bazel_rules/go/tests/testdata/core/extra_impl.go"
+      ],
+      "GoFiles": [
+        "_main/bazel_rules/go/tests/testdata/core/core.go",
+        "_main/bazel_rules/go/tests/testdata/core/core_extra.go",
+        "_main/bazel_rules/go/tests/testdata/core/extra_impl.go"
+      ],
+      "ID": "example.com/aspect/core",
+      "Name": "core",
+      "PkgPath": "example.com/aspect/core"
+    },
+    {
+      "CompiledGoFiles": [
+        "_main/bazel_rules/go/tests/testdata/extradep/extradep.go"
+      ],
+      "GoFiles": [
+        "_main/bazel_rules/go/tests/testdata/extradep/extradep.go"
+      ],
+      "ID": "example.com/aspect/extradep",
+      "Name": "extradep",
+      "PkgPath": "example.com/aspect/extradep"
+    },
+    {
+      "CompiledGoFiles": [
+        "_main/bazel_rules/go/tests/testdata/lowlevel/lowlevel.go"
+      ],
+      "GoFiles": [
+        "_main/bazel_rules/go/tests/testdata/lowlevel/lowlevel.go"
+      ],
+      "ID": "example.com/aspect/lowlevel",
+      "Name": "lowlevel",
+      "PkgPath": "example.com/aspect/lowlevel"
+    },
+    {
+      "CompiledGoFiles": [
+        "_main/bazel_rules/go/tests/testdata/member/member.go"
+      ],
+      "GoFiles": [
+        "_main/bazel_rules/go/tests/testdata/member/member.go"
+      ],
+      "ID": "example.com/aspect/member",
+      "Name": "member",
+      "PkgPath": "example.com/aspect/member"
+    },
+    {
+      "CompiledGoFiles": [
+        "_main/bazel_rules/go/tests/testdata/memberdep/memberdep.go"
+      ],
+      "GoFiles": [
+        "_main/bazel_rules/go/tests/testdata/memberdep/memberdep.go"
+      ],
+      "ID": "example.com/aspect/memberdep",
+      "Name": "memberdep",
+      "PkgPath": "example.com/aspect/memberdep"
+    },
+    {
+      "CompiledGoFiles": [
+        "_main/bazel_rules/go/tests/testdata/shared/shared.go"
+      ],
+      "GoFiles": [
+        "_main/bazel_rules/go/tests/testdata/shared/shared.go"
+      ],
+      "ID": "example.com/aspect/shared",
+      "Name": "shared",
+      "PkgPath": "example.com/aspect/shared"
+    }
+  ],
+  "roots": [
+    "example.com/aspect/api",
+    "example.com/aspect/core",
+    "example.com/aspect/extradep",
+    "example.com/aspect/lowlevel",
+    "example.com/aspect/member",
+    "example.com/aspect/memberdep",
+    "example.com/aspect/shared"
+  ]
+}

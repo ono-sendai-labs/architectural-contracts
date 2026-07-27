@@ -11,6 +11,7 @@ load("@rules_testing//lib:truth.bzl", "matching")
 load("//bazel_rules:providers.bzl", "ArccComponentInfo")
 
 _API_COMPONENT = "//bazel_rules/go/tests/testdata/api:api_component"
+_MEMBER_COMPONENT = "//bazel_rules/go/tests/testdata/membercomponent:member_component"
 
 def _membership_classification_test(name):
     analysis_test(
@@ -56,6 +57,36 @@ def _generated_files_impl(env, target):
         "bazel_rules/go/tests/testdata/api/api_component.component.textproto",
         "bazel_rules/go/tests/testdata/api/api_component.package-layout.json",
     ])
+
+def _unimported_member_closure_test(name):
+    analysis_test(
+        name = name,
+        target = _MEMBER_COMPONENT,
+        impl = _unimported_member_closure_impl,
+        attr_values = {"size": "small"},
+    )
+
+def _unimported_member_closure_impl(env, target):
+    info = target[ArccComponentInfo]
+    packages = {pkg.importpath: pkg for pkg in info.closure.to_list()}
+
+    # The interface does not import either package; both are reached only by
+    # the explicit members root and its direct dependency.
+    env.expect.that_collection(packages.keys()).contains_exactly([
+        "example.com/aspect/api",
+        "example.com/aspect/core",
+        "example.com/aspect/extradep",
+        "example.com/aspect/lowlevel",
+        "example.com/aspect/member",
+        "example.com/aspect/memberdep",
+        "example.com/aspect/shared",
+    ])
+    env.expect.that_collection(
+        [src.basename for src in packages["example.com/aspect/member"].srcs],
+    ).contains_exactly(["member.go"])
+    env.expect.that_collection(
+        [src.basename for src in packages["example.com/aspect/memberdep"].srcs],
+    ).contains_exactly(["memberdep.go"])
 
 def _transitive_files_test(name):
     analysis_test(
@@ -123,6 +154,7 @@ def go_component_test_suite(name):
         tests = [
             _membership_classification_test,
             _generated_files_test,
+            _unimported_member_closure_test,
             _transitive_files_test,
             _absorb_covered_conflict_fails_test,
             _nested_component_root_fails_test,

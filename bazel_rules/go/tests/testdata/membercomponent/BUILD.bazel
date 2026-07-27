@@ -1,0 +1,15 @@
+load("@rules_arcc//bazel_rules/go:defs.bzl", "go_component")
+
+# The interface does not import //member. Its explicit member root must still
+# contribute both itself and its member-only dependency to the closure/layout.
+go_component(
+    name = "member_component",
+    interface = "//bazel_rules/go/tests/testdata/api:api",
+    # The first label is also reached transitively from :member. This overlap
+    # pins import-path deduplication across independent roots.
+    members = [
+        "//bazel_rules/go/tests/testdata/memberdep",
+        "//bazel_rules/go/tests/testdata/member",
+    ],
+    visibility = ["//bazel_rules:__subpackages__"],
+)

@@ -1,7 +1,8 @@
 """The `_go_component` rule: manifest and package-layout generation.
 
 Everything here happens at analysis time; the only actions are the two writes.
-The rule classifies the interface library's package closure into
+The rule classifies the union of the interface and declared member package
+closures into
 component-dep-covered, absorbed, and member packages (design §5.3), emits the
 manifest arcc checks and the layout arcc loads through, and forwards the
 interface library's Go providers so the component target is usable as a
@@ -200,7 +201,11 @@ def _go_component_impl(ctx):
     _check_component_roots(ctx)
 
     interface = ctx.attr.interface
-    merged = merge_by_importpath(interface[ArccPackageInfo].packages.to_list())
+    roots = [interface] + ctx.attr.members
+    root_packages = []
+    for root in roots:
+        root_packages.extend(root[ArccPackageInfo].packages.to_list())
+    merged = merge_by_importpath(root_packages)
 
     for importpath in sorted(merged.keys()):
         if merged[importpath].cgo:
@@ -314,6 +319,12 @@ go_component_rule = rule(
             providers = GO_PROVIDERS,
             aspects = [arcc_deps_aspect],
             doc = "The single go_library holding the component's public surface.",
+        ),
+        "members": attr.label_list(
+            providers = GO_PROVIDERS,
+            aspects = [arcc_deps_aspect],
+            doc = "Concrete Go library labels whose transitive closures are analyzed " +
+                  "alongside the interface closure.",
         ),
         "component_deps": attr.label_list(
             providers = [ArccComponentInfo],

@@ -78,6 +78,11 @@ go_component = macro(
             doc = "The single go_library holding the component's public surface. " +
                   "A component has exactly one interface library; passing a list is an error.",
         ),
+        "members": attr.label_list(
+            configurable = False,
+            doc = "Concrete go_library labels declared as component members. Their " +
+                  "transitive Go closures are analyzed alongside the interface closure.",
+        ),
         "component_deps": attr.label_list(
             configurable = False,
             doc = "Other go_component targets this component depends on. Their packages are " +
