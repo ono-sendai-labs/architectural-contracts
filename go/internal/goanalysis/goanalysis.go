@@ -620,7 +620,7 @@ func ValidateInterfaceFiles(componentRoot string, interfaceFiles []string, loade
 			if !packagelayout.FileMatchesBuildConstraintsWithContext(absPath, bctx) {
 				exclusions = append(exclusions, InterfaceFileExclusion{
 					File:       cleanedSlash,
-					Constraint: describeInterfaceFileConstraint(absPath),
+					Constraint: describeInterfaceFileConstraintWithContext(absPath, bctx),
 				})
 				continue
 			}
@@ -646,28 +646,35 @@ func ValidateInterfaceFiles(componentRoot string, interfaceFiles []string, loade
 	return exclusions, nil
 }
 
-// describeInterfaceFileConstraint extracts the stable constraint form that is
-// useful to a human reviewing a warning. MatchFile remains the authoritative
-// verdict; failures while reading the file are intentionally not converted into
-// exclusions by FileMatchesBuildConstraintsWithContext.
-func describeInterfaceFileConstraint(path string) string {
-	if line := leadingBuildConstraint(path); line != "" {
-		return line
-	}
-	if suffix := filenameBuildConstraint(filepath.Base(path)); suffix != "" {
+func describeInterfaceFileConstraintWithContext(path string, bctx build.Context) string {
+	if line, expression, ok := leadingBuildConstraint(path); ok {
+		if !expression.Eval(func(tag string) bool {
+			return buildContextHasTag(bctx, tag)
+		}) {
+			return line
+		}
+		// MatchFile already rejected the file. If its directive matches, the
+		// remaining possible source of exclusion is its filename suffix.
+		if suffix := filenameBuildConstraint(filepath.Base(path)); suffix != "" {
+			return suffix
+		}
+	} else if suffix := filenameBuildConstraint(filepath.Base(path)); suffix != "" {
 		return suffix
 	}
 	return fmt.Sprintf("filename/build constraint in %q", filepath.Base(path))
 }
 
-func leadingBuildConstraint(path string) string {
+func leadingBuildConstraint(path string) (string, constraint.Expr, bool) {
 	file, err := os.Open(path)
 	if err != nil {
-		return ""
+		return "", nil, false
 	}
 	defer file.Close()
 
 	var legacy string
+	var legacyExpr constraint.Expr
+	var goBuild string
+	var goBuildExpr constraint.Expr
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
@@ -676,20 +683,31 @@ func leadingBuildConstraint(path string) string {
 		}
 		if strings.HasPrefix(line, "//") {
 			if constraint.IsGoBuild(line) {
-				if _, err := constraint.Parse(line); err == nil {
-					return strings.Join(strings.Fields(line), " ")
+				if expression, err := constraint.Parse(line); err == nil && goBuild == "" {
+					goBuild = strings.Join(strings.Fields(line), " ")
+					goBuildExpr = expression
 				}
 			}
 			if constraint.IsPlusBuild(line) && legacy == "" {
-				if _, err := constraint.Parse(line); err == nil {
+				if expression, err := constraint.Parse(line); err == nil {
 					legacy = strings.Join(strings.Fields(line), " ")
+					legacyExpr = expression
 				}
 			}
 			continue
 		}
 		break
 	}
-	return legacy
+	if scanner.Err() != nil {
+		return "", nil, false
+	}
+	if goBuildExpr != nil {
+		return goBuild, goBuildExpr, true
+	}
+	if legacyExpr != nil {
+		return legacy, legacyExpr, true
+	}
+	return "", nil, false
 }
 
 func filenameBuildConstraint(name string) string {
@@ -704,15 +722,18 @@ func filenameBuildConstraint(name string) string {
 	}
 	knownOS := map[string]bool{
 		"aix": true, "android": true, "darwin": true, "dragonfly": true,
-		"freebsd": true, "illumos": true, "ios": true, "js": true,
-		"linux": true, "netbsd": true, "openbsd": true, "plan9": true,
-		"solaris": true, "wasip1": true, "windows": true,
+		"freebsd": true, "hurd": true, "illumos": true, "ios": true,
+		"js": true, "linux": true, "nacl": true, "netbsd": true,
+		"openbsd": true, "plan9": true, "solaris": true, "wasip1": true,
+		"windows": true, "zos": true,
 	}
 	knownArch := map[string]bool{
-		"386": true, "amd64": true, "arm": true, "arm64": true, "loong64": true,
-		"mips": true, "mips64": true, "mips64le": true, "mipsle": true,
-		"ppc64": true, "ppc64le": true, "riscv64": true, "s390x": true,
-		"wasm": true,
+		"386": true, "amd64": true, "amd64p32": true, "arm": true,
+		"arm64": true, "arm64be": true, "armbe": true, "loong64": true,
+		"mips": true, "mips64": true, "mips64le": true, "mips64p32": true,
+		"mips64p32le": true, "mipsle": true, "ppc": true, "ppc64": true,
+		"ppc64le": true, "riscv": true, "riscv64": true, "s390": true,
+		"s390x": true, "sparc": true, "sparc64": true, "wasm": true,
 	}
 	last := parts[len(parts)-1]
 	if len(parts) >= 3 {
@@ -725,6 +746,35 @@ func filenameBuildConstraint(name string) string {
 		return fmt.Sprintf("filename suffix %q", "_"+last+".go")
 	}
 	return ""
+}
+
+func buildContextHasTag(bctx build.Context, tag string) bool {
+	if tag == "cgo" {
+		return bctx.CgoEnabled
+	}
+	if tag == bctx.GOOS || tag == bctx.GOARCH || tag == bctx.Compiler {
+		return true
+	}
+	if (bctx.GOOS == "android" && tag == "linux") ||
+		(bctx.GOOS == "illumos" && tag == "solaris") ||
+		(bctx.GOOS == "ios" && tag == "darwin") {
+		return true
+	}
+	if tag == "unix" {
+		switch bctx.GOOS {
+		case "aix", "android", "darwin", "dragonfly", "freebsd", "illumos", "ios", "linux", "netbsd", "openbsd", "solaris":
+			return true
+		}
+	}
+	if tag == "boringcrypto" {
+		tag = "goexperiment.boringcrypto"
+	}
+	for _, candidate := range append(append(append([]string{}, bctx.BuildTags...), bctx.ToolTags...), bctx.ReleaseTags...) {
+		if candidate == tag {
+			return true
+		}
+	}
+	return false
 }
 
 // stripAllBrackets recursively removes all brackets and their contents from a string,

@@ -324,11 +324,18 @@ func TestValidateInterfaceFiles_ReturnsDeterministicExclusions(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		filenameGated = "a_linux.go"
 	}
+	mixedConstraint := "mixed_windows.go"
+	mixedSuffix := "_windows.go"
+	if runtime.GOOS == "windows" {
+		mixedConstraint = "mixed_linux.go"
+		mixedSuffix = "_linux.go"
+	}
 	files := map[string]string{
 		"api.go":          "package exclusions\n",
 		"z_gated.go":      "//go:build " + gatedExpression + "\n\npackage exclusions\n",
 		"legacy_gated.go": "// +build " + gatedExpression + "\n\npackage exclusions\n",
 		filenameGated:     "package exclusions\n",
+		mixedConstraint:   "//go:build " + runtime.GOOS + "\n\npackage exclusions\n",
 	}
 	for name, contents := range files {
 		if err := os.WriteFile(filepath.Join(root, name), []byte(contents), 0o644); err != nil {
@@ -340,24 +347,29 @@ func TestValidateInterfaceFiles_ReturnsDeterministicExclusions(t *testing.T) {
 	if err != nil {
 		t.Fatalf("loadPackageFacts() error = %v", err)
 	}
-	exclusions, err := goanalysis.ValidateInterfaceFiles(root, []string{"z_gated.go", "legacy_gated.go", filenameGated, "api.go"}, loaded)
+	exclusions, err := goanalysis.ValidateInterfaceFiles(root, []string{"z_gated.go", "legacy_gated.go", filenameGated, mixedConstraint, "api.go"}, loaded)
 	if err != nil {
 		t.Fatalf("ValidateInterfaceFiles() error = %v", err)
 	}
-	if len(exclusions) != 3 {
-		t.Fatalf("exclusions = %#v, want three exclusions", exclusions)
+	if len(exclusions) != 4 {
+		t.Fatalf("exclusions = %#v, want four exclusions", exclusions)
 	}
-	if exclusions[0].File != filenameGated || exclusions[1].File != "legacy_gated.go" || exclusions[2].File != "z_gated.go" {
+	if exclusions[0].File != filenameGated || exclusions[1].File != "legacy_gated.go" || exclusions[2].File != mixedConstraint || exclusions[3].File != "z_gated.go" {
 		t.Fatalf("exclusions = %#v, want stable file order", exclusions)
 	}
-	if exclusions[0].Constraint == "" || exclusions[1].Constraint == "" || exclusions[2].Constraint == "" {
-		t.Fatalf("exclusions = %#v, want specific constraints", exclusions)
+	for _, exclusion := range exclusions {
+		if exclusion.Constraint == "" {
+			t.Fatalf("exclusions = %#v, want specific constraints", exclusions)
+		}
 	}
 	if exclusions[1].Constraint != "// +build "+gatedExpression {
 		t.Errorf("legacy constraint = %q, want %q", exclusions[1].Constraint, "// +build "+gatedExpression)
 	}
-	if exclusions[2].Constraint != "//go:build "+gatedExpression {
-		t.Errorf("gated constraint = %q, want %q", exclusions[2].Constraint, "//go:build "+gatedExpression)
+	if exclusions[3].Constraint != "//go:build "+gatedExpression {
+		t.Errorf("gated constraint = %q, want %q", exclusions[3].Constraint, "//go:build "+gatedExpression)
+	}
+	if exclusions[2].Constraint != `filename suffix "`+mixedSuffix+`"` {
+		t.Errorf("mixed constraint = %q, want filename suffix %q", exclusions[2].Constraint, mixedSuffix)
 	}
 
 	if matched, err := build.Default.MatchFile(root, "z_gated.go"); err != nil || matched {
