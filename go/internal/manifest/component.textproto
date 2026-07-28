@@ -7,8 +7,80 @@ absorbed_dependencies {
   reason: "protobuf parsing"
 }
 absorbed_dependencies {
+  import_path: "google.golang.org/protobuf/encoding/protowire"
+}
+absorbed_dependencies {
+  import_path: "google.golang.org/protobuf/internal/descfmt"
+}
+absorbed_dependencies {
+  import_path: "google.golang.org/protobuf/internal/descopts"
+}
+absorbed_dependencies {
+  import_path: "google.golang.org/protobuf/internal/detrand"
+}
+absorbed_dependencies {
+  import_path: "google.golang.org/protobuf/internal/editiondefaults"
+}
+absorbed_dependencies {
+  import_path: "google.golang.org/protobuf/internal/encoding/defval"
+}
+absorbed_dependencies {
+  import_path: "google.golang.org/protobuf/internal/encoding/messageset"
+}
+absorbed_dependencies {
+  import_path: "google.golang.org/protobuf/internal/encoding/tag"
+}
+absorbed_dependencies {
+  import_path: "google.golang.org/protobuf/internal/encoding/text"
+}
+absorbed_dependencies {
+  import_path: "google.golang.org/protobuf/internal/errors"
+}
+absorbed_dependencies {
+  import_path: "google.golang.org/protobuf/internal/filedesc"
+}
+absorbed_dependencies {
+  import_path: "google.golang.org/protobuf/internal/filetype"
+}
+absorbed_dependencies {
+  import_path: "google.golang.org/protobuf/internal/flags"
+}
+absorbed_dependencies {
+  import_path: "google.golang.org/protobuf/internal/genid"
+}
+absorbed_dependencies {
+  import_path: "google.golang.org/protobuf/internal/impl"
+}
+absorbed_dependencies {
+  import_path: "google.golang.org/protobuf/internal/order"
+}
+absorbed_dependencies {
+  import_path: "google.golang.org/protobuf/internal/pragma"
+}
+absorbed_dependencies {
+  import_path: "google.golang.org/protobuf/internal/protolazy"
+}
+absorbed_dependencies {
+  import_path: "google.golang.org/protobuf/internal/set"
+}
+absorbed_dependencies {
+  import_path: "google.golang.org/protobuf/internal/strs"
+}
+absorbed_dependencies {
+  import_path: "google.golang.org/protobuf/internal/version"
+}
+absorbed_dependencies {
+  import_path: "google.golang.org/protobuf/proto"
+}
+absorbed_dependencies {
   import_path: "google.golang.org/protobuf/reflect/protoreflect"
   reason: "protobuf reflection"
+}
+absorbed_dependencies {
+  import_path: "google.golang.org/protobuf/reflect/protoregistry"
+}
+absorbed_dependencies {
+  import_path: "google.golang.org/protobuf/runtime/protoiface"
 }
 absorbed_dependencies {
   import_path: "google.golang.org/protobuf/runtime/protoimpl"
