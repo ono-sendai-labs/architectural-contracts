@@ -4,13 +4,14 @@
 Add the negative test Step 10 asks for: a self-component declaration with one
 declared dependency removed must fail its check, reporting the now-undeclared
 package by name. Then confirm the two dogfooding legs — native `just selfcheck`
-and the Bazel `.check` targets — cover the same eight components, and say so
-where a reader of the `justfile` will see it.
+and the Bazel `.check` targets — relate to each other, including the two
+components the Bazel leg cannot cover, and say so where a reader of the
+`justfile` will see it.
 
 ## Background
 Tasks 1–4 make the Bazel leg check arcc against its own manifests and prove the
 two manifest forms agree. What none of them proves is that the Bazel leg
-*fails* when a manifest stops describing the code. Without that, eight green
+*fails* when a manifest stops describing the code. Without that, six green
 checks are consistent with a check that cannot go red — and the regression that
 motivated this whole requirement (a `hostpolicy` seam dropped from a manifest,
 undetected because nothing in the Bazel leg looked) would still slip through.
@@ -58,11 +59,12 @@ dependencies to remove one of.
    copy of `checker_component` minus exactly one edge, so that if `checker`'s
    real dependency set changes, the fixture is updated rather than left
    describing a component that no longer exists.
-4. Confirm the relationship between the two legs: the **seven** `.check` targets
-   that `bazel test //...` runs correspond one-to-one with seven of the **eight**
-   `arcc check` invocations in the `justfile`'s `selfcheck` recipe. The eighth,
-   `capslockadapter`, is native-only because its closure contains a cgo package the
-   Bazel rule fails closed on (task 02 requirement 9). Record that relationship
+4. Confirm the relationship between the two legs: the **six** `.check` targets
+   that `bazel test //...` runs correspond one-to-one with six of the **eight**
+   `arcc check` invocations in the `justfile`'s `selfcheck` recipe. The other two,
+   `capslockadapter` and `cli`, are native-only for one shared reason: capslock's
+   closure contains `golang.org/x/sys/unix` built with cgo, the Bazel rule fails
+   closed on cgo closures, and `cli`'s `main.go` imports `capslockadapter`. Record that relationship
    **and the exception** in a comment on the `selfcheck` recipe — it explains why the apparently
    redundant native leg is kept: native FR1 membership and Bazel declared
    membership checking the same components is a cross-check of the whole
@@ -72,7 +74,7 @@ dependencies to remove one of.
 6. Keep prose in `README.md` and the design records for Step 11; the `justfile`
    comment is the only documentation change in scope here.
 7. Verify the demo the plan describes actually works and is reproducible from
-   the task: `bazel test //...` runs all eight self-checks, and deleting an
+   the task: `bazel test //...` runs the six Bazel self-checks, and deleting an
    `absorbed_dependencies` entry — for example `//go/internal/hostpolicy` from
    `goanalysis_component` — makes the corresponding `.check` fail. Do not commit
    that deletion; the committed negative is the `checker` fixture.
@@ -93,8 +95,9 @@ dependencies to remove one of.
    conforming component exits 0) and passes against the fixture, so the test is
    known to discriminate.
 3. Cross-read the `selfcheck` recipe against `bazel query 'kind("arcc_check_test
-   rule", //...)'` (or the equivalent target listing) to confirm the eight-to-
-   eight correspondence, then write the recipe comment.
+   rule", //...)'` (or the equivalent target listing) to confirm the six-of-eight
+   correspondence and the two native-only components, then write the recipe
+   comment.
 4. Perform the plan's demo by hand — delete an absorbed entry, watch the check
    fail, restore it — and confirm the failure names the dropped package.
 5. Run `just ci`.
@@ -118,15 +121,15 @@ dependencies to remove one of.
    - Given `bazel test //...`
    - When it runs
    - Then the fixture's macro-generated `.check` does not run, the driving
-     negative test does, and the eight real self-checks still pass.
+     negative test does, and the six real Bazel self-checks still pass.
 
 4. **The two legs' coverage is explained, including where it differs**
    - Given the `justfile`'s `selfcheck` recipe and the Bazel check targets
    - When the two lists are compared
-   - Then the seven Bazel `.check` targets correspond one-to-one with seven of the
-     eight `arcc check` invocations; `capslockadapter` appears only in the native
-     leg; and the recipe carries a comment explaining why both legs are kept **and**
-     why `capslockadapter` is native-only.
+   - Then the six Bazel `.check` targets correspond one-to-one with six of the
+     eight `arcc check` invocations; `capslockadapter` and `cli` appear only in the
+     native leg; and the recipe carries a comment explaining why both legs are kept
+     **and** why those two are native-only, naming the shared cgo root cause.
 
 5. **The demo is reproducible**
    - Given the plan's demo instructions

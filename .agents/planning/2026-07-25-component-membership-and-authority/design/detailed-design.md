@@ -802,10 +802,18 @@ is unchanged: violations → 1, tool errors → 2.
   existing `manifest_parity_test` precedent from the csvtool example so the
   hand-written manifest and the generated one cannot drift.
 
-  **Seven of the eight, not all eight.** `capslockadapter` is excluded: it absorbs
+  **Six of the eight, not all eight.** `capslockadapter` is excluded: it absorbs
   capslock, whose closure contains `golang.org/x/sys/unix` built with cgo, and the
   rule fails closed on cgo closures because a cgo package's preprocessed sources do
-  not exist at analysis time. This is a real limitation of the Bazel path, not of
+  not exist at analysis time. **`cli` is excluded for the same reason, one hop
+  further out**: `cmd/arcc/main.go` imports `capslockadapter`, so the composition
+  root inherits the cgo closure. One root cause, two instances — and a reminder
+  that a cgo package anywhere in a closure excludes every component above it, not
+  merely the one that names it.
+
+  `cli` was the plan's chosen multi-package case for exercising `members` under
+  Bazel. That coverage survives: `manifest` is a second multi-package component
+  (its `gen` package) and is declared and checked. This is a real limitation of the Bazel path, not of
   the design — native mode routes around it because the go tool preprocesses cgo
   before `go/packages` sees it, which is why `just selfcheck` has always covered
   `capslockadapter` and continues to. The component therefore keeps native

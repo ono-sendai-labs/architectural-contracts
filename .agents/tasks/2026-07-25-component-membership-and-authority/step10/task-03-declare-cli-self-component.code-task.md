@@ -1,5 +1,33 @@
 # Task: Declare the cli self-component across `cmd/arcc` and `app`
 
+> ## ⛔ VOID — do not implement
+>
+> **This task is superseded and has no work.** `cli` is excluded from the Bazel
+> self-check leg, for the same reason `capslockadapter` is: `go/cmd/arcc/main.go`
+> imports `//go/internal/capslockadapter`, whose closure reaches
+> `golang.org/x/sys/unix` built with cgo, and `component.bzl` fails closed on cgo
+> closures because a cgo package's preprocessed sources do not exist at analysis
+> time. A `cli_component` therefore cannot pass its check, and the rule is right
+> to refuse.
+>
+> Established by an escalation on the first attempt at this task and decided by
+> the user; recorded in the interposed spec commit alongside the parallel change
+> to tasks 04 and 05. The Bazel leg covers **six** components; `just selfcheck`
+> still covers all **eight**, so `cli` keeps full native coverage and only its
+> Bazel leg is lost.
+>
+> The `members` coverage this task was meant to provide under Bazel is not lost
+> either: `manifest` is a second multi-package component (its `gen` package) and
+> is already declared and checked.
+>
+> The migration of `go/cmd/arcc/component.textproto` off cross-package
+> `interface_files` is **not** performed — it was only required to satisfy the
+> Bazel model, which no longer applies to this component. Native FR1 behavior is
+> unchanged.
+>
+> Everything below is retained for the record and describes work that will not
+> happen.
+
 ## Description
 Declare the eighth and last arcc self-component, `cli`, which spans
 `//go/cmd/arcc` and its `app` subpackage. This is the repository's own

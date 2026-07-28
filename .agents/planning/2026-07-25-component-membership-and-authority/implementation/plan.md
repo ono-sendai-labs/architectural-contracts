@@ -511,18 +511,22 @@ environment cannot silently skip it — the exact gap that let the `hostpolicy`
 manifest breakage through.
 
 **Guidance.**
-- `go_component` targets for **seven** of arcc's own eight components. `cli` spans
-  `cmd/arcc` and its `app` subpackage and is the repo's own multi-package case, so
-  it exercises `members`. Note `manifest` is a *second* multi-package case (its
-  `gen` package); both it and `cli` currently declare interface files across
-  package boundaries, which the Bazel model cannot express, so both hand-written
-  manifests migrate.
-- **`capslockadapter` is excluded from the Bazel leg.** It absorbs capslock, whose
-  closure contains `golang.org/x/sys/unix` built with cgo, and the rule fails
-  closed on cgo closures — a cgo package's preprocessed sources do not exist at
-  analysis time. Native mode routes around this because the go tool preprocesses
-  cgo before `go/packages` sees it, so `just selfcheck` keeps covering it and only
-  the Bazel leg is lost. Record it as a known limitation in Step 11. Do **not**
+- `go_component` targets for **six** of arcc's own eight components:
+  `capanalyzer`, `report`, `facts`, `manifest`, `checker`, `goanalysis`.
+  `manifest` is a multi-package component (its `gen` package) and is what
+  exercises `members` under Bazel; its hand-written manifest migrates off
+  cross-package `interface_files`.
+- **`capslockadapter` and `cli` are excluded from the Bazel leg**, for one shared
+  reason. `capslockadapter` absorbs capslock, whose closure contains
+  `golang.org/x/sys/unix` built with cgo, and the rule fails closed on cgo closures
+  — a cgo package's preprocessed sources do not exist at analysis time. `cli`
+  inherits it because `cmd/arcc/main.go` imports `capslockadapter`: a cgo package
+  anywhere in a closure excludes every component above it, not just the one that
+  names it. Native mode routes around this because the go tool preprocesses cgo
+  before `go/packages` sees it, so `just selfcheck` keeps covering both and only
+  the Bazel leg is lost. `cli` therefore keeps its cross-package
+  `interface_files` — that migration was only needed to satisfy the Bazel model.
+  Record it as a known limitation in Step 11. Do **not**
   patch the dependency to claim it is not cgo: an attempted
   `go_deps.module_override` running `sed -i 's/cgo = True/cgo = False/g'` over
   `x/sys` was rejected, because buying a green check by falsifying build metadata
@@ -538,7 +542,7 @@ declared dependency from a self-manifest must fail `bazel test`.
 
 **Integration.** Last, so it exercises the finished model.
 
-**Demo.** `bazel test //...` runs seven self-checks, and `just selfcheck` still
+**Demo.** `bazel test //...` runs six self-checks, and `just selfcheck` still
 runs all eight. Delete an `absorbed_dependencies` entry and watch the Bazel leg
 fail — the regression that motivated this requirement.
 
@@ -569,10 +573,12 @@ memory.
 - **Add the cgo-closure limitation** discovered in Step 10: a component whose
   closure contains a cgo package cannot be checked under Bazel, because a cgo
   package's preprocessed sources do not exist at analysis time. Native mode is
-  unaffected. `capslockadapter` is arcc's own instance, which is why the Bazel
-  self-check covers seven components and `just selfcheck` covers eight. State the
-  asymmetry plainly — a reader who sees seven Bazel checks and eight native ones
-  should find the reason next to the count, not have to infer it.
+  unaffected. arcc has **two** instances — `capslockadapter`, which absorbs
+  capslock, and `cli`, which imports `capslockadapter` — which is why the Bazel
+  self-check covers six components and `just selfcheck` covers eight. State the
+  asymmetry plainly, and state that exclusion propagates upward through importers:
+  a reader who sees six Bazel checks and eight native ones should find the reason
+  next to the count, not have to infer it.
 - Document the layout schema's `is_stdlib` field with T4a's provenance requirement
   adjacent to it, and the two conforming platform shapes (T8). Both are places where
   the natural implementation is the wrong one, so the doc is load-bearing.

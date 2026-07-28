@@ -1,15 +1,16 @@
-# Task: Parity-test the eight self-manifests against their generated form
+# Task: Parity-test the bazelified self-manifests against their generated form
 
 ## Description
-Add a `manifest_parity_test` for arcc's own eight components, following the
+Add a `manifest_parity_test` for the six arcc components that have
+`go_component` targets, following the
 csvtool precedent, so the hand-written `component.textproto` files and the
 manifests the `go_component` rule generates cannot drift. Factor the comparison
 out of the csvtool test so both tests apply one set of normalization rules.
 
 ## Background
 Two descriptions of arcc's architecture now exist side by side: the eight
-checked-in manifests that `just selfcheck` reads, and the eight Bazel
-declarations that Tasks 1–3 added. Each is checkable on its own, and each check
+checked-in manifests that `just selfcheck` reads, and the six Bazel declarations
+that Tasks 1–2 added (`capslockadapter` and `cli` have none — see requirement 1). Each is checkable on its own, and each check
 passing proves only that *that* description matches the code. Nothing yet proves
 the two descriptions match each other — and a silent divergence is exactly how
 the `hostpolicy` breakage survived.
@@ -27,7 +28,7 @@ The self-manifests need one normalization csvtool does not exercise, because the
 csvtool manifests were migrated to list their interface package in `members`
 explicitly: the emitter always includes the interface package in the generated
 member set (M5 makes it an implicit member). Whichever convention the
-self-manifests adopt in Tasks 1–3, the comparison must state it once, in code
+self-manifests adopt in Tasks 1–2, the comparison must state it once, in code
 both tests share, rather than growing a second dialect.
 
 ## Reference Documentation
@@ -44,12 +45,14 @@ both tests share, rather than growing a second dialect.
 **Note:** Read the detailed design document before beginning implementation.
 
 ## Technical Requirements
-1. Add a Bazel-driven parity test covering the **seven** arcc components that have
-   `go_component` targets: `capanalyzer`, `report`, `facts`, `manifest`, `checker`,
-   `goanalysis` and `cli`. **`capslockadapter` is excluded** — it has no
-   `go_component` target, because its closure contains a cgo package the rule fails
-   closed on (see task 02 requirement 9), so there is no generated manifest to
-   compare against. It keeps native coverage via `just selfcheck`.
+1. Add a Bazel-driven parity test covering the **six** arcc components that have
+   `go_component` targets: `capanalyzer`, `report`, `facts`, `manifest`, `checker`
+   and `goanalysis`. **`capslockadapter` and `cli` are excluded** — neither has a
+   `go_component` target, so neither has a generated manifest to compare against.
+   One root cause: capslock's closure contains `golang.org/x/sys/unix` built with
+   cgo, the rule fails closed on cgo closures, and `cli`'s `main.go` imports
+   `capslockadapter` and so inherits it. Both keep native coverage via
+   `just selfcheck`.
 2. Home it at `//go/cmd/arcc/app`, arcc's composition root, mirroring csvtool's
    choice to home its test at the composition root that pulls in every
    component. Name the target `self_manifest_parity_test` so gazelle's
@@ -75,7 +78,7 @@ both tests share, rather than growing a second dialect.
    convention from an accident.
 7. Key generated and checked-in manifests together robustly. The csvtool test
    keys on the parent directory basename; verify that still discriminates for
-   the arcc set (`cmd/arcc` versus the seven `internal/*` directories) and, if
+   the arcc set (the six bazelified `internal/*` components) and, if
    it does not, key on something that does rather than renaming components.
 8. The test must fail on a real divergence. Prove it during development by
    temporarily perturbing one checked-in manifest (an added absorbed path, a
@@ -87,7 +90,7 @@ both tests share, rather than growing a second dialect.
     Bazel rules or the `justfile`.
 
 ## Dependencies
-- Tasks 1–3 of this step provide all eight `go_component` targets, their
+- Tasks 1–2 of this step provide the six `go_component` targets, their
   `exports_files(["component.textproto"])` declarations, and the migrated
   checked-in manifests.
 - `task-05-self-check-dependency-regression` is independent of this task.
@@ -98,7 +101,7 @@ both tests share, rather than growing a second dialect.
    confirm `bazel test //go/examples/csvtool/...` is still green before adding
    anything new.
 2. Add `go/cmd/arcc/app/self_manifest_parity_test.go` as a second thin driver
-   and wire its `go_test` target's `args` and `data` for the eight components.
+   and wire its `go_test` target's `args` and `data` for the six components.
 3. Run it, and expect the first run to disagree somewhere — the point of the
    test. Resolve each disagreement by correcting whichever side is wrong, not by
    widening the normalization; widening is warranted only where the two forms
@@ -109,13 +112,14 @@ both tests share, rather than growing a second dialect.
 
 ## Acceptance Criteria
 
-1. **All seven bazelified components are covered**
+1. **All six bazelified components are covered**
    - Given the new parity test target
    - When it runs under Bazel
    - Then it compares a generated and a checked-in manifest for each of the
-     seven components with `go_component` targets, and fails if any of them has no
-     counterpart. `capslockadapter` is absent by design and its absence is
-     explained in a comment, so a later reader does not read it as an oversight.
+     six components with `go_component` targets, and fails if any of them has no
+     counterpart. `capslockadapter` and `cli` are absent by design and their
+     absence is explained in a comment naming the shared cgo root cause, so a later
+     reader does not read it as an oversight.
 
 2. **One comparison, two callers**
    - Given the csvtool and self parity tests
