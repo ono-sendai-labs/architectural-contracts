@@ -1,8 +1,20 @@
+load(
+    "@rules_arcc//bazel_rules/go:defs.bzl",
+    "READ_SYSTEM_STATE",
+    "REFLECT",
+    "RUNTIME",
+    "SYSTEM_CALLS",
+    "UNSAFE_POINTER",
+    "go_component",
+)
 load("@rules_go//go:def.bzl", "go_library", "go_test")
 
 # keep: //bazel_rules/tests:authority_sync_test reads KnownCapabilities out of
 # the source to compare it with the Starlark authority taxonomy.
-exports_files(["manifest.go"])
+exports_files([
+    "manifest.go",
+    "component.textproto",
+])
 
 go_library(
     name = "manifest",
@@ -25,4 +37,27 @@ go_test(
     # `just ci`'s `go test ./...`; `manual` keeps it out of `bazel test //...`.
     tags = ["manual"],
     deps = [":manifest"],
+)
+
+# Mirrors the checked-in manifest/component.textproto. Under the declared-membership
+# model, the generated protobuf package gen is a declared member rather than an
+# interface file because manifest.go is the sole interface library while gen is a
+# separate internal Go package.
+go_component(
+    name = "manifest_component",
+    absorbed_deps = [
+        "@org_golang_google_protobuf//encoding/prototext",
+        "@org_golang_google_protobuf//reflect/protoreflect",
+        "@org_golang_google_protobuf//runtime/protoimpl",
+    ],
+    declared_authority = [
+        READ_SYSTEM_STATE,
+        REFLECT,
+        RUNTIME,
+        SYSTEM_CALLS,
+        UNSAFE_POINTER,
+    ],
+    interface = ":manifest",
+    members = ["//go/internal/manifest/gen"],
+    visibility = ["//go:__subpackages__"],
 )

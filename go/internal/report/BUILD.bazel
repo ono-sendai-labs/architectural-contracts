@@ -1,3 +1,4 @@
+load("@rules_arcc//bazel_rules/go:defs.bzl", "go_component")
 load("@rules_go//go:def.bzl", "go_library", "go_test")
 
 go_library(
@@ -13,3 +14,12 @@ go_test(
     srcs = ["report_test.go"],
     deps = [":report"],
 )
+
+# Mirrors the checked-in report/component.textproto.
+go_component(
+    name = "report_component",
+    interface = ":report",
+    visibility = ["//go:__subpackages__"],
+)
+
+exports_files(["component.textproto"])

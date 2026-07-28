@@ -1,6 +1,7 @@
 name: "manifest"
 interface_files: "manifest.go"
-interface_files: "gen/component.pb.go"
+members: "github.com/ono-sendai-labs/architectural-contracts/go/internal/manifest"
+members: "github.com/ono-sendai-labs/architectural-contracts/go/internal/manifest/gen"
 absorbed_dependencies {
   import_path: "google.golang.org/protobuf/encoding/prototext"
   reason: "protobuf parsing"

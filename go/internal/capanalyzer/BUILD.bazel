@@ -1,3 +1,4 @@
+load("@rules_arcc//bazel_rules/go:defs.bzl", "go_component")
 load("@rules_go//go:def.bzl", "go_library", "go_test")
 
 go_library(
@@ -13,3 +14,12 @@ go_test(
     srcs = ["capanalyzer_test.go"],
     deps = [":capanalyzer"],
 )
+
+# Mirrors the checked-in capanalyzer/component.textproto.
+go_component(
+    name = "capanalyzer_component",
+    interface = ":capanalyzer",
+    visibility = ["//go:__subpackages__"],
+)
+
+exports_files(["component.textproto"])

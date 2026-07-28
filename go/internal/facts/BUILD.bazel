@@ -1,3 +1,4 @@
+load("@rules_arcc//bazel_rules/go:defs.bzl", "go_component")
 load("@rules_go//go:def.bzl", "go_library", "go_test")
 
 go_library(
@@ -21,3 +22,16 @@ go_test(
         "//go/internal/manifest",
     ],
 )
+
+# Mirrors the checked-in facts/component.textproto.
+go_component(
+    name = "facts_component",
+    component_deps = [
+        "//go/internal/capanalyzer:capanalyzer_component",
+        "//go/internal/manifest:manifest_component",
+    ],
+    interface = ":facts",
+    visibility = ["//go:__subpackages__"],
+)
+
+exports_files(["component.textproto"])

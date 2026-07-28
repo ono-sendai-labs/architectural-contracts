@@ -4,7 +4,7 @@ go_library(
     name = "gen",
     srcs = ["component.pb.go"],
     importpath = "github.com/ono-sendai-labs/architectural-contracts/go/internal/manifest/gen",
-    visibility = ["//go:__subpackages__"],
+    visibility = ["//visibility:public"],
     deps = [
         "@org_golang_google_protobuf//reflect/protoreflect",
         "@org_golang_google_protobuf//runtime/protoimpl",

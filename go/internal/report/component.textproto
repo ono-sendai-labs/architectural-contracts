@@ -1,2 +1,3 @@
 name: "report"
 interface_files: "report.go"
+members: "github.com/ono-sendai-labs/architectural-contracts/go/internal/report"
