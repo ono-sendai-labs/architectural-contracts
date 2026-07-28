@@ -18,11 +18,9 @@ load(
     "GO_PROVIDERS",
     "GO_TOOLCHAINS",
     "forward_go_providers",
-    "go_attach_infra",
+    "go_attached_infra",
     "go_build_platform",
     "go_importpath",
-    "go_infra_components",
-    "go_infra_deps",
     "go_library_srcs",
     "go_sdk_root",
 )
@@ -195,49 +193,20 @@ def _go_component_impl(ctx):
 
     roots = ([ctx.attr.interface] if ctx.attr.interface else []) + ctx.attr.members
 
-    infra_registry = go_infra_components(ctx)
+    attached_infra = go_attached_infra(ctx, roots, ctx.attr.infra_deps)
     auto_attached_deps = []
     auto_attached_targets = []
     auto_attached_patterns = []
 
-    for dep in ctx.attr.infra_deps:
-        info = dep[ArccComponentInfo]
-        if info.component_name == ctx.label.name:
+    for item in attached_infra:
+        info = item.info
+        if info.component_name in authored_dep_names:
             continue
 
-        entry = None
-        for reg in infra_registry:
-            reg_comp = getattr(reg, "component", None)
-            if reg_comp != None:
-                if str(reg_comp) == str(dep.label) or (hasattr(reg_comp, "name") and reg_comp == dep.label):
-                    entry = reg
-                    break
-            if getattr(reg, "name", None) == info.component_name:
-                entry = reg
-                break
-
-        if entry == None:
-            entry = struct(
-                name = info.component_name,
-                component = str(dep.label),
-                import_path_patterns = [],
-            )
-
-        attach_fn = getattr(entry, "attach_predicate", None)
-        if attach_fn != None:
-            should_attach = attach_fn(roots, entry)
-        else:
-            should_attach = go_attach_infra(roots, entry)
-
-        if should_attach:
-            if info.component_name in authored_dep_names:
-                continue
-
-            auto_attached_deps.append(info)
-            auto_attached_targets.append(dep)
-            patterns = getattr(entry, "import_path_patterns", [])
-            for p in patterns:
-                auto_attached_patterns.append((p, info.component_name))
+        auto_attached_deps.append(info)
+        auto_attached_targets.append(item.target)
+        for p in item.patterns:
+            auto_attached_patterns.append((p, info.component_name))
 
     covered = {}
     for dep in ctx.attr.component_deps:

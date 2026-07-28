@@ -157,6 +157,58 @@ def go_infra_components(ctx = None):
         return ctx.attr.infra_components
     return INFRA_COMPONENTS
 
+def go_attached_infra(ctx, roots, infra_deps):
+    """Evaluates INFRA_COMPONENTS attachment against component roots.
+
+    Returns a list of generic attached component records:
+        struct(
+            target = dep,
+            info = dep[ArccComponentInfo],
+            patterns = list_of_import_path_patterns,
+        )
+    """
+    registry = go_infra_components(ctx)
+    attached = []
+
+    for dep in infra_deps:
+        info = dep[ArccComponentInfo]
+        if ctx != None and info.component_name == ctx.label.name:
+            continue
+
+        entry = None
+        for reg in registry:
+            reg_comp = getattr(reg, "component", None)
+            if reg_comp != None:
+                if str(reg_comp) == str(dep.label) or (hasattr(reg_comp, "name") and reg_comp == dep.label):
+                    entry = reg
+                    break
+            if getattr(reg, "name", None) == info.component_name:
+                entry = reg
+                break
+
+        if entry == None:
+            entry = struct(
+                name = info.component_name,
+                component = str(dep.label),
+                import_path_patterns = [],
+            )
+
+        attach_fn = getattr(entry, "attach_predicate", None)
+        if attach_fn != None:
+            should_attach = attach_fn(roots, entry)
+        else:
+            should_attach = go_attach_infra(roots, entry)
+
+        if should_attach:
+            patterns = getattr(entry, "import_path_patterns", [])
+            attached.append(struct(
+                target = dep,
+                info = info,
+                patterns = patterns,
+            ))
+
+    return attached
+
 def go_library_srcs(target):
     """The compiled, build-constraint-filtered sources of a Go library target.
 
