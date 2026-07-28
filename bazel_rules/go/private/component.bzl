@@ -59,9 +59,7 @@ def _package_name(importpath):
 
     # Module major-version suffixes are not part of the package name.
     if len(segments) > 1 and last.startswith("v") and last[1:].isdigit():
-        last = segments[-2]
-    if last.startswith("go-") and len(last) > 3:
-        return last[3:]
+        return segments[-2]
     return last
 
 def _textproto_string(value):
