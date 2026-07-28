@@ -91,11 +91,20 @@ Consolidated from `idea-honing.md` and the rough idea.
     in interface files. They **do** enter the boundary/prune **symbol set**,
     because the call graph (VTA) resolves dynamic dispatch to concrete methods
     (review A1).
-  - **(c) Inits.** Package **`init` functions are implicitly part of the
-    interface** (importing a package runs its init). Any explicit `func init()`
-    in a component's packages must be declared in an interface file; otherwise →
-    `INIT_OUTSIDE_INTERFACE` violation (review A2). Rule (a) is the
-    method-shaped mirror of this rule.
+  - **(c) Inits — rule retired 2026-07-27.** This rule required any explicit
+    `func init()` in a component's packages to be declared in an interface file
+    (violation kind `INIT_OUTSIDE_INTERFACE`, review A2), on the grounds that
+    importing a package runs its init, so init behavior is *de facto* exposed.
+    It was **removed** by the component-membership and authority-attribution
+    design (`.agents/planning/2026-07-25-component-membership-and-authority/`,
+    A2), and the kind no longer exists. Its soundness job — stopping a
+    dependency's import-time authority from re-absorbing with no prune point —
+    was always done by the *other* half of review A2, the `func <pkg>.init
+    CAPABILITY_SAFE` prune key, which is untouched (FR5b below). What remained
+    was a documentation job, and ownership-based attribution does that better:
+    member packages are analysis roots, so an init's authority is charged to the
+    component whatever file it sits in. Rule (a) is what survives; it no longer
+    mirrors anything.
 
   A symbol that is Go-exported but not declared in an interface file is
   **architecture-private**: it may be used for cross-package composition *within*
@@ -487,12 +496,15 @@ guarantee the interface is *fully visible in the interface files* (FR4):
   different file than their type). Keeping implementation detail out of
   interface files then means interface-file methods delegate to
   architecture-private functions — a little awkward, but the best Go allows.
-- **Explicit `init` rule (review A2):** an explicit `func init()` declared in a
-  non-interface file → `INIT_OUTSIDE_INTERFACE` violation. Importing a package
-  runs its inits, so init behavior is *de facto* part of the component's exposed
-  interface; the manifest should make that visible rather than implicit.
-  (Synthetic inits from package-level var initializers are governed by the
-  component's own capability check.)
+- **Explicit `init` rule (review A2) — retired 2026-07-27.** It made an explicit
+  `func init()` declared in a non-interface file an `INIT_OUTSIDE_INTERFACE`
+  violation, on the reasoning that importing a package runs its inits. The rule
+  and its kind were removed by the 2026-07-25 membership/attribution design (A2);
+  see FR4 (c) above for why. The FR5b prune key `func <pkg>.init CAPABILITY_SAFE`
+  — the other half of review A2, and the half that carries the soundness
+  argument — remains in force. Synthetic inits from package-level var
+  initializers were, and still are, governed by the component's own capability
+  check.
 
 For the **boundary/prune symbol set** used by FR5/FR5b (§5.3b), the declared
 interface is augmented with the in-component concrete implementations' method
@@ -738,6 +750,13 @@ type Finding struct {
                          //   INIT_OUTSIDE_INTERFACE | PACKAGE_OVERLAP
                          // warnings:   ANALYSIS_LIMITATION | ALLOWED_WITH_WARNING |
                          //   HIGHER_ORDER_BOUNDARY_CALL | UNUSED_DEPENDENCY
+                         //
+                         // Later changes to this set (2026-07-25 design §5.3):
+                         // INIT_OUTSIDE_INTERFACE and HIGHER_ORDER_BOUNDARY_CALL
+                         // were removed; MEMBER_OVERLAP (violation),
+                         // ABSORBED_FUNC_VALUE_ESCAPE and INTERFACE_FILE_EXCLUDED
+                         // (warnings) were added. PACKAGE_OVERLAP was never
+                         // implemented.
     Message  string
     Location Location    // file:line where relevant
     Evidence []string    // e.g. Capslock example call path frames
@@ -1041,7 +1060,8 @@ Remaining caveats:
   changes should always be visible as edits to the declared interface files
   (e.g. for a presubmit). Revised: methods of interface-file types declared
   outside interface files are a **violation** (`METHOD_OUTSIDE_INTERFACE`),
-  mirroring the explicit-init rule — multiple interface files (`types.go` +
+  mirroring the explicit-init rule as it then stood (that rule has since been
+  retired — FR4 (c)) — multiple interface files (`types.go` +
   `api.go`) keep this idiomatic. A1's VTA concern survives only where it must:
   concrete implementations of interface-file *interface types* are exempt
   (contract-bound by their interface) and are added to the boundary/prune

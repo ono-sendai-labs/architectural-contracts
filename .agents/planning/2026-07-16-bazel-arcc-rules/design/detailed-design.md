@@ -1,6 +1,17 @@
 # Detailed Design: arcc as a Bazel Rule (`go_component`)
 
-Status: draft for review — 2026-07-16; revised hermetic-only — 2026-07-20.
+Status: draft for review — 2026-07-16; revised hermetic-only — 2026-07-20; revised
+for declared membership — 2026-07-27.
+
+**Partly superseded by**
+`.agents/planning/2026-07-25-component-membership-and-authority/design/detailed-design.md`,
+which replaced closure-derived membership with a **declared** `members` list in
+the manifest. The sections that stated the older model — **R4**, **§5.1**'s
+"membership is not encoded in the manifest" and **§5.3**'s classification order —
+have been rewritten here to describe what the rules now do, rather than left
+standing with a note. Everything else in this document (the aspect, the
+self-exec `GOPACKAGESDRIVER` seam, the runfiles-relative path frame, the
+provider graph, the check test) is unchanged and still current.
 
 ## 1. Overview
 
@@ -25,7 +36,7 @@ Consolidated from `../idea-honing.md` (Q1–Q13); three answers were revisited a
 | R1 | Enforcement uses a **hermetic** package-layout loading mode; the `arcc check` runs as a sandboxed, cacheable Bazel test. (Revised from Q1's phased plan — the non-hermetic interim mode is dropped.) | Q1 |
 | R2 | The component rule **references** an existing user-written `go_library` (does not generate libraries). | Q2 |
 | R3 | `interface` takes **exactly one** `go_library`; its entire package is the public surface. The manifest keeps file-level `interface_files` (all srcs of the interface library are emitted); arcc core semantics are unchanged. | Q3, Q13 |
-| R4 | Membership is **explicit**, derived by the rule from the aspect closure and carried in the package layout; directory-based membership (FR1) is superseded under Bazel. (Revised from Q4, which retained directory membership for the dropped interim mode.) | Q4 |
+| R4 | Membership is **declared**. The author lists member `go_library` labels on `go_component`; the rule expands them to import paths, writes them into the manifest's `members` field, and emits the same set as the layout's `roots` (which must match, or arcc fails closed). Directory-based membership (FR1) is **not** superseded — it remains the meaning of a manifest that declares no `members`, which is how every hand-written manifest still works. (Revised twice: from Q4's directory membership, then by the 2026-07-25 membership design, which replaced derived-from-closure membership with a declaration.) | Q4; 2026-07-25 M1–M6 |
 | R5 | Absorbed dependencies: **explicit direct label list, derived transitive**; no per-dep reasons; unaccounted-for dependencies are an analysis-time error. (Revised from Q5's dict-with-reasons; see §7.3.) | Q5 |
 | R6 | `contract` files are Bazel-only metadata (declared inputs, carried in the provider); the manifest schema and FR10 (contracts are doc-comment prose) are untouched. | Q6 |
 | R7 | Enforcement is a test target, factored so the same check action can later be exposed as a validation action. | Q7 |
@@ -170,7 +181,9 @@ ArccPackageInfo = provider(fields = {
 })  # deps = tuple of direct-dependency importpaths
 ```
 
-Per node: `srcs = GoInfo.srcs` (rules_go has already merged embedded libs' sources in), `dir = srcs[0].dirname`, and `deps = sorted(a.data.importpath for a in GoArchive.direct if a.data.importpath != self)` — `GoArchive.direct` already excludes stdlib and the same-importpath embedded lib. This gives analysis-time access to the full closure **with edges**, enabling membership classification (§5.3), the consistency check (§6.1), and package-layout emission (§4.6). Stdlib does not appear in the aspect closure (spike, question B); the layout adds the SDK stdlib separately (§4.6) — stdlib authority remains entirely arcc's concern.
+Per node: `srcs = GoInfo.srcs` (rules_go has already merged embedded libs' sources in), `dir = srcs[0].dirname`, and `deps = sorted(a.data.importpath for a in GoArchive.direct if a.data.importpath != self)` — `GoArchive.direct` already excludes stdlib and the same-importpath embedded lib. This gives analysis-time access to the full closure **with edges**, enabling membership classification (§5.3), the consistency check (§6.1), and package-layout emission (§4.6).
+
+**`GoInfo.srcs` is the *declared* source set, not the compiled one.** It lists every `_GOOS.go` / `_GOARCH.go` variant and every constraint-guarded file of the library, because in rules_go the *compiler*, not the provider, applies build constraints. The aspect therefore carries files that the target platform excludes, and the layout it feeds names them too. That is deliberate and safe only because the **loader filters**: arcc's `packagelayout` drops constraint-excluded files against the platform the layout declares (§4.6, §5.4) before type-checking, the way the go tool does when it reads a package directory. Type-checking a wrong-platform file makes the package `IllTyped` and silently degrades the whole analysis, so this filtering is load-bearing rather than tidy-up. A host whose Go rules *do* expose the per-platform compiled subset may pre-filter; the loader's pass is then a no-op (`go_target_info`'s contract in `bazel_rules/go/private/go_adapter.bzl`). This is also why the platform is declared data (2026-07-25 T1/T2) rather than whatever platform the arcc binary happened to be built for. Stdlib does not appear in the aspect closure (spike, question B); the layout adds the SDK stdlib separately (§4.6) — stdlib authority remains entirely arcc's concern.
 
 **`embed` handling (the one non-obvious correctness rule; validated in `../research/spike-aspect-findings.md`).** The aspect must traverse `embed`, because an embed-only transitive dependency is otherwise never visited and its sources would be missing from the layout. But traversing `embed` also visits the embedded library as its own node carrying the **same import path** as its embedder. The rule therefore folds nodes **by import path**, unioning srcs and deps — a naïve last-write-wins map is an order-dependent bug. The union is safe because rules_go makes the embedder's `GoInfo.srcs`/`GoArchive.direct` a superset of the embedded lib's. Non-Go and no-importpath (`main`) nodes are guarded out; every projection is `sorted()` for deterministic, cache-stable output.
 
@@ -179,9 +192,9 @@ Per node: `srcs = GoInfo.srcs` (rules_go has already merged embedded libs' sourc
 Implementation steps (all at analysis time; the actions are two `ctx.actions.write`s — manifest and layout):
 
 1. **Component root** := the directory of the BUILD package that declares the `go_component` target (`ctx.label.package`). With explicit membership this is only the manifest's logical home and the anchor for the component-dependency disjointness check (no component dep's root may be under it, mirroring arcc's existing rule); it is **not** a membership boundary. Violations are analysis-time errors.
-2. **Membership classification** (§5.3) over the aspect-collected closure; run the **consistency check** (§6.1).
-3. **Manifest generation:** write `name.component.textproto` (schema §5.1); `component_dependencies.manifest` entries point at dep components' *generated* manifests, path-relativized against this manifest's output directory (both live in the same output tree, so relative paths are well-defined).
-4. **Layout generation:** write `name.package-layout.json` (§5.4) enumerating every package in the closure (importpath, srcs, direct deps) and marking the component's member packages as the load roots, plus the Go SDK stdlib source root (from the rules_go toolchain). All paths are runfiles-root-relative (§5.4).
+2. **Membership classification** (§5.3) over the FR2 frontier of the interface and declared members; run the **analysis-time checks** (§6.1).
+3. **Manifest generation:** write `name.component.textproto` (schema §5.1), including the expanded `members` list; `component_dependencies.manifest` entries point at dep components' *generated* manifests, path-relativized against this manifest's output directory (both live in the same output tree, so relative paths are well-defined).
+4. **Layout generation:** write `name.package-layout.json` (§5.4) enumerating every package in the closure (importpath, srcs, direct deps) and marking the component's member packages as the load roots — the same set the manifest's `members` carries — plus the Go SDK stdlib source root (from the rules_go toolchain) and the declared build platform. All paths are runfiles-root-relative (§5.4).
 5. **Providers returned:** `ArccComponentInfo` (§5.2), the interface library's `GoInfo` and `GoArchive` verbatim (R9), and `DefaultInfo(files = [manifest, layout])`.
 
 ### 4.5 `_arcc_check_test`
@@ -205,22 +218,23 @@ arcc gains one new loading mode (additive; colocated non-Bazel manifests keep wo
 - **CLI:** `arcc check <manifest> --package-layout=<layout.json>`.
 - **Self-exec `GOPACKAGESDRIVER`:** when `--package-layout` is set, arcc points `GOPACKAGESDRIVER` at the arcc binary itself and a driver subcommand answers `go/packages` queries from the layout file. `goanalysis` and `capslockadapter` keep calling `packages.Load` unchanged — `go/packages` parses and type-checks from source in-process once the driver supplies file lists and the import graph. This is the least-invasive path through arcc's architecture (§7.2) and doubles as a general non-`go list` entry point for other build systems.
 - **Path resolution:** under `--package-layout`, `interface_files` and all package srcs are resolved against arcc's own working directory via the layout (not relative to the manifest's own directory), so the manifest need not be colocated with sources. Which directory that is, and hence what the paths mean, is the emitter's choice; §5.4 fixes it for the Bazel rules.
-- **Explicit membership:** the layout's designated load roots are the component's member packages, replacing directory-derivation under Bazel (R4).
+- **Declared membership:** the layout's load roots are the component's member packages, and they must equal the manifest's `members` — the loader compares the two and fails closed on a mismatch (R4). Under Bazel both are written by the same rule from the same list, so they agree by construction; the check exists to catch a hand-edited or foreign-emitter layout.
+- **Constraint filtering against the declared platform:** the loader drops sources the layout's `platform` block excludes before type-checking (§4.3), and errors when that leaves a package with no Go sources at all. Absent a platform block it falls back to `build.Default`, which is what hand-written layouts and the native path get.
 
 Constraints surfaced and validated by the driver spike (`../research/spike-driver-findings.md`), load-bearing for the layout emission:
 
 1. **The driver must serve the `"std"` meta-pattern.** Capslock issues its own `packages.Load(nil, "std")` deep in analysis, so the driver must resolve `"std"` to the full standard library, not only the closure's imports. The driver enumerates that set itself from `go_sdk_root` rather than having it emitted into the layout (§5.4, "Standard-library edges"; plan Step 5a).
 2. **Stdlib source is read at check time from the SDK's `GOROOT/src`,** declared as a rules_go toolchain input; hermetically satisfiable, but it must be wired into the check's inputs. Concretely: `sdk.srcs` (the `GOROOT/src` `File`s) as declared inputs, and `go_sdk_root = sdk.root_file.dirname + "/src"` in the layout.
-3. **cgo is the hermeticity risk.** cgo packages' `CompiledGoFiles` are preprocessed sources that `go list` leaves in the build cache; the layout emission must obtain them as declared Bazel outputs (rules_go produces them) rather than referencing the cache. Pure-Go closures are unaffected.
+3. **cgo is the hermeticity risk.** cgo packages' `CompiledGoFiles` are preprocessed sources that do not exist at analysis time (`go list` leaves them in the build cache). **Resolved by refusing them, not by obtaining them:** the rule `fail()`s when any package in the closure is built with cgo, rather than emitting a layout naming files that will not be there. Pure-Go closures are unaffected, and native mode is unaffected because the go tool preprocesses cgo before `go/packages` sees it. The cost is that a component whose closure contains a cgo package cannot be checked under Bazel at all — see §6.1 and the limitation recorded in the README.
 
 ## 5. Data Models
 
 ### 5.1 Manifest schema
 
-No proto change is required for the hermetic mode; the existing `Component` message (`name`, `interface_files`, `component_dependencies`, `absorbed_dependencies`, `declared_authority`) is emitted as today. The differences are semantic, not schematic:
+The hermetic mode itself required no proto change, and the fields this design emits (`name`, `interface_files`, `component_dependencies`, `absorbed_dependencies`, `declared_authority`) are unchanged. The 2026-07-25 membership design then added `members`, `interface_style`, `own_check_runs`, `certification_reference` and `ComponentDependency.auto_attached`; of these the rule emits `members`, `interface_style` and `auto_attached`. The remaining differences under `--package-layout` are semantic, not schematic:
 
 - `interface_files` are resolved via the layout, in the layout's path frame (§4.6, §5.4), rather than relative to the manifest's directory. arcc is a pre-deployment PoC with no compatibility constraints, so this generalization needs no versioning gymnastics; colocated non-Bazel manifests keep their existing directory-relative semantics when `--package-layout` is absent.
-- Membership is not encoded in the manifest — it is the layout's load roots (§5.4). The manifest remains the human-facing contract (interface, dependencies, declared authority); the layout is the machine-facing load graph.
+- **Membership *is* encoded in the manifest** (reversing this section's earlier statement). The rule writes the expanded member import paths into `members`, and the layout's `roots` carry the same set; a mismatch is a load error. The manifest stays the human-facing contract and is now complete enough to be read on its own — which is the point of the reversal: with membership living only in the layout, the reviewable artifact did not say what the component was responsible for, and the answer moved whenever a `component_dep` was edited. The layout remains the machine-facing load graph.
 
 `absorbed_dependencies` continue to carry the (already `optional`) `reason` field in the proto, but the rule never populates it (R5): absorbed deps are an implementation detail the component takes responsibility for and need not justify to consumers.
 
@@ -241,21 +255,27 @@ ArccComponentInfo = provider(fields = {
 
 ### 5.3 Membership classification (analysis time)
 
-For each package `P` in the interface library's closure (from the aspect), classified in this order:
+Membership is **declared**, so classification no longer decides who the members are — the author already did, in `members` (plus the interface package, which is a member implicitly). What classification decides is what to say about everything a member *touches*.
 
-1. **Component-dep-covered:** `P` is in some `component_deps[i].closure` → excluded from this component; the dep covers it.
-2. **Absorbed:** `P` is a listed `absorbed_deps` label, or in the closure of one → emitted as `absorbed_dependencies` (no reason recorded, R5).
-3. **Member:** otherwise `P` is a member of this component (explicit — the aspect closure minus coverage and absorption); emitted as a load root in the layout.
+**The domain is the FR2 frontier, not the whole closure.** `_classify` iterates the declared members and the packages **directly imported** by a member or by the interface package. Packages deeper in the closure are **layout-only**: they appear in the layout's `packages` so the analysis type-checks, and they get no classification and no `absorbed_dependencies` entry. Classifying the whole closure instead makes the emitter declare packages no checker rule ever consults, and the checker then correctly reports each as `UNUSED_DEPENDENCY` — observed concretely when arcc's own `manifest` component emitted 27 absorbed entries where its frontier has 3 (2026-07-25 design §3.1).
 
-Diamond rule: coverage (1) wins over absorption (2); explicitly absorbing a package already covered by a listed component dep is an analysis-time error (conflicting declaration). A package covered by two component deps is fine.
+Each frontier package `P` is classified in this order:
 
-Note the ordering change from the earlier directory-based scheme: with explicit membership there is no "member vs. absorbed by directory" test and no "unaccounted" fall-through by geography — every closure package is covered, absorbed, or a member by construction. The one remaining analysis-time error is the diamond conflict (§6.1).
+1. **Component-dep-covered:** `P` is in some `component_deps[i].closure`, or in the closure of an auto-attached infra component, or matches an infra component's import-path pattern → excluded from this component; the dep covers it.
+2. **Member:** `P` is a declared member (or the interface package, or matches a `PACKAGE_SURFACE` component's membership pattern) → emitted into the manifest's `members` and as a layout `root`.
+3. **Absorbed:** `P` is a listed `absorbed_deps` label or in the closure of one → emitted as `absorbed_dependencies` (no reason recorded, R5).
+4. **Unclassified:** none of the above. The rule emits nothing for `P`, and the omission is caught at **check** time: the member that imports it has no covering declaration, so `arcc check` reports `UNDECLARED_DEPENDENCY` naming the package. This is deliberate — the existing FR2 rule already says exactly this, so no new analysis-time error and no new checker rule is needed.
+
+Note the ordering change: **member now precedes absorbed**, where the earlier derived scheme put member last as the fall-through. With membership declared, "member" is the strongest statement available about a package and must win; the fall-through position is now the error case instead.
+
+Analysis-time errors are declaration conflicts, not gaps (§6.1): absorbing a package a component dep already covers, declaring a member that a component dep covers or that is also an `absorbed_deps` label, an interface package that is covered or absorbed, and a `members` label with no import path. A package covered by two component deps is still fine.
 
 ### 5.4 Package layout JSON
 
 ```json
 {
   "go_sdk_root": "rules_go++go_sdk+main___download_0_linux_amd64/src",
+  "platform": {"goos": "linux", "goarch": "amd64", "build_tags": [], "cgo_enabled": false},
   "roots": ["example.com/svc"],
   "packages": [
     {
@@ -264,11 +284,13 @@ Note the ordering change from the earlier directory-based scheme: with explicit 
       "PkgPath": "example.com/svc",
       "GoFiles": ["_main/svc/api.go"],
       "CompiledGoFiles": ["_main/svc/api.go"],
-      "Imports": {"example.com/svc/internal": "example.com/svc/internal"}
+      "is_stdlib": false
     }
   ]
 }
 ```
+
+`platform` and the per-package `is_stdlib` bit were added by the 2026-07-25 design (T1, T4/T4a) and are documented for emitter authors in [`docs/package-layout-schema.md`](../../../../docs/package-layout-schema.md), including the rule that `is_stdlib` must record build-graph provenance rather than a re-implemented path heuristic, and the two conforming shapes for declared `Imports`. The rules_go emitter uses the second shape: it omits `Imports` entirely and lets the loader recover edges from the surviving sources, because `GoInfo.srcs` is the unfiltered declared set (§4.3).
 
 The per-package encoding is `go/packages`' own driver "flat" form (`packages.Package`'s JSON), settled where Step 1 and Step 4 met: arcc parses the layout straight into `[]*packages.Package`, so the schema is whatever that type marshals. Package IDs are import paths — the closure is folded by import path, so they are unique — which is why every `Imports` value equals its key. `CompiledGoFiles` differs from `GoFiles` only for cgo packages, which the rule currently refuses (§4.6, finding 3).
 
@@ -286,7 +308,7 @@ The set to reproduce is what `go list std` reports, which **includes `$GOROOT/sr
 
 The alternative — a Bazel action running the SDK's `go list -deps -json std` once per SDK, merged into every component layout — is equally hermetic but costs ~500 KB per layout and a merge tool, and would have to be rebuilt for each new build system. Rejected on that basis.
 
-`roots` are the component's member packages (§5.3) and are what scopes the check; `packages` is the **whole** aspect closure, covered packages included, because a member cannot be type-checked without the sources of what it imports, whoever else covers them. The driver serves both exact-importpath queries and the `"std"` meta-pattern (§4.6, finding 1); `go_sdk_root` supplies the stdlib source tree. The `packages` come from the `_arcc_deps` aspect (§4.3); the stdlib source and `go_sdk_root` come from the rules_go toolchain's `sdk.srcs` and `sdk.root_file` (the stdlib *set* is no longer emitted from `sdk.package_list`: arcc enumerates it, per the resolution above) (`../research/spike-aspect-findings.md`, finding 4). Producer emission is validated in `../research/spike-aspect/`; the consumer-side round-trip through `go/packages`' own driver JSON form in `../research/spike-driver/`; the exact wire encoding is finalized where the two meet (the arcc loading-mode implementation).
+`roots` are the component's member packages (§5.3), equal to the manifest's `members`, and are what scopes the check; `packages` is the **whole** aspect closure, covered packages included, because a member cannot be type-checked without the sources of what it imports, whoever else covers them. The driver serves both exact-importpath queries and the `"std"` meta-pattern (§4.6, finding 1); `go_sdk_root` supplies the stdlib source tree. The `packages` come from the `_arcc_deps` aspect (§4.3); the stdlib source and `go_sdk_root` come from the rules_go toolchain's `sdk.srcs` and `sdk.root_file` (the stdlib *set* is no longer emitted from `sdk.package_list`: arcc enumerates it, per the resolution above) (`../research/spike-aspect-findings.md`, finding 4). Producer emission is validated in `../research/spike-aspect/`; the consumer-side round-trip through `go/packages`' own driver JSON form in `../research/spike-driver/`; the exact wire encoding is finalized where the two meet (the arcc loading-mode implementation).
 
 ### 5.5 `authority.bzl`
 
@@ -298,12 +320,17 @@ One string constant per capability in arcc's known set (`FILES`, `NETWORK`, `REA
 
 | Condition | Message sketch |
 |---|---|
-| Component roots nested | `component "svc": component_dep "other" has root path/to/svc/other, nested inside this component's root.` |
-| Absorb/covered conflict (§5.3 diamond rule) | `component "svc": //third_party/x is already covered by component_dep "other"; remove it from absorbed_deps.` |
+| Absorb/covered conflict (§5.3) | `component "svc": //third_party/x is already covered by component_dep "other"; remove it from absorbed_deps.` |
+| Declared member covered by a component dep | `component "svc": member //x is already covered by component_dep "other"` |
+| Declared member also an `absorbed_deps` label | `component "svc": member //x is also listed in absorbed_deps (//x)` |
+| Interface package covered or absorbed | `component "svc": its own interface package example.com/svc is covered by component_dep "other"` |
+| `members` label with no import path | `component "svc": member //x has no importpath` |
+| cgo anywhere in the closure | `component "svc": package golang.org/x/sys/unix is built with cgo, whose preprocessed sources are not available at analysis time` |
+| Shape rule for `interface_style` | `interface` missing under the declared style, or supplied (or `members` empty) under `PACKAGE_SURFACE` |
 | Unknown authority string | `unknown declared_authority "FILE"; known: FILES, NETWORK, ...` (unreachable when constants are used) |
 | `interface` target lacks `GoInfo` | standard Bazel providers error via `attr.label(providers = [GoInfo, GoArchive])` |
 
-(The earlier "unaccounted dependency" and "member outside component root" errors are gone: explicit membership makes every closure package a member by construction unless covered or absorbed.)
+Two entries from the earlier draft are gone. "Unaccounted dependency" and "member outside component root" were artifacts of derived membership; an unclassified frontier package is now an `UNDECLARED_DEPENDENCY` at check time (§5.3, case 4). The **nested component roots** check went with them: it read `ArccComponentInfo.component_root`, which a `PACKAGE_SURFACE` component does not meaningfully have, and directory nesting stopped meaning anything once members may live anywhere. The constraint it was standing in for — a member may not also be covered or absorbed — is now stated over package sets by the rows above and by the checker's `MEMBER_OVERLAP`.
 
 ### 6.2 Check-time errors (in `bazel test`)
 
@@ -317,8 +344,8 @@ Manifest and layout generation are hermetic and cheap; the check test is a norma
 
 ## 7. Key Decisions and Alternatives
 
-### 7.1 Component root = BUILD package directory (anchor, not boundary)
-With explicit membership, the component root is just the manifest's logical home and the anchor for the component-dependency disjointness check. It no longer constrains where member packages live, which removes the earlier "member outside root" machinery. Alternative (rejected): common-prefix computation over member dirs — unnecessary once membership is explicit.
+### 7.1 Component root = BUILD package directory (label only)
+With declared membership the component root is only the manifest's logical home — where the generated files sit and what `ArccComponentInfo.component_root` reports. It constrains nothing: not where member packages live, and no longer the component-dependency disjointness check either, which was deleted along with the rest of the FR1-era geography (§6.1). Alternative (rejected): common-prefix computation over member dirs — unnecessary once membership is declared.
 
 ### 7.2 Self-exec `GOPACKAGESDRIVER` for hermetic loading
 Keeps `goanalysis`/`capslockadapter` on the unmodified `packages.Load` path; validated end to end (`../research/spike-driver-findings.md`). Alternatives: hand-built `packages.Package` graphs (invasive in arcc), or synthesized module trees in the sandbox (rejected in research: fragile reverse-engineering of module layout).
@@ -342,11 +369,11 @@ Go-specific rules load from `@rules_arcc//bazel_rules/go:defs.bzl`; the language
 
 - **arcc core:** one additive change — the `--package-layout` loading mode: a self-exec driver subcommand in `cli`, and a loading seam in `goanalysis`/`capslockadapter` that is env-var setup only (`packages.Load` calls unchanged) plus workspace-relative path resolution for `interface_files`. The checker/facts/report/capanalyzer components are untouched. No proto change (§5.1).
 - **Repo:** gains `MODULE.bazel`, Gazelle-managed BUILD files under `go/`, and `bazel_rules/`. The `structured-spec-to-code` / `just ci` workflow gains a Bazel leg (guarded).
-- **Self-hosting story:** unchanged (`just selfcheck` keeps using colocated manifests via the existing `go list` path); §8.6 sketches convergence.
+- **Self-hosting story:** `just selfcheck` keeps checking all eight components from their colocated manifests via the `go list` path. The §8.6 dogfood has since landed for **six** of them (`bazel test //...`); `capslockadapter` and `cli` have no Bazel leg because their closures contain a cgo package (§4.6, finding 3). Both legs on the same components is a deliberate cross-check of FR1 membership against declared membership.
 
 ## 10. Adherence to Established Conventions
 
-- FR1 (directory-based membership) retained for colocated non-Bazel manifests; explicitly superseded under Bazel by explicit membership (documented departure, motivated by Bazel's explicit-enumeration model).
+- FR1 (directory-based membership) is retained as the meaning of a manifest with no `members`, which covers every hand-written manifest in both modes. It is not superseded by mode: what supersedes it is a *declaration*, and the Bazel rule always writes one (2026-07-25 M1/M3).
 - FR10 (no contract field in the manifest) upheld — `contract` never reaches the manifest (R6).
 - C9 (root-relative paths): under `--package-layout`, `interface_files` are workspace-relative and layout-resolved; colocated-manifest semantics are unchanged.
 - C12 (dep manifest `name` match) unchanged — the rule emits dep names from `ArccComponentInfo.component_name`, so matches hold by construction.

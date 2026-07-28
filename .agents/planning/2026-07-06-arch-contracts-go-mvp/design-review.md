@@ -62,12 +62,24 @@ exists to prevent, with no prune point.
    (`func encoding/json.init CAPABILITY_SAFE`). Marking the synthetic root
    `init` prunes explicit `init#N` funcs and var initializers alike; B's own
    conformance run covers them (compositional trust).
-2. **Explicitness:** a package's `init` is *implicitly* part of its exposed
-   interface (importing ⇒ running it). Rather than leave that implicit, the
-   checker **requires** any explicit `func init()` in a component's packages
-   to be declared in an interface file — new violation kind
-   `INIT_OUTSIDE_INTERFACE`. (Synthetic inits from var initializers are
-   covered by the component's own capability check.)
+2. **Explicitness — retired 2026-07-27.** This half required any explicit
+   `func init()` in a component's packages to be declared in an interface file,
+   under a new violation kind `INIT_OUTSIDE_INTERFACE`, on the reasoning that a
+   package's `init` is implicitly part of its exposed interface (importing ⇒
+   running it). It was **removed**, kind and all, by the 2026-07-25
+   component-membership and authority-attribution design (its A2). The reason is
+   supersession, not repudiation: once member packages became analysis roots,
+   an init's authority is charged to the component whatever file it sits in, so
+   the rule's only remaining job was documentation — and scoped to the interface
+   package it would have fired in one narrow shape while an equally
+   import-time-live init in a member implementation package went unmentioned.
+   Synthetic inits from var initializers were, and remain, covered by the
+   component's own capability check.
+
+   **Part 1 above is untouched and still load-bearing.** The prune key
+   `func <B-pkg>.init CAPABILITY_SAFE` is what actually prevents a dependency's
+   import-time authority from re-absorbing with no prune point; it is
+   independent of file placement, and removing part 2 does not weaken it.
 
 ### A3. Callbacks across the pruned boundary — "pruning never hides authority" was false as stated
 
@@ -87,7 +99,14 @@ hides real authority" claim was false as stated.
 1. Document the limitation honestly (design §11 rewritten).
 2. The checker emits a **warning** (`HIGHER_ORDER_BOUNDARY_CALL`) when a call
    edge into a pruned interface symbol passes function-typed values
-   (detectable from `go/types` signatures at the call site).
+   (detectable from `go/types` signatures at the call site). **Replaced
+   2026-07-27:** this kind was removed by the 2026-07-25 design (its A5) because
+   its polarity was wrong — it fired on the intentional plugin-struct pattern,
+   where the callback body is the component's own member code and is therefore
+   already attributed, and stayed silent on the case that actually escapes. The
+   replacement, `ABSORBED_FUNC_VALUE_ESCAPE`, warns when member code takes the
+   value of a function defined in an **absorbed** package without calling it —
+   the body nobody analyzes.
 3. **Future-work open question captured** (design Appendix D): functions/
    callbacks passed to higher-order functions are themselves a capability
    (analogous to a file handle); a proper treatment would attribute the
