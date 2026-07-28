@@ -153,18 +153,28 @@ def _layout_content(ctx, merged, roots, go_sdk_root, platform):
     ) + "\n"
 
 def _classify(ctx, merged, effective_members, covered):
-    """Splits the closure into covered, member, absorbed, and unclassified (design §5.3)."""
+    """Splits the FR2 frontier into covered, member, absorbed, and unclassified (design §3.1, §4.8, §5.3)."""
 
     absorbed_closure = {}
     for dep in ctx.attr.absorbed_deps:
         for pkg in dep[ArccPackageInfo].packages.to_list():
             absorbed_closure[pkg.importpath] = True
 
+    frontier = {}
+    for member_path in effective_members:
+        frontier[member_path] = True
+        pkg_struct = merged.get(member_path)
+        if pkg_struct != None:
+            for dep_path in pkg_struct.deps:
+                frontier[dep_path] = True
+
     members = []
     absorbed = []
     unclassified = []
 
-    for importpath in sorted(merged.keys()):
+    for importpath in sorted(frontier.keys()):
+        if importpath not in merged:
+            continue
         if importpath in covered:
             continue
         elif importpath in effective_members:
