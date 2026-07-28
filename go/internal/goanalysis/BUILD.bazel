@@ -1,3 +1,14 @@
+load(
+    "@rules_arcc//bazel_rules/go:defs.bzl",
+    "EXEC",
+    "FILES",
+    "MODIFY_SYSTEM_STATE",
+    "OPERATING_SYSTEM",
+    "READ_SYSTEM_STATE",
+    "REFLECT",
+    "UNSAFE_POINTER",
+    "go_component",
+)
 load("@rules_go//go:def.bzl", "go_library")
 
 go_library(
@@ -18,3 +29,44 @@ go_library(
         "@org_golang_x_tools//go/ssa/ssautil",
     ],
 )
+
+# Mirrors the checked-in goanalysis/component.textproto: depends on
+# capanalyzer, facts, and manifest components; absorbs //go/internal/hostpolicy
+# (Host-overridable import-path canonicalization and stdlib classification
+# policy), //go/internal/packagelayout (Package layout driver and loading
+# helpers), @org_golang_x_tools//go/callgraph (Callgraph data structures),
+# @org_golang_x_tools//go/callgraph/vta (VTA callgraph construction),
+# @org_golang_x_tools//go/packages (Package loading),
+# @org_golang_x_tools//go/ssa (SSA representation), and
+# @org_golang_x_tools//go/ssa/ssautil (SSA utility helpers); declares 7
+# authorities.
+go_component(
+    name = "goanalysis_component",
+    absorbed_deps = [
+        "//go/internal/hostpolicy",
+        "//go/internal/packagelayout",
+        "@org_golang_x_tools//go/callgraph",
+        "@org_golang_x_tools//go/callgraph/vta",
+        "@org_golang_x_tools//go/packages",
+        "@org_golang_x_tools//go/ssa",
+        "@org_golang_x_tools//go/ssa/ssautil",
+    ],
+    component_deps = [
+        "//go/internal/capanalyzer:capanalyzer_component",
+        "//go/internal/facts:facts_component",
+        "//go/internal/manifest:manifest_component",
+    ],
+    declared_authority = [
+        FILES,
+        EXEC,
+        READ_SYSTEM_STATE,
+        OPERATING_SYSTEM,
+        REFLECT,
+        UNSAFE_POINTER,
+        MODIFY_SYSTEM_STATE,
+    ],
+    interface = ":goanalysis",
+    visibility = ["//go:__subpackages__"],
+)
+
+exports_files(["component.textproto"])

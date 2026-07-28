@@ -1,3 +1,15 @@
+load(
+    "@rules_arcc//bazel_rules/go:defs.bzl",
+    "EXEC",
+    "FILES",
+    "OPERATING_SYSTEM",
+    "READ_SYSTEM_STATE",
+    "REFLECT",
+    "RUNTIME",
+    "SYSTEM_CALLS",
+    "UNSAFE_POINTER",
+    "go_component",
+)
 load("@rules_go//go:def.bzl", "go_library")
 
 go_library(
@@ -13,3 +25,34 @@ go_library(
         "@org_golang_x_tools//go/packages",
     ],
 )
+
+# Mirrors the checked-in capslockadapter/component.textproto: depends on
+# capanalyzer; absorbs github.com/google/capslock/analyzer (Capslock analysis
+# library), github.com/google/capslock/interesting (Capslock classifier
+# loading), //go/internal/packagelayout (Layout-mode unresolved import
+# tolerance), and golang.org/x/tools/go/packages (Gopackages loading); declares 8
+# authorities.
+go_component(
+    name = "capslockadapter_component",
+    absorbed_deps = [
+        "@com_github_google_capslock//analyzer",
+        "@com_github_google_capslock//interesting",
+        "//go/internal/packagelayout",
+        "@org_golang_x_tools//go/packages",
+    ],
+    component_deps = ["//go/internal/capanalyzer:capanalyzer_component"],
+    declared_authority = [
+        FILES,
+        EXEC,
+        READ_SYSTEM_STATE,
+        OPERATING_SYSTEM,
+        REFLECT,
+        RUNTIME,
+        SYSTEM_CALLS,
+        UNSAFE_POINTER,
+    ],
+    interface = ":capslockadapter",
+    visibility = ["//go:__subpackages__"],
+)
+
+exports_files(["component.textproto"])

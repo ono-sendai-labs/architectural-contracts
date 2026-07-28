@@ -1,3 +1,4 @@
+load("@rules_arcc//bazel_rules/go:defs.bzl", "go_component")
 load("@rules_go//go:def.bzl", "go_library", "go_test")
 
 go_library(
@@ -25,3 +26,19 @@ go_test(
         "//go/internal/report",
     ],
 )
+
+# Mirrors the checked-in checker/component.textproto: authority-free and depends
+# on capanalyzer, facts, manifest, and report components.
+go_component(
+    name = "checker_component",
+    component_deps = [
+        "//go/internal/capanalyzer:capanalyzer_component",
+        "//go/internal/facts:facts_component",
+        "//go/internal/manifest:manifest_component",
+        "//go/internal/report:report_component",
+    ],
+    interface = ":checker",
+    visibility = ["//go:__subpackages__"],
+)
+
+exports_files(["component.textproto"])

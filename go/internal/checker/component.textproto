@@ -1,5 +1,6 @@
 name: "checker"
 interface_files: "checker.go"
+members: "github.com/ono-sendai-labs/architectural-contracts/go/internal/checker"
 component_dependencies {
   name: "capanalyzer"
   manifest: "../capanalyzer/component.textproto"
