@@ -44,9 +44,12 @@ both tests share, rather than growing a second dialect.
 **Note:** Read the detailed design document before beginning implementation.
 
 ## Technical Requirements
-1. Add a Bazel-driven parity test covering all eight arcc components:
-   `capanalyzer`, `report`, `facts`, `manifest`, `checker`, `goanalysis`,
-   `capslockadapter` and `cli`.
+1. Add a Bazel-driven parity test covering the **seven** arcc components that have
+   `go_component` targets: `capanalyzer`, `report`, `facts`, `manifest`, `checker`,
+   `goanalysis` and `cli`. **`capslockadapter` is excluded** — it has no
+   `go_component` target, because its closure contains a cgo package the rule fails
+   closed on (see task 02 requirement 9), so there is no generated manifest to
+   compare against. It keeps native coverage via `just selfcheck`.
 2. Home it at `//go/cmd/arcc/app`, arcc's composition root, mirroring csvtool's
    choice to home its test at the composition root that pulls in every
    component. Name the target `self_manifest_parity_test` so gazelle's
@@ -106,11 +109,13 @@ both tests share, rather than growing a second dialect.
 
 ## Acceptance Criteria
 
-1. **All eight components are covered**
+1. **All seven bazelified components are covered**
    - Given the new parity test target
    - When it runs under Bazel
    - Then it compares a generated and a checked-in manifest for each of the
-     eight components and fails if any component has no counterpart.
+     seven components with `go_component` targets, and fails if any of them has no
+     counterpart. `capslockadapter` is absent by design and its absence is
+     explained in a comment, so a later reader does not read it as an oversight.
 
 2. **One comparison, two callers**
    - Given the csvtool and self parity tests

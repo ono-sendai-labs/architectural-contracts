@@ -1,10 +1,12 @@
 # Task: Declare the analysis arcc self-components in Bazel
 
 ## Description
-Declare `go_component` targets for `checker`, `goanalysis` and
-`capslockadapter` — the three components that carry arcc's real absorption and
-authority declarations — and bring their checked-in manifests onto the declared-
-membership model. These are the components whose Bazel `.check` would have
+Declare `go_component` targets for `checker` and `goanalysis`, and bring their
+checked-in manifests onto the declared-membership model.
+
+**`capslockadapter` is deliberately excluded** — see requirement 9. It was in this
+task's original scope; the first attempt escalated on it and the exclusion was
+decided by the user and recorded in the interposed spec commit. These are the components whose Bazel `.check` would have
 caught the `hostpolicy` manifest breakage. `cli` is deliberately not here: it is
 the repo's multi-package case and gets its own task.
 
@@ -77,6 +79,30 @@ what it pulls in.
    why it absorbs what it absorbs — the `reason` text in the checked-in manifest
    is the source for that comment, since the rule emits no reasons.
 8. Do not modify `justfile`, `README.md` or the Bazel rules.
+9. **Do not declare a `go_component` for `capslockadapter`, and do not attempt to
+   make one work.** It absorbs capslock, whose closure contains
+   `golang.org/x/sys/unix` built with cgo, and `component.bzl` fails closed on cgo
+   closures because a cgo package's preprocessed sources do not exist at analysis
+   time. That failure is correct and must not be worked around here.
+
+   In particular, **do not patch the dependency to claim it is not cgo.** The first
+   attempt at this task added
+
+   ```
+   go_deps.module_override(
+       patch_cmds = ["sed -i 's/cgo = True/cgo = False/g' unix/BUILD.bazel"],
+       path = "golang.org/x/sys",
+   )
+   ```
+
+   to `MODULE.bazel`. That buys a green check by falsifying build metadata for a
+   third-party dependency, which is exactly the silent-pass class this batch exists
+   to remove. If your series still contains that override or the related
+   `_package_name` `go-` prefix change, revert both.
+
+   `capslockadapter` keeps its **native** coverage: `just selfcheck` continues to
+   check all eight components, and only the Bazel leg is reduced to seven. The
+   asymmetry is recorded as a known limitation in Step 11.
 
 ## Dependencies
 - `task-01-declare-core-self-components` provides the `capanalyzer`, `report`,

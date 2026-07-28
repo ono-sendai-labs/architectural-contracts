@@ -796,11 +796,27 @@ is unchanged: violations → 1, tool errors → 2.
 - Analysis tests for member classification, the `interface`/`members` shape rule
   under each `interface_style`, and infra attachment happening only when the
   closure contains the runtime (with the injected edge marked `auto_attached`).
-- **The bazelified self-check (B3):** `go_component` targets for arcc's own eight
+- **The bazelified self-check (B3):** `go_component` targets for arcc's own
   components, so `bazel test //...` runs their checks. `cli` (spanning `cmd/arcc`
   and `app`) is the multi-package case that exercises `members`. Follow the
   existing `manifest_parity_test` precedent from the csvtool example so the
   hand-written manifest and the generated one cannot drift.
+
+  **Seven of the eight, not all eight.** `capslockadapter` is excluded: it absorbs
+  capslock, whose closure contains `golang.org/x/sys/unix` built with cgo, and the
+  rule fails closed on cgo closures because a cgo package's preprocessed sources do
+  not exist at analysis time. This is a real limitation of the Bazel path, not of
+  the design — native mode routes around it because the go tool preprocesses cgo
+  before `go/packages` sees it, which is why `just selfcheck` has always covered
+  `capslockadapter` and continues to. The component therefore keeps native
+  coverage and loses only its Bazel leg, and the limitation is documented where a
+  user will find it (§11 doc sync) rather than left as a silent absence.
+
+  Do **not** work around this by making the build claim the package is not cgo. An
+  attempt to do so — a `go_deps.module_override` patching `x/sys` with
+  `sed -i 's/cgo = True/cgo = False/g'` — was rejected during implementation. It
+  buys a green check by falsifying build metadata for a third-party dependency,
+  which is precisely the class of silent-pass this whole batch exists to remove.
 
 ## 8. Integration with Existing System
 

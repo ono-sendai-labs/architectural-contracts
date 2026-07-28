@@ -58,10 +58,12 @@ dependencies to remove one of.
    copy of `checker_component` minus exactly one edge, so that if `checker`'s
    real dependency set changes, the fixture is updated rather than left
    describing a component that no longer exists.
-4. Confirm the two legs cover the same set: the eight `.check` targets that
-   `bazel test //...` runs correspond one-to-one with the eight `arcc check`
-   invocations in the `justfile`'s `selfcheck` recipe. Record that relationship
-   in a comment on the `selfcheck` recipe — it explains why the apparently
+4. Confirm the relationship between the two legs: the **seven** `.check` targets
+   that `bazel test //...` runs correspond one-to-one with seven of the **eight**
+   `arcc check` invocations in the `justfile`'s `selfcheck` recipe. The eighth,
+   `capslockadapter`, is native-only because its closure contains a cgo package the
+   Bazel rule fails closed on (task 02 requirement 9). Record that relationship
+   **and the exception** in a comment on the `selfcheck` recipe — it explains why the apparently
    redundant native leg is kept: native FR1 membership and Bazel declared
    membership checking the same components is a cross-check of the whole
    membership model, not duplicated work.
@@ -118,11 +120,13 @@ dependencies to remove one of.
    - Then the fixture's macro-generated `.check` does not run, the driving
      negative test does, and the eight real self-checks still pass.
 
-4. **Both legs cover the same eight components**
+4. **The two legs' coverage is explained, including where it differs**
    - Given the `justfile`'s `selfcheck` recipe and the Bazel check targets
    - When the two lists are compared
-   - Then they name the same eight components, and the recipe carries a comment
-     explaining why both legs are kept.
+   - Then the seven Bazel `.check` targets correspond one-to-one with seven of the
+     eight `arcc check` invocations; `capslockadapter` appears only in the native
+     leg; and the recipe carries a comment explaining why both legs are kept **and**
+     why `capslockadapter` is native-only.
 
 5. **The demo is reproducible**
    - Given the plan's demo instructions

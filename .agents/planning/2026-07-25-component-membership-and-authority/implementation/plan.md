@@ -511,9 +511,22 @@ environment cannot silently skip it — the exact gap that let the `hostpolicy`
 manifest breakage through.
 
 **Guidance.**
-- `go_component` targets for arcc's own eight components. `cli` spans `cmd/arcc`
-  and its `app` subpackage and is the repo's own multi-package case, so it
-  exercises `members`.
+- `go_component` targets for **seven** of arcc's own eight components. `cli` spans
+  `cmd/arcc` and its `app` subpackage and is the repo's own multi-package case, so
+  it exercises `members`. Note `manifest` is a *second* multi-package case (its
+  `gen` package); both it and `cli` currently declare interface files across
+  package boundaries, which the Bazel model cannot express, so both hand-written
+  manifests migrate.
+- **`capslockadapter` is excluded from the Bazel leg.** It absorbs capslock, whose
+  closure contains `golang.org/x/sys/unix` built with cgo, and the rule fails
+  closed on cgo closures — a cgo package's preprocessed sources do not exist at
+  analysis time. Native mode routes around this because the go tool preprocesses
+  cgo before `go/packages` sees it, so `just selfcheck` keeps covering it and only
+  the Bazel leg is lost. Record it as a known limitation in Step 11. Do **not**
+  patch the dependency to claim it is not cgo: an attempted
+  `go_deps.module_override` running `sed -i 's/cgo = True/cgo = False/g'` over
+  `x/sys` was rejected, because buying a green check by falsifying build metadata
+  is the exact failure mode this batch exists to remove.
 - Follow the existing `manifest_parity_test` precedent from the csvtool example
   so the hand-written manifest and the generated one cannot drift.
 - Keep `just selfcheck` as well: the two paths (native FR1, Bazel declared
@@ -525,9 +538,9 @@ declared dependency from a self-manifest must fail `bazel test`.
 
 **Integration.** Last, so it exercises the finished model.
 
-**Demo.** `bazel test //...` runs all eight self-checks. Delete an
-`absorbed_dependencies` entry and watch it fail — the regression that motivated
-this requirement.
+**Demo.** `bazel test //...` runs seven self-checks, and `just selfcheck` still
+runs all eight. Delete an `absorbed_dependencies` entry and watch the Bazel leg
+fail — the regression that motivated this requirement.
 
 ---
 
@@ -553,6 +566,13 @@ memory.
 - Record Appendix C's eight limitations where a user will find them, not only in
   the planning tree — C.4 especially, since "the component's BUILD file changes when
   the implementation is restructured" is a live cost an author feels.
+- **Add the cgo-closure limitation** discovered in Step 10: a component whose
+  closure contains a cgo package cannot be checked under Bazel, because a cgo
+  package's preprocessed sources do not exist at analysis time. Native mode is
+  unaffected. `capslockadapter` is arcc's own instance, which is why the Bazel
+  self-check covers seven components and `just selfcheck` covers eight. State the
+  asymmetry plainly — a reader who sees seven Bazel checks and eight native ones
+  should find the reason next to the count, not have to infer it.
 - Document the layout schema's `is_stdlib` field with T4a's provenance requirement
   adjacent to it, and the two conforming platform shapes (T8). Both are places where
   the natural implementation is the wrong one, so the doc is load-bearing.
