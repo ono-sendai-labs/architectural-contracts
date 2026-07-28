@@ -33,6 +33,18 @@ gen-is-clean: gen
 run *args:
 	cd {{go_dir}} && go run ./cmd/arcc {{args}}
 
+# Self-check leg relationship:
+# The six Bazel `.check` targets run by `bazel test //...` (in //go/internal/...)
+# correspond one-to-one with six of the eight components checked here:
+#   capanalyzer, facts, report, checker, manifest, goanalysis.
+#
+# The other two components — capslockadapter and cli — are native-only because
+# capslock's closure contains golang.org/x/sys/unix built with cgo. The Bazel
+# arcc rule fails closed on cgo closures, and cli (cmd/arcc) imports
+# capslockadapter. Native mode handles cgo via go/packages preprocessing.
+#
+# Keeping both legs is deliberate: native FR1 membership and Bazel declared
+# membership checking the same components cross-checks the whole membership model.
 selfcheck:
 	@echo "=== Building own arcc ==="
 	mkdir -p bin

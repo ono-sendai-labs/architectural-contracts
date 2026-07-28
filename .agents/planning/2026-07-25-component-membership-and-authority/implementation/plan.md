@@ -17,7 +17,7 @@ Requirement IDs (M*, A*, T*, B*) refer to §2 of the design.
 - [x] **Step 7** — Bazel: declared classification, emission, and example migration (M4, M6, M7)
 - [x] **Step 8** — The absorbed func-value escape warning (A5)
 - [x] **Step 9** — Package-surface components, auto-attached edges, pattern membership (A6, A7, A8, A9, M8)
-- [ ] **Step 10** — Bazelified self-check (B3)
+- [x] **Step 10** — Bazelified self-check (B3)
 - [ ] **Step 11** — Documentation and design-record sync
 
 **Core functionality milestones.** Owned-code attribution — the source note's

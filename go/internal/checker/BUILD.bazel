@@ -41,4 +41,25 @@ go_component(
     visibility = ["//go:__subpackages__"],
 )
 
+# Deliberately broken fixture component mirroring checker_component with
+# //go/internal/report:report_component omitted from component_deps.
+# Tagged manual so its macro-generated .check target is omitted from
+# `bazel test //...`.
+#
+# What keeps this honest: it must stay a copy of checker_component minus exactly
+# one edge (report_component), so that if checker's real dependency set changes,
+# this fixture is updated rather than left describing a component that no
+# longer exists.
+go_component(
+    name = "broken_checker_component",
+    component_deps = [
+        "//go/internal/capanalyzer:capanalyzer_component",
+        "//go/internal/facts:facts_component",
+        "//go/internal/manifest:manifest_component",
+    ],
+    interface = ":checker",
+    tags = ["manual"],
+    visibility = ["//bazel_rules:__subpackages__"],
+)
+
 exports_files(["component.textproto"])
