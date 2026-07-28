@@ -355,6 +355,15 @@ swept into absorption now surface.
   The error branch needs **no new checker rule**: `UNDECLARED_DEPENDENCY` already
   covers it and only stays quiet today because the rule emits blanket absorbed
   entries.
+- **Classify the FR2 frontier, not the whole closure** (design §3.1). `_classify`
+  must iterate the packages directly imported by a member or interface package —
+  available as `merged[p].deps` from the aspect — rather than every key of
+  `merged`. Packages deeper in the closure stay layout-only: emitted into the
+  layout's `packages` for type-checking, with no `absorbed_dependencies` entry and
+  no trip through the unclassified/error branch. Iterating the whole closure makes
+  the emitter declare packages no checker rule consults, and the checker then
+  reports each as `UNUSED_DEPENDENCY` — which is the checker being right and the
+  emitter being wrong.
 - Emit the expanded member import paths into the manifest (M4) and the identical
   set as the layout's `roots`; enforce `roots == members` at load time as a hard
   error (M6).

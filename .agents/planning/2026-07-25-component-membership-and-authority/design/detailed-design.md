@@ -150,7 +150,7 @@ flowchart TB
 
 ```mermaid
 flowchart LR
-    P["a package in the closure"] --> Q1{"covered by a<br/>component_dep?"}
+    P["a package the component<br/>must classify"] --> Q1{"covered by a<br/>component_dep?"}
     Q1 -->|yes| C["COVERED<br/>pruned at declared<br/>interface symbols"]
     Q1 -->|no| Q2{"declared in<br/>members?"}
     Q2 -->|yes| M["MEMBER<br/>analysis root<br/>imports FR2-checked"]
@@ -167,6 +167,30 @@ this case. It stays quiet today only because the Bazel rule emits blanket
 absorbed entries covering each label's whole transitive tree. Once `members`
 carries owned code and `absorbed_dependencies` is narrow, the existing rule
 surfaces the note's three silently-absorbed utility packages.
+
+**The classification domain is the FR2 frontier, not the whole closure.** The
+input to the diagram above is a package the component must classify, which means
+a package **directly imported by a member or interface package**. It is *not*
+every package in the build-graph closure. The two differ, and the gap is large:
+an emitter's closure contains everything the compiler links, while FR2 asks only
+what a component's own code imports. Packages deeper in the closure — the imports
+of absorbed code, and their imports in turn — are **layout-only**: they appear in
+the layout's `packages` so the analysis type-checks, and they receive no
+classification and no `absorbed_dependencies` entry.
+
+This is not a refinement, it is what makes the two modes agree. Classifying the
+whole closure makes an emitter declare packages the checker never asks about, and
+the checker then correctly reports each one as an unused declaration. Observed
+concretely in Step 10: emitting arcc's own `manifest` component from its
+build-graph closure produced 27 absorbed entries where the FR2 frontier has 3, and
+`arcc check` reported the extra 24 `google.golang.org/protobuf/internal/*`
+packages as `UNUSED_DEPENDENCY` — correctly, since nothing the component's own
+code imports reaches them. The warning was right and the emission was wrong.
+
+Note the asymmetry with the `E` branch: narrowing the *classification domain*
+does not weaken the undeclared-dependency check, because a package that a member
+actually imports is on the frontier by construction. It only stops the emitter
+from declaring things no rule will ever consult.
 
 ## 4. Components and Interfaces
 
@@ -453,6 +477,13 @@ INFRA_COMPONENTS = []
   — concrete labels, pulled into the closure by the aspect so that owned code the
   interface does not import is still analyzed.
 - Classification order becomes: covered → member → absorbed → error (§3.1).
+- **Classifies the FR2 frontier, not the whole closure** (§3.1). `_classify`
+  iterates the packages directly imported by a member or interface package;
+  everything deeper in the closure is layout-only and is emitted into the layout's
+  `packages` for type-checking without an `absorbed_dependencies` entry and without
+  entering the unclassified/error branch. Iterating the full closure instead makes
+  the emitter declare packages no checker rule consults, which the checker then
+  reports as unused declarations — see §3.1 for the observed case.
 - Emits the expanded member import paths into the manifest (M4) and the same set
   as the layout's `roots` (M6).
 - Emits the platform block from `go_build_platform` (T1).

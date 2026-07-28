@@ -88,8 +88,33 @@ declared surface.
    `gen` is a member rather than an interface file.
 8. Do not add `own_check_runs` or `certification_reference` to any manifest in
    this step; the certification self-declarations are out of scope.
-9. Do not modify `justfile`, `README.md`, or the Bazel rules themselves. This
-   task only declares components with the existing macro.
+9. Do not modify `justfile` or `README.md`.
+10. **Narrow classification to the FR2 frontier** (design §3.1, §4.8). `_classify`
+    in `bazel_rules/go/private/component.bzl` currently iterates every key of
+    `merged` — the entire build-graph closure — and emits an
+    `absorbed_dependencies` entry for each closure package that falls in an
+    absorbed label's tree. It must instead classify only the packages **directly
+    imported by a member or interface package**. Those import edges are already
+    available: the aspect's `merge_by_importpath` yields
+    `struct(importpath, srcs, deps, cgo)` with `deps` a sorted list of import
+    paths, so the frontier is the union of `merged[p].deps` over the member and
+    interface packages. No aspect or provider change is needed.
+
+    Packages deeper in the closure must remain **layout-only**: still emitted into
+    the layout's `packages` so the analysis type-checks, but with no
+    `absorbed_dependencies` entry and **without** entering the unclassified/error
+    branch. Dropping them from `absorbed` while leaving `_classify` iterating the
+    whole closure would push them into `unclassified`, turning 24 spurious
+    warnings into 24 spurious errors — verify this explicitly.
+
+    Why this is in scope for a task about declaring self-components: without it,
+    requirements 4 and 5 below are mutually unsatisfiable. Emitting `manifest`
+    from its build-graph closure yields 27 absorbed entries where the FR2 frontier
+    has 3, and `arcc check internal/manifest/component.textproto` then reports the
+    extra 24 `google.golang.org/protobuf/internal/*` packages as
+    `UNUSED_DEPENDENCY`. The checker is correct; the emission is wrong. This was
+    established by an escalation on the first attempt at this task and resolved by
+    the interposed spec commit that this task file now reflects.
 
 ## Dependencies
 - Steps 1–9 are complete: `members`, `interface_style`, the emitter's expanded
@@ -150,7 +175,19 @@ declared surface.
 5. **The native leg is unchanged**
    - Given the updated checked-in manifests
    - When `just selfcheck` runs
-   - Then all eight components still conform, with no new findings.
+   - Then all eight components still conform, with no new findings — in
+     particular **zero** `UNUSED_DEPENDENCY` warnings on `manifest`, which is the
+     specific regression that made the first attempt at this task escalate.
+
+5a. **Deeper closure packages stay layout-only, not unclassified**
+   - Given a component whose absorbed labels pull in transitive packages its own
+     code never imports — `manifest` and its `google.golang.org/protobuf/internal/*`
+     closure is the worked case
+   - When the component is emitted and checked under Bazel
+   - Then those packages appear in the layout's `packages` for type-checking, carry
+     no `absorbed_dependencies` entry, and produce **no** `UNDECLARED_DEPENDENCY`
+     — confirming they were excluded from the classification domain rather than
+     merely dropped from the absorbed bucket.
 
 6. **Repository checks pass**
    - Given the declarations and manifest edits
