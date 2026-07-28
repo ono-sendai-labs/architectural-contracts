@@ -17,5 +17,6 @@ go_test(
     srcs = ["manifestparity_test.go"],
     deps = [
         ":manifestparity",
+        "//go/internal/manifest",
     ],
 )

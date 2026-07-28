@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/ono-sendai-labs/architectural-contracts/go/internal/manifest"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/manifestparity"
 )
 
@@ -105,5 +106,55 @@ func TestRun_MatchingPair(t *testing.T) {
 
 	if len(spy.errors) > 0 {
 		t.Errorf("unexpected errors for matching pair: %v", spy.errors)
+	}
+}
+
+func TestCompareManifests_ImplicitInterfaceMemberAllowed(t *testing.T) {
+	gen := manifest.Manifest{
+		Name:           "mycomp_component",
+		InterfaceFiles: []string{"mycomp.go"},
+		Members:        []string{"github.com/ono-sendai-labs/architectural-contracts/go/internal/mycomp", "github.com/ono-sendai-labs/architectural-contracts/go/internal/mycomp/sub"},
+	}
+	chk := manifest.Manifest{
+		Name:           "mycomp",
+		InterfaceFiles: []string{"mycomp.go"},
+		Members:        []string{"github.com/ono-sendai-labs/architectural-contracts/go/internal/mycomp/sub"},
+	}
+
+	spy := &spyTB{TB: t}
+	manifestparity.CompareManifests(spy, "mycomp", gen, chk)
+
+	if len(spy.errors) > 0 {
+		t.Errorf("unexpected errors when generated manifest includes implicit interface member: %v", spy.errors)
+	}
+}
+
+func TestCompareManifests_MissingNonInterfaceMemberFails(t *testing.T) {
+	gen := manifest.Manifest{
+		Name:           "mycomp_component",
+		InterfaceFiles: []string{"mycomp.go"},
+		Members:        []string{"github.com/ono-sendai-labs/architectural-contracts/go/internal/mycomp", "github.com/ono-sendai-labs/architectural-contracts/go/internal/mycomp/sub1", "github.com/ono-sendai-labs/architectural-contracts/go/internal/mycomp/sub2"},
+	}
+	chk := manifest.Manifest{
+		Name:           "mycomp",
+		InterfaceFiles: []string{"mycomp.go"},
+		Members:        []string{"github.com/ono-sendai-labs/architectural-contracts/go/internal/mycomp/sub1"},
+	}
+
+	spy := &spyTB{TB: t}
+	manifestparity.CompareManifests(spy, "mycomp", gen, chk)
+
+	if len(spy.errors) == 0 {
+		t.Fatalf("expected error when a non-interface member is missing, got none")
+	}
+	found := false
+	for _, e := range spy.errors {
+		if strings.Contains(e, "members") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected error containing 'members', got %v", spy.errors)
 	}
 }
