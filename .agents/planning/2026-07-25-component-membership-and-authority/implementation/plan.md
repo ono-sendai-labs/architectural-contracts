@@ -556,7 +556,8 @@ memory.
 **Guidance.**
 - Rewrite **R4** and **§5.3** of
   `.agents/planning/2026-07-16-bazel-arcc-rules/design/detailed-design.md`, and
-  reverse **§4.7**'s "membership is not encoded in the manifest". Rewrite rather
+  reverse **§5.1**'s "membership is not encoded in the manifest" (cited as §4.7
+  in earlier drafts; that document has no §4.7). Rewrite rather
   than amend — the classification order and the membership source both change.
 - Correct §4.3/§4.6's statement that `GoInfo.srcs` is the compiled set; the
   loader filters, and now does so against a declared platform.

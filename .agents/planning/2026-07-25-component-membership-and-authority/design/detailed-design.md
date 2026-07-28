@@ -832,8 +832,9 @@ is unchanged: violations → 1, tool errors → 2.
 derived by the rule from the aspect closure … directory-based membership (FR1) is
 superseded under Bazel") and **§5.3**'s classification order. Membership is still
 explicit, but *declared* rather than derived, and FR1 survives as the native-mode
-default (M3) rather than being superseded. **§4.7**'s "membership is not encoded
-in the manifest" is reversed. Those sections must be rewritten, not merely
+default (M3) rather than being superseded. **§5.1**'s "membership is not encoded
+in the manifest" is reversed (this was cited as §4.7 until Step 11; that document
+has no §4.7 — the sentence is in §5.1, "Manifest schema"). Those sections must be rewritten, not merely
 amended.
 
 **What it also removes.** `_check_component_roots`
