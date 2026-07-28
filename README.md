@@ -558,6 +558,11 @@ The tool is built recursively out of components and is checked against itself:
 ```bash
 just selfcheck
 ```
-This compiles the local `arcc` binary and runs it against each of its own eight components' manifests (`checker`, `facts`, `report`, `capanalyzer`, `manifest`, `goanalysis`, `capslockadapter`, and `cli`). This confirms the pure checking core remains entirely ambient-authority-free.
+This compiles the local `arcc` binary and runs it against each of its own eight components' manifests. The two groups prove different things, which is why the recipe separates them:
+
+- **The authority-free core** — `checker`, `facts`, `report`, `capanalyzer` — declares *no* ambient authority at all. Their checks confirm the pure checking core genuinely remains ambient-authority-free.
+- **The remaining components** — `manifest`, `goanalysis`, `capslockadapter`, `cli` — legitimately declare authority (`goanalysis` declares seven kinds, `capslockadapter` eight). Their checks confirm something weaker and equally important: that each *does not exceed* what it declares.
+
+Conflating the two would overclaim. A conforming component is not an authority-free one; it is one that stayed inside its declaration.
 
 The same components are also declared as `go_component` targets, so `bazel test //...` checks them hermetically — but only **six** of the eight: `capslockadapter` and `cli` are excluded because their closures contain a cgo package, which the Bazel rule refuses (limitation 15 above). Keeping both legs is deliberate rather than redundant: the native leg derives membership from directories (FR1) and the Bazel leg from declared `members`, so the two checking the same components cross-checks the membership model itself. A `self_manifest_parity_test` additionally asserts that the generated manifests and the checked-in ones agree, so the two forms cannot drift.
