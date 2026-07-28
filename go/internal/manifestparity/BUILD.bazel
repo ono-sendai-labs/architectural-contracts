@@ -1,4 +1,4 @@
-load("@rules_go//go:def.bzl", "go_library")
+load("@rules_go//go:def.bzl", "go_library", "go_test")
 
 go_library(
     name = "manifestparity",
@@ -8,5 +8,14 @@ go_library(
     visibility = ["//visibility:public"],
     deps = [
         "//go/internal/manifest",
+    ],
+)
+
+go_test(
+    name = "manifestparity_test",
+    size = "small",
+    srcs = ["manifestparity_test.go"],
+    deps = [
+        ":manifestparity",
     ],
 )

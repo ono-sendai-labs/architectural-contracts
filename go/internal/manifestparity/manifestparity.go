@@ -16,7 +16,7 @@ import (
 //
 // It is driven by Bazel, which passes every relevant manifest as a positional
 // argument. Under plain `go test` (no arguments passed), it skips.
-func Run(t *testing.T, files []string) {
+func Run(t testing.TB, files []string) {
 	if len(files) == 0 {
 		t.Skip("no manifests passed; this parity test is driven by Bazel (see BUILD.bazel)")
 	}
@@ -32,7 +32,12 @@ func Run(t *testing.T, files []string) {
 	for _, f := range files {
 		base := filepath.Base(f)
 		dir := filepath.Base(filepath.Dir(f))
-		resolved := filepath.Join(runfilesRoot, f)
+		var resolved string
+		if filepath.IsAbs(f) || runfilesRoot == "" {
+			resolved = f
+		} else {
+			resolved = filepath.Join(runfilesRoot, f)
+		}
 		switch {
 		case strings.HasSuffix(base, ".package-layout.json"):
 			// The layout travels with the manifest but is not compared here.
@@ -46,20 +51,32 @@ func Run(t *testing.T, files []string) {
 		}
 	}
 
-	if len(generated) == 0 {
-		t.Fatal("no generated manifests among the arguments")
+	allDirs := map[string]bool{}
+	for dir := range generated {
+		allDirs[dir] = true
+	}
+	for dir := range checkedIn {
+		allDirs[dir] = true
 	}
 
-	dirs := make([]string, 0, len(generated))
-	for dir := range generated {
+	if len(allDirs) == 0 {
+		t.Fatal("no manifests found among the arguments")
+	}
+
+	dirs := make([]string, 0, len(allDirs))
+	for dir := range allDirs {
 		dirs = append(dirs, dir)
 	}
 	sort.Strings(dirs)
 
 	for _, dir := range dirs {
-		genPath := generated[dir]
-		chkPath, ok := checkedIn[dir]
-		if !ok {
+		genPath, hasGen := generated[dir]
+		chkPath, hasChk := checkedIn[dir]
+		if !hasGen {
+			t.Errorf("%s: checked-in manifest has no generated counterpart", dir)
+			continue
+		}
+		if !hasChk {
 			t.Errorf("%s: generated manifest has no checked-in counterpart", dir)
 			continue
 		}
@@ -69,7 +86,7 @@ func Run(t *testing.T, files []string) {
 	}
 }
 
-func parse(t *testing.T, path string) manifest.Manifest {
+func parse(t testing.TB, path string) manifest.Manifest {
 	t.Helper()
 	f, err := os.Open(path)
 	if err != nil {
@@ -86,7 +103,7 @@ func parse(t *testing.T, path string) manifest.Manifest {
 // CompareManifests compares a generated manifest against a checked-in manifest
 // for semantic equivalence, ignoring incidental differences (e.g., target name suffix,
 // absorbed dependency reasons, path frames for interface files).
-func CompareManifests(t *testing.T, dir string, gen, chk manifest.Manifest) {
+func CompareManifests(t testing.TB, dir string, gen, chk manifest.Manifest) {
 	t.Helper()
 
 	// Name: the generated name is the Bazel target, which suffixes `_component`.
@@ -137,7 +154,7 @@ func CompareManifests(t *testing.T, dir string, gen, chk manifest.Manifest) {
 // Therefore, the member sets match if:
 //  1. sorted(gen.Members) == sorted(chk.Members) (checked-in explicitly lists the interface package), OR
 //  2. sorted(gen.Members) == sorted(chk.Members + implicit_interface_package) (checked-in omitted the implicit interface package).
-func compareMembers(t *testing.T, dir string, gen, chk manifest.Manifest) {
+func compareMembers(t testing.TB, dir string, gen, chk manifest.Manifest) {
 	t.Helper()
 	got := sorted(gen.Members)
 	want := sorted(chk.Members)
