@@ -34,3 +34,39 @@ go_test(
         "//go/internal/report",
     ],
 )
+
+# gazelle:exclude self_manifest_parity_test.go
+go_test(
+    name = "self_manifest_parity_test",
+    size = "small",
+    srcs = ["self_manifest_parity_test.go"],
+    args = [
+        "$(rootpaths //go/internal/capanalyzer:capanalyzer_component)",
+        "$(rootpaths //go/internal/report:report_component)",
+        "$(rootpaths //go/internal/facts:facts_component)",
+        "$(rootpaths //go/internal/manifest:manifest_component)",
+        "$(rootpaths //go/internal/checker:checker_component)",
+        "$(rootpaths //go/internal/goanalysis:goanalysis_component)",
+        "$(rootpath //go/internal/capanalyzer:component.textproto)",
+        "$(rootpath //go/internal/report:component.textproto)",
+        "$(rootpath //go/internal/facts:component.textproto)",
+        "$(rootpath //go/internal/manifest:component.textproto)",
+        "$(rootpath //go/internal/checker:component.textproto)",
+        "$(rootpath //go/internal/goanalysis:component.textproto)",
+    ],
+    data = [
+        "//go/internal/capanalyzer:capanalyzer_component",
+        "//go/internal/capanalyzer:component.textproto",
+        "//go/internal/checker:checker_component",
+        "//go/internal/checker:component.textproto",
+        "//go/internal/facts:facts_component",
+        "//go/internal/facts:component.textproto",
+        "//go/internal/goanalysis:component.textproto",
+        "//go/internal/goanalysis:goanalysis_component",
+        "//go/internal/manifest:component.textproto",
+        "//go/internal/manifest:manifest_component",
+        "//go/internal/report:component.textproto",
+        "//go/internal/report:report_component",
+    ],
+    deps = ["//go/internal/manifestparity"],
+)

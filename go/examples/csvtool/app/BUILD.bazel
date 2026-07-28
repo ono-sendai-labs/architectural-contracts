@@ -65,5 +65,5 @@ go_test(
         "//go/examples/csvtool/internal/parsecsv:component.textproto",
         "//go/examples/csvtool/internal/parsecsv:parsecsv_component",
     ],
-    deps = ["//go/internal/manifest"],
+    deps = ["//go/internal/manifestparity"],
 )
