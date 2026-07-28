@@ -6,18 +6,22 @@ checked-in manifests onto the declared-membership model.
 
 **`capslockadapter` is deliberately excluded** — see requirement 9. It was in this
 task's original scope; the first attempt escalated on it and the exclusion was
-decided by the user and recorded in the interposed spec commit. These are the components whose Bazel `.check` would have
-caught the `hostpolicy` manifest breakage. `cli` is deliberately not here: it is
-the repo's multi-package case and gets its own task.
+decided by the user and recorded in the interposed spec commit.
+
+These are the components whose Bazel `.check` would have caught the `hostpolicy`
+manifest breakage. `cli` is deliberately not here either: it is the repo's
+multi-package case and gets its own task.
 
 ## Background
 Task 1 declared the four lower components. This task adds the layer above them.
-Unlike the leaves, these three have substance to get right:
+Unlike the leaves, these have substance to get right:
 
 - `goanalysis` absorbs two in-repo seams (`hostpolicy`, `packagelayout`) and
   five `golang.org/x/tools` packages, and declares seven authorities.
-- `capslockadapter` absorbs the two capslock packages plus `packagelayout` and
-  `x/tools/go/packages`, and declares eight authorities.
+- `capslockadapter` would absorb the two capslock packages plus `packagelayout`
+  and `x/tools/go/packages`, and declares eight authorities — but it is **not**
+  declared under Bazel (requirement 9): capslock's closure contains a cgo package
+  the rule fails closed on. It keeps its native `just selfcheck` coverage.
 - `checker` is authority-free and depends on four sibling components — which is
   what makes it the right fixture for Task 5's negative test.
 
@@ -40,9 +44,8 @@ what it pulls in.
 **Note:** Read the detailed design document before beginning implementation.
 
 ## Technical Requirements
-1. Add a `go_component` target to `go/internal/checker/BUILD.bazel`,
-   `go/internal/goanalysis/BUILD.bazel` and
-   `go/internal/capslockadapter/BUILD.bazel`, named `<component>_component`,
+1. Add a `go_component` target to `go/internal/checker/BUILD.bazel` and
+   `go/internal/goanalysis/BUILD.bazel`, named `<component>_component`,
    loaded from `@rules_arcc//bazel_rules/go:defs.bzl`, with
    `visibility = ["//go:__subpackages__"]`.
 2. Mirror each checked-in manifest exactly:
@@ -58,16 +61,9 @@ what it pulls in.
      `@org_golang_x_tools//go/ssa/ssautil`; `declared_authority = [FILES, EXEC,
      READ_SYSTEM_STATE, OPERATING_SYSTEM, REFLECT, UNSAFE_POINTER,
      MODIFY_SYSTEM_STATE]`.
-   - `capslockadapter_component`: `interface = ":capslockadapter"`,
-     `component_deps` on the `capanalyzer` component; `absorbed_deps` on
-     `@com_github_google_capslock//analyzer`,
-     `@com_github_google_capslock//interesting`,
-     `//go/internal/packagelayout` and `@org_golang_x_tools//go/packages`;
-     `declared_authority = [FILES, EXEC, READ_SYSTEM_STATE, OPERATING_SYSTEM,
-     REFLECT, RUNTIME, SYSTEM_CALLS, UNSAFE_POINTER]`.
-3. Add `exports_files(["component.textproto"])` to each of the three packages.
+3. Add `exports_files(["component.textproto"])` to each of the two packages.
 4. Add a `members:` entry naming the component's own package import path to each
-   of the three checked-in `component.textproto` files, matching what the
+   of the two checked-in `component.textproto` files, matching what the
    emitter produces for a single-package component.
 5. Keep the absorbed sets in the BUILD declaration and the checked-in manifest
    in one-to-one correspondence, including the two in-repo seams. The
@@ -106,9 +102,9 @@ what it pulls in.
 
 ## Dependencies
 - `task-01-declare-core-self-components` provides the `capanalyzer`, `report`,
-  `facts` and `manifest` component targets that these three name in
+  `facts` and `manifest` component targets that these name in
   `component_deps`.
-- `task-03-declare-cli-self-component` depends on all three targets added here.
+- `task-03-declare-cli-self-component` depends on the targets added here.
 - `task-05-self-check-dependency-regression` uses `checker_component` as the
   model for its deliberately broken fixture.
 
@@ -116,9 +112,9 @@ what it pulls in.
 1. Declare `checker_component` first — no absorption, no authority — and get its
    `.check` green; it validates that the four Task 1 components are visible and
    correctly covered.
-2. Add `capslockadapter_component`, then `goanalysis_component`, which has the
-   largest closure and the slowest check.
-3. Update the three checked-in manifests alongside the declarations.
+2. Add `goanalysis_component`, which has the largest closure and the slowest
+   check.
+3. Update the two checked-in manifests alongside the declarations.
 4. When a check reports an undeclared dependency or unexpected authority, treat
    the finding as data: confirm whether the closure genuinely reaches it, then
    correct both the declaration and the checked-in manifest. Escalate rather
@@ -127,26 +123,26 @@ what it pulls in.
 
 ## Acceptance Criteria
 
-1. **Three components are declared**
-   - Given `go/internal/{checker,goanalysis,capslockadapter}/BUILD.bazel`
+1. **Two components are declared**
+   - Given `go/internal/{checker,goanalysis}/BUILD.bazel`
    - When they are inspected
    - Then each declares a `<name>_component` with the component dependencies,
      absorbed dependencies and declared authority of its checked-in manifest.
 
 2. **Their checks pass unmarked**
-   - Given the three declarations
+   - Given the two declarations
    - When `bazel test //go/internal/...` runs
-   - Then `checker_component.check`, `goanalysis_component.check` and
-     `capslockadapter_component.check` all pass and none is tagged `manual`.
+   - Then `checker_component.check` and `goanalysis_component.check` both pass and
+     neither is tagged `manual`. No `capslockadapter_component` target exists.
 
 3. **In-repo seams stay declared**
-   - Given `goanalysis_component` and `capslockadapter_component`
+   - Given `goanalysis_component`
    - When their generated manifests are read
    - Then `//go/internal/hostpolicy` and `//go/internal/packagelayout` appear as
      absorbed import paths exactly where the checked-in manifests list them.
 
 4. **Membership is stated**
-   - Given the three checked-in manifests
+   - Given the two checked-in manifests
    - When they are parsed
    - Then each names its own package import path in `members`, and that set
      equals the member set of the corresponding generated manifest.
