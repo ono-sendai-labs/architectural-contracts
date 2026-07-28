@@ -10,10 +10,12 @@ def arcc_check_argv(arcc, manifest, layout):
     """Argv for `arcc check`. Every path is runfiles-root-relative (see
     paths.bzl): the caller runs it with the runfiles root as the working
     directory."""
-    return [
+    argv = [
         arcc,
         "check",
         manifest,
-        "--package-layout=" + layout,
-        "--format=json",
     ]
+    if layout:
+        argv.append("--package-layout=" + layout)
+    argv.append("--format=json")
+    return argv

@@ -60,10 +60,11 @@ def _launcher_content(argv, expect_violation):
 def _arcc_check_impl(ctx):
     info = ctx.attr.component[ArccComponentInfo]
 
+    layout_path = runfiles_path(ctx, info.layout) if info.layout != None else ""
     argv = arcc_check_argv(
         arcc = runfiles_path(ctx, ctx.executable._arcc),
         manifest = runfiles_path(ctx, info.manifest),
-        layout = runfiles_path(ctx, info.layout),
+        layout = layout_path,
     )
 
     launcher = ctx.actions.declare_file(ctx.label.name + ".sh")
@@ -146,10 +147,11 @@ def _launcher_content_with_grep(argv, expected_strings, expect_status = 1):
 def _arcc_check_grep_impl(ctx):
     info = ctx.attr.component[ArccComponentInfo]
 
+    layout_path = runfiles_path(ctx, info.layout) if info.layout != None else ""
     argv = arcc_check_argv(
         arcc = runfiles_path(ctx, ctx.executable._arcc),
         manifest = runfiles_path(ctx, info.manifest),
-        layout = runfiles_path(ctx, info.layout),
+        layout = layout_path,
     )
 
     launcher = ctx.actions.declare_file(ctx.label.name + ".sh")
@@ -229,8 +231,9 @@ def _arcc_check_report_golden_impl(ctx):
         runfiles_path(ctx, ctx.executable._arcc),
         "check",
         runfiles_path(ctx, info.manifest),
-        "--package-layout=" + runfiles_path(ctx, info.layout),
     ]
+    if info.layout != None:
+        argv.append("--package-layout=" + runfiles_path(ctx, info.layout))
     if ctx.attr.format_json:
         argv.append("--format=json")
 

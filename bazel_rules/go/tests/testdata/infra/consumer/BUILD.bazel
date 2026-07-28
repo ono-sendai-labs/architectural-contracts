@@ -1,5 +1,5 @@
 load("@rules_go//go:def.bzl", "go_library")
-load("@rules_arcc//bazel_rules/go:defs.bzl", "go_component")
+load("//bazel_rules/go/tests:testing.bzl", "testing_go_component")
 
 go_library(
     name = "consumer",
@@ -9,7 +9,7 @@ go_library(
     deps = ["//bazel_rules/go/tests/testdata/infra/runtime"],
 )
 
-go_component(
+testing_go_component(
     name = "consumer_component",
     infra_deps = ["//bazel_rules/go/tests/testdata/infra/runtime:runtime_component"],
     interface = ":consumer",

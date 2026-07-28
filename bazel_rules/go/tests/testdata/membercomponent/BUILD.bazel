@@ -1,4 +1,5 @@
 load("@rules_arcc//bazel_rules/go:defs.bzl", "PACKAGE_SURFACE", "go_component")
+load("//bazel_rules/go/tests:testing.bzl", "testing_go_component")
 
 # The interface does not import //member. Its explicit member root must still
 # contribute both itself and its member-only dependency to the closure/layout.
@@ -47,14 +48,23 @@ go_component(
     name = "pattern_membership_component",
     interface_style = PACKAGE_SURFACE,
     members = [
-        "example.com/aspect/*",
+        "example.com/infra/runtime*",
     ],
     tags = ["manual"],
     visibility = ["//bazel_rules:__subpackages__"],
 )
 
-# Test target for auto-attached infra component.
+# A depender component that depends on pattern_membership_component.
 go_component(
+    name = "pattern_membership_consumer_component",
+    interface = "//bazel_rules/go/tests/testdata/infra/consumer:consumer",
+    component_deps = [":pattern_membership_component"],
+    tags = ["manual"],
+    visibility = ["//bazel_rules:__subpackages__"],
+)
+
+# Test target for auto-attached infra component.
+testing_go_component(
     name = "auto_attached_infra_component",
     interface = "//bazel_rules/go/tests/testdata/api:api",
     infra_deps = [":package_surface_component"],
@@ -64,22 +74,48 @@ go_component(
     visibility = ["//bazel_rules:__subpackages__"],
 )
 
-# Test target for declining infra component attachment.
-go_component(
+# Test target for declining infra component attachment using a closure-inspecting predicate.
+testing_go_component(
     name = "declining_infra_component",
     interface = "//bazel_rules/go/tests/testdata/api:api",
     infra_deps = [":package_surface_component"],
-    test_infra_attach = "NEVER",
+    test_infra_attach = "CLOSURE",
+    test_infra_patterns = ["example.com/runtime/*"],
     tags = ["manual"],
     visibility = ["//bazel_rules:__subpackages__"],
 )
 
 # Test target where authored edge wins over auto-attachment.
-go_component(
+testing_go_component(
     name = "authored_wins_infra_component",
     interface = "//bazel_rules/go/tests/testdata/api:api",
     component_deps = [":package_surface_component"],
     infra_deps = [":package_surface_component"],
+    test_infra_attach = "ALWAYS",
+    tags = ["manual"],
+    visibility = ["//bazel_rules:__subpackages__"],
+)
+
+# Test targets for deterministic ordering of multi-entry infra registry.
+testing_go_component(
+    name = "multi_infra_a",
+    interface = "//bazel_rules/go/tests/testdata/api:api",
+    infra_deps = [
+        ":package_surface_component",
+        "//bazel_rules/go/tests/testdata/infra/runtime:runtime_component",
+    ],
+    test_infra_attach = "ALWAYS",
+    tags = ["manual"],
+    visibility = ["//bazel_rules:__subpackages__"],
+)
+
+testing_go_component(
+    name = "multi_infra_b",
+    interface = "//bazel_rules/go/tests/testdata/api:api",
+    infra_deps = [
+        "//bazel_rules/go/tests/testdata/infra/runtime:runtime_component",
+        ":package_surface_component",
+    ],
     test_infra_attach = "ALWAYS",
     tags = ["manual"],
     visibility = ["//bazel_rules:__subpackages__"],

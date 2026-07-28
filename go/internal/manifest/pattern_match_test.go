@@ -1,50 +1,64 @@
 package manifest_test
 
 import (
+	"encoding/json"
+	"os"
 	"path"
 	"testing"
 )
 
 type patternTestCase struct {
-	pattern string
-	path    string
-	want    bool
+	Pattern   string `json:"pattern"`
+	Path      string `json:"path"`
+	Want      bool   `json:"want"`
+	Malformed bool   `json:"malformed"`
 }
 
-var sharedPatternCases = []patternTestCase{
-	{"example.com/foo", "example.com/foo", true},
-	{"example.com/foo", "example.com/bar", false},
-	{"example.com/foo/*", "example.com/foo/bar", true},
-	{"example.com/foo/*", "example.com/foo/bar/baz", false},
-	{"example.com/foo/*", "example.com/foo", false},
-	{"example.com/foo/b*", "example.com/foo/bar", true},
-	{"example.com/foo/b*", "example.com/foo/car", false},
-	{"example.com/foo/ba?", "example.com/foo/bar", true},
-	{"example.com/foo/ba?", "example.com/foo/b", false},
-	{"example.com/foo/ba?", "example.com/foo/barr", false},
-	{"example.com/foo/ba?", "example.com/foo/ba/", false},
-	{"*.com/*/*", "example.com/foo/bar", true},
-	{"*.com/*/*", "example.com/foo/bar/baz", false},
-	{"", "", true},
-	{"", "a", false},
-	{"a", "", false},
-	{"example.com/foo*", "example.com/foobar", true},
-	{"example.com/foo*", "example.com/foo/bar", false},
-	{"example.com/foo/\\*", "example.com/foo/*", true},
-	{"example.com/foo/\\*", "example.com/foo/bar", false},
-	{"example.com/v[0-9]", "example.com/v1", true},
-	{"example.com/v[0-9]", "example.com/va", false},
+func loadSharedPatternCases(t *testing.T) []patternTestCase {
+	t.Helper()
+	// Try paths from go package directory up to repo root
+	candidates := []string{
+		"../../../bazel_rules/go/tests/pattern_cases.json",
+		"../../bazel_rules/go/tests/pattern_cases.json",
+		"bazel_rules/go/tests/pattern_cases.json",
+	}
+	var data []byte
+	var err error
+	for _, cand := range candidates {
+		data, err = os.ReadFile(cand)
+		if err == nil {
+			break
+		}
+	}
+	if err != nil {
+		// Fallback: search relative to repo root
+		wd, _ := os.Getwd()
+		t.Fatalf("could not read pattern_cases.json (wd=%s): %v", wd, err)
+	}
+
+	var cases []patternTestCase
+	if err := json.Unmarshal(data, &cases); err != nil {
+		t.Fatalf("failed to unmarshal pattern_cases.json: %v", err)
+	}
+	return cases
 }
 
 func TestSharedPatternCases_GoMatch(t *testing.T) {
-	for _, tc := range sharedPatternCases {
-		got, err := path.Match(tc.pattern, tc.path)
-		if err != nil {
-			t.Errorf("path.Match(%q, %q) returned unexpected error: %v", tc.pattern, tc.path, err)
+	cases := loadSharedPatternCases(t)
+	for _, tc := range cases {
+		got, err := path.Match(tc.Pattern, tc.Path)
+		if tc.Malformed {
+			if err != path.ErrBadPattern {
+				t.Errorf("path.Match(%q, %q) err = %v, want ErrBadPattern", tc.Pattern, tc.Path, err)
+			}
 			continue
 		}
-		if got != tc.want {
-			t.Errorf("path.Match(%q, %q) = %v, want %v", tc.pattern, tc.path, got, tc.want)
+		if err != nil {
+			t.Errorf("path.Match(%q, %q) returned unexpected error: %v", tc.Pattern, tc.Path, err)
+			continue
+		}
+		if got != tc.Want {
+			t.Errorf("path.Match(%q, %q) = %v, want %v", tc.Pattern, tc.Path, got, tc.Want)
 		}
 	}
 }

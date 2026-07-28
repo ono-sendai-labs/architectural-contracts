@@ -18,38 +18,85 @@ def runfiles_path(ctx, file):
         return short_path[len("../"):]
     return ctx.workspace_name + "/" + short_path
 
-def _match_char_class(char_class, ch):
-    if not char_class:
-        return False
-
+def _validate_pattern_syntax(pattern):
+    p_len = len(pattern)
     i = 0
+    for _ in range(p_len):
+        if i >= p_len:
+            break
+        c = pattern[i]
+        if c == "\\":
+            if i + 1 == p_len:
+                fail("malformed pattern: trailing backslash in " + pattern)
+            i += 2
+        elif c == "[":
+            i += 1
+            start = i
+            negated = False
+            if i < p_len and pattern[i] == "^":
+                negated = True
+                i += 1
+            close_idx = -1
+            for _ in range(p_len):
+                if i >= p_len:
+                    break
+                if pattern[i] == "\\":
+                    if i + 1 == p_len:
+                        fail("malformed pattern: trailing backslash in " + pattern)
+                    i += 2
+                elif pattern[i] == "]":
+                    close_idx = i
+                    break
+                else:
+                    i += 1
+            if close_idx == -1:
+                fail("malformed pattern: unclosed [ in " + pattern)
+            class_body = pattern[start + (1 if negated else 0):close_idx]
+            if class_body == "":
+                fail("malformed pattern: empty character class in " + pattern)
+            i = close_idx + 1
+        else:
+            i += 1
+
+def _next_class_char(body, i, pattern):
+    if body[i] == "\\":
+        if i + 1 >= len(body):
+            fail("malformed pattern: trailing backslash in " + pattern)
+        return body[i + 1], i + 2
+    return body[i], i + 1
+
+def _match_char_class(char_class, ch, pattern):
     negated = False
-    if char_class[0] == "^":
+    body = char_class
+    if char_class.startswith("^"):
         negated = True
-        i = 1
+        body = char_class[1:]
 
     matched = False
-    class_len = len(char_class)
-    for _ in range(class_len):
-        if i >= class_len:
+    i = 0
+    body_len = len(body)
+    for _ in range(body_len):
+        if i >= body_len:
             break
-        if i + 2 < class_len and char_class[i + 1] == "-":
-            low = char_class[i]
-            high = char_class[i + 2]
-            if low <= ch and ch <= high:
+        c1, next_i = _next_class_char(body, i, pattern)
+        if next_i < body_len and body[next_i] == "-" and next_i + 1 < body_len:
+            c2, end_i = _next_class_char(body, next_i + 1, pattern)
+            if c1 > c2:
+                fail("malformed pattern: invalid range in " + pattern)
+            if c1 <= ch and ch <= c2:
                 matched = True
-                break
-            i += 3
+            i = end_i
         else:
-            if char_class[i] == ch:
+            if ch == c1:
                 matched = True
-                break
-            i += 1
+            i = next_i
 
     return not matched if negated else matched
 
 def match_path(pattern, name):
     """Reports whether `name` matches `pattern` using Go path.Match semantics."""
+    _validate_pattern_syntax(pattern)
+
     p_len = len(pattern)
     n_len = len(name)
     p = 0
@@ -57,14 +104,12 @@ def match_path(pattern, name):
     star_p = -1
     star_n = -1
 
-    max_steps = (p_len + 1) * (n_len + 1) + 1
+    max_steps = (p_len + 1) * (n_len + 1) + 10
     for _ in range(max_steps):
         if n >= n_len:
             break
 
         if p < p_len and pattern[p] == "\\":
-            if p + 1 == p_len:
-                fail("malformed pattern: trailing backslash in " + pattern)
             p += 1
             if pattern[p] == name[n]:
                 p += 1
@@ -77,19 +122,24 @@ def match_path(pattern, name):
                 continue
         elif p < p_len and pattern[p] == "[":
             close_idx = -1
-            for idx in range(p + 1, p_len):
-                if pattern[idx] == "]":
-                    close_idx = idx
+            i = p + 1
+            for _ in range(p_len):
+                if i >= p_len:
                     break
-            if close_idx == -1:
-                fail("malformed pattern: unclosed [ in " + pattern)
+                if pattern[i] == "\\":
+                    i += 2
+                elif pattern[i] == "]":
+                    close_idx = i
+                    break
+                else:
+                    i += 1
 
             char_class = pattern[p + 1:close_idx]
             p = close_idx + 1
 
             if name[n] == "/":
                 pass
-            elif _match_char_class(char_class, name[n]):
+            elif _match_char_class(char_class, name[n], pattern):
                 n += 1
                 continue
         elif p < p_len and pattern[p] == "*":

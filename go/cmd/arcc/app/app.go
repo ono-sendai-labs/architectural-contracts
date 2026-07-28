@@ -233,14 +233,18 @@ func (r *Runner) runCheck(manifestPath string, formatJSON bool, stdout, stderr i
 		pkgs = append(pkgs, p.ImportPath)
 	}
 
-	findings, err := r.Analyzer.Analyze(capanalyzer.AnalyzeRequest{
-		Packages:        pkgs,
-		PruneAt:         pruneAt,
-		PruneAtPackages: pruneAtPackages,
-	})
-	if err != nil {
-		fmt.Fprintf(stderr, "error: capability analysis failed: %v\n", err)
-		return 2
+	var findings []capanalyzer.CapabilityFinding
+	if len(pkgs) > 0 {
+		var err error
+		findings, err = r.Analyzer.Analyze(capanalyzer.AnalyzeRequest{
+			Packages:        pkgs,
+			PruneAt:         pruneAt,
+			PruneAtPackages: pruneAtPackages,
+		})
+		if err != nil {
+			fmt.Fprintf(stderr, "error: capability analysis failed: %v\n", err)
+			return 2
+		}
 	}
 
 	// 8. Start from capanalyzer.StrictPolicy, merging Manifest.DeclaredAuthority

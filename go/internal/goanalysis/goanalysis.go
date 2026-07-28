@@ -57,6 +57,10 @@ type LoadRequest struct {
 // LoadPackageFacts loads Go package membership, direct-import, and standard-library facts
 // below the supplied component root using go/packages.
 func LoadPackageFacts(req LoadRequest) (facts.PackageFacts, error) {
+	if len(req.Members) > 0 && isAllPatternMembers(req.Members) {
+		return facts.PackageFacts{}, nil
+	}
+
 	componentRoot := req.ComponentRoot
 	var dir string
 	var patterns []string
@@ -1724,8 +1728,24 @@ func isPatternMembership(m manifest.Manifest) bool {
 	if m.InterfaceStyle != manifest.InterfaceStylePackageSurface {
 		return false
 	}
-	for _, member := range m.Members {
-		if strings.ContainsAny(member, "*?[]\\") {
+	return isAllPatternMembers(m.Members) || (len(m.Members) > 0 && isAnyPatternMember(m.Members))
+}
+
+func isAllPatternMembers(members []string) bool {
+	if len(members) == 0 {
+		return false
+	}
+	for _, m := range members {
+		if !strings.ContainsAny(m, "*?[]\\") {
+			return false
+		}
+	}
+	return true
+}
+
+func isAnyPatternMember(members []string) bool {
+	for _, m := range members {
+		if strings.ContainsAny(m, "*?[]\\") {
 			return true
 		}
 	}

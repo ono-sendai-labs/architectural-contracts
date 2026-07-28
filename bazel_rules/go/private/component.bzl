@@ -347,15 +347,26 @@ def _go_component_impl(ctx):
         all_manifest_members[pattern] = True
     manifest_members = sorted(list(all_manifest_members.keys()))
 
-    if roots:
-        layout_roots = sorted(list(effective_members.keys()))
-    else:
-        layout_roots = []
-
     manifest = ctx.actions.declare_file(ctx.label.name + ".component.textproto")
-    layout = ctx.actions.declare_file(ctx.label.name + ".package-layout.json")
 
-    platform = go_build_platform(roots[0]) if roots else None
+    if roots:
+        layout = ctx.actions.declare_file(ctx.label.name + ".package-layout.json")
+        layout_roots = sorted(list(effective_members.keys()))
+        platform = go_build_platform(roots[0])
+        ctx.actions.write(
+            output = layout,
+            content = _layout_content(
+                ctx,
+                merged = merged,
+                roots = layout_roots,
+                go_sdk_root = go_sdk_root(ctx),
+                platform = platform,
+            ),
+        )
+        direct_layouts = [layout]
+    else:
+        layout = None
+        direct_layouts = []
 
     interface_files = []
     if interface:
@@ -380,17 +391,6 @@ def _go_component_impl(ctx):
         ),
     )
 
-    ctx.actions.write(
-        output = layout,
-        content = _layout_content(
-            ctx,
-            merged = merged,
-            roots = layout_roots,
-            go_sdk_root = go_sdk_root(ctx),
-            platform = platform,
-        ),
-    )
-
     closure_srcs = []
     for importpath in merged:
         closure_srcs.extend(merged[importpath].srcs)
@@ -400,7 +400,7 @@ def _go_component_impl(ctx):
         transitive = [dep[ArccComponentInfo].transitive_manifests for dep in ctx.attr.component_deps] + [info.transitive_manifests for info in auto_attached_deps],
     )
     transitive_layouts = depset(
-        direct = [layout],
+        direct = direct_layouts,
         transitive = [dep[ArccComponentInfo].transitive_layouts for dep in ctx.attr.component_deps] + [info.transitive_layouts for info in auto_attached_deps],
     )
     contracts = depset(
@@ -421,7 +421,7 @@ def _go_component_impl(ctx):
 
     providers = [
         DefaultInfo(
-            files = depset([manifest, layout]),
+            files = depset([manifest] + direct_layouts),
             runfiles = runfiles,
         ),
         ArccComponentInfo(

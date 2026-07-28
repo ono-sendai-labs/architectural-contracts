@@ -94,6 +94,18 @@ arcc_check_test(
     component = "//bazel_rules/go/tests/testdata/infra/unused_consumer:unused_consumer_component",
 )
 
+arcc_check_test(
+    name = "pattern_membership_check_test",
+    size = "small",
+    component = "//bazel_rules/go/tests/testdata/membercomponent:pattern_membership_component",
+)
+
+arcc_check_test(
+    name = "pattern_membership_consumer_check_test",
+    size = "small",
+    component = "//bazel_rules/go/tests/testdata/membercomponent:pattern_membership_consumer_component",
+)
+
 sh_test(
     name = "golden_test",
     srcs = ["golden_test.sh"],

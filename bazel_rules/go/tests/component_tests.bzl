@@ -19,6 +19,8 @@ _PATTERN_MEMBERSHIP_COMPONENT = "//bazel_rules/go/tests/testdata/membercomponent
 _AUTO_ATTACHED_INFRA_COMPONENT = "//bazel_rules/go/tests/testdata/membercomponent:auto_attached_infra_component"
 _DECLINING_INFRA_COMPONENT = "//bazel_rules/go/tests/testdata/membercomponent:declining_infra_component"
 _AUTHORED_WINS_INFRA_COMPONENT = "//bazel_rules/go/tests/testdata/membercomponent:authored_wins_infra_component"
+_MULTI_INFRA_A = "//bazel_rules/go/tests/testdata/membercomponent:multi_infra_a"
+_MULTI_INFRA_B = "//bazel_rules/go/tests/testdata/membercomponent:multi_infra_b"
 
 def _membership_classification_test(name):
     analysis_test(
@@ -249,6 +251,10 @@ def _pattern_membership_test(name):
 def _pattern_membership_impl(env, target):
     info = target[ArccComponentInfo]
     env.expect.that_str(info.component_name).equals("pattern_membership_component")
+    env.expect.that_bool(info.layout == None).equals(True)
+    env.expect.that_target(target).default_outputs().contains_exactly([
+        "bazel_rules/go/tests/testdata/membercomponent/pattern_membership_component.component.textproto",
+    ])
 
 def _auto_attached_infra_test(name):
     analysis_test(
@@ -282,6 +288,13 @@ def _declining_infra_impl(env, target):
     ).contains_exactly([
         "declining_infra_component.component.textproto",
     ])
+    manifest_path = "bazel_rules/go/tests/testdata/membercomponent/declining_infra_component.component.textproto"
+    action = env.expect.that_target(target).action_generating(manifest_path)
+    action.content().split("\n").not_contains("  auto_attached: true")
+    action.content().split("\n").not_contains('  name: "package_surface_component"')
+
+    runfile_basenames = [f.basename for f in target[DefaultInfo].default_runfiles.files.to_list()]
+    env.expect.that_collection(runfile_basenames).not_contains("package_surface_component.component.textproto")
 
 def _authored_wins_infra_test(name):
     analysis_test(
@@ -299,6 +312,32 @@ def _authored_wins_infra_impl(env, target):
         "authored_wins_infra_component.component.textproto",
         "package_surface_component.component.textproto",
     ])
+    manifest_path = "bazel_rules/go/tests/testdata/membercomponent/authored_wins_infra_component.component.textproto"
+    action = env.expect.that_target(target).action_generating(manifest_path)
+    action.content().contains('name: "package_surface_component"')
+    action.content().split("\n").not_contains("  auto_attached: true")
+
+def _deterministic_multi_infra_test(name):
+    analysis_test(
+        name = name,
+        target = _MULTI_INFRA_A,
+        impl = _deterministic_multi_infra_impl,
+        attr_values = {"size": "small"},
+    )
+
+def _deterministic_multi_infra_impl(env, target):
+    info = target[ArccComponentInfo]
+    env.expect.that_collection(
+        [file.basename for file in info.transitive_manifests.to_list()],
+    ).contains_exactly([
+        "package_surface_component.component.textproto",
+        "runtime_component.component.textproto",
+        "multi_infra_a.component.textproto",
+    ])
+
+    action = env.expect.that_target(target).action_generating("bazel_rules/go/tests/testdata/membercomponent/multi_infra_a.component.textproto")
+    action.content().contains('name: "package_surface_component"')
+    action.content().contains('name: "runtime_component"')
 
 def go_component_test_suite(name):
     test_suite(
@@ -318,5 +357,6 @@ def go_component_test_suite(name):
             _auto_attached_infra_test,
             _declining_infra_test,
             _authored_wins_infra_test,
+            _deterministic_multi_infra_test,
         ],
     )

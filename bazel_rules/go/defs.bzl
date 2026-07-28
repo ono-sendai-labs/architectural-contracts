@@ -46,9 +46,8 @@ REFLECT = _REFLECT
 UNANALYZED = _UNANALYZED
 ALL_AUTHORITIES = _ALL_AUTHORITIES
 
-# Stable authoring spelling for the generated
-# INTERFACE_STYLE_PACKAGE_SURFACE enum value. Unset interface_style retains
-# the declared-interface style.
+def validate_component_shape(name, kwargs):
+    _validate_component_shape(name, kwargs)
 PACKAGE_SURFACE = "PACKAGE_SURFACE"
 
 def _is_label(s):
@@ -182,18 +181,6 @@ go_component = macro(
             configurable = False,
             doc = "The ambient authority this component declares, as constants from this file " +
                   "(FILES, NETWORK, ...). Empty means the component claims to be authority-free.",
-        ),
-        "infra_deps": attr.label_list(
-            configurable = False,
-            doc = "Infrastructure components evaluated for auto-attachment.",
-        ),
-        "test_infra_patterns": attr.string_list(
-            configurable = False,
-            doc = "Undocumented testing attribute for test infra patterns.",
-        ),
-        "test_infra_attach": attr.string(
-            configurable = False,
-            doc = "Undocumented testing attribute for test attachment mode.",
         ),
     },
     doc = """Declares a checkable arcc component around a Go interface library.
