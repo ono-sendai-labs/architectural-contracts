@@ -2,8 +2,10 @@ package manifest_test
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path"
+	"strings"
 	"testing"
 )
 
@@ -59,6 +61,46 @@ func TestSharedPatternCases_GoMatch(t *testing.T) {
 		}
 		if got != tc.Want {
 			t.Errorf("path.Match(%q, %q) = %v, want %v", tc.Pattern, tc.Path, got, tc.Want)
+		}
+	}
+}
+
+func TestSharedPatternCases_Sync(t *testing.T) {
+	cases := loadSharedPatternCases(t)
+	candidates := []string{
+		"../../../bazel_rules/go/tests/pattern_cases.bzl",
+		"../../bazel_rules/go/tests/pattern_cases.bzl",
+		"bazel_rules/go/tests/pattern_cases.bzl",
+	}
+	var bzlData []byte
+	var err error
+	for _, cand := range candidates {
+		bzlData, err = os.ReadFile(cand)
+		if err == nil {
+			break
+		}
+	}
+	if err != nil {
+		t.Fatalf("could not read pattern_cases.bzl: %v", err)
+	}
+
+	bzlContent := string(bzlData)
+	starlarkBool := func(b bool) string {
+		if b {
+			return "True"
+		}
+		return "False"
+	}
+
+	structCount := strings.Count(bzlContent, "struct(")
+	if structCount != len(cases) {
+		t.Errorf("pattern_cases.bzl contains %d struct(...) entries; want %d matching pattern_cases.json", structCount, len(cases))
+	}
+
+	for i, tc := range cases {
+		expectedLine := fmt.Sprintf("struct(pattern = %q, path = %q, want = %s, malformed = %s)", tc.Pattern, tc.Path, starlarkBool(tc.Want), starlarkBool(tc.Malformed))
+		if !strings.Contains(bzlContent, expectedLine) {
+			t.Errorf("case [%d] %s not found in pattern_cases.bzl", i, expectedLine)
 		}
 	}
 }

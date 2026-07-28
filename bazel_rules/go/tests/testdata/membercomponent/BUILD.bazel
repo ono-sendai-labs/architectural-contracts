@@ -100,6 +100,10 @@ testing_go_component(
 testing_go_component(
     name = "multi_infra_a",
     interface = "//bazel_rules/go/tests/testdata/api:api",
+    members = [
+        "//bazel_rules/go/tests/testdata/core",
+        "//bazel_rules/go/tests/testdata/extradep",
+    ],
     infra_deps = [
         ":package_surface_component",
         "//bazel_rules/go/tests/testdata/infra/runtime:runtime_component",
@@ -112,6 +116,10 @@ testing_go_component(
 testing_go_component(
     name = "multi_infra_b",
     interface = "//bazel_rules/go/tests/testdata/api:api",
+    members = [
+        "//bazel_rules/go/tests/testdata/extradep",
+        "//bazel_rules/go/tests/testdata/core",
+    ],
     infra_deps = [
         "//bazel_rules/go/tests/testdata/infra/runtime:runtime_component",
         ":package_surface_component",

@@ -320,24 +320,46 @@ def _authored_wins_infra_impl(env, target):
 def _deterministic_multi_infra_test(name):
     analysis_test(
         name = name,
-        target = _MULTI_INFRA_A,
+        targets = {
+            "target_a": _MULTI_INFRA_A,
+            "target_b": _MULTI_INFRA_B,
+        },
         impl = _deterministic_multi_infra_impl,
         attr_values = {"size": "small"},
     )
 
 def _deterministic_multi_infra_impl(env, target):
-    info = target[ArccComponentInfo]
+    info_a = target.target_a[ArccComponentInfo]
+    info_b = target.target_b[ArccComponentInfo]
+
     env.expect.that_collection(
-        [file.basename for file in info.transitive_manifests.to_list()],
+        [file.basename for file in info_a.transitive_manifests.to_list()],
     ).contains_exactly([
         "package_surface_component.component.textproto",
         "runtime_component.component.textproto",
         "multi_infra_a.component.textproto",
     ])
+    env.expect.that_collection(
+        [file.basename for file in info_b.transitive_manifests.to_list()],
+    ).contains_exactly([
+        "package_surface_component.component.textproto",
+        "runtime_component.component.textproto",
+        "multi_infra_b.component.textproto",
+    ])
 
-    action = env.expect.that_target(target).action_generating("bazel_rules/go/tests/testdata/membercomponent/multi_infra_a.component.textproto")
-    action.content().contains('name: "package_surface_component"')
-    action.content().contains('name: "runtime_component"')
+    action_manifest_a = env.expect.that_target(target.target_a).action_generating("bazel_rules/go/tests/testdata/membercomponent/multi_infra_a.component.textproto")
+    action_manifest_b = env.expect.that_target(target.target_b).action_generating("bazel_rules/go/tests/testdata/membercomponent/multi_infra_b.component.textproto")
+
+    manifest_a = action_manifest_a.actual.content
+    manifest_b_norm = action_manifest_b.actual.content.replace("multi_infra_b", "multi_infra_a")
+    env.expect.that_str(manifest_a).equals(manifest_b_norm)
+
+    action_layout_a = env.expect.that_target(target.target_a).action_generating("bazel_rules/go/tests/testdata/membercomponent/multi_infra_a.package-layout.json")
+    action_layout_b = env.expect.that_target(target.target_b).action_generating("bazel_rules/go/tests/testdata/membercomponent/multi_infra_b.package-layout.json")
+
+    layout_a = action_layout_a.actual.content
+    layout_b_norm = action_layout_b.actual.content.replace("multi_infra_b", "multi_infra_a")
+    env.expect.that_str(layout_a).equals(layout_b_norm)
 
 def go_component_test_suite(name):
     test_suite(
