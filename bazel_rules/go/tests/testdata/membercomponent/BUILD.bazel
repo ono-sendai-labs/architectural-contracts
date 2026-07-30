@@ -74,6 +74,19 @@ testing_go_component(
     visibility = ["//bazel_rules:__subpackages__"],
 )
 
+# A positive CLOSURE fixture: the member root contains a package matched by
+# test_infra_patterns, so attachment must emit the package-surface dependency.
+testing_go_component(
+    name = "closure_attached_infra_component",
+    interface = "//bazel_rules/go/tests/testdata/api:api",
+    members = ["//bazel_rules/go/tests/testdata/core"],
+    infra_deps = [":package_surface_component"],
+    test_infra_attach = "CLOSURE",
+    test_infra_patterns = ["example.com/aspect/core*"],
+    tags = ["manual"],
+    visibility = ["//bazel_rules:__subpackages__"],
+)
+
 # Test target for declining infra component attachment using a closure-inspecting predicate.
 testing_go_component(
     name = "declining_infra_component",
