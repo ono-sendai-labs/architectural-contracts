@@ -186,13 +186,24 @@ go_component = macro(
                   "(FILES, NETWORK, ...). Empty means the component claims to be authority-free.",
         ),
     },
-    doc = """Declares a checkable arcc component around a Go interface library.
+    doc = """Declares a checkable arcc component.
+
+There are two authoring styles:
+
+  * Declared style wraps a Go interface library. `interface` is required,
+    `members` is optional, and the component target forwards the interface
+    library's Go providers so it can be used as a `deps` entry.
+  * `PACKAGE_SURFACE` has no interface library. Its complete surface is the
+    declared `members` set, which is required, and no Go providers are
+    forwarded. Use this for a toolchain-injected runtime or an existing
+    library that has no architectural interface.
 
 Expands to:
 
   * `name` — generates `name.component.textproto` and
-    `name.package-layout.json`, and forwards the interface library's Go
-    providers, so the component target can be used as a `deps` entry.
+    `name.package-layout.json`. Declared-style targets also forward the
+    interface library's Go providers, so only those component targets can be
+    used as a `deps` entry in place of the interface library.
   * `name.check` — a hermetic test that runs `arcc check` on the generated
     manifest and layout. `bazel test` it to enforce the component's contract.
 
@@ -205,6 +216,13 @@ Example:
         absorbed_deps = ["//third_party/csvparse"],
         declared_authority = [FILES],
         visibility = ["//visibility:public"],
+    )
+
+    go_component(
+        name = "logger_component",
+        interface_style = PACKAGE_SURFACE,
+        members = ["//common/logger", "//common/logger/impl/backends"],
+        declared_authority = [FILES],
     )
 """,
 )

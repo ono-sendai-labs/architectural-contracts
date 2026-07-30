@@ -453,8 +453,12 @@ def go_build_platform(target):
     GoInfo.mode; NOT GoSDK.goos, which is the exec platform.
     """
 
-def go_attach_infra(target, infra):
-    """Whether to attach `infra` to `target` (A7).
+def go_attach_infra(roots, infra):
+    """Whether to attach `infra` to the component's `roots` (A7, M9).
+
+    `roots` contains the interface, if present, plus every declared member.
+    A host may inspect the union when its analysis-phase graph exposes the
+    relevant injected packages.
 
     Returning True unconditionally is conforming: pruning at a package is a no-op
     unless that package is reached, and a component's own authority is charged

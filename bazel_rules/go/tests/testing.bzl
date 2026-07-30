@@ -24,6 +24,15 @@ def _test_attach_predicate(roots, entry):
         return go_attach_infra(roots, entry)
     if attach_mode == "NEVER":
         return False
+    if attach_mode == "ROOTS":
+        # This mode pins the host seam's first argument: M9 requires the
+        # interface and every declared member to arrive as one root list.
+        if len(roots) != 2:
+            return False
+        for root in roots:
+            if ArccPackageInfo not in root:
+                return False
+        return go_attach_infra(roots, entry)
     if attach_mode == "CLOSURE":
         search_patterns = entry.import_path_patterns
         if not search_patterns:
@@ -67,7 +76,7 @@ _TEST_COMPONENT_ATTRS.update({
         doc = "Test-only import-path patterns used by the attachment fixture harness.",
     ),
     "test_infra_attach": attr.string(
-        doc = "Test-only attachment mode: ALWAYS, NEVER, or CLOSURE.",
+        doc = "Test-only attachment mode: ALWAYS, NEVER, CLOSURE, or ROOTS.",
     ),
 })
 

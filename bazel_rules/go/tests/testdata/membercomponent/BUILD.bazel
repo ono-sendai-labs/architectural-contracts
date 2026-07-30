@@ -87,6 +87,18 @@ testing_go_component(
     visibility = ["//bazel_rules:__subpackages__"],
 )
 
+# Focused seam contract fixture: the predicate requires the interface and
+# declared member to arrive together as the two root targets from M9.
+testing_go_component(
+    name = "root_collection_attached_infra_component",
+    interface = "//bazel_rules/go/tests/testdata/api:api",
+    members = ["//bazel_rules/go/tests/testdata/core"],
+    infra_deps = [":package_surface_component"],
+    test_infra_attach = "ROOTS",
+    tags = ["manual"],
+    visibility = ["//bazel_rules:__subpackages__"],
+)
+
 # Test target for declining infra component attachment using a closure-inspecting predicate.
 testing_go_component(
     name = "declining_infra_component",

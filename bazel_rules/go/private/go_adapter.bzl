@@ -66,16 +66,19 @@ def go_build_platform(target):
         cgo_enabled = not mode.pure,
     )
 
-def go_attach_infra(target, infra):
-    """Reports whether an infrastructure component should attach to `target`.
+def go_attach_infra(roots, infra):
+    """Reports whether an infrastructure component should attach to `roots`.
 
-    `target` is the Go target being wrapped and `infra` is one entry from
-    `INFRA_COMPONENTS`. A host may inspect either input when its analysis-phase
-    graph exposes the relevant injected packages. Returning True
-    unconditionally is also conforming: hosts that cannot observe
-    toolchain-injected packages during analysis cannot evaluate a closure-based
-    predicate for those packages, and package-level pruning is a no-op until
-    the package is reached.
+    `roots` contains every root target of the component being wrapped: the
+    interface, if present, plus all declared members. Layout-generation and
+    attachment inputs use this union (M9), rather than one distinguished
+    target. `infra` is one entry from `INFRA_COMPONENTS`. A host may inspect
+    either input when its analysis-phase graph exposes the relevant injected
+    packages. Returning True unconditionally is conforming: pruning at a
+    package is a no-op until that package is reached, and a component's own
+    authority is charged regardless because its packages are roots. Hosts that
+    cannot observe toolchain-injected packages during analysis cannot evaluate
+    a closure-based predicate for those packages.
     """
     return True
 

@@ -18,6 +18,7 @@ _PACKAGE_SURFACE_COMPONENT = "//bazel_rules/go/tests/testdata/membercomponent:pa
 _PATTERN_MEMBERSHIP_COMPONENT = "//bazel_rules/go/tests/testdata/membercomponent:pattern_membership_component"
 _AUTO_ATTACHED_INFRA_COMPONENT = "//bazel_rules/go/tests/testdata/membercomponent:auto_attached_infra_component"
 _CLOSURE_ATTACHED_INFRA_COMPONENT = "//bazel_rules/go/tests/testdata/membercomponent:closure_attached_infra_component"
+_ROOT_COLLECTION_ATTACHED_INFRA_COMPONENT = "//bazel_rules/go/tests/testdata/membercomponent:root_collection_attached_infra_component"
 _DECLINING_INFRA_COMPONENT = "//bazel_rules/go/tests/testdata/membercomponent:declining_infra_component"
 _NEVER_INFRA_COMPONENT = "//bazel_rules/go/tests/testdata/membercomponent:never_infra_component"
 _AUTHORED_WINS_INFRA_COMPONENT = "//bazel_rules/go/tests/testdata/membercomponent:authored_wins_infra_component"
@@ -324,6 +325,23 @@ def _closure_attached_infra_impl(env, target):
     action = env.expect.that_target(target).action_generating(manifest_path)
     action.content().contains("component_dependencies {\n  name: \"package_surface_component\"\n  manifest: \"package_surface_component.component.textproto\"\n  auto_attached: true\n}")
 
+def _root_collection_attachment_test(name):
+    analysis_test(
+        name = name,
+        target = _ROOT_COLLECTION_ATTACHED_INFRA_COMPONENT,
+        impl = _root_collection_attachment_impl,
+        attr_values = {"size": "small"},
+    )
+
+def _root_collection_attachment_impl(env, target):
+    info = target[ArccComponentInfo]
+    env.expect.that_collection(
+        [file.basename for file in info.transitive_manifests.to_list()],
+    ).contains_exactly([
+        "root_collection_attached_infra_component.component.textproto",
+        "package_surface_component.component.textproto",
+    ])
+
 def _never_infra_test(name):
     analysis_test(
         name = name,
@@ -421,6 +439,7 @@ def go_component_test_suite(name):
             _auto_attached_infra_test,
             _declining_infra_test,
             _closure_attached_infra_test,
+            _root_collection_attachment_test,
             _never_infra_test,
             _authored_wins_infra_test,
             _deterministic_multi_infra_test,
