@@ -1,8 +1,83 @@
 """Testing macro for go_component test targets in analysis tests."""
 
 load("//bazel_rules/go/private:check.bzl", "arcc_check_test")
-load("//bazel_rules/go/private:component.bzl", "go_component_rule")
+load(
+    "//bazel_rules/go/private:component.bzl",
+    "GO_COMPONENT_ATTRS",
+    "go_component_impl",
+)
+load(
+    "//bazel_rules/go/private:go_adapter.bzl",
+    "GO_TOOLCHAINS",
+    "go_attach_infra",
+    "go_attached_infra",
+)
+load("//bazel_rules/go/private:paths.bzl", "match_path")
+load("//bazel_rules:providers.bzl", "ArccComponentInfo")
+load("//bazel_rules/go:providers.bzl", "ArccPackageInfo")
 load("//bazel_rules/go:defs.bzl", "validate_component_shape")
+
+def _test_attach_predicate(roots, entry):
+    """Implements attachment modes for fixtures without modifying the host seam."""
+    attach_mode = entry.attach_mode
+    if attach_mode == "ALWAYS":
+        return go_attach_infra(roots, entry)
+    if attach_mode == "NEVER":
+        return False
+    if attach_mode == "CLOSURE":
+        search_patterns = entry.import_path_patterns
+        if not search_patterns:
+            search_patterns = ["*runtime*", "*injected*", "*member*"]
+        for root in roots:
+            if ArccPackageInfo in root:
+                for pkg in root[ArccPackageInfo].packages.to_list():
+                    for pattern in search_patterns:
+                        if match_path(pattern, pkg.importpath):
+                            return True
+        return False
+    return go_attach_infra(roots, entry)
+
+def _test_infra_registry(ctx):
+    entries = []
+    for dep in ctx.attr.infra_deps:
+        info = dep[ArccComponentInfo]
+        entries.append(struct(
+            name = info.component_name,
+            component = str(dep.label),
+            import_path_patterns = ctx.attr.test_infra_patterns,
+            attach_mode = ctx.attr.test_infra_attach,
+            attach_predicate = _test_attach_predicate,
+        ))
+    return entries
+
+def _testing_attachment_fn(ctx, roots, infra_deps):
+    return go_attached_infra(
+        ctx,
+        roots,
+        infra_deps,
+        registry = _test_infra_registry(ctx),
+    )
+
+def _testing_go_component_impl(ctx):
+    return go_component_impl(ctx, attachment_fn = _testing_attachment_fn)
+
+_TEST_COMPONENT_ATTRS = dict(GO_COMPONENT_ATTRS)
+_TEST_COMPONENT_ATTRS.update({
+    "test_infra_patterns": attr.string_list(
+        doc = "Test-only import-path patterns used by the attachment fixture harness.",
+    ),
+    "test_infra_attach": attr.string(
+        doc = "Test-only attachment mode: ALWAYS, NEVER, or CLOSURE.",
+    ),
+})
+
+testing_go_component_rule = rule(
+    implementation = _testing_go_component_impl,
+    attrs = _TEST_COMPONENT_ATTRS,
+    toolchains = GO_TOOLCHAINS,
+    provides = [ArccComponentInfo],
+    doc = "Test-only component rule with configurable infrastructure attachment.",
+)
 
 def testing_go_component(name, visibility = None, **kwargs):
     validate_component_shape(name, kwargs)
@@ -26,7 +101,7 @@ def testing_go_component(name, visibility = None, **kwargs):
     # manual-aware `.check` target, just like the public go_component macro.
     set_kwargs["own_check_runs"] = "manual" not in set_kwargs.get("tags", [])
 
-    go_component_rule(
+    testing_go_component_rule(
         name = name,
         visibility = visibility,
         **set_kwargs

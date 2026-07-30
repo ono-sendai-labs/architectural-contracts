@@ -18,6 +18,7 @@ _PACKAGE_SURFACE_COMPONENT = "//bazel_rules/go/tests/testdata/membercomponent:pa
 _PATTERN_MEMBERSHIP_COMPONENT = "//bazel_rules/go/tests/testdata/membercomponent:pattern_membership_component"
 _AUTO_ATTACHED_INFRA_COMPONENT = "//bazel_rules/go/tests/testdata/membercomponent:auto_attached_infra_component"
 _DECLINING_INFRA_COMPONENT = "//bazel_rules/go/tests/testdata/membercomponent:declining_infra_component"
+_NEVER_INFRA_COMPONENT = "//bazel_rules/go/tests/testdata/membercomponent:never_infra_component"
 _AUTHORED_WINS_INFRA_COMPONENT = "//bazel_rules/go/tests/testdata/membercomponent:authored_wins_infra_component"
 _MULTI_INFRA_A = "//bazel_rules/go/tests/testdata/membercomponent:multi_infra_a"
 _MULTI_INFRA_B = "//bazel_rules/go/tests/testdata/membercomponent:multi_infra_b"
@@ -296,6 +297,20 @@ def _declining_infra_impl(env, target):
     runfile_basenames = [f.basename for f in target[DefaultInfo].default_runfiles.files.to_list()]
     env.expect.that_collection(runfile_basenames).not_contains("package_surface_component.component.textproto")
 
+def _never_infra_test(name):
+    analysis_test(
+        name = name,
+        target = _NEVER_INFRA_COMPONENT,
+        impl = _never_infra_impl,
+        attr_values = {"size": "small"},
+    )
+
+def _never_infra_impl(env, target):
+    info = target[ArccComponentInfo]
+    env.expect.that_collection(
+        [file.basename for file in info.transitive_manifests.to_list()],
+    ).contains_exactly(["never_infra_component.component.textproto"])
+
 def _authored_wins_infra_test(name):
     analysis_test(
         name = name,
@@ -378,6 +393,7 @@ def go_component_test_suite(name):
             _pattern_membership_test,
             _auto_attached_infra_test,
             _declining_infra_test,
+            _never_infra_test,
             _authored_wins_infra_test,
             _deterministic_multi_infra_test,
         ],

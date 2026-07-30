@@ -19,8 +19,7 @@ constant instead; that is conforming behavior, not a degraded fallback.
 
 load("@rules_go//go:def.bzl", "GoArchive", "GoInfo")
 load("//bazel_rules:providers.bzl", "ArccComponentInfo")
-load("//bazel_rules/go:providers.bzl", "ArccPackageInfo")
-load(":paths.bzl", "match_path", "runfiles_path")
+load(":paths.bzl", "runfiles_path")
 
 # Providers a Go library target must carry to take part as a component
 # interface, an absorbed dependency, or a closure node. Used in
@@ -119,45 +118,9 @@ def go_infra_deps():
 
 def go_infra_components(ctx = None):
     """Returns the infra component registry entries."""
-    if ctx != None and hasattr(ctx.attr, "test_infra_attach") and ctx.attr.test_infra_attach:
-        patterns = getattr(ctx.attr, "test_infra_patterns", [])
-        attach_mode = ctx.attr.test_infra_attach
-        deps = getattr(ctx.attr, "infra_deps", [])
-
-        def _test_predicate(roots, entry):
-            if attach_mode == "ALWAYS":
-                return True
-            if attach_mode == "NEVER":
-                return False
-            if attach_mode == "CLOSURE":
-                search_patterns = getattr(entry, "import_path_patterns", [])
-                if not search_patterns:
-                    search_patterns = ["*runtime*", "*injected*", "*member*"]
-                for root in roots:
-                    if ArccPackageInfo in root:
-                        for pkg in root[ArccPackageInfo].packages.to_list():
-                            for p in search_patterns:
-                                if match_path(p, pkg.importpath):
-                                    return True
-                return False
-            return True
-
-        entries = []
-        for dep in deps:
-            comp_name = dep[ArccComponentInfo].component_name
-            entries.append(struct(
-                name = comp_name,
-                component = str(dep.label),
-                import_path_patterns = patterns,
-                attach_predicate = _test_predicate,
-            ))
-        return entries
-
-    if ctx != None and hasattr(ctx.attr, "infra_components") and ctx.attr.infra_components:
-        return ctx.attr.infra_components
     return INFRA_COMPONENTS
 
-def go_attached_infra(ctx, roots, infra_deps):
+def go_attached_infra(ctx, roots, infra_deps, registry = None):
     """Evaluates INFRA_COMPONENTS attachment against component roots.
 
     Returns a list of generic attached component records:
@@ -167,7 +130,8 @@ def go_attached_infra(ctx, roots, infra_deps):
             patterns = list_of_import_path_patterns,
         )
     """
-    registry = go_infra_components(ctx)
+    if registry == None:
+        registry = go_infra_components(ctx)
     attached = []
 
     for dep in infra_deps:

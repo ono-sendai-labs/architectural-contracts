@@ -194,7 +194,12 @@ def _classify(ctx, merged, effective_members, covered):
 
     return sorted(members), sorted(absorbed), sorted(unclassified)
 
-def _go_component_impl(ctx):
+def go_component_impl(ctx, attachment_fn = go_attached_infra):
+    """Generates a component using the supplied adapter attachment function.
+
+    The default is the production adapter seam. A test-only rule may inject a
+    fixture registry without adding test attributes to the production rule.
+    """
     for authority in ctx.attr.declared_authority:
         if authority not in ALL_AUTHORITIES:
             fail("component %s: unknown declared_authority %r; known: %s" % (
@@ -210,7 +215,7 @@ def _go_component_impl(ctx):
 
     roots = ([ctx.attr.interface] if ctx.attr.interface else []) + ctx.attr.members
 
-    attached_infra = go_attached_infra(ctx, roots, ctx.attr.infra_deps)
+    attached_infra = attachment_fn(ctx, roots, ctx.attr.infra_deps)
     auto_attached_deps = []
     auto_attached_targets = []
     auto_attached_patterns = []
@@ -433,59 +438,55 @@ def _go_component_impl(ctx):
         providers.extend(forward_go_providers(interface))
     return providers
 
+GO_COMPONENT_ATTRS = {
+    "interface": attr.label(
+        mandatory = False,
+        providers = GO_PROVIDERS,
+        aspects = [arcc_deps_aspect],
+        doc = "The declared-style public surface; absent for PACKAGE_SURFACE.",
+    ),
+    "interface_style": attr.string(
+        default = "",
+        doc = "Unset for declared style, or PACKAGE_SURFACE for member-only components.",
+    ),
+    "members": attr.label_list(
+        providers = GO_PROVIDERS,
+        aspects = [arcc_deps_aspect],
+        doc = "Concrete Go library labels whose transitive closures are analyzed " +
+              "alongside the interface closure.",
+    ),
+    "member_patterns": attr.string_list(
+        doc = "Unexpanded import-path patterns authored as membership under PACKAGE_SURFACE.",
+    ),
+    "component_deps": attr.label_list(
+        providers = [ArccComponentInfo],
+        doc = "Other components this one depends on; their packages are excluded from this one.",
+    ),
+    "infra_deps": attr.label_list(
+        providers = [ArccComponentInfo],
+        doc = "Auto-attached infrastructure component dependencies.",
+    ),
+    "absorbed_deps": attr.label_list(
+        providers = GO_PROVIDERS,
+        aspects = [arcc_deps_aspect],
+        doc = "Libraries this component absorbs as implementation details.",
+    ),
+    "contract": attr.label_list(
+        allow_files = True,
+        doc = "Contract documents; Bazel-only metadata, not part of the manifest.",
+    ),
+    "declared_authority": attr.string_list(
+        doc = "Ambient authority the component declares, from //bazel_rules:authority.bzl.",
+    ),
+    "own_check_runs": attr.bool(
+        default = True,
+        doc = "Private emitter signal: whether the generated check participates in bazel test.",
+    ),
+}
+
 go_component_rule = rule(
-    implementation = _go_component_impl,
-    attrs = {
-        "interface": attr.label(
-            mandatory = False,
-            providers = GO_PROVIDERS,
-            aspects = [arcc_deps_aspect],
-            doc = "The declared-style public surface; absent for PACKAGE_SURFACE.",
-        ),
-        "interface_style": attr.string(
-            default = "",
-            doc = "Unset for declared style, or PACKAGE_SURFACE for member-only components.",
-        ),
-        "members": attr.label_list(
-            providers = GO_PROVIDERS,
-            aspects = [arcc_deps_aspect],
-            doc = "Concrete Go library labels whose transitive closures are analyzed " +
-                  "alongside the interface closure.",
-        ),
-        "member_patterns": attr.string_list(
-            doc = "Unexpanded import-path patterns authored as membership under PACKAGE_SURFACE.",
-        ),
-        "component_deps": attr.label_list(
-            providers = [ArccComponentInfo],
-            doc = "Other components this one depends on; their packages are excluded from this one.",
-        ),
-        "infra_deps": attr.label_list(
-            providers = [ArccComponentInfo],
-            doc = "Auto-attached infrastructure component dependencies.",
-        ),
-        "absorbed_deps": attr.label_list(
-            providers = GO_PROVIDERS,
-            aspects = [arcc_deps_aspect],
-            doc = "Libraries this component absorbs as implementation details.",
-        ),
-        "contract": attr.label_list(
-            allow_files = True,
-            doc = "Contract documents; Bazel-only metadata, not part of the manifest.",
-        ),
-        "declared_authority": attr.string_list(
-            doc = "Ambient authority the component declares, from //bazel_rules:authority.bzl.",
-        ),
-        "test_infra_patterns": attr.string_list(
-            doc = "Undocumented testing attribute for test infra patterns.",
-        ),
-        "test_infra_attach": attr.string(
-            doc = "Undocumented testing attribute for test attachment mode.",
-        ),
-        "own_check_runs": attr.bool(
-            default = True,
-            doc = "Private emitter signal: whether the generated check participates in bazel test.",
-        ),
-    },
+    implementation = go_component_impl,
+    attrs = GO_COMPONENT_ATTRS,
     toolchains = GO_TOOLCHAINS,
     provides = [ArccComponentInfo],
     doc = "Generates an arcc manifest and package layout for a Go component.",
