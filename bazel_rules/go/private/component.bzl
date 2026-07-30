@@ -160,7 +160,7 @@ def _layout_content(ctx, merged, roots, go_sdk_root, platform):
     ) + "\n"
 
 def _classify(ctx, merged, effective_members, covered):
-    """Splits the FR2 frontier into covered, member, absorbed, and unclassified (design §3.1, §4.8, §5.3)."""
+    """Splits the FR2 frontier into covered, member, and absorbed (design §3.1, §4.8, §5.3)."""
 
     absorbed_closure = {}
     for dep in ctx.attr.absorbed_deps:
@@ -177,8 +177,6 @@ def _classify(ctx, merged, effective_members, covered):
 
     members = []
     absorbed = []
-    unclassified = []
-
     for importpath in sorted(frontier.keys()):
         if importpath not in merged:
             continue
@@ -189,10 +187,9 @@ def _classify(ctx, merged, effective_members, covered):
         elif importpath in absorbed_closure:
             # Coverage precedence has priority, but covered is checked first so we're good.
             absorbed.append(importpath)
-        else:
-            unclassified.append(importpath)
+        # The checker reports the remaining frontier as UNDECLARED_DEPENDENCY.
 
-    return sorted(members), sorted(absorbed), sorted(unclassified)
+    return sorted(members), sorted(absorbed)
 
 def go_component_impl(ctx, attachment_fn = go_attached_infra):
     """Generates a component using the supplied adapter attachment function.
@@ -322,7 +319,7 @@ def go_component_impl(ctx, attachment_fn = go_attached_infra):
             if match_path(pattern, importpath):
                 effective_members[importpath] = True
 
-    members, absorbed, unclassified = _classify(ctx, merged, effective_members, covered)
+    members, absorbed = _classify(ctx, merged, effective_members, covered)
 
     if interface and interface_importpath not in members:
         fail(("component %s: its own interface package %s is covered by a component_dep or listed in " +

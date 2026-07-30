@@ -396,10 +396,11 @@ manifest-validation relaxation in §4.2.
   Worth stating plainly, because the first framing of T4 got it wrong: **the two
   signals are not peers.** Provenance is authoritative; the path policy is a
   heuristic. The agreement check exists because `hostpolicy.IsStdlibPath` is
-  consulted by other code paths (`packagelayout.IsStdlib`, the checker's
-  nil-facts fallback), so a path policy that is wrong for some path corrupts
-  those too. The check validates the heuristic against ground truth and fails
-  closed — it is not a vote.
+  still consulted directly by package-layout validation's agreement and
+  standard-library-import checks, and by goanalysis's native module classifier
+  and nil-package import-recovery fallback. A path policy that is wrong for
+  some path would corrupt those consumers too. The check validates the
+  heuristic against ground truth and fails closed — it is not a vote.
 - `canonicalizeSymbol` rewrites the package path in every position, including
   generic type arguments (T6).
 - `ResolveDependencyInterface` gains a `PACKAGE_SURFACE` branch: the dependency's

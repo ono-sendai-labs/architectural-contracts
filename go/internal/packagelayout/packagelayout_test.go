@@ -242,25 +242,6 @@ func setupMockStat(existingPaths []string) func() {
 	}
 }
 
-func TestIsStdlib(t *testing.T) {
-	tests := []struct {
-		path string
-		want bool
-	}{
-		{"fmt", true},
-		{"net/http", true},
-		{"compress/gzip", true},
-		{"example.com/foo", false},
-		{"github.com/foo/bar", false},
-		{"", false},
-	}
-	for _, tt := range tests {
-		if got := IsStdlib(tt.path); got != tt.want {
-			t.Errorf("IsStdlib(%q) = %v; want %v", tt.path, got, tt.want)
-		}
-	}
-}
-
 func TestParse(t *testing.T) {
 	inputJSON := `{
 		"go_sdk_root": "/usr/local/go/src",

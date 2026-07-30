@@ -45,7 +45,10 @@ var (
 )
 
 // LoadRequest describes the component-scoped package roots to load. Members are
-// validated literal import paths in declared-style native manifests. Interface
+// canonical literal import paths for declared-style native manifests. A
+// PACKAGE_SURFACE manifest may contain path.Match patterns, but those entries
+// are dependency-side only; a direct check rejects them before loading. The
+// loader canonicalizes paths before applying membership matching. Interface
 // files are used to retain their containing package as an implicit member.
 type LoadRequest struct {
 	// ComponentName identifies the manifest in load diagnostics.
@@ -436,7 +439,10 @@ func validateDeclaredPackages(members []string, pkgs []*packages.Package) error 
 	for _, member := range members {
 		found := false
 		for _, pkg := range pkgs {
-			if hostpolicy.CanonicalizePath(pkg.PkgPath) != hostpolicy.CanonicalizePath(member) {
+			if !facts.MatchesMember(
+				hostpolicy.CanonicalizePath(member),
+				hostpolicy.CanonicalizePath(pkg.PkgPath),
+			) {
 				continue
 			}
 			found = true
@@ -473,7 +479,7 @@ func validateLoaderPackagePaths(pkgs []*packages.Package) error {
 func packageIsDeclaredMember(pkg *packages.Package, members []string) bool {
 	path := hostpolicy.CanonicalizePath(pkg.PkgPath)
 	for _, member := range members {
-		if path == hostpolicy.CanonicalizePath(member) {
+		if facts.MatchesMember(hostpolicy.CanonicalizePath(member), path) {
 			return true
 		}
 	}
@@ -1831,8 +1837,7 @@ func resolvePatternMembershipDependencyInterface(
 		canonPath := hostpolicy.CanonicalizePath(p.PkgPath)
 		for _, pattern := range depManifest.Members {
 			canonPattern := hostpolicy.CanonicalizePath(pattern)
-			matched, err := path.Match(canonPattern, canonPath)
-			if err == nil && matched {
+			if facts.MatchesMember(canonPattern, canonPath) {
 				if !seenMatched[canonPath] {
 					seenMatched[canonPath] = true
 					matchedPkgs = append(matchedPkgs, p)

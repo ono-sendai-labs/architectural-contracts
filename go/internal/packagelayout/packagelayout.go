@@ -74,15 +74,6 @@ type Platform struct {
 	CgoEnabled bool `json:"cgo_enabled"`
 }
 
-// IsStdlib reports whether importPath is a standard-library package. It defers to
-// the host stdlib policy, whose default is the heuristic the go tool uses (the
-// first path segment contains no dot). Package-layout mode has no module metadata,
-// so a host that rewrites import paths into a dotless-first-segment namespace
-// overrides hostpolicy.IsStdlibPath to keep those paths from being misclassified.
-func IsStdlib(importPath string) bool {
-	return hostpolicy.IsStdlibPath(importPath)
-}
-
 // IsStdlibPackage reports the validated standard-library provenance for a
 // package in layout mode. Missing provenance is non-stdlib (fail closed).
 func (l *Layout) IsStdlibPackage(p *packages.Package) bool {
@@ -100,15 +91,6 @@ func (l *Layout) IsStdlibPackage(p *packages.Package) bool {
 		}
 	}
 	return false
-}
-
-// IsStdlibPackage reports the validated provenance of the active layout
-// package. It is intentionally not a path heuristic.
-func IsStdlibPackage(p *packages.Package) bool {
-	activeMu.RLock()
-	l := activeLayout
-	activeMu.RUnlock()
-	return l.IsStdlibPackage(p)
 }
 
 // discoverStdlib walks the standard library source tree rooted at sdkRoot,

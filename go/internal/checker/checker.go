@@ -399,8 +399,7 @@ func buildMembership(m manifest.Manifest, packages []facts.PackageFact) map[stri
 
 	for _, pkg := range packages {
 		for _, pattern := range m.Members {
-			matched, err := path.Match(pattern, pkg.ImportPath)
-			if err == nil && matched {
+			if facts.MatchesMember(pattern, pkg.ImportPath) {
 				members[pkg.ImportPath] = true
 				break
 			}
