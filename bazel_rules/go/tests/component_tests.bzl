@@ -273,6 +273,12 @@ def _auto_attached_infra_impl(env, target):
         "auto_attached_infra_component.component.textproto",
         "package_surface_component.component.textproto",
     ])
+    env.expect.that_collection(
+        [pkg.importpath for pkg in info.closure.to_list()],
+    ).contains_exactly(["example.com/aspect/api"])
+    manifest_path = "bazel_rules/go/tests/testdata/membercomponent/auto_attached_infra_component.component.textproto"
+    action = env.expect.that_target(target).action_generating(manifest_path)
+    action.content().contains("component_dependencies {\n  name: \"package_surface_component\"\n  manifest: \"package_surface_component.component.textproto\"\n  auto_attached: true\n}")
 
 def _declining_infra_test(name):
     analysis_test(
