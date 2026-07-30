@@ -38,7 +38,7 @@ type Inputs struct {
 // Implements:
 // - FR3 (dependency allowlist rules)
 // - FR4 (well-formedness rule: Method placement)
-// - FR5 (cross-component call-boundary rule and higher-order boundary-call warning)
+// - FR5 (cross-component call-boundary rule)
 // - FR6 (policy-aware ambient-authority rule, using StrictPolicy() merged with declared_authority)
 // - M7 (member-overlap check)
 //

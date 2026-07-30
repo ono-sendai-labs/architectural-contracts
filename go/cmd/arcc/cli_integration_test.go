@@ -865,7 +865,7 @@ component_dependencies {
 	}
 }
 
-func TestIntegration_HigherOrderBoundaryCall_Warning(t *testing.T) {
+func TestIntegration_PluginStructPatternIsSilent(t *testing.T) {
 	wd, _ := os.Getwd()
 	depManifestPath, err := filepath.Abs(filepath.Join(wd, "../../examples/csvtool/csvfile/component.textproto"))
 	if err != nil {

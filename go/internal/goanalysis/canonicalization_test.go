@@ -769,10 +769,18 @@ members: "host/*"
 }
 
 func TestCollectBodilessAbsorbedPackages_DeduplicationAndSorting(t *testing.T) {
-	// Build a graph with duplicate reachable references to bodiless absorbed packages:
-	// Root -> Pkg1, Pkg2
-	// Pkg1 -> example.com/z_absorbed, example.com/a_absorbed
-	// Pkg2 -> example.com/z_absorbed, example.com/a_absorbed
+	originalCanonicalizePath := hostpolicy.CanonicalizePath
+	t.Cleanup(func() { hostpolicy.CanonicalizePath = originalCanonicalizePath })
+	hostpolicy.CanonicalizePath = func(path string) string {
+		if path == "example.com/a_absorbed_alias" {
+			return "example.com/a_absorbed"
+		}
+		return path
+	}
+
+	// The root's import keys visit wrapperZ before wrapperA. wrapperA reaches
+	// two distinct package values whose paths canonicalize to the same absorbed
+	// path, so the fixture can fail both without sorting and without deduplication.
 	pkgZ := &packages.Package{
 		ID:      "example.com/z_absorbed",
 		PkgPath: "example.com/z_absorbed",
@@ -781,22 +789,25 @@ func TestCollectBodilessAbsorbedPackages_DeduplicationAndSorting(t *testing.T) {
 		ID:      "example.com/a_absorbed",
 		PkgPath: "example.com/a_absorbed",
 	}
-	pkg1 := &packages.Package{
-		ID:      "example.com/pkg1",
-		PkgPath: "example.com/pkg1",
-		GoFiles: []string{"pkg1.go"},
+	pkgAAlias := &packages.Package{
+		ID:      "example.com/a_absorbed_alias",
+		PkgPath: "example.com/a_absorbed_alias",
+	}
+	wrapperZ := &packages.Package{
+		ID:      "example.com/wrapper_z",
+		PkgPath: "example.com/wrapper_z",
+		GoFiles: []string{"wrapper_z.go"},
 		Imports: map[string]*packages.Package{
 			"example.com/z_absorbed": pkgZ,
-			"example.com/a_absorbed": pkgA,
 		},
 	}
-	pkg2 := &packages.Package{
-		ID:      "example.com/pkg2",
-		PkgPath: "example.com/pkg2",
-		GoFiles: []string{"pkg2.go"},
+	wrapperA := &packages.Package{
+		ID:      "example.com/wrapper_a",
+		PkgPath: "example.com/wrapper_a",
+		GoFiles: []string{"wrapper_a.go"},
 		Imports: map[string]*packages.Package{
-			"example.com/z_absorbed": pkgZ,
-			"example.com/a_absorbed": pkgA,
+			"example.com/a_absorbed":       pkgA,
+			"example.com/a_absorbed_alias": pkgAAlias,
 		},
 	}
 	root := &packages.Package{
@@ -804,13 +815,13 @@ func TestCollectBodilessAbsorbedPackages_DeduplicationAndSorting(t *testing.T) {
 		PkgPath: "example.com/root",
 		GoFiles: []string{"root.go"},
 		Imports: map[string]*packages.Package{
-			"example.com/pkg1": pkg1,
-			"example.com/pkg2": pkg2,
+			"aaa/wrapper_z": wrapperZ,
+			"zzz/wrapper_a": wrapperA,
 		},
 	}
 
 	isMember := func(path string) bool {
-		return path == "example.com/root" || path == "example.com/pkg1" || path == "example.com/pkg2"
+		return path == "example.com/root"
 	}
 	patterns := []string{"example.com/*_absorbed"}
 

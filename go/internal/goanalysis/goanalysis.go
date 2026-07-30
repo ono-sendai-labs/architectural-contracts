@@ -1749,7 +1749,7 @@ func isPatternMembership(m manifest.Manifest) bool {
 	if m.InterfaceStyle != manifest.InterfaceStylePackageSurface {
 		return false
 	}
-	return isAllPatternMembers(m.Members) || (len(m.Members) > 0 && isAnyPatternMember(m.Members))
+	return len(m.Members) > 0 && isAnyPatternMember(m.Members)
 }
 
 func isAllPatternMembers(members []string) bool {

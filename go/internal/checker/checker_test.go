@@ -951,7 +951,7 @@ func TestCheck_FR5_Normalization(t *testing.T) {
 	}
 }
 
-func TestCheck_FR5_HigherOrderBoundaryCall(t *testing.T) {
+func TestCheck_PluginStructPatternIsSilent(t *testing.T) {
 	in := checker.Inputs{
 		Manifest: manifest.Manifest{
 			Name: "mycomponent",
@@ -2054,7 +2054,7 @@ func TestCheck_ThreeAnalysisLimitationsAreDistinguishable(t *testing.T) {
 	if !strings.Contains(rendered, "absorbed package") {
 		t.Errorf("rendered report missing absorbed package limitation")
 	}
-	if !strings.Contains(rendered, "is an analysis limitation") {
+	if !strings.Contains(rendered, `capability "FILES"`) {
 		t.Errorf("rendered report missing capability analysis limitation")
 	}
 }

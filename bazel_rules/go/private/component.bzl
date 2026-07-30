@@ -3,7 +3,7 @@
 Everything here happens at analysis time; the only actions are the two writes.
 The rule classifies the union of the interface and declared member package
 closures into
-component-dep-covered, absorbed, and member packages (design §5.3), emits the
+component-dep-covered, absorbed, and member packages (design §3.1, §4.8), emits the
 manifest arcc checks and the layout arcc loads through, and forwards the
 interface library's Go providers so the component target is usable as a
 `deps` entry.
@@ -138,6 +138,8 @@ def _layout_content(ctx, merged, roots, go_sdk_root, platform):
             # Identical until cgo is supported; a cgo package compiles from
             # preprocessed sources, which is why the rule rejects one below.
             "CompiledGoFiles": go_files,
+            # The closure contains only enumerated build targets, not SDK packages,
+            # so this provenance bit is structurally false (see docs/package-layout-schema.md §4).
             "is_stdlib": False,
         })
 
@@ -160,7 +162,7 @@ def _layout_content(ctx, merged, roots, go_sdk_root, platform):
     ) + "\n"
 
 def _classify(ctx, merged, effective_members, covered):
-    """Splits the FR2 frontier into covered, member, and absorbed (design §3.1, §4.8, §5.3)."""
+    """Splits the FR2 frontier into covered, member, and absorbed (design §3.1, §4.8)."""
 
     absorbed_closure = {}
     for dep in ctx.attr.absorbed_deps:
@@ -313,7 +315,7 @@ def go_component_impl(ctx, attachment_fn = go_attached_infra):
     for m_path in member_importpaths:
         effective_members[m_path] = True
 
-    member_patterns = getattr(ctx.attr, "member_patterns", [])
+    member_patterns = ctx.attr.member_patterns
     for pattern in member_patterns:
         for importpath in merged.keys():
             if match_path(pattern, importpath):

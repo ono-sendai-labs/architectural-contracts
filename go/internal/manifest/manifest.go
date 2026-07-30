@@ -207,7 +207,7 @@ func nativeInterfaceStyle(style gen.InterfaceStyle) (InterfaceStyle, error) {
 	}
 }
 
-// validate is a seam for task-03 to add syntactic validation rules.
+// validate enforces manifest shape and membership invariants before checking.
 func validate(m Manifest) error {
 	if m.Name == "" {
 		return ErrEmptyName

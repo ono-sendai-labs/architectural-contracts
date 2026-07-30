@@ -275,7 +275,7 @@ func (r *Runner) runCheck(manifestPath string, formatJSON bool, stdout, stderr i
 		return conformanceReport.Warnings[i].Kind < conformanceReport.Warnings[j].Kind
 	})
 
-	// 7. Format output
+	// 9. Format output
 	if formatJSON {
 		marshaled, err := json.MarshalIndent(conformanceReport, "", "  ")
 		if err != nil {
@@ -287,7 +287,7 @@ func (r *Runner) runCheck(manifestPath string, formatJSON bool, stdout, stderr i
 		fmt.Fprint(stdout, report.RenderText(conformanceReport))
 	}
 
-	// 8. Return exit code: 0 for no violations, 1 for violations
+	// 10. Return exit code: 0 for no violations, 1 for violations
 	if len(conformanceReport.Violations) > 0 {
 		return 1
 	}

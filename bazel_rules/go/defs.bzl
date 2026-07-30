@@ -46,8 +46,10 @@ REFLECT = _REFLECT
 UNANALYZED = _UNANALYZED
 ALL_AUTHORITIES = _ALL_AUTHORITIES
 
+# Exported for the test helper in bazel_rules/go/tests/testing.bzl.
 def validate_component_shape(name, kwargs):
     _validate_component_shape(name, kwargs)
+
 PACKAGE_SURFACE = "PACKAGE_SURFACE"
 
 def _is_label(s):
