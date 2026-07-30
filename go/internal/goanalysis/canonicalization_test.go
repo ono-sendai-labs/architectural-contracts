@@ -42,6 +42,47 @@ func TestValidateLoaderPackagePathsChecksDependencyGraph(t *testing.T) {
 	}
 }
 
+func TestLoadPackageFactsRejectsPatternMembershipBeforeLoading(t *testing.T) {
+	originalLoadPackages := loadPackages
+	t.Cleanup(func() { loadPackages = originalLoadPackages })
+	loadPackages = func(*packages.Config, ...string) ([]*packages.Package, error) {
+		t.Fatal("pattern membership reached packages.Load")
+		return nil, nil
+	}
+
+	tests := []struct {
+		name    string
+		members []string
+	}{
+		{
+			name:    "all patterns",
+			members: []string{"example.com/runtime/*"},
+		},
+		{
+			name:    "mixed literal and pattern",
+			members: []string{"example.com/runtime", "example.com/runtime/*"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := LoadPackageFacts(LoadRequest{
+				ComponentName: "pattern_surface_comp",
+				ComponentRoot: t.TempDir(),
+				Members:       tt.members,
+			})
+			if err == nil {
+				t.Fatalf("LoadPackageFacts() error = nil, want pattern-membership load error")
+			}
+			for _, want := range append([]string{"pattern_surface_comp", "pattern membership"}, tt.members...) {
+				if !strings.Contains(err.Error(), want) {
+					t.Errorf("error = %q, want to contain %q", err, want)
+				}
+			}
+		})
+	}
+}
+
 func TestValidateLayoutMembershipSets(t *testing.T) {
 	tests := []struct {
 		name       string

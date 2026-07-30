@@ -435,9 +435,39 @@ members: "example.com/temp/loader-request"
 	}
 
 	if gotRequest.ComponentRoot == "" ||
+		gotRequest.ComponentName != "test-comp" ||
 		!reflect.DeepEqual(gotRequest.Members, []string{"example.com/temp/loader-request"}) ||
 		!reflect.DeepEqual(gotRequest.InterfaceFiles, []string{"api.go"}) {
 		t.Fatalf("loader request = %+v, want manifest membership and interface context", gotRequest)
+	}
+}
+
+func TestRunner_Check_PatternMembershipFailsClosed(t *testing.T) {
+	manifestContent := `
+name: "pattern_surface_comp"
+interface_style: INTERFACE_STYLE_PACKAGE_SURFACE
+members: "example.com/runtime/*"
+declared_authority: "FILES"
+`
+	_, manifestPath := createTempComponent(t, "pattern-membership", manifestContent, nil)
+
+	runner := &app.Runner{
+		Loader:   goanalysis.LoadPackageFacts,
+		Analyzer: &mockAnalyzer{},
+	}
+
+	var stdout, stderr bytes.Buffer
+	exitCode := runner.Run([]string{"check", manifestPath}, &stdout, &stderr)
+	if exitCode != 2 {
+		t.Fatalf("Run() returned %d, want tool error 2; stdout = %q, stderr = %q", exitCode, stdout.String(), stderr.String())
+	}
+	if stdout.Len() != 0 {
+		t.Fatalf("stdout = %q, want no conformance report", stdout.String())
+	}
+	for _, want := range []string{"pattern_surface_comp", "example.com/runtime/*", "pattern membership"} {
+		if !strings.Contains(stderr.String(), want) {
+			t.Errorf("stderr = %q, want to contain %q", stderr.String(), want)
+		}
 	}
 }
 

@@ -107,10 +107,15 @@ arcc_check_test(
     component = "//bazel_rules/go/tests/testdata/infra/unused_consumer:unused_consumer_component",
 )
 
-arcc_check_test(
+arcc_check_grep_test(
     name = "pattern_membership_check_test",
-    size = "small",
     component = "//bazel_rules/go/tests/testdata/membercomponent:pattern_membership_component",
+    expect_status = 2,
+    expected_strings = [
+        "pattern_membership_component",
+        "example.com/infra/runtime*",
+        "pattern membership",
+    ],
 )
 
 arcc_check_test(

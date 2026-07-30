@@ -168,6 +168,7 @@ func (r *Runner) runCheck(manifestPath string, formatJSON bool, stdout, stderr i
 		absorbed = append(absorbed, ad.ImportPath)
 	}
 	loadedFacts, err := r.Loader(goanalysis.LoadRequest{
+		ComponentName:  parsedManifest.Name,
 		ComponentRoot:  componentRoot,
 		Members:        parsedManifest.Members,
 		InterfaceFiles: parsedManifest.InterfaceFiles,

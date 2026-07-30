@@ -983,12 +983,13 @@ Full notes in `../research/`.
    Q17: this was scoped to toolchain-injected runtimes and now applies wherever an
    author writes `interface_style = PACKAGE_SURFACE`, which will be common when
    drawing boundaries around existing libraries.
-6. **An asserted boundary is not a verified one.** A pattern-membership component
-   (M8) has no check of its own, so its `declared_authority` is a reviewable
-   assertion rather than a maintained claim — the Q9 trust hole, reopened for the
-   case where the packages cannot be named as targets. A8 makes it visible in every
-   report that depends on it rather than closing it; repo-wide enforcement is
-   deferred with the membership-uniqueness check.
+6. **Pattern-membership components cannot be checked directly.** A
+   pattern-membership component (M8) has no check of its own: its package surface
+   is resolved from a depender's layout. `arcc check` therefore fails at load time
+   when the component's members contain patterns, naming the component and the
+   unanalyzable entries. The `declared_authority` remains a reviewable assertion,
+   and A8 makes it visible in every report that depends on the boundary; repo-wide
+   enforcement is deferred with the membership-uniqueness check.
 7. **Bodiless packages are an unanalyzable authority category.** A package whose
    bodies are unavailable cannot be a member (M10), and absorbing it attributes
    nothing. A9 makes the gap visible as `ANALYSIS_LIMITATION` instead of letting

@@ -48,6 +48,8 @@ var (
 // validated literal import paths in declared-style native manifests. Interface
 // files are used to retain their containing package as an implicit member.
 type LoadRequest struct {
+	// ComponentName identifies the manifest in load diagnostics.
+	ComponentName  string
 	ComponentRoot  string
 	Members        []string
 	InterfaceFiles []string
@@ -57,8 +59,21 @@ type LoadRequest struct {
 // LoadPackageFacts loads Go package membership, direct-import, and standard-library facts
 // below the supplied component root using go/packages.
 func LoadPackageFacts(req LoadRequest) (facts.PackageFacts, error) {
-	if len(req.Members) > 0 && isAllPatternMembers(req.Members) {
-		return facts.PackageFacts{}, nil
+	if len(req.Members) > 0 && isAnyPatternMember(req.Members) {
+		componentName := req.ComponentName
+		if componentName == "" {
+			componentName = req.ComponentRoot
+		}
+		var patternMembers []string
+		for _, member := range req.Members {
+			if strings.ContainsAny(member, "*?[]\\") {
+				patternMembers = append(patternMembers, member)
+			}
+		}
+		return facts.PackageFacts{}, fmt.Errorf(
+			"component %q cannot be checked directly: pattern membership is dependency-side only; unanalyzable members: %v",
+			componentName, patternMembers,
+		)
 	}
 
 	componentRoot := req.ComponentRoot
