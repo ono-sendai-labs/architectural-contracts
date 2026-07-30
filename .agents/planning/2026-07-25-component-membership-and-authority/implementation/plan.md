@@ -19,7 +19,7 @@ Requirement IDs (M*, A*, T*, B*) refer to §2 of the design.
 - [x] **Step 9** — Package-surface components, auto-attached edges, pattern membership (A6, A7, A8, A9, M8)
 - [x] **Step 10** — Bazelified self-check (B3)
 - [x] **Step 11** — Documentation and design-record sync
-- [ ] **Step 12** — Remediation from implementation review 2026-07-29
+- [x] **Step 12** — Remediation from implementation review 2026-07-29
 
 **Core functionality milestones.** Owned-code attribution — the source note's
 Part 1 fail-open — is closed and demoable in **native mode at Step 2**. The full
