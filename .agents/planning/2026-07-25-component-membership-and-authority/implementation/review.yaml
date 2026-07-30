@@ -1,0 +1,807 @@
+review:
+  project: 2026-07-25-component-membership-and-authority
+  plan_path: .agents/planning/2026-07-25-component-membership-and-authority/implementation/plan.md
+  design_path: .agents/planning/2026-07-25-component-membership-and-authority/design/detailed-design.md
+  reviewed_at: 2026-07-29T00:00:00Z
+  schema_version: 1
+  steps_in_scope: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]
+  commits_in_scope: 94
+  remediation_step: .agents/tasks/2026-07-25-component-membership-and-authority/step12/
+  verdict: remediation_recommended
+
+summary: |
+  The batch landed substantially as designed: membership is declared and
+  honored in both modes, member packages are analysis roots, the two removed
+  report kinds are gone from the whole tree, the platform block and the
+  fail-closed stdlib/canonicalization rules are in place, and `just ci` is
+  green (exit 0, eight native self-checks and the full Bazel suite). Twenty of
+  the design's major elements map cleanly onto code; two are `partial` and one
+  `drifted`. The three substantive gaps all sit at the edges the design cared
+  most about. First, a pattern-membership component checked directly produces
+  `Component "x" conforms; does not exceed declared authority` with exit 0
+  having analyzed nothing — verified by running `arcc check` on a two-line
+  manifest — which is exactly the "silence looks like cleanliness" shape A9
+  exists to remove. Second, A8's `certified` annotation is unreachable in
+  practice: no emitter writes `own_check_runs`, so every generated manifest and
+  all eight of arcc's own self-check reports render `asserted`, including the
+  six components whose checks demonstrably run under `bazel test`. Third, the
+  host seam `go_adapter.bzl` — the file the design designates as the single
+  swap point — now carries test scaffolding and a `go_attach_infra` signature
+  that disagrees with both its own docstring and design §4.7. Nothing here is
+  critical, and every per-task review closed `approved`; four `important`
+  findings and six lower-severity ones are routed to six remediation tasks.
+
+architecture:
+  - element: "Declared membership in the schema (M1, M3, M5, M8)"
+    expected: |
+      Component gains `members`, `interface_style`, `own_check_runs`,
+      `certification_reference`; ComponentDependency gains `auto_attached`.
+      Empty members means FR1. Certification fields commented as
+      self-declarations at declared_authority's trust level.
+    actual: |
+      As specified, in proto/archcontracts/v1/component.proto. The comments
+      say plainly that the two certification fields are self-declarations not
+      verified by arcc.
+    status: aligned
+    files:
+      - proto/archcontracts/v1/component.proto
+      - go/internal/manifest/manifest.go
+    notes: ""
+
+  - element: "Manifest validation of membership and style (§4.2)"
+    expected: |
+      Reject duplicate members, a member also listed as absorbed, malformed
+      patterns; PACKAGE_SURFACE requires members and forbids interface_files
+      in both directions; patterns allowed only under PACKAGE_SURFACE.
+    actual: |
+      All of it, in manifest.validate (manifest.go:207-289), with typed errors
+      per rule.
+    status: aligned
+    files:
+      - go/internal/manifest/manifest.go
+    notes: ""
+
+  - element: "Checker membership and MEMBER_OVERLAP (§4.3, M5, M7)"
+    expected: |
+      Membership from Manifest.Members when non-empty else FR1; interface
+      package forced in; MEMBER_OVERLAP for a member covered by a resolved
+      component_dep or matched by an absorbed declaration.
+    actual: |
+      buildMembership (checker.go:391-427) and the two overlap sweeps
+      (checker.go:171-205) implement this.
+    status: aligned
+    files:
+      - go/internal/checker/checker.go
+    notes: ""
+
+  - element: "INIT_OUTSIDE_INTERFACE removal (A2)"
+    expected: |
+      Kind, checker branch, tests and FR4 prose all gone; the init
+      CAPABILITY_SAFE prune half untouched.
+    actual: |
+      Gone. A repo-wide grep over go/, proto/, bazel_rules/ and the docs finds
+      no INIT_OUTSIDE_INTERFACE or InitOutsideInterface. The init prune key is
+      still emitted (app.go:207).
+    status: aligned
+    files:
+      - go/internal/report/report.go
+      - go/internal/checker/checker.go
+      - go/cmd/arcc/app/app.go
+    notes: ""
+
+  - element: "Attribution follows ownership: members are roots (A1)"
+    expected: |
+      Member packages are analysis roots; LoadPackageFacts filters facts to
+      members; native mode loads exactly the declared member patterns.
+    actual: |
+      LoadPackageFacts builds compPkgPaths from layout roots, declared members,
+      or all loaded packages, and filters facts, call edges and source files
+      through isEffectiveMember (goanalysis.go:145-228, 269-293).
+    status: aligned
+    files:
+      - go/internal/goanalysis/goanalysis.go
+    notes: ""
+
+  - element: "Declared analysis platform and layout consistency (T1, T2, T8, T8a)"
+    expected: |
+      Optional platform block; build.Context built from it; empty-package error;
+      bidirectional resolvable-import equality; unresolvable imports collected
+      and reported as ANALYSIS_LIMITATION in both conforming shapes.
+    actual: |
+      Platform struct and BuildContextForLayout (packagelayout.go:59-207) with
+      an explicit supported-target table; UnresolvedImports carried to facts and
+      rendered by the checker (checker.go:230-238).
+    status: aligned
+    files:
+      - go/internal/packagelayout/packagelayout.go
+      - go/internal/facts/facts.go
+      - go/internal/checker/checker.go
+      - docs/package-layout-schema.md
+    notes: |
+      BuildContextForLayout validating goos/goarch against a pinned Go 1.26
+      target list is an addition beyond the design, but it is a strictly
+      fail-closed one and is commented with its maintenance obligation.
+
+  - element: "Stdlib classification from provenance (T4, T4a)"
+    expected: |
+      Native: SDK structural, then non-SDK nil Module is non-stdlib, then
+      module metadata ANDed with the path policy. Layout: declared bit ANDed
+      with path policy, SDK-discovered structural, disagreement is a load error.
+      The bit is provenance-derived, documented next to the field.
+    actual: |
+      The three native cases are literal (isStdlibPackage, goanalysis.go:512-524)
+      and use build.Default.Import(..., FindOnly) rather than a subprocess.
+      Layout provenance lives in Layout.stdlibBy{ID,Path}. docs/package-layout-schema.md
+      §4 carries the provenance requirement.
+    status: aligned
+    files:
+      - go/internal/goanalysis/goanalysis.go
+      - go/internal/packagelayout/packagelayout.go
+      - docs/package-layout-schema.md
+    notes: |
+      Design §4.6 justifies the agreement check by naming `packagelayout.IsStdlib`
+      and "the checker's nil-facts fallback" as other consumers of the path
+      policy. Neither exists any more — see F5. The check is still worth keeping
+      (hostpolicy.IsStdlibPath remains the layout-mode heuristic half), but the
+      stated reason is stale.
+
+  - element: "Canonicalization contract enforced (T5, T6)"
+    expected: |
+      Identity on loader-reported paths asserted at load time, failing closed;
+      canonicalizeSymbol rewrites every position; vendor relaxation restricted to
+      stdlib; facts.PackageFact.IsStdlib removed; StdlibImports always populated.
+    actual: |
+      validateLoaderPackagePaths (goanalysis.go:444-456) walks every reachable
+      package via packages.Visit. facts.PackageFact carries no IsStdlib.
+      StdlibImports documents nil and empty as the same empty authoritative set.
+    status: aligned
+    files:
+      - go/internal/goanalysis/goanalysis.go
+      - go/internal/facts/facts.go
+      - go/internal/hostpolicy/hostpolicy.go
+    notes: ""
+
+  - element: "Interface-file exclusion reporting and success wording (T3, T7)"
+    expected: |
+      ValidateInterfaceFiles returns excluded files; each becomes
+      INTERFACE_FILE_EXCLUDED naming file and constraint; a fully excluded
+      interface is an error; success line reworded.
+    actual: |
+      InterfaceFileExclusion returned and rendered in app.go:260-269;
+      report.go:80 emits the T7 wording byte-for-byte.
+    status: aligned
+    files:
+      - go/internal/goanalysis/goanalysis.go
+      - go/internal/report/report.go
+      - go/cmd/arcc/app/app.go
+    notes: ""
+
+  - element: "Absorbed func-value escape (A5) and HIGHER_ORDER_BOUNDARY_CALL removal"
+    expected: |
+      SSA operand scan for absorbed *ssa.Function values, excluding the static
+      callee position and call-graph-reached functions; new fact and warning;
+      old kind and PassesFuncValue removed.
+    actual: |
+      scanFuncValueEscapes (goanalysis.go:1886+), facts.FuncValueEscape, and
+      report.AbsorbedFuncValueEscape. The old kind, the CallEdge field and the
+      helper are absent tree-wide.
+    status: aligned
+    files:
+      - go/internal/goanalysis/goanalysis.go
+      - go/internal/facts/facts.go
+      - go/internal/checker/checker.go
+    notes: |
+      The two end-to-end tests were converted to silence assertions rather than
+      deleted, as required — but kept names that assert the opposite of what
+      they now check. See F9.
+
+  - element: "PACKAGE_SURFACE dependency resolution (A6, M8, §4.5)"
+    expected: |
+      ResolveDependencyInterface gains a PACKAGE_SURFACE branch returning the
+      full exported member surface; a pattern-membership dependency resolves its
+      surface from the depender's own layout; CALLS_UNDECLARED_INTERFACE becomes
+      vacuous while UNUSED_DEPENDENCY stays meaningful.
+    actual: |
+      Both branches exist (goanalysis.go:1376-1378, 1783+) and the checker skips
+      CALLS_UNDECLARED_INTERFACE for a package-surface dependency
+      (checker.go:270-272). But the *subject-of-check* case is unguarded:
+      LoadPackageFacts returns empty facts for an all-pattern membership
+      (goanalysis.go:60-62), app.go skips capability analysis when no packages
+      loaded (app.go:237), and the run reports conformance with exit 0.
+    status: partial
+    files:
+      - go/internal/goanalysis/goanalysis.go
+      - go/cmd/arcc/app/app.go
+    notes: |
+      The dependency direction — the one the design specifies in detail — is
+      complete and correct. What is missing is a guard on the direction the
+      design assumed would not happen (C.6: such a component "has no check of
+      its own"). Nothing enforces that assumption, and the failure mode is a
+      silent clean report rather than an error. See F1.
+
+  - element: "Package-granularity pruning (A6, §4.6)"
+    expected: |
+      capanalyzer.AnalyzeRequest gains PruneAtPackages; buildClassifier emits
+      `package <path> CAPABILITY_SAFE` for PACKAGE_SURFACE dependencies
+      alongside per-function keys.
+    actual: |
+      As specified; app.go builds prunePkgSet only from package-surface
+      dependencies (app.go:209-213).
+    status: aligned
+    files:
+      - go/internal/capanalyzer/capanalyzer.go
+      - go/internal/capslockadapter/capslockadapter.go
+      - go/cmd/arcc/app/app.go
+    notes: ""
+
+  - element: "auto_attached edges exempt from UNUSED_DEPENDENCY (A7)"
+    expected: |
+      Read off the depender's own manifest, no dep-manifest lookup; the injected
+      edge appears in the emitted manifest even when attachment is unconditional.
+    actual: |
+      checker.go:288-291 reads dep.AutoAttached directly; the Bazel emitter
+      writes `auto_attached: true` on injected edges (component.bzl:89-95).
+    status: aligned
+    files:
+      - go/internal/checker/checker.go
+      - bazel_rules/go/private/component.bzl
+    notes: ""
+
+  - element: "Certified/asserted boundary annotation (A8)"
+    expected: |
+      The report's dependency listing marks each pruned boundary certified or
+      asserted with the certification reference where recorded. Not a finding.
+      The dependency's own emitter is the only party that can know.
+    actual: |
+      The report side is complete: DependencyBoundary, formatDependencyBoundary,
+      and both render paths. The emitter side is absent — no .bzl file writes
+      `own_check_runs`, so every generated manifest is silently `asserted`,
+      including arcc's own six Bazel-checked components.
+    status: partial
+    files:
+      - go/internal/report/report.go
+      - go/internal/checker/checker.go
+      - bazel_rules/go/private/component.bzl
+    notes: |
+      Observed in this review's `just ci` run: all eight self-check reports list
+      every dependency as `asserted`. The half that was implemented cannot
+      express its interesting state. See F2.
+
+  - element: "Bodiless absorbed packages as ANALYSIS_LIMITATION (A9)"
+    expected: |
+      Reuse the existing kind rather than the UNANALYZED authority constant.
+    actual: |
+      collectBodilessAbsorbedPackages feeding facts.BodilessAbsorbedPackages and
+      a checker warning (checker.go:240-245). UNANALYZED stays a suppressed
+      Capslock capability.
+    status: aligned
+    files:
+      - go/internal/goanalysis/goanalysis.go
+      - go/internal/checker/checker.go
+    notes: ""
+
+  - element: "Adapter seam additions (§4.7: go_build_platform, go_attach_infra, INFRA_COMPONENTS)"
+    expected: |
+      Three host-swappable additions in the one seam file. go_build_platform
+      reads GoInfo.mode, not GoSDK.goos, and may return a constant.
+      go_attach_infra(target, infra) may return True unconditionally.
+      INFRA_COMPONENTS accepts labels or patterns, with a worked example.
+    actual: |
+      go_build_platform and INFRA_COMPONENTS are as specified, with the worked
+      examples. go_attach_infra's parameter is named `target` and documented as
+      "the Go target being wrapped", but its only call site passes a *list* of
+      root targets (component.bzl:206 -> go_adapter.bzl:200). The file also
+      carries a test-only attachment harness (go_infra_components'
+      test_infra_attach branch, with hardcoded fallback patterns) and the
+      component rule declares two attributes documented as "Undocumented
+      testing attribute".
+    status: drifted
+    files:
+      - bazel_rules/go/private/go_adapter.bzl
+      - bazel_rules/go/private/component.bzl
+    notes: |
+      Justified evolution on the substance — M9 requires attachment to see the
+      union of interface and members, so a list is the right input. Unjustified
+      on the contract: the design, the docstring and the parameter name all
+      still say a single target, and a second host implementing the seam from
+      the documentation gets it wrong. The test harness inside the seam is drift
+      of a different kind: it puts code a host must delete into the file the
+      design says a host replaces wholesale. See F3, F4.
+
+  - element: "Component rule: FR2-frontier classification and emission (§3.1, §4.8, M4, M6)"
+    expected: |
+      Order covered -> member -> absorbed -> error, over the FR2 frontier rather
+      than the whole closure; expanded members into the manifest and the same
+      set as the layout's roots; platform block emitted; analysis-time fail()s
+      for M7 contradictions.
+    actual: |
+      _classify iterates the frontier built from merged[member].deps
+      (component.bzl:155-188); the fail()s are all present; layout roots come
+      from effective_members and the manifest from the classified set plus raw
+      patterns.
+    status: aligned
+    files:
+      - bazel_rules/go/private/component.bzl
+    notes: |
+      The FR2-frontier narrowing is the spec repair from Step 10 task 01 and is
+      implemented at the site the escalation identified. `_classify`'s third
+      return value is computed and discarded at the call site — correct
+      behaviorally (§3.1 says the error branch needs no emitter-side rule) but
+      dead. See F5.
+
+  - element: "_check_component_roots removal (§8)"
+    expected: |
+      Deleted, unblocking a wrapper co-located with the library it wraps.
+    actual: |
+      Absent — no .bzl file in the tree mentions it.
+    status: aligned
+    files:
+      - bazel_rules/go/private/component.bzl
+    notes: ""
+
+  - element: "Interface/members shape rule (§4.8, Q17a)"
+    expected: |
+      Declared style requires interface and permits members; PACKAGE_SURFACE
+      rejects interface and requires members; enforced in the macro with a
+      fail() naming the component.
+    actual: |
+      _validate_component_shape (defs.bzl:62-96), called before attribute
+      normalization so errors point at the declaration.
+    status: aligned
+    files:
+      - bazel_rules/go/defs.bzl
+    notes: ""
+
+  - element: "No members expansion helper (B1, §4.9)"
+    expected: |
+      No arcc_subpackages(); declared-style members are concrete labels;
+      PACKAGE_SURFACE may use unexpanded patterns; the limitation recorded.
+    actual: |
+      No helper ships. The macro splits raw members into target_members and
+      pattern_members (defs.bzl:108-119) and the declared-style branch rejects
+      wildcards. README limitation 11 records the cost.
+    status: aligned
+    files:
+      - bazel_rules/go/defs.bzl
+      - README.md
+    notes: ""
+
+  - element: "Bazelified self-check (B3, §7.3)"
+    expected: |
+      go_component targets for six of arcc's eight components, capslockadapter
+      and cli excluded for the shared cgo-closure reason, a manifest parity test
+      following the csvtool precedent, and `just selfcheck` retained.
+    actual: |
+      Six go_component targets (capanalyzer, checker, facts, goanalysis,
+      manifest, report), a shared go/internal/manifestparity package, a
+      deliberately broken checker fixture driving a negative test, and eight
+      native self-checks still in the justfile.
+    status: aligned
+    files:
+      - go/internal/checker/BUILD.bazel
+      - go/internal/manifestparity/manifestparity.go
+      - justfile
+    notes: ""
+
+  - element: "Report kind set (§5.3)"
+    expected: |
+      MEMBER_OVERLAP and ABSORBED_FUNC_VALUE_ESCAPE and INTERFACE_FILE_EXCLUDED
+      added; HIGHER_ORDER_BOUNDARY_CALL and INIT_OUTSIDE_INTERFACE removed;
+      ANALYSIS_LIMITATION gains two producers.
+    actual: |
+      Exactly this set in report.go:18-31. ANALYSIS_LIMITATION now has three
+      producers in the checker (capability, unresolved import, bodiless
+      absorbed).
+    status: aligned
+    files:
+      - go/internal/report/report.go
+    notes: ""
+
+doc_code_alignment:
+  - artifact: .agents/planning/2026-07-25-component-membership-and-authority/design/detailed-design.md
+    section: "§4.7 — go_adapter.bzl (host seam)"
+    issue: |
+      The design declares `go_attach_infra(target, infra)` and describes
+      `target` as the Go target being wrapped. The implementation passes the
+      union of the interface and member targets, which is what M9 requires. The
+      seam's own docstring repeats the stale single-target wording.
+    suggested_action: update_doc
+    related_finding: F4
+
+  - artifact: .agents/planning/2026-07-25-component-membership-and-authority/design/detailed-design.md
+    section: "§4.6 — goanalysis, T4 rationale"
+    issue: |
+      The paragraph justifying the stdlib agreement check names
+      `packagelayout.IsStdlib` and "the checker's nil-facts fallback" as other
+      consumers of hostpolicy.IsStdlibPath. Neither exists in the code any more:
+      IsStdlib has no non-test caller and the checker reads only
+      Facts.StdlibImports.
+    suggested_action: update_doc
+    related_finding: F5
+
+  - artifact: .agents/planning/2026-07-25-component-membership-and-authority/design/detailed-design.md
+    section: "§4.1 / A8 — certification fields; Appendix C.6"
+    issue: |
+      §4.1 states the dependency's own emitter is the only party that knows
+      whether a check target exists, but no emitter writes `own_check_runs`, so
+      `certified` is unreachable for generated manifests. C.6 asserts a
+      pattern-membership component "has no check of its own" without anything in
+      the code enforcing it, and checking one silently reports conformance.
+    suggested_action: update_code
+    related_finding: F1
+
+  - artifact: bazel_rules/go/defs.bzl
+    section: "go_component macro doc"
+    issue: |
+      The public macro doc still says a component is declared "around a Go
+      interface library" and that the target forwards the interface library's
+      Go providers. PACKAGE_SURFACE targets have neither. Raised as a
+      suggestion in the Step 6 task 03 review and not addressed.
+    suggested_action: update_doc
+    related_finding: F7
+
+  - artifact: go/internal/checker/checker.go
+    section: "Check doc comment (line 41)"
+    issue: |
+      The function doc still lists "FR5 (cross-component call-boundary rule and
+      higher-order boundary-call warning)" after Step 8 removed that warning.
+    suggested_action: update_doc
+    related_finding: F9
+
+findings:
+  - id: F1
+    severity: important
+    category: architecture
+    file: go/internal/goanalysis/goanalysis.go
+    line: 60
+    title: A pattern-membership component checked directly reports conformance having analyzed nothing
+    details: |
+      `LoadPackageFacts` short-circuits on an all-pattern membership:
+
+          if len(req.Members) > 0 && isAllPatternMembers(req.Members) {
+              return facts.PackageFacts{}, nil
+          }
+
+      Nothing downstream notices. `app.go:237` guards capability analysis with
+      `if len(pkgs) > 0`, so no analyzer runs; `checker.Check` over empty facts
+      produces no violations and no warnings; `RenderText` takes the clean
+      branch. Verified by running the shipped binary against a three-line
+      manifest:
+
+          name: "pattern_surface_comp"
+          interface_style: INTERFACE_STYLE_PACKAGE_SURFACE
+          members: "example.com/runtime/*"
+          declared_authority: "FILES"
+
+          $ ./bin/arcc check component.textproto
+          Component "pattern_surface_comp" conforms; does not exceed declared authority
+          $ echo $?
+          0
+
+      Design Appendix C.6 assumes such a component "has no check of its own",
+      and A8 exists precisely to make that visible. But the assumption is
+      nowhere enforced, and the result of violating it is the failure mode this
+      whole batch was written to remove: a clean report where nothing was
+      analyzed. Compare A9, which spends a report kind on exactly this hazard
+      for a single absorbed package, while a whole component can vanish
+      silently. Note the mixed case is also unhandled: a PACKAGE_SURFACE
+      component with one literal and one pattern member does not take this
+      branch, and its raw pattern is then handed to `packages.Load` as a
+      pattern go/packages does not understand.
+    suggested_action: |
+      Fail closed. Either reject the load with an error naming the manifest and
+      explaining that pattern membership is a dependency-side construct, or
+      surface it as an ANALYSIS_LIMITATION so the report cannot read clean.
+      Cover the mixed literal/pattern case explicitly rather than by omission.
+    source: built-in
+    addressed_by: step12/task-01-fail-closed-on-unanalyzable-pattern-membership.code-task.md
+
+  - id: F2
+    severity: important
+    category: architecture
+    file: bazel_rules/go/private/component.bzl
+    line: 68
+    title: No emitter writes own_check_runs, so A8's `certified` state is unreachable
+    details: |
+      `_manifest_content` emits name, interface_style, interface_files,
+      component_dependencies, absorbed_dependencies, members and
+      declared_authority. It never emits `own_check_runs` or
+      `certification_reference`. A grep for either field across `*.bzl`,
+      `*.textproto` and `BUILD.bazel` finds them only in goanalysis unit-test
+      fixtures and one Bazel golden asserting the JSON default `false`.
+
+      The consequence is that the certified/asserted annotation — the whole of
+      A8, and the reason §5.3 argues against a report kind — can only ever say
+      "asserted" for any component a build system generated. This review's
+      `just ci` run shows it on arcc itself: all eight self-check reports list
+      every dependency as `asserted`, including `capanalyzer`, `facts`,
+      `manifest`, `report`, `checker` and `goanalysis`, whose `.check` targets
+      demonstrably run under `bazel test //...`.
+
+      The emitter has the information without needing to look anything up: the
+      `go_component` macro unconditionally generates `name.check`
+      (defs.bzl:135), so a component emitted by this rule always has a check
+      that runs — except when it inherits `tags = ["manual"]`, which is the one
+      case that needs a decision. Design §4.1 assigns this knowledge to the
+      dependency's own emitter precisely because a depender cannot infer it.
+    suggested_action: |
+      Emit `own_check_runs: true` from `_manifest_content` for components whose
+      generated `.check` participates in `bazel test`, and false (or a
+      certification_reference) otherwise; decide and document the `manual`-tagged
+      case. Update the affected goldens and the manifest parity test, and pin
+      the behavior with a check that a generated manifest renders `certified` in
+      a depender's report.
+    source: built-in
+    addressed_by: step12/task-02-emit-own-check-runs-from-the-component-rule.code-task.md
+
+  - id: F3
+    severity: important
+    category: dependencies
+    file: bazel_rules/go/private/go_adapter.bzl
+    line: 120
+    title: Test scaffolding lives inside the host seam and on the production rule
+    details: |
+      `go_adapter.bzl` opens by stating that a host "ports arcc by replacing
+      just this file — the rules above it stay byte-identical". `go_infra_components`
+      now begins with a 35-line branch that exists only for arcc's own analysis
+      tests: it reads `ctx.attr.test_infra_attach`, dispatches on the string
+      values ALWAYS / NEVER / CLOSURE, and falls back to hardcoded fixture
+      patterns `["*runtime*", "*injected*", "*member*"]` when a test entry
+      supplies none. `component.bzl:470-475` correspondingly declares
+      `test_infra_patterns` and `test_infra_attach` on the production rule, both
+      documented as "Undocumented testing attribute".
+
+      Two costs. A porting host must read past a test harness to find the
+      contract, and must decide whether deleting it breaks anything — the file
+      is the swap unit, so the harness is not separable by construction. And
+      arcc's own attachment predicate is exercised almost entirely through the
+      test branch rather than through `go_attach_infra`, so the seam that ships
+      is thinner-tested than the line count suggests.
+
+      A dead branch sits alongside it: line 156 reads
+      `ctx.attr.infra_components`, an attribute no rule in the tree declares, so
+      the `hasattr` guard is always false.
+    suggested_action: |
+      Move the attachment-mode harness out of `go_adapter.bzl` — a test-only
+      adapter or a fixture-local rule wrapper keeps the fixtures working without
+      putting them in the swap unit — and drop the two test attributes from the
+      production rule or move them behind a clearly test-scoped rule. Delete the
+      unreachable `infra_components` branch.
+    source: built-in
+    addressed_by: step12/task-03-move-infra-test-scaffolding-out-of-the-host-seam.code-task.md
+
+  - id: F4
+    severity: important
+    category: doc_divergence
+    file: bazel_rules/go/private/go_adapter.bzl
+    line: 70
+    title: go_attach_infra's documented contract disagrees with its only call site
+    details: |
+      The seam is declared `def go_attach_infra(target, infra)` and its docstring
+      says "`target` is the Go target being wrapped and `infra` is one entry from
+      INFRA_COMPONENTS. A host may inspect either input when its analysis-phase
+      graph exposes the relevant injected packages." Design §4.7 declares the
+      same signature.
+
+      The only call site passes a list:
+
+          # component.bzl:204,206
+          roots = ([ctx.attr.interface] if ctx.attr.interface else []) + ctx.attr.members
+          attached_infra = go_attached_infra(ctx, roots, ctx.attr.infra_deps)
+          # go_adapter.bzl:200
+          should_attach = go_attach_infra(roots, entry)
+
+      The list is the correct input — M9 requires attachment to be evaluated
+      against the union of the interface and the members, not one distinguished
+      target — so the code is right and three pieces of documentation are wrong.
+      This matters more than an ordinary stale comment because the seam exists
+      to be reimplemented by someone who has only the documentation: a host that
+      writes `target[ArccPackageInfo]` per the docstring fails at analysis time,
+      and a host that returns True unconditionally (which the docs bless) never
+      finds out.
+    suggested_action: |
+      Rename the parameter to `targets` (or `roots`), rewrite the docstring to
+      say it receives every root target of the component being wrapped, and
+      correct design §4.7's declaration. Add an analysis test whose predicate
+      actually inspects the argument, so the contract is pinned by something
+      other than prose.
+    source: built-in
+    addressed_by: step12/task-04-correct-the-adapter-seam-and-macro-documentation.code-task.md
+
+  - id: F5
+    severity: suggestion
+    category: dead_code
+    file: bazel_rules/go/private/component.bzl
+    line: 313
+    title: Three dead surfaces left behind by the batch
+    details: |
+      - `component.bzl:313` binds `unclassified` from `_classify` and never uses
+        it. Behaviorally correct — §3.1 says the error branch needs no emitter
+        rule because `UNDECLARED_DEPENDENCY` covers it at check time — but the
+        binding reads like an unfinished error path, and `_classify` computes and
+        sorts a list nobody consumes.
+      - `packagelayout.IsStdlib` (packagelayout.go:82) has no caller outside its
+        own unit test, and the free function `IsStdlibPackage`
+        (packagelayout.go:107) has none at all; every real call goes through the
+        `*Layout` method. Design §4.6 still cites `packagelayout.IsStdlib` as one
+        of the "other code paths" that justify the T4 agreement check.
+      - `go_adapter.bzl:156` reads `ctx.attr.infra_components`, which no rule
+        declares (also noted in F3).
+    suggested_action: |
+      Drop `unclassified` from `_classify`'s return (or consume it), delete the
+      two unused packagelayout exports along with the test that only exists to
+      call one of them, and correct the §4.6 sentence to name the consumers that
+      actually exist.
+    source: built-in
+    addressed_by: step12/task-05-remove-dead-surfaces-and-unify-membership-matching.code-task.md
+
+  - id: F6
+    severity: suggestion
+    category: consistency
+    file: go/internal/goanalysis/goanalysis.go
+    line: 458
+    title: "Membership matching has two different semantics in the Go core"
+    details: |
+      "Is this package a member?" is answered three times with two meanings:
+
+      - `checker.buildMembership` (checker.go:400-408) matches each declared
+        member against each package path with `path.Match`, so a member entry is
+        a *pattern*.
+      - `goanalysis.packageIsDeclaredMember` (goanalysis.go:458-466) and
+        `validateDeclaredPackages` (goanalysis.go:420-438) compare canonicalized
+        strings for equality, so a member entry is a *literal*.
+      - The Bazel emitter uses `match_path` for `member_patterns` and label
+        identity for `members`.
+
+      Today the divergence is masked by F1's short-circuit and by manifest
+      validation forbidding patterns under the declared style, so no supported
+      configuration reaches both paths with a pattern. That makes it a latent
+      inconsistency rather than a live bug — but it is the kind that surfaces as
+      an inexplicable difference between what the loader analyzed and what the
+      checker swept, and F1's fix will have to pick one semantics anyway.
+    suggested_action: |
+      Give the two Go packages one membership-matching helper with one
+      documented semantics, and state in the LoadRequest doc which form Members
+      may take in each mode.
+    source: built-in
+    addressed_by: step12/task-05-remove-dead-surfaces-and-unify-membership-matching.code-task.md
+
+  - id: F7
+    severity: suggestion
+    category: unresolved_review_findings
+    file: bazel_rules/go/defs.bzl
+    line: 186
+    title: "Step 6 task 03's review finding on the macro doc is still open"
+    details: |
+      The `code-task-review` report for step06/task-03 raised a `suggestion`:
+      the public macro doc "still says every component is 'around a Go interface
+      library' and that its target forwards the interface library's Go providers
+      ... PACKAGE_SURFACE targets intentionally have neither". Verified still
+      present at defs.bzl:186-192, unchanged by any later step. The task was
+      approved with the finding open, which is legitimate at suggestion level;
+      it is carried here because the doc is the first thing an author reads when
+      choosing between the two styles.
+    suggested_action: |
+      Distinguish declared-style from PACKAGE_SURFACE targets in the macro
+      overview and state that only declared style forwards Go providers.
+    source: code-task-review (step06/task-03)
+    addressed_by: step12/task-04-correct-the-adapter-seam-and-macro-documentation.code-task.md
+
+  - id: F8
+    severity: suggestion
+    category: unresolved_review_findings
+    file: go/internal/goanalysis/canonicalization_test.go
+    line: 730
+    title: "Two open findings from the Step 9 task 05 orchestrator review"
+    details: |
+      That task's final review (orchestrator-review.yaml, `approved`) left four
+      findings unaddressed by design. Two are worth closing:
+
+      - `TestCollectBodilessAbsorbedPackages_DeduplicationAndSorting` cannot fail
+        on either property in its name. The reviewer removed the `seen` guard and
+        `sort.Strings` in a scratch copy and the test passed both times, because
+        `packages.Visit` already dedupes by pointer and sorts import paths. The
+        remaining claims of the criterion are pinned; the two named ones are not.
+      - `TestCheck_ThreeAnalysisLimitationsAreDistinguishable`
+        (checker_test.go:2057) asserts the rendered report contains "is an
+        analysis limitation" to identify the *capability* limitation, but the
+        unresolved-import message ends in the same words (checker.go:233), so the
+        assertion passes even if the capability warning is missing.
+
+      The other two — a duplicated comment in a commit whose description
+      overstates it, and a per-package re-canonicalization of absorbed patterns —
+      are cosmetic and are folded into F10 rather than tracked here.
+    suggested_action: |
+      Give the collector fixture a graph whose traversal order is the reverse of
+      the sorted result and two distinct package values canonicalizing to one
+      path, so both properties can fail; and assert on a substring unique to the
+      capability producer.
+    source: code-task-review (step09/task-05, orchestrator re-review)
+    addressed_by: step12/task-06-test-and-comment-hygiene.code-task.md
+
+  - id: F9
+    severity: suggestion
+    category: tests
+    file: go/cmd/arcc/cli_integration_test.go
+    line: 868
+    title: "Converted higher-order tests keep names asserting the warning they now assert is absent"
+    details: |
+      Step 8 required the two end-to-end HIGHER_ORDER_BOUNDARY_CALL tests to be
+      converted to silence assertions rather than deleted, so they become the
+      pinning tests for the plugin-struct pattern. The conversion was done
+      correctly and the names were not touched:
+      `TestIntegration_HigherOrderBoundaryCall_Warning` now asserts exit 0 and
+      the absence of the old string, and `TestCheck_FR5_HigherOrderBoundaryCall`
+      asserts zero violations and zero warnings. A reader scanning test names
+      concludes arcc still has the warning. The same staleness sits in
+      `checker.go:41`, whose doc comment lists "FR5 (cross-component
+      call-boundary rule and higher-order boundary-call warning)".
+    suggested_action: |
+      Rename both tests to say what they pin — that the plugin-struct pattern
+      stays silent — and drop the removed warning from the Check doc comment.
+    source: built-in
+    addressed_by: step12/task-06-test-and-comment-hygiene.code-task.md
+
+  - id: F10
+    severity: nit
+    category: style
+    file: go/internal/manifest/manifest.go
+    line: 207
+    title: "Scaffolding comments and small redundancies left by the batch"
+    details: |
+      - `manifest.go:207`: "validate is a seam for task-03 to add syntactic
+        validation rules" — the rules were added in that task; the comment now
+        points at a task file rather than describing the function.
+      - `defs.bzl:49-51`: the exported `validate_component_shape` test wrapper is
+        wedged between the authority constants and `PACKAGE_SURFACE` with no
+        blank line, and nothing marks it as existing for `tests/testing.bzl`.
+      - `goanalysis.go:1731`: `isAllPatternMembers(m.Members) || (len(m.Members) > 0
+        && isAnyPatternMember(m.Members))` — the first disjunct is subsumed by
+        the second.
+      - `component.bzl:307`: `getattr(ctx.attr, "member_patterns", [])` defends
+        against the absence of an attribute the same rule declares.
+      - `app.go:277,289`: a second "// 7." and "// 8." after the first pair.
+      - `component.bzl` module docstring and `_classify`'s docstring both cite
+        design §5.3, the section Step 7 superseded.
+      - `component.bzl:134` hardcodes `"is_stdlib": False` with no comment, at
+        exactly the spot where docs/package-layout-schema.md §4 says a reader
+        will wonder whether a heuristic was used. It is structurally correct here
+        (the aspect closure enumerates targets only) and deserves to say so.
+    suggested_action: |
+      Sweep these while touching the surrounding files in the other remediation
+      tasks; none justifies a commit of its own.
+    source: built-in
+    addressed_by: step12/task-06-test-and-comment-hygiene.code-task.md
+
+remediation_tasks:
+  - path: .agents/tasks/2026-07-25-component-membership-and-authority/step12/task-01-fail-closed-on-unanalyzable-pattern-membership.code-task.md
+    title: Fail closed when a component's membership cannot be analyzed
+    addresses_findings: [F1]
+    sequence: 1
+
+  - path: .agents/tasks/2026-07-25-component-membership-and-authority/step12/task-02-emit-own-check-runs-from-the-component-rule.code-task.md
+    title: Emit own_check_runs so a certified boundary is reachable
+    addresses_findings: [F2]
+    sequence: 2
+
+  - path: .agents/tasks/2026-07-25-component-membership-and-authority/step12/task-03-move-infra-test-scaffolding-out-of-the-host-seam.code-task.md
+    title: Move the infra-attachment test harness out of the host seam
+    addresses_findings: [F3]
+    sequence: 3
+
+  - path: .agents/tasks/2026-07-25-component-membership-and-authority/step12/task-04-correct-the-adapter-seam-and-macro-documentation.code-task.md
+    title: Correct the adapter seam contract and the macro documentation
+    addresses_findings: [F4, F7]
+    sequence: 4
+
+  - path: .agents/tasks/2026-07-25-component-membership-and-authority/step12/task-05-remove-dead-surfaces-and-unify-membership-matching.code-task.md
+    title: Remove dead surfaces and unify membership matching
+    addresses_findings: [F5, F6]
+    sequence: 5
+
+  - path: .agents/tasks/2026-07-25-component-membership-and-authority/step12/task-06-test-and-comment-hygiene.code-task.md
+    title: Close the open test findings and the stale comments
+    addresses_findings: [F8, F9, F10]
+    sequence: 6
+
+ecosystem_reviews: []

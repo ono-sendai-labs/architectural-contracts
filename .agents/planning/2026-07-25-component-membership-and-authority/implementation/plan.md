@@ -19,6 +19,7 @@ Requirement IDs (M*, A*, T*, B*) refer to §2 of the design.
 - [x] **Step 9** — Package-surface components, auto-attached edges, pattern membership (A6, A7, A8, A9, M8)
 - [x] **Step 10** — Bazelified self-check (B3)
 - [x] **Step 11** — Documentation and design-record sync
+- [ ] **Step 12** — Remediation from implementation review 2026-07-29
 
 **Core functionality milestones.** Owned-code attribution — the source note's
 Part 1 fail-open — is closed and demoable in **native mode at Step 2**. The full
@@ -588,3 +589,66 @@ memory.
 
 **Demo.** A reader following the Bazel design document arrives at the model the
 code actually implements.
+
+---
+
+## Step 12: Remediation from implementation review 2026-07-29
+
+**Report:** `review.yaml` (verdict `remediation_recommended`; 4 important, 5
+suggestion, 1 nit). Tasks in
+`.agents/tasks/2026-07-25-component-membership-and-authority/step12/`.
+
+**Objective.** Close the three substantive gaps the whole-implementation review
+found — all of them at the edges the design cared most about — plus the residue
+of dead surfaces, stale contracts and weak tests that no single task review was
+positioned to see.
+
+**Guidance.**
+- **A component whose membership cannot be analyzed must not report conformance
+  (F1).** `arcc check` on a manifest whose `members` are all patterns currently
+  prints the conformance line and exits 0 having loaded nothing:
+  `LoadPackageFacts` short-circuits, `app.go` skips capability analysis on an
+  empty package set, and the clean render branch does the rest. Appendix C.6
+  assumes such a component is never the subject of a check; nothing enforces
+  that, and the cost of the assumption failing is the silent-clean shape this
+  whole batch exists to remove. Fail closed, and decide the mixed
+  literal/pattern case rather than letting it fall out.
+- **Emit `own_check_runs` (F2).** No emitter writes it, so A8's `certified`
+  state is unreachable for every generated manifest — visible on arcc itself,
+  whose eight self-check reports list every dependency as `asserted` including
+  the six components whose checks run under `bazel test`. §5.3 argues against a
+  finding *because* the dependency listing carries the signal; the listing has
+  to be able to carry it.
+- **Get the test harness out of the host seam (F3).** `go_adapter.bzl` promises
+  it is the one file a host replaces, and now contains a test-only attachment
+  predicate with hardcoded fixture patterns, backed by two "Undocumented testing
+  attribute" attrs on the production rule. Keep the Step 9 encapsulation; move
+  the fixtures' half out.
+- **Correct the seam contract (F4, F7).** `go_attach_infra` is declared and
+  documented as taking one target and is called with the list of root targets —
+  which is what M9 requires, so the code is right and the design §4.7
+  declaration, the docstring and the parameter name are all wrong. Pin it with a
+  predicate that reads its argument. Fold in the still-open Step 6 macro-doc
+  finding while in `defs.bzl`.
+- **Sweep the residue (F5, F6, F8, F9, F10).** A discarded `_classify` return,
+  two unused `packagelayout` exports the design still cites as live consumers,
+  two membership-matching semantics in the Go core, two tests that pass under
+  mutation of the properties they name, two converted tests whose names assert
+  the warning they now assert is absent, and a handful of comments pointing at
+  removed rules and superseded sections.
+
+**Tests.** Each task carries its own; the cross-cutting requirement is that the
+two mutation-sensitive tests (F8) are proven RED under mutation and GREEN after,
+with both runs recorded, since the finding is precisely that they are green
+today under mutation. No existing assertion may be weakened to accommodate a
+remediation task.
+
+**Integration.** Tasks 01–04 are independent of each other; 05 depends on 01's
+membership semantics and 03's dead-branch removal; 06 lands last so its comment
+sweep falls on final text. `just ci` green after each.
+
+**Demo.** `arcc check` on a pattern-membership manifest no longer claims
+conformance. A self-check's dependency listing shows `certified` for the
+components whose checks actually run and `asserted` for the two that cannot run
+under Bazel. `go_adapter.bzl` reads as a contract a second host can implement
+from, with no fixture code in it.
