@@ -1752,18 +1752,6 @@ func isPatternMembership(m manifest.Manifest) bool {
 	return len(m.Members) > 0 && isAnyPatternMember(m.Members)
 }
 
-func isAllPatternMembers(members []string) bool {
-	if len(members) == 0 {
-		return false
-	}
-	for _, m := range members {
-		if !strings.ContainsAny(m, "*?[]\\") {
-			return false
-		}
-	}
-	return true
-}
-
 func isAnyPatternMember(members []string) bool {
 	for _, m := range members {
 		if strings.ContainsAny(m, "*?[]\\") {
