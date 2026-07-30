@@ -1,4 +1,5 @@
 name: "csvfile"
+own_check_runs: true
 interface_files: "csvfile.go"
 members: "github.com/ono-sendai-labs/architectural-contracts/go/examples/csvtool/csvfile"
 component_dependencies {

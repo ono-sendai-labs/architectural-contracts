@@ -285,13 +285,13 @@ when it does not:
 Component "app" conforms; does not exceed declared authority
 
 Dependencies:
-- csvfile: asserted
-- toprow: asserted
+- csvfile: certified
+- toprow: certified
 ```
 
 The annotation is not a finding: the depending component did nothing wrong by
-pruning at a boundary whose owner has not declared a check. It exists so that
-what is being trusted is visible in every report that rests on it.
+pruning at a boundary. It exists so that what is being trusted is visible in
+every report that rests on it.
 
 ### Reproducing a Conformance Violation
 To see what a contract violation looks like, you can easily create a temporary failing component.

@@ -1,3 +1,4 @@
 name: "capanalyzer"
+own_check_runs: true
 interface_files: "capanalyzer.go"
 members: "github.com/ono-sendai-labs/architectural-contracts/go/internal/capanalyzer"

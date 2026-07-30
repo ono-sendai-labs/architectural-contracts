@@ -128,6 +128,13 @@ func CompareManifests(t testing.TB, dir string, gen, chk manifest.Manifest) {
 		t.Errorf("%s: interface style = %v, want %v", dir, gen.InterfaceStyle, chk.InterfaceStyle)
 	}
 
+	// Certification is an emitter self-declaration and is part of parity: a
+	// checked-in mirror must not silently claim a different check participation
+	// state than the generated manifest.
+	if gen.OwnCheckRuns != chk.OwnCheckRuns {
+		t.Errorf("%s: own_check_runs = %t, want %t", dir, gen.OwnCheckRuns, chk.OwnCheckRuns)
+	}
+
 	// Absorbed dependencies: same import paths, reasons ignored.
 	if got, want := importPaths(gen.AbsorbedDependencies), importPaths(chk.AbsorbedDependencies); !slices.Equal(got, want) {
 		t.Errorf("%s: absorbed import paths = %v, want %v", dir, got, want)

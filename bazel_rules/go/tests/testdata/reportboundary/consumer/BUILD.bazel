@@ -1,0 +1,26 @@
+load("@rules_arcc//bazel_rules/go:defs.bzl", "go_component")
+load("@rules_go//go:def.bzl", "go_library")
+
+go_library(
+    name = "consumer",
+    srcs = ["consumer.go"],
+    importpath = "example.com/reportboundary/consumer",
+    deps = [
+        "//bazel_rules/go/tests/testdata/shared",
+        "//bazel_rules/go/tests/testdata/reportboundary/manual",
+    ],
+    visibility = ["//bazel_rules:__subpackages__"],
+)
+
+# This report is exercised explicitly below; the consumer check itself is
+# manual so the fixture does not become an unrelated repository-wide check.
+go_component(
+    name = "consumer_component",
+    component_deps = [
+        "//bazel_rules/go/tests/testdata/shared:shared_component",
+        "//bazel_rules/go/tests/testdata/reportboundary/manual:manual_component",
+    ],
+    interface = ":consumer",
+    tags = ["manual"],
+    visibility = ["//bazel_rules:__subpackages__"],
+)

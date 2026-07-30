@@ -1,3 +1,4 @@
 name: "parsecsv"
+own_check_runs: true
 interface_files: "parsecsv.go"
 members: "github.com/ono-sendai-labs/architectural-contracts/go/examples/csvtool/internal/parsecsv"

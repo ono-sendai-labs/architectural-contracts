@@ -22,6 +22,9 @@ def testing_go_component(name, visibility = None, **kwargs):
 
     set_kwargs["members"] = target_members
     set_kwargs["member_patterns"] = pattern_members
+    # Keep the analysis-test macro's generated manifest aligned with its
+    # manual-aware `.check` target, just like the public go_component macro.
+    set_kwargs["own_check_runs"] = "manual" not in set_kwargs.get("tags", [])
 
     go_component_rule(
         name = name,

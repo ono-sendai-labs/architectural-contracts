@@ -773,8 +773,8 @@ func TestIntegration_App_Success(t *testing.T) {
 	wantText := `Component "app" conforms; does not exceed declared authority
 
 Dependencies:
-- csvfile: asserted
-- toprow: asserted
+- csvfile: certified
+- toprow: certified
 `
 	if stdout != wantText {
 		t.Errorf("stdout =\n%q\nwant:\n%q", stdout, wantText)
@@ -801,8 +801,8 @@ func TestIntegration_App_Success_JSON(t *testing.T) {
 	if len(rep.Violations) != 0 || len(rep.Warnings) != 0 {
 		t.Errorf("report has findings: violations=%v, warnings=%v", rep.Violations, rep.Warnings)
 	}
-	if len(rep.Dependencies) != 2 || rep.Dependencies[0].Component != "csvfile" || rep.Dependencies[1].Component != "toprow" {
-		t.Errorf("rep.Dependencies = %+v, want csvfile and toprow asserted boundaries", rep.Dependencies)
+	if len(rep.Dependencies) != 2 || rep.Dependencies[0].Component != "csvfile" || rep.Dependencies[1].Component != "toprow" || !rep.Dependencies[0].OwnCheckRuns || !rep.Dependencies[1].OwnCheckRuns {
+		t.Errorf("rep.Dependencies = %+v, want csvfile and toprow certified boundaries", rep.Dependencies)
 	}
 }
 

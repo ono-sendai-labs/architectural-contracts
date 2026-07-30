@@ -1,4 +1,5 @@
 name: "api_component"
+own_check_runs: true
 interface_files: "_main/bazel_rules/go/tests/testdata/api/api.go"
 component_dependencies {
   name: "shared_component"

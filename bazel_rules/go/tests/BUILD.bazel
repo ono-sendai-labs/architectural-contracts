@@ -155,6 +155,13 @@ arcc_check_report_golden_test(
     golden = "goldens/api_component.report.json",
 )
 
+arcc_check_report_golden_test(
+    name = "reportboundary_consumer_report_golden_test",
+    size = "small",
+    component = "//bazel_rules/go/tests/testdata/reportboundary/consumer:consumer_component",
+    golden = "goldens/reportboundary_consumer.report.txt",
+)
+
 arcc_check_grep_test(
     name = "api_component_grep_report_test",
     size = "small",
@@ -164,7 +171,7 @@ arcc_check_grep_test(
         '"component": "api_component"',
         '"dependencies":',
         '"component": "shared_component"',
-        '"own_check_runs": false',
+        '"own_check_runs": true',
     ],
 )
 

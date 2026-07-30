@@ -1,0 +1,18 @@
+load("@rules_arcc//bazel_rules/go:defs.bzl", "go_component")
+load("@rules_go//go:def.bzl", "go_library")
+
+go_library(
+    name = "manual",
+    srcs = ["manual.go"],
+    importpath = "example.com/reportboundary/manual",
+    visibility = ["//bazel_rules:__subpackages__"],
+)
+
+# The generated check is deliberately excluded so the report must retain an
+# asserted annotation for consumers that cross this boundary.
+go_component(
+    name = "manual_component",
+    interface = ":manual",
+    tags = ["manual"],
+    visibility = ["//bazel_rules:__subpackages__"],
+)

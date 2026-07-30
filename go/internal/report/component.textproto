@@ -1,3 +1,4 @@
 name: "report"
+own_check_runs: true
 interface_files: "report.go"
 members: "github.com/ono-sendai-labs/architectural-contracts/go/internal/report"
