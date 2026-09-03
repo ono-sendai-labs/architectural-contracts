@@ -1392,6 +1392,49 @@ func TestValidateAndResolve_LayoutWinsOnCollision(t *testing.T) {
 	}
 }
 
+func TestValidateAndResolve_SDKRootFailureClasses(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	fixture := func(sdkRoot string) *Layout {
+		return &Layout{
+			GoSDKRoot:  sdkRoot,
+			Roots:      []string{"fmt"},
+			stdlibByID: map[string]bool{"fmt": true},
+			Packages: []*packages.Package{
+				{ID: "fmt", Name: "fmt", PkgPath: "fmt", GoFiles: []string{"format.go"}},
+			},
+		}
+	}
+
+	t.Run("absent root fails before walking", func(t *testing.T) {
+		nonexistent := filepath.Join(tmpDir, "does-not-exist")
+		err := ValidateAndResolve(fixture(nonexistent), tmpDir)
+		if err == nil {
+			t.Fatal("expected error for nonexistent SDK root, got nil")
+		}
+		if !strings.Contains(err.Error(), "accessing SDK root") {
+			t.Errorf("expected error containing 'accessing SDK root', got %v", err)
+		}
+		if !strings.Contains(err.Error(), nonexistent) {
+			t.Errorf("expected error to identify the SDK root context %q, got %v", nonexistent, err)
+		}
+	})
+
+	t.Run("non-directory root fails clearly", func(t *testing.T) {
+		filePath := filepath.Join(tmpDir, "regular-file.go")
+		if err := os.WriteFile(filePath, []byte("package fmt"), 0644); err != nil {
+			t.Fatalf("failed to write file: %v", err)
+		}
+		err := ValidateAndResolve(fixture(filePath), tmpDir)
+		if err == nil {
+			t.Fatal("expected error for non-directory SDK root, got nil")
+		}
+		if !strings.Contains(err.Error(), "is not a directory") {
+			t.Errorf("expected error containing 'is not a directory', got %v", err)
+		}
+	})
+}
+
 func TestDiscoverStdlib_FailureClasses(t *testing.T) {
 	tmpDir := t.TempDir()
 

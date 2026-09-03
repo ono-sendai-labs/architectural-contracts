@@ -7,9 +7,33 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/ono-sendai-labs/architectural-contracts/go/internal/hostpolicy"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/manifest"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/manifestparity"
 )
+
+// installCanonicalizer overrides the package-global host-policy canonicalization
+// seam for the duration of the test. Cleanup runs the restore, so the seam
+// cannot leak to other tests.
+func installCanonicalizer(t *testing.T, fn func(string) string) {
+	t.Helper()
+	original := hostpolicy.CanonicalizePath
+	t.Cleanup(func() { hostpolicy.CanonicalizePath = original })
+	hostpolicy.CanonicalizePath = fn
+}
+
+// assertSeamRestored registers a cleanup that runs after installCanonicalizer's
+// restore (cleanups run LIFO) and fails the test if the seam was not restored
+// to the identity default.
+func assertSeamRestored(t *testing.T) {
+	t.Helper()
+	const marker = "seam-isolation-marker"
+	t.Cleanup(func() {
+		if got := hostpolicy.CanonicalizePath(marker); got != marker {
+			t.Errorf("canonicalizer seam was not restored: CanonicalizePath(%q) = %q", marker, got)
+		}
+	})
+}
 
 type spyTB struct {
 	testing.TB
@@ -106,6 +130,76 @@ func TestRun_MatchingPair(t *testing.T) {
 
 	if len(spy.errors) > 0 {
 		t.Errorf("unexpected errors for matching pair: %v", spy.errors)
+	}
+}
+
+func TestCompareManifests_RewrittenNamespacesEqual(t *testing.T) {
+	assertSeamRestored(t)
+	// The host rewrites the upstream prefix "canonical.example/" into
+	// "rewritten.invalid/X/"; both spellings map to the canonical namespace.
+	installCanonicalizer(t, func(p string) string {
+		return strings.Replace(p, "rewritten.invalid/X/", "canonical.example/", 1)
+	})
+
+	gen := manifest.Manifest{
+		Name:           "mycomp_component",
+		InterfaceFiles: []string{"mycomp.go"},
+		Members:        []string{"rewritten.invalid/X/mycomp", "rewritten.invalid/X/mycomp/sub"},
+		AbsorbedDependencies: []manifest.AbsorbedDependency{
+			{ImportPath: "rewritten.invalid/X/lib"},
+		},
+	}
+	chk := manifest.Manifest{
+		Name:           "mycomp",
+		InterfaceFiles: []string{"mycomp.go"},
+		Members:        []string{"canonical.example/mycomp/sub"},
+		AbsorbedDependencies: []manifest.AbsorbedDependency{
+			{ImportPath: "canonical.example/lib"},
+		},
+	}
+
+	spy := &spyTB{TB: t}
+	manifestparity.CompareManifests(spy, "mycomp", gen, chk)
+
+	if len(spy.errors) > 0 {
+		t.Errorf("expected no parity errors for semantically equal manifests in rewritten vs canonical namespaces, got %v", spy.errors)
+	}
+}
+
+func TestCompareManifests_RealMismatchesStillFailAfterCanonicalization(t *testing.T) {
+	assertSeamRestored(t)
+	installCanonicalizer(t, func(p string) string {
+		return strings.Replace(p, "rewritten.invalid/X/", "canonical.example/", 1)
+	})
+
+	gen := manifest.Manifest{
+		Name:           "mycomp_component",
+		InterfaceFiles: []string{"mycomp.go"},
+		Members:        []string{"rewritten.invalid/X/alpha"},
+		AbsorbedDependencies: []manifest.AbsorbedDependency{
+			{ImportPath: "rewritten.invalid/X/libgen"},
+		},
+	}
+	chk := manifest.Manifest{
+		Name:           "mycomp",
+		InterfaceFiles: []string{"mycomp.go"},
+		Members:        []string{"canonical.example/beta"},
+		AbsorbedDependencies: []manifest.AbsorbedDependency{
+			{ImportPath: "canonical.example/libchk"},
+		},
+	}
+
+	spy := &spyTB{TB: t}
+	manifestparity.CompareManifests(spy, "mycomp", gen, chk)
+
+	if len(spy.errors) == 0 {
+		t.Fatalf("expected parity errors for genuinely different import paths, got none")
+	}
+	joined := strings.Join(spy.errors, "\n")
+	for _, want := range []string{"members", "canonical.example/alpha", "canonical.example/beta", "absorbed import paths"} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("expected error containing %q, got %v", want, spy.errors)
+		}
 	}
 }
 

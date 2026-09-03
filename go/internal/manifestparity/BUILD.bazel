@@ -8,6 +8,7 @@ go_library(
     visibility = ["//visibility:public"],
     deps = [
         "//go/internal/manifest",
+        "//go/internal/hostpolicy",
     ],
 )
 
@@ -18,5 +19,6 @@ go_test(
     deps = [
         ":manifestparity",
         "//go/internal/manifest",
+        "//go/internal/hostpolicy",
     ],
 )

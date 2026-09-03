@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/ono-sendai-labs/architectural-contracts/go/internal/hostpolicy"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/manifest"
 )
 
@@ -135,8 +136,8 @@ func CompareManifests(t testing.TB, dir string, gen, chk manifest.Manifest) {
 		t.Errorf("%s: own_check_runs = %t, want %t", dir, gen.OwnCheckRuns, chk.OwnCheckRuns)
 	}
 
-	// Absorbed dependencies: same import paths, reasons ignored.
-	if got, want := importPaths(gen.AbsorbedDependencies), importPaths(chk.AbsorbedDependencies); !slices.Equal(got, want) {
+	// Absorbed dependencies: same import paths (canonicalized), reasons ignored.
+	if got, want := sorted(canonicalize(importPaths(gen.AbsorbedDependencies))), sorted(canonicalize(importPaths(chk.AbsorbedDependencies))); !slices.Equal(got, want) {
 		t.Errorf("%s: absorbed import paths = %v, want %v", dir, got, want)
 	}
 
@@ -151,6 +152,20 @@ func CompareManifests(t testing.TB, dir string, gen, chk manifest.Manifest) {
 	}
 }
 
+// canonicalize maps an import path through the host's canonicalization policy.
+// The generated Bazel manifest and its checked-in mirror may describe the same
+// package in different namespaces when a host rewrites import prefixes, so
+// every import-path comparison in this helper canonicalizes both sides first.
+// Non-import-path fields (names, interface-file basenames, authority values)
+// are deliberately left alone.
+func canonicalize(paths []string) []string {
+	out := make([]string, len(paths))
+	for i, p := range paths {
+		out[i] = hostpolicy.CanonicalizePath(p)
+	}
+	return out
+}
+
 // compareMembers checks that generated and checked-in member sets match.
 //
 // Per requirement M5, the interface package is implicitly a member of a component.
@@ -163,8 +178,8 @@ func CompareManifests(t testing.TB, dir string, gen, chk manifest.Manifest) {
 //  2. sorted(gen.Members) == sorted(chk.Members + implicit_interface_package) (checked-in omitted the implicit interface package).
 func compareMembers(t testing.TB, dir string, gen, chk manifest.Manifest) {
 	t.Helper()
-	got := sorted(gen.Members)
-	want := sorted(chk.Members)
+	got := sorted(canonicalize(gen.Members))
+	want := sorted(canonicalize(chk.Members))
 	if slices.Equal(got, want) {
 		return
 	}
