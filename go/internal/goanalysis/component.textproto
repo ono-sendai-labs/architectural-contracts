@@ -1,5 +1,4 @@
 name: "goanalysis"
-own_check_runs: true
 interface_files: "goanalysis.go"
 members: "github.com/ono-sendai-labs/architectural-contracts/go/internal/goanalysis"
 members: "github.com/ono-sendai-labs/architectural-contracts/go/internal/hostpolicy"

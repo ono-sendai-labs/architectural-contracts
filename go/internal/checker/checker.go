@@ -304,9 +304,7 @@ func Check(in Inputs) report.ConformanceReport {
 	var depBoundaries []report.DependencyBoundary
 	for _, di := range in.DepIfaces {
 		depBoundaries = append(depBoundaries, report.DependencyBoundary{
-			Component:              di.Component,
-			OwnCheckRuns:           di.OwnCheckRuns,
-			CertificationReference: di.CertificationReference,
+			Component: di.Component,
 		})
 	}
 	sort.Slice(depBoundaries, func(i, j int) bool {

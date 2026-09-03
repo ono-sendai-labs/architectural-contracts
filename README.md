@@ -413,7 +413,8 @@ The manifest structure is defined by the following fields:
   - `auto_attached` (bool, optional): The edge was injected by an emitter rather than written by an author, so an unused edge is nobody's mistake and never produces `UNUSED_DEPENDENCY`. See [Auto-attached dependencies](#auto-attached-infrastructure-dependencies).
 - **`declared_authority`** (repeated string): Capabilities from Capslock's classified set that this component is permitted to exercise. Leaving this empty makes the component ambient-authority-free.
   - Known Capabilities: `FILES`, `NETWORK`, `READ_SYSTEM_STATE`, `MODIFY_SYSTEM_STATE`, `OPERATING_SYSTEM`, `SYSTEM_CALLS`, `EXEC`, `RUNTIME`, `ARBITRARY_EXECUTION`, `CGO`, `UNSAFE_POINTER`, `REFLECT`, `UNANALYZED`.
-- **`own_check_runs`** (bool, optional) and **`certification_reference`** (string, optional): Whether this component's own conformance check runs as part of the build, and — when it does not — where its conformance is established instead (a scheduled job, a run record, a document). Both are **self-declarations at the same trust level as `declared_authority`**: arcc does not verify them. They drive the `certified` / `asserted` annotation each pruned boundary gets in the report's dependency listing, so that trusting a dependency's contract is visible rather than invisible.
+
+The retired fields `own_check_runs` and `certification_reference` (author self-declarations about verification) were removed from the schema; their field numbers and names are reserved and stale manifests naming them are rejected at parse time.
 
 ### Wrapping a library that has no interface: `PACKAGE_SURFACE`
 

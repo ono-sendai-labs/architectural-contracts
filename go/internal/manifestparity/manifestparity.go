@@ -129,13 +129,6 @@ func CompareManifests(t testing.TB, dir string, gen, chk manifest.Manifest) {
 		t.Errorf("%s: interface style = %v, want %v", dir, gen.InterfaceStyle, chk.InterfaceStyle)
 	}
 
-	// Certification is an emitter self-declaration and is part of parity: a
-	// checked-in mirror must not silently claim a different check participation
-	// state than the generated manifest.
-	if gen.OwnCheckRuns != chk.OwnCheckRuns {
-		t.Errorf("%s: own_check_runs = %t, want %t", dir, gen.OwnCheckRuns, chk.OwnCheckRuns)
-	}
-
 	// Declared authority: same set.
 	if got, want := sorted(gen.DeclaredAuthority), sorted(chk.DeclaredAuthority); !slices.Equal(got, want) {
 		t.Errorf("%s: declared authority = %v, want %v", dir, got, want)

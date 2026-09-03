@@ -1,5 +1,4 @@
 name: "toprow"
-own_check_runs: true
 interface_files: "toprow.go"
 members: "github.com/ono-sendai-labs/architectural-contracts/go/examples/csvtool/toprow"
 component_dependencies {

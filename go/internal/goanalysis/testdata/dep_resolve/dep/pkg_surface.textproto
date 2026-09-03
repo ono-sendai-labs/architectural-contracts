@@ -2,5 +2,3 @@ name: "dep"
 interface_style: INTERFACE_STYLE_PACKAGE_SURFACE
 members: "github.com/ono-sendai-labs/architectural-contracts/go/internal/goanalysis/testdata/dep_resolve/dep"
 members: "github.com/ono-sendai-labs/architectural-contracts/go/internal/goanalysis/testdata/dep_resolve/dep/subpkg"
-own_check_runs: true
-certification_reference: "ref-456"

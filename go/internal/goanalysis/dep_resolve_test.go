@@ -280,12 +280,6 @@ func TestResolveDependencyInterface_PackageSurface(t *testing.T) {
 	if result.InterfaceStyle != manifest.InterfaceStylePackageSurface {
 		t.Errorf("expected InterfaceStylePackageSurface, got %v", result.InterfaceStyle)
 	}
-	if !result.OwnCheckRuns {
-		t.Errorf("expected OwnCheckRuns true, got false")
-	}
-	if result.CertificationReference != "ref-456" {
-		t.Errorf("expected CertificationReference %q, got %q", "ref-456", result.CertificationReference)
-	}
 
 	expectedPkgs := []string{
 		"github.com/ono-sendai-labs/architectural-contracts/go/internal/goanalysis/testdata/dep_resolve/dep",
@@ -333,15 +327,9 @@ func TestResolveDependencyInterface_PackageSurface_NoCert(t *testing.T) {
 		Manifest: "../dep/pkg_surface_nocert.textproto",
 	}
 
-	result, err := goanalysis.ResolveDependencyInterface(declaringRoot, declaringRoot, dep)
+	_, err = goanalysis.ResolveDependencyInterface(declaringRoot, declaringRoot, dep)
 	if err != nil {
 		t.Fatalf("unexpected error resolving package-surface dependency: %v", err)
 	}
 
-	if result.OwnCheckRuns {
-		t.Errorf("expected OwnCheckRuns false, got true")
-	}
-	if result.CertificationReference != "" {
-		t.Errorf("expected empty CertificationReference, got %q", result.CertificationReference)
-	}
 }

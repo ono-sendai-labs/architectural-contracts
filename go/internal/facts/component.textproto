@@ -1,5 +1,4 @@
 name: "facts"
-own_check_runs: true
 interface_files: "facts.go"
 members: "github.com/ono-sendai-labs/architectural-contracts/go/internal/facts"
 component_dependencies {

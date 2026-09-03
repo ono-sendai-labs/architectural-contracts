@@ -1,5 +1,4 @@
 name: "manifest"
-own_check_runs: true
 interface_files: "manifest.go"
 members: "github.com/ono-sendai-labs/architectural-contracts/go/internal/manifest"
 members: "github.com/ono-sendai-labs/architectural-contracts/go/internal/manifest/gen"

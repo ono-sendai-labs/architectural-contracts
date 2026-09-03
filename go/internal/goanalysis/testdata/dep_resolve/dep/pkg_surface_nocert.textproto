@@ -1,4 +1,3 @@
 name: "dep"
 interface_style: INTERFACE_STYLE_PACKAGE_SURFACE
 members: "github.com/ono-sendai-labs/architectural-contracts/go/internal/goanalysis/testdata/dep_resolve/dep"
-own_check_runs: false

@@ -68,15 +68,12 @@ func TestCheck_PopulatesDependenciesListingAndNoFindings(t *testing.T) {
 		},
 		DepIfaces: []facts.DependencyInterface{
 			{
-				Component:              "b-dep",
-				OwnCheckRuns:           false,
-				CertificationReference: "doc://b-dep-cert",
-				Packages:               []string{"github.com/b-dep/pkg"},
+				Component: "b-dep",
+				Packages:  []string{"github.com/b-dep/pkg"},
 			},
 			{
-				Component:    "a-dep",
-				OwnCheckRuns: true,
-				Packages:     []string{"github.com/a-dep/pkg"},
+				Component: "a-dep",
+				Packages:  []string{"github.com/a-dep/pkg"},
 			},
 		},
 	}
@@ -91,15 +88,8 @@ func TestCheck_PopulatesDependenciesListingAndNoFindings(t *testing.T) {
 	}
 
 	wantDeps := []report.DependencyBoundary{
-		{
-			Component:    "a-dep",
-			OwnCheckRuns: true,
-		},
-		{
-			Component:              "b-dep",
-			OwnCheckRuns:           false,
-			CertificationReference: "doc://b-dep-cert",
-		},
+		{Component: "a-dep"},
+		{Component: "b-dep"},
 	}
 
 	if !reflect.DeepEqual(rep.Dependencies, wantDeps) {
@@ -1590,7 +1580,7 @@ func TestCheck_FR6_FeatureCompleteCompositeReport(t *testing.T) {
 	expectedComposite := `Component: mycomponent
 
 Dependencies:
-- dep1: asserted
+- dep1
 
 Violations:
 - [CALLS_UNDECLARED_INTERFACE] call from "mycomponent/pkg1.Run" to undeclared interface symbol "github.com/dep1/pkg.PrivateFunc" of dependency "dep1"

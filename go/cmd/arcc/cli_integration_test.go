@@ -736,8 +736,8 @@ func TestIntegration_App_Success(t *testing.T) {
 	wantText := `Component "app" conforms; does not exceed declared authority
 
 Dependencies:
-- csvfile: certified
-- toprow: certified
+- csvfile
+- toprow
 `
 	if stdout != wantText {
 		t.Errorf("stdout =\n%q\nwant:\n%q", stdout, wantText)
@@ -764,7 +764,7 @@ func TestIntegration_App_Success_JSON(t *testing.T) {
 	if len(rep.Violations) != 0 || len(rep.Warnings) != 0 {
 		t.Errorf("report has findings: violations=%v, warnings=%v", rep.Violations, rep.Warnings)
 	}
-	if len(rep.Dependencies) != 2 || rep.Dependencies[0].Component != "csvfile" || rep.Dependencies[1].Component != "toprow" || !rep.Dependencies[0].OwnCheckRuns || !rep.Dependencies[1].OwnCheckRuns {
+	if len(rep.Dependencies) != 2 || rep.Dependencies[0].Component != "csvfile" || rep.Dependencies[1].Component != "toprow" {
 		t.Errorf("rep.Dependencies = %+v, want csvfile and toprow certified boundaries", rep.Dependencies)
 	}
 }
@@ -1098,7 +1098,7 @@ component_dependencies {
 	wantText := `Component "asserted-caller-cli" conforms; does not exceed declared authority
 
 Dependencies:
-- asserted-dep-cli: asserted
+- asserted-dep-cli
 `
 	if stdout != wantText {
 		t.Errorf("stdout =\n%q\nwant:\n%q", stdout, wantText)
@@ -1119,7 +1119,7 @@ Dependencies:
 	if len(rep.Violations) != 0 || len(rep.Warnings) != 0 {
 		t.Errorf("expected 0 violations and 0 warnings, got violations=%v, warnings=%v", rep.Violations, rep.Warnings)
 	}
-	if len(rep.Dependencies) != 1 || rep.Dependencies[0].Component != "asserted-dep-cli" || rep.Dependencies[0].OwnCheckRuns {
+	if len(rep.Dependencies) != 1 || rep.Dependencies[0].Component != "asserted-dep-cli" {
 		t.Errorf("rep.Dependencies = %+v, want asserted-dep-cli boundary", rep.Dependencies)
 	}
 }

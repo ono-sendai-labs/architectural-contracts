@@ -64,15 +64,8 @@ def _package_name(importpath):
 def _textproto_string(value):
     return '"' + value.replace("\\", "\\\\").replace('"', '\\"') + '"'
 
-def _manifest_content(ctx, interface_files, component_deps, auto_attached_deps, declared_authority, manifest_dir, interface_style, members, own_check_runs):
+def _manifest_content(ctx, interface_files, component_deps, auto_attached_deps, declared_authority, manifest_dir, interface_style, members):
     lines = ["name: " + _textproto_string(ctx.label.name)]
-
-    # `manual` excludes the generated `.check` from `bazel test //...`; the
-    # macro passes false for that case so this self-declaration stays truthful.
-    if own_check_runs:
-        lines.append("own_check_runs: true")
-    else:
-        lines.append("own_check_runs: false")
 
     if interface_style == "PACKAGE_SURFACE":
         lines.append("interface_style: INTERFACE_STYLE_PACKAGE_SURFACE")
@@ -321,7 +314,6 @@ def go_component_impl(ctx, attachment_fn = go_attached_infra):
             manifest_dir = _dirname(runfiles_path(ctx, manifest)),
             interface_style = ctx.attr.interface_style,
             members = manifest_members,
-            own_check_runs = ctx.attr.own_check_runs,
         ),
     )
 
@@ -409,10 +401,6 @@ GO_COMPONENT_ATTRS = {
     ),
     "declared_authority": attr.string_list(
         doc = "Ambient authority the component declares, from //bazel_rules:authority.bzl.",
-    ),
-    "own_check_runs": attr.bool(
-        default = True,
-        doc = "Private emitter signal: whether the generated check participates in bazel test.",
     ),
 }
 

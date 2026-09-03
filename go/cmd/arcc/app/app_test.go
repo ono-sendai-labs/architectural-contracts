@@ -1263,8 +1263,6 @@ func TestRunner_Check_AssertedOnlyBoundary_Success(t *testing.T) {
 	depManifest := `
 name: "asserted-dep"
 interface_files: "api.go"
-own_check_runs: false
-certification_reference: "ref-999"
 `
 	if err := os.WriteFile(filepath.Join(depDir, "go.mod"), []byte("module example.com/temp/asserted-dep\n\ngo 1.21\n"), 0644); err != nil {
 		t.Fatal(err)
@@ -1317,7 +1315,7 @@ component_dependencies: {
 	wantText := `Component "asserted-comp" conforms; does not exceed declared authority
 
 Dependencies:
-- asserted-dep: asserted (ref-999)
+- asserted-dep
 `
 	if gotText != wantText {
 		t.Errorf("stdout =\n%q\nwant:\n%q", gotText, wantText)
@@ -1337,7 +1335,7 @@ Dependencies:
 	if len(rep.Violations) != 0 || len(rep.Warnings) != 0 {
 		t.Errorf("report has findings: violations=%v, warnings=%v", rep.Violations, rep.Warnings)
 	}
-	if len(rep.Dependencies) != 1 || rep.Dependencies[0].Component != "asserted-dep" || rep.Dependencies[0].OwnCheckRuns || rep.Dependencies[0].CertificationReference != "ref-999" {
+	if len(rep.Dependencies) != 1 || rep.Dependencies[0].Component != "asserted-dep" {
 		t.Errorf("report.Dependencies = %+v, want asserted-dep boundary", rep.Dependencies)
 	}
 }

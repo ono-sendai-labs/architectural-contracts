@@ -1,5 +1,4 @@
 name: "checker"
-own_check_runs: true
 interface_files: "checker.go"
 members: "github.com/ono-sendai-labs/architectural-contracts/go/internal/checker"
 component_dependencies {

@@ -121,9 +121,6 @@ def _go_component_impl(name, visibility, **kwargs):
             fail("component %s: members must be literal target labels: %r" % (name, m_str))
 
     set_kwargs["members"] = target_members
-    # Bazel wildcard tests exclude manual targets, so the generated manifest
-    # must carry the same fact as the check target created below.
-    set_kwargs["own_check_runs"] = "manual" not in set_kwargs.get("tags", [])
     if "infra_deps" not in set_kwargs:
         set_kwargs["infra_deps"] = go_infra_deps()
 

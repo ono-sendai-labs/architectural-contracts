@@ -53,10 +53,18 @@ type RemovedFieldError struct {
 }
 
 func (e *RemovedFieldError) Error() string {
-	return fmt.Sprintf(
-		"unsupported manifest field %q: this field was removed; migrate to explicit members or component_dependencies",
-		e.Field,
-	)
+	hint, ok := removedFieldHints[e.Field]
+	if !ok {
+		hint = "this field was removed"
+	}
+	return fmt.Sprintf("unsupported manifest field %q: %s", e.Field, hint)
+}
+
+// removedFieldHints give each retired field an actionable migration message.
+var removedFieldHints = map[string]string{
+	"absorbed_dependencies":   "this field was removed; migrate to explicit members or component_dependencies",
+	"own_check_runs":          "this field was removed; verification provenance is derived from check artifacts, not author declarations",
+	"certification_reference": "this field was removed; verification provenance is derived from check artifacts, not author declarations",
 }
 
 // removedFields are schema fields that must be rejected at parse time, with a
@@ -68,6 +76,14 @@ var removedFields = []struct {
 	{
 		field:   "absorbed_dependencies",
 		pattern: regexp.MustCompile(`(^|[^\w.])absorbed_dependencies\s*[:{]`),
+	},
+	{
+		field:   "own_check_runs",
+		pattern: regexp.MustCompile(`(^|[^\w.])own_check_runs\s*[:{]`),
+	},
+	{
+		field:   "certification_reference",
+		pattern: regexp.MustCompile(`(^|[^\w.])certification_reference\s*[:{]`),
 	},
 }
 
@@ -170,14 +186,12 @@ func (e *UnknownCapabilityError) Error() string {
 // Manifest represents the native hand-written Go model for a component manifest,
 // shielding the rest of the application from protobuf definitions.
 type Manifest struct {
-	Name                   string
-	InterfaceFiles         []string
-	ComponentDependencies  []ComponentDependency
-	DeclaredAuthority      []string
-	Members                []string
-	InterfaceStyle         InterfaceStyle
-	OwnCheckRuns           bool
-	CertificationReference string
+	Name                  string
+	InterfaceFiles        []string
+	ComponentDependencies []ComponentDependency
+	DeclaredAuthority     []string
+	Members               []string
+	InterfaceStyle        InterfaceStyle
 }
 
 // ComponentDependency represents a dependency on a first-class component.
@@ -210,13 +224,11 @@ func Parse(r io.Reader) (Manifest, error) {
 	}
 
 	m := Manifest{
-		Name:                   pbComponent.GetName(),
-		InterfaceFiles:         copyStrings(pbComponent.GetInterfaceFiles()),
-		DeclaredAuthority:      copyStrings(pbComponent.GetDeclaredAuthority()),
-		Members:                copyStrings(pbComponent.GetMembers()),
-		InterfaceStyle:         interfaceStyle,
-		OwnCheckRuns:           pbComponent.GetOwnCheckRuns(),
-		CertificationReference: pbComponent.GetCertificationReference(),
+		Name:              pbComponent.GetName(),
+		InterfaceFiles:    copyStrings(pbComponent.GetInterfaceFiles()),
+		DeclaredAuthority: copyStrings(pbComponent.GetDeclaredAuthority()),
+		Members:           copyStrings(pbComponent.GetMembers()),
+		InterfaceStyle:    interfaceStyle,
 	}
 
 	if pbDeps := pbComponent.GetComponentDependencies(); len(pbDeps) > 0 {

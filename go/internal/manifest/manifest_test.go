@@ -101,9 +101,10 @@ absorbed_dependencies {
 // occurrences in comments and both quoted string forms must not trip the guard.
 func TestParse_RemovedFieldMentionsOutsideFieldPositions(t *testing.T) {
 	input := `# a comment explaining that absorbed_dependencies { } used to exist here
+# own_check_runs and certification_reference were retired fields
 name: 'absorbed_dependencies {'
 interface_files: "api.go"
-certification_reference: "migrated from absorbed_dependencies: to members"
+interface_files: "certification_reference: own_check_runs"
 `
 	r := bytes.NewReader([]byte(input))
 	m, err := manifest.Parse(r)
@@ -115,12 +116,67 @@ certification_reference: "migrated from absorbed_dependencies: to members"
 	}
 }
 
+func TestParse_RejectsStaleVerificationFields(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		field string
+	}{
+		{
+			name: "own_check_runs",
+			input: `name: "stale"
+interface_files: "api.go"
+own_check_runs: true
+`,
+			field: "own_check_runs",
+		},
+		{
+			name: "own_check_runs_false",
+			input: `name: "stale"
+interface_files: "api.go"
+own_check_runs: false
+`,
+			field: "own_check_runs",
+		},
+		{
+			name: "certification_reference",
+			input: `name: "stale"
+interface_files: "api.go"
+certification_reference: "build://surface-check"
+`,
+			field: "certification_reference",
+		},
+		{
+			name: "own_check_runs_message_form",
+			input: `name: "stale"
+interface_files: "api.go"
+own_check_runs {}
+`,
+			field: "own_check_runs",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := manifest.Parse(bytes.NewBufferString(tt.input))
+			var removed *manifest.RemovedFieldError
+			if !errors.As(err, &removed) {
+				t.Fatalf("Parse() error = %v, want RemovedFieldError", err)
+			}
+			if removed.Field != tt.field {
+				t.Errorf("RemovedFieldError.Field = %q, want %q", removed.Field, tt.field)
+			}
+			if !strings.Contains(err.Error(), tt.field) {
+				t.Errorf("error %q does not name retired field %q", err, tt.field)
+			}
+		})
+	}
+}
+
 func TestParse_DeclaredMembershipFields(t *testing.T) {
 	input := `name: "surface"
 members: "example.com/app"
 interface_style: INTERFACE_STYLE_PACKAGE_SURFACE
-own_check_runs: true
-certification_reference: "build://surface-check"
 component_dependencies {
   name: "runtime"
   manifest: "../runtime/component.textproto"
@@ -138,12 +194,6 @@ component_dependencies {
 	}
 	if !reflect.DeepEqual(got.Members, []string{"example.com/app"}) {
 		t.Errorf("Members = %v, want [example.com/app]", got.Members)
-	}
-	if !got.OwnCheckRuns {
-		t.Error("OwnCheckRuns = false, want true")
-	}
-	if got.CertificationReference != "build://surface-check" {
-		t.Errorf("CertificationReference = %q, want %q", got.CertificationReference, "build://surface-check")
 	}
 	if len(got.ComponentDependencies) != 1 || !got.ComponentDependencies[0].AutoAttached {
 		t.Errorf("ComponentDependencies = %+v, want one auto-attached dependency", got.ComponentDependencies)

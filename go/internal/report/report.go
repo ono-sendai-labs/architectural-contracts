@@ -50,12 +50,8 @@ type Finding struct {
 }
 
 // DependencyBoundary represents a component dependency boundary annotation in a report.
-// Both OwnCheckRuns and CertificationReference are the dependency's own self-declaration,
-// not something verified by arcc.
 type DependencyBoundary struct {
-	Component              string `json:"component"`
-	OwnCheckRuns           bool   `json:"own_check_runs"`
-	CertificationReference string `json:"certification_reference,omitempty"`
+	Component string `json:"component"`
 }
 
 // ConformanceReport is the overall result of analyzing a component against its manifest.
@@ -132,12 +128,5 @@ func (r ConformanceReport) RenderText() string {
 }
 
 func formatDependencyBoundary(dep DependencyBoundary) string {
-	state := "asserted"
-	if dep.OwnCheckRuns {
-		state = "certified"
-	}
-	if dep.CertificationReference != "" {
-		return fmt.Sprintf("- %s: %s (%s)", dep.Component, state, dep.CertificationReference)
-	}
-	return fmt.Sprintf("- %s: %s", dep.Component, state)
+	return fmt.Sprintf("- %s", dep.Component)
 }

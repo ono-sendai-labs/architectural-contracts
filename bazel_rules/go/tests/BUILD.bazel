@@ -154,7 +154,6 @@ arcc_check_grep_test(
         '"component": "api_component"',
         '"dependencies":',
         '"component": "shared_component"',
-        '"own_check_runs": true',
     ],
 )
 

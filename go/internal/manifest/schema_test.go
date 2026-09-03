@@ -11,10 +11,8 @@ import (
 
 func TestComponentSchema_AdditiveFieldsAndTextproto(t *testing.T) {
 	component := &gen.Component{
-		Members:                []string{"example.com/app", "example.com/app/internal"},
-		InterfaceStyle:         gen.InterfaceStyle_INTERFACE_STYLE_PACKAGE_SURFACE,
-		OwnCheckRuns:           true,
-		CertificationReference: "build://component-check",
+		Members:        []string{"example.com/app", "example.com/app/internal"},
+		InterfaceStyle: gen.InterfaceStyle_INTERFACE_STYLE_PACKAGE_SURFACE,
 		ComponentDependencies: []*gen.ComponentDependency{{
 			Name:         "runtime",
 			Manifest:     "runtime/component.textproto",
@@ -24,10 +22,8 @@ func TestComponentSchema_AdditiveFieldsAndTextproto(t *testing.T) {
 
 	componentFields := component.ProtoReflect().Descriptor().Fields()
 	for name, wantNumber := range map[protoreflect.Name]protoreflect.FieldNumber{
-		"members":                 6,
-		"interface_style":         7,
-		"own_check_runs":          8,
-		"certification_reference": 9,
+		"members":         6,
+		"interface_style": 7,
 	} {
 		field := componentFields.ByName(name)
 		if field == nil {
@@ -64,6 +60,52 @@ func TestComponentSchema_AdditiveFieldsAndTextproto(t *testing.T) {
 	}
 	if !reflect.DeepEqual(component, &decoded) {
 		t.Errorf("extended component round trip mismatch:\n got: %v\nwant: %v", &decoded, component)
+	}
+}
+
+// TestComponentSchema_RetiredVerificationFieldsReserved asserts that the
+// retired self-declared verification fields cannot come back: field numbers 8
+// and 9 and their names are reserved, so neither a number nor a name reuse
+// compiles into a usable field, and the prior field-4 reservation is intact.
+func TestComponentSchema_RetiredVerificationFieldsReserved(t *testing.T) {
+	component := &gen.Component{}
+	descriptor := component.ProtoReflect().Descriptor()
+
+	for _, number := range []protoreflect.FieldNumber{4, 8, 9} {
+		found := false
+		for i := 0; i < descriptor.ReservedRanges().Len(); i++ {
+			rn := descriptor.ReservedRanges().Get(i)
+			if number >= rn[0] && number < rn[1] {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("field number %d is not reserved", number)
+		}
+	}
+
+	reservedNames := map[protoreflect.Name]bool{}
+	names := descriptor.ReservedNames()
+	for i := 0; i < names.Len(); i++ {
+		reservedNames[names.Get(i)] = true
+	}
+	for _, name := range []protoreflect.Name{"absorbed_dependencies", "own_check_runs", "certification_reference"} {
+		if !reservedNames[name] {
+			t.Errorf("field name %q is not reserved", name)
+		}
+	}
+
+	for _, name := range []protoreflect.Name{"own_check_runs", "certification_reference"} {
+		if field := descriptor.Fields().ByName(name); field != nil {
+			t.Errorf("field %q still exists with number %d, want removed", name, field.Number())
+		}
+		if f8 := descriptor.Fields().ByNumber(8); f8 != nil {
+			t.Errorf("field number 8 still exists as %q, want removed", f8.Name())
+		}
+		if f9 := descriptor.Fields().ByNumber(9); f9 != nil {
+			t.Errorf("field number 9 still exists as %q, want removed", f9.Name())
+		}
 	}
 }
 

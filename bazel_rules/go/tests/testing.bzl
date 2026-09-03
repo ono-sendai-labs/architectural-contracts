@@ -104,9 +104,6 @@ def testing_go_component(name, visibility = None, **kwargs):
         fail("component %s: members must be literal target labels: %r" % (name, m_str))
 
     set_kwargs["members"] = target_members
-    # Keep the analysis-test macro's generated manifest aligned with its
-    # manual-aware `.check` target, just like the public go_component macro.
-    set_kwargs["own_check_runs"] = "manual" not in set_kwargs.get("tags", [])
 
     testing_go_component_rule(
         name = name,

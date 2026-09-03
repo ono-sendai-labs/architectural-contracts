@@ -1572,12 +1572,10 @@ func ResolveDependencyInterface(
 		})
 
 		return facts.DependencyInterface{
-			Component:              dep.Name,
-			InterfaceStyle:         depManifest.InterfaceStyle,
-			OwnCheckRuns:           depManifest.OwnCheckRuns,
-			CertificationReference: depManifest.CertificationReference,
-			Packages:               memberPkgPaths,
-			Symbols:                symbols,
+			Component:      dep.Name,
+			InterfaceStyle: depManifest.InterfaceStyle,
+			Packages:       memberPkgPaths,
+			Symbols:        symbols,
 		}, nil
 	}
 
@@ -1736,12 +1734,10 @@ func ResolveDependencyInterface(
 	})
 
 	return facts.DependencyInterface{
-		Component:              dep.Name,
-		InterfaceStyle:         depManifest.InterfaceStyle,
-		OwnCheckRuns:           depManifest.OwnCheckRuns,
-		CertificationReference: depManifest.CertificationReference,
-		Packages:               pkgPaths,
-		Symbols:                symbols,
+		Component:      dep.Name,
+		InterfaceStyle: depManifest.InterfaceStyle,
+		Packages:       pkgPaths,
+		Symbols:        symbols,
 	}, nil
 }
 

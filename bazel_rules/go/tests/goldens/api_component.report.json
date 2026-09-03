@@ -2,8 +2,7 @@
   "component": "api_component",
   "dependencies": [
     {
-      "component": "shared_component",
-      "own_check_runs": true
+      "component": "shared_component"
     }
   ],
   "violations": null,

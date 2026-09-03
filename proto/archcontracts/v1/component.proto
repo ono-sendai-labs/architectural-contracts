@@ -24,8 +24,16 @@ message Component {
                                             // component root; multi-package components use subdir
                                             // paths (store/api.go)
   repeated ComponentDependency component_dependencies = 3;
+  // Reserved: retired field `absorbed_dependencies`. Never reuse.
   reserved 4;
   reserved "absorbed_dependencies";
+  // Reserved: retired self-declared verification fields `own_check_runs`
+  // (author claim about its own check) and `certification_reference` (author
+  // claim about external certification). Verification provenance is derived
+  // structurally from producer and report artifacts, not author claims.
+  // Never reuse numbers 8 or 9, or either name.
+  reserved 8, 9;
+  reserved "own_check_runs", "certification_reference";
   repeated string declared_authority = 5;   // capability names, validated at parse time against the
                                             // known capability set (C11); empty = ambient-authority-free
 
@@ -39,17 +47,6 @@ message Component {
 
   // How this component's exposed interface is determined.
   InterfaceStyle interface_style = 7;
-
-  // Whether this component's own conformance check runs as part of the build.
-  // This is a self-declaration at the same trust level as declared_authority,
-  // not a fact verified by arcc.
-  bool own_check_runs = 8;
-
-  // Where this component's conformance is established when own_check_runs is
-  // false, such as a scheduled job, run record, or document. This is a
-  // self-declaration at the same trust level as declared_authority, not a fact
-  // verified by arcc; it makes an asserted boundary reviewable.
-  string certification_reference = 9;
 }
 
 // InterfaceStyle distinguishes a component that declares its surface from one

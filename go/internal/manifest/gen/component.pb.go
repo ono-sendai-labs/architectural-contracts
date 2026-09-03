@@ -104,17 +104,8 @@ type Component struct {
 	Members []string `protobuf:"bytes,6,rep,name=members,proto3" json:"members,omitempty"`
 	// How this component's exposed interface is determined.
 	InterfaceStyle InterfaceStyle `protobuf:"varint,7,opt,name=interface_style,json=interfaceStyle,proto3,enum=archcontracts.v1.InterfaceStyle" json:"interface_style,omitempty"`
-	// Whether this component's own conformance check runs as part of the build.
-	// This is a self-declaration at the same trust level as declared_authority,
-	// not a fact verified by arcc.
-	OwnCheckRuns bool `protobuf:"varint,8,opt,name=own_check_runs,json=ownCheckRuns,proto3" json:"own_check_runs,omitempty"`
-	// Where this component's conformance is established when own_check_runs is
-	// false, such as a scheduled job, run record, or document. This is a
-	// self-declaration at the same trust level as declared_authority, not a fact
-	// verified by arcc; it makes an asserted boundary reviewable.
-	CertificationReference string `protobuf:"bytes,9,opt,name=certification_reference,json=certificationReference,proto3" json:"certification_reference,omitempty"`
-	unknownFields          protoimpl.UnknownFields
-	sizeCache              protoimpl.SizeCache
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *Component) Reset() {
@@ -189,20 +180,6 @@ func (x *Component) GetInterfaceStyle() InterfaceStyle {
 	return InterfaceStyle_INTERFACE_STYLE_UNSPECIFIED
 }
 
-func (x *Component) GetOwnCheckRuns() bool {
-	if x != nil {
-		return x.OwnCheckRuns
-	}
-	return false
-}
-
-func (x *Component) GetCertificationReference() string {
-	if x != nil {
-		return x.CertificationReference
-	}
-	return ""
-}
-
 type ComponentDependency struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	Name  string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"` // referenced component's name; must match the `name`
@@ -275,16 +252,15 @@ var File_archcontracts_v1_component_proto protoreflect.FileDescriptor
 
 const file_archcontracts_v1_component_proto_rawDesc = "" +
 	"\n" +
-	" archcontracts/v1/component.proto\x12\x10archcontracts.v1\"\xb6\x03\n" +
+	" archcontracts/v1/component.proto\x12\x10archcontracts.v1\"\x8c\x03\n" +
 	"\tComponent\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12'\n" +
 	"\x0finterface_files\x18\x02 \x03(\tR\x0einterfaceFiles\x12\\\n" +
 	"\x16component_dependencies\x18\x03 \x03(\v2%.archcontracts.v1.ComponentDependencyR\x15componentDependencies\x12-\n" +
 	"\x12declared_authority\x18\x05 \x03(\tR\x11declaredAuthority\x12\x18\n" +
 	"\amembers\x18\x06 \x03(\tR\amembers\x12I\n" +
-	"\x0finterface_style\x18\a \x01(\x0e2 .archcontracts.v1.InterfaceStyleR\x0einterfaceStyle\x12$\n" +
-	"\x0eown_check_runs\x18\b \x01(\bR\fownCheckRuns\x127\n" +
-	"\x17certification_reference\x18\t \x01(\tR\x16certificationReferenceJ\x04\b\x04\x10\x05R\x15absorbed_dependencies\"j\n" +
+	"\x0finterface_style\x18\a \x01(\x0e2 .archcontracts.v1.InterfaceStyleR\x0einterfaceStyleJ\x04\b\x04\x10\x05J\x04\b\b\x10\tJ\x04\b\t\x10\n" +
+	"R\x15absorbed_dependenciesR\x0eown_check_runsR\x17certification_reference\"j\n" +
 	"\x13ComponentDependency\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x1a\n" +
 	"\bmanifest\x18\x02 \x01(\tR\bmanifest\x12#\n" +

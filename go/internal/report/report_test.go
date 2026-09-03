@@ -72,20 +72,9 @@ func TestRenderText_ConformsWithDependencies(t *testing.T) {
 	rep := report.ConformanceReport{
 		Component: "test-comp",
 		Dependencies: []report.DependencyBoundary{
-			{
-				Component:    "dep-certified",
-				OwnCheckRuns: true,
-			},
-			{
-				Component:              "dep-asserted-ref",
-				OwnCheckRuns:           false,
-				CertificationReference: "build://ref-123",
-			},
-			{
-				Component:              "dep-asserted-noref",
-				OwnCheckRuns:           false,
-				CertificationReference: "",
-			},
+			{Component: "dep-a"},
+			{Component: "dep-b"},
+			{Component: "dep-c"},
 		},
 	}
 
@@ -93,9 +82,9 @@ func TestRenderText_ConformsWithDependencies(t *testing.T) {
 	want := `Component "test-comp" conforms; does not exceed declared authority
 
 Dependencies:
-- dep-certified: certified
-- dep-asserted-ref: asserted (build://ref-123)
-- dep-asserted-noref: asserted
+- dep-a
+- dep-b
+- dep-c
 `
 
 	if got != want {
@@ -107,10 +96,7 @@ func TestRenderText_WithFindingsAndDependencies(t *testing.T) {
 	rep := report.ConformanceReport{
 		Component: "test-comp",
 		Dependencies: []report.DependencyBoundary{
-			{
-				Component:    "dep-certified",
-				OwnCheckRuns: true,
-			},
+			{Component: "dep-certified"},
 		},
 		Violations: []report.Finding{
 			{
@@ -128,7 +114,7 @@ func TestRenderText_WithFindingsAndDependencies(t *testing.T) {
 	want := `Component: test-comp
 
 Dependencies:
-- dep-certified: certified
+- dep-certified
 
 Violations:
 - [UNDECLARED_DEPENDENCY] imported package "os" is not declared in the manifest
@@ -145,15 +131,8 @@ func TestJSON_DependenciesSerialization(t *testing.T) {
 		rep := report.ConformanceReport{
 			Component: "test-comp",
 			Dependencies: []report.DependencyBoundary{
-				{
-					Component:    "dep-certified",
-					OwnCheckRuns: true,
-				},
-				{
-					Component:              "dep-asserted-ref",
-					OwnCheckRuns:           false,
-					CertificationReference: "ref-456",
-				},
+				{Component: "dep-certified"},
+				{Component: "dep-asserted-ref"},
 			},
 		}
 
@@ -164,8 +143,7 @@ func TestJSON_DependenciesSerialization(t *testing.T) {
 
 		got := string(data)
 		wantSubstrings := []string{
-			`"dependencies":[{"component":"dep-certified","own_check_runs":true}`,
-			`{"component":"dep-asserted-ref","own_check_runs":false,"certification_reference":"ref-456"}]`,
+			`"dependencies":[{"component":"dep-certified"},{"component":"dep-asserted-ref"}]`,
 		}
 		for _, want := range wantSubstrings {
 			if !strings.Contains(got, want) {

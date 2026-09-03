@@ -85,12 +85,6 @@ type DependencyInterface struct {
 	// InterfaceStyle is read from the dependency's own manifest and is not verified by arcc.
 	InterfaceStyle manifest.InterfaceStyle
 
-	// OwnCheckRuns is read from the dependency's own manifest and is not verified by arcc.
-	OwnCheckRuns bool
-
-	// CertificationReference is read from the dependency's own manifest and is not verified by arcc.
-	CertificationReference string
-
 	Packages []string                      // all packages under the dependency's component root (derived, not declared)
 	Symbols  []capanalyzer.InterfaceSymbol // the FR4 symbol set (derived, not declared)
 }

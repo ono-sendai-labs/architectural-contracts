@@ -1,5 +1,4 @@
 name: "member_component"
-own_check_runs: false
 interface_files: "_main/bazel_rules/go/tests/testdata/api/api.go"
 members: "example.com/aspect/api"
 members: "example.com/aspect/member"

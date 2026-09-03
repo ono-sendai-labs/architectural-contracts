@@ -51,12 +51,10 @@ func TestFactsRoundTrip(t *testing.T) {
 
 	// 5. Construct DependencyInterface
 	depIface := facts.DependencyInterface{
-		Component:              "store-component",
-		InterfaceStyle:         manifest.InterfaceStylePackageSurface,
-		OwnCheckRuns:           true,
-		CertificationReference: "job-123",
-		Packages:               []string{"example.com/store"},
-		Symbols:                []capanalyzer.InterfaceSymbol{"(*example.com/store.DB).Get", "example.com/store.Read"},
+		Component:      "store-component",
+		InterfaceStyle: manifest.InterfaceStylePackageSurface,
+		Packages:       []string{"example.com/store"},
+		Symbols:        []capanalyzer.InterfaceSymbol{"(*example.com/store.DB).Get", "example.com/store.Read"},
 	}
 
 	// Verify pkgFacts round-trip fields
@@ -104,12 +102,6 @@ func TestFactsRoundTrip(t *testing.T) {
 	}
 	if depIface.InterfaceStyle != manifest.InterfaceStylePackageSurface {
 		t.Errorf("expected InterfaceStylePackageSurface, got %v", depIface.InterfaceStyle)
-	}
-	if !depIface.OwnCheckRuns {
-		t.Errorf("expected OwnCheckRuns true, got false")
-	}
-	if depIface.CertificationReference != "job-123" {
-		t.Errorf("expected CertificationReference job-123, got %q", depIface.CertificationReference)
 	}
 	if len(depIface.Packages) != 1 || depIface.Packages[0] != "example.com/store" {
 		t.Errorf("unexpected packages: %v", depIface.Packages)
