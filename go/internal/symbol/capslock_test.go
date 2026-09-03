@@ -28,8 +28,15 @@ func TestParseCapslock_Convergence(t *testing.T) {
 		{"generic method instantiation pointer", "(*example.com/store.Box[int]).Get", "(example.com/store.Box).Get"},
 		{"generic method instantiation value", "(example.com/store.Box[int]).Get", "(example.com/store.Box).Get"},
 		{"generic type args value receiver", "(example.com/store.Pair[K,V]).First", "(example.com/store.Pair).First"},
+		{"channel type argument", "example.com/store.Load[chan int]", "example.com/store.Load"},
+		{"function type argument", "example.com/store.Load[func(int) string]", "example.com/store.Load"},
+		{"array-constant type argument", "example.com/store.Load[[N+1]byte]", "example.com/store.Load"},
+		{"hyphenated package type argument", "example.com/store.Load[example.com/x-y.T]", "example.com/store.Load"},
+		{"pointer receiver with map type argument", "(*example.com/store.Box[map[string]int]).Get", "(example.com/store.Box).Get"},
 		{"stdlib method on generic alias", "(sync/atomic.Pointer[example.com/x.T]).Load", ""},
 		{"init", "os.init", "os.init"},
+		{"dotted versioned module path", "gopkg.in/yaml.v2.Unmarshal", "gopkg.in/yaml.v2.Unmarshal"},
+		{"dotted subdirectory package", "example.com/p.private.Read", "example.com/p.private.Read"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -84,9 +91,12 @@ func TestParseCapslock_Rejected(t *testing.T) {
 		{"bare receiver dot method with brackets", "example.com/store.Box[int].Get"},
 		{"empty brackets", "example.com/store.Read[]"},
 		{"method on pointer-typed package", "(*os).Read"},
-		{"lowercase dotted method spelling", "example.com/p.private.Read"},
+		{"dotful package path without host slash", "example.com.private.Read"},
 		{"invalid type-argument text", "(*example.com/store.Box[not a type]).Get"},
 		{"invalid type-argument colon", "(example.com/store.Map[string]int]).Get"},
+		{"punctuation-only type argument", "example.com/store.Load[,,]"},
+		{"dot-only type argument", "example.com/store.Load[.]"},
+		{"elementless channel type argument", "example.com/store.Load[chan]"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

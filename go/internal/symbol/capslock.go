@@ -3,7 +3,6 @@ package symbol
 import (
 	"fmt"
 	"strings"
-	"unicode"
 
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/hostpolicy"
 )
@@ -58,41 +57,26 @@ func ParseCapslock(name string) (SymbolID, error) {
 		return "", fmt.Errorf("capslock name %q: type-argument brackets are only supported as a trailing group or inside a method receiver", name)
 	}
 	dot := strings.LastIndexByte(rest, '.')
-	if dot < 0 || !capslockTopLevelPackagePlausible(rest[:dot]) {
-		return "", fmt.Errorf("capslock name %q: %q is not a Capslock spelling of a declared top-level symbol; a dotted method spelling cannot be mapped safely", name, rest)
+	if dot < 0 || !capslockTopLevelPackageUnambiguous(rest[:dot]) {
+		return "", fmt.Errorf("capslock name %q: %q is not an unambiguous Capslock top-level spelling; a dotful package path without a module-host slash could equally be a dotted method spelling, which Capslock never prints unparenthesized", name, rest)
 	}
 	return Parse(hostpolicy.CanonicalizePath(rest[:dot]) + "." + rest[dot+1:])
 }
 
-// capslockTopLevelPackagePlausible rejects top-level spellings whose package
-// path cannot be a Capslock/SSA package prefix. Capslock/SSA never prints a
-// method in dotted form, so such a spelling cannot be mapped safely to a
-// declared symbol; rejecting it (rather than reading it as a symbol in an
-// implausible package) keeps classifier text from entering an artifact as an
-// ID. Two structural rules apply:
-//   - dot-separated parts must start lowercase (real import paths keep them
-//     lowercase: "example.com", "gopkg.in", "yaml.v2");
-//   - dots may appear only in the first slash-separated element (the module
-//     host) — so "example.com/p.private.Read" cannot be read as a top-level
-//     symbol in package "example.com/p.private". A dotful no-slash host
-//     spelling ("gopkg.in", "yaml.v2") remains accepted; a false rejection
-//     there would break real Capslock names.
-func capslockTopLevelPackagePlausible(pkg string) bool {
-	elems := strings.Split(pkg, "/")
-	for _, part := range strings.Split(elems[0], ".") {
-		if part == "" {
-			return false
-		}
-		if unicode.IsUpper([]rune(part)[0]) {
-			return false
-		}
+// capslockTopLevelPackageUnambiguous reports whether an unparenthesized
+// spelling's package path unambiguously names a package. Capslock/SSA never
+// prints a method in dotted form, so an unparenthesized spelling is a
+// top-level symbol by protocol; the only ambiguity is a dotful path with no
+// explicit module-host slash ("example.com.private.Read"), where a dot could
+// equally be a method separator. That shape is rejected instead of guessed.
+// Dotless paths ("os") and slash-qualified paths — including dotted module
+// hosts and versioned elements ("gopkg.in/yaml.v2") — are unambiguous and
+// accepted.
+func capslockTopLevelPackageUnambiguous(pkg string) bool {
+	if !strings.Contains(pkg, ".") {
+		return true
 	}
-	for _, elem := range elems[1:] {
-		if strings.Contains(elem, ".") {
-			return false
-		}
-	}
-	return true
+	return strings.Contains(pkg, "/")
 }
 
 // stripReceiverBrackets removes balanced type-argument bracket groups from a
@@ -130,7 +114,7 @@ func stripTrailingBrackets(s string) (string, bool) {
 			depth--
 			if depth == 0 {
 				inner := s[i+1 : len(s)-1]
-				if inner == "" || !validTypeArgumentText(inner) {
+				if inner == "" || !validTypeArgument(inner) {
 					return "", false
 				}
 				prefix, depth2, err := stripBalancedBrackets(s[:i])
@@ -171,7 +155,7 @@ func stripBalancedBrackets(s string) (string, int, error) {
 				// syntax; an empty or free-text group is not a Capslock
 				// spelling.
 				inner := s[groupStart+1 : i]
-				if inner == "" || !validTypeArgumentText(inner) {
+				if inner == "" || !validTypeArgument(inner) {
 					return "", 0, fmt.Errorf("invalid type-argument text %q", inner)
 				}
 			}
@@ -187,17 +171,266 @@ func stripBalancedBrackets(s string) (string, int, error) {
 	return b.String(), depth, nil
 }
 
-// validTypeArgumentText reports whether s is plausible type-argument syntax:
-// identifiers, package dots, pointer markers, commas and nested brackets,
-// with no spaces or other free text.
-func validTypeArgumentText(s string) bool {
-	for _, r := range s {
-		switch {
-		case unicode.IsLetter(r) || unicode.IsDigit(r):
-		case r == '_' || r == '.' || r == '*' || r == ',' || r == '[' || r == ']' || r == '/':
-		default:
-			return false
+// validTypeArgument reports whether s is a type argument from the explicit
+// subset of Go type syntax that Capslock instantiations print: pointers,
+// slices and arrays (including constant-expression lengths), maps, channels,
+// functions, parenthesized groups, and package-qualified named types (import
+// paths may contain dots, slashes and hyphens). Struct and interface literal
+// bodies are never printed by Capslock and are rejected. The check is a real
+// grammar, not a character whitelist: malformed bodies such as ",," or "."
+// fail, and valid bodies such as "chan int", "func(int) string" or
+// "[N+1]byte" pass.
+func validTypeArgument(s string) bool {
+	p := &typeArgParser{s: s}
+	return p.top() == nil
+}
+
+// typeArgParser is a recursive-descent parser for the supported type-argument
+// subset. Only syntax is checked; no packages are resolved, so any
+// well-formed type argument is accepted and any malformed or unsupported
+// body is rejected.
+type typeArgParser struct {
+	s string
+	i int
+}
+
+func (p *typeArgParser) top() error {
+	if err := p.typ(); err != nil {
+		return err
+	}
+	for {
+		p.space()
+		if p.i >= len(p.s) {
+			return nil
+		}
+		if p.s[p.i] != ',' {
+			return fmt.Errorf("type argument: unexpected %q", p.s[p.i:])
+		}
+		p.i++
+		if err := p.typ(); err != nil {
+			return err
 		}
 	}
+}
+
+func (p *typeArgParser) space() {
+	for p.i < len(p.s) && p.s[p.i] == ' ' {
+		p.i++
+	}
+}
+
+// kw consumes exactly the keyword w followed by a non-word byte.
+func (p *typeArgParser) kw(w string) bool {
+	p.space()
+	if !strings.HasPrefix(p.s[p.i:], w) {
+		return false
+	}
+	end := p.i + len(w)
+	if end < len(p.s) && isWordByte(p.s[end]) {
+		return false
+	}
+	p.i = end
 	return true
+}
+
+func isWordByte(c byte) bool {
+	return c == '_' || c >= '0' && c <= '9' || c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z'
+}
+
+func isIdentStart(c byte) bool {
+	return c == '_' || c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= 0x80
+}
+
+func isIdentCont(c byte) bool {
+	return isIdentStart(c) || c >= '0' && c <= '9' || c == '-'
+}
+
+func (p *typeArgParser) startsType() bool {
+	p.space()
+	if p.i >= len(p.s) {
+		return false
+	}
+	c := p.s[p.i]
+	return isIdentStart(c) || c == '*' || c == '[' || c == '(' || c == '<'
+}
+
+func (p *typeArgParser) typ() error {
+	p.space()
+	if p.i >= len(p.s) {
+		return fmt.Errorf("type argument: unexpected end")
+	}
+	switch c := p.s[p.i]; {
+	case c == '*':
+		p.i++
+		return p.typ()
+	case c == '[':
+		p.i++
+		if p.i < len(p.s) && p.s[p.i] == ']' {
+			p.i++
+			return p.typ()
+		}
+		if err := p.expr(); err != nil {
+			return err
+		}
+		p.space()
+		if p.i >= len(p.s) || p.s[p.i] != ']' {
+			return fmt.Errorf("type argument: missing ]")
+		}
+		p.i++
+		return p.typ()
+	case c == '<':
+		if !p.kw("<-") {
+			return fmt.Errorf("type argument: unexpected %q", p.s[p.i:])
+		}
+		return p.typ()
+	case c == 'c' && p.kw("chan"):
+		p.space()
+		p.kw("<-")
+		return p.typ()
+	case c == 'm' && p.kw("map"):
+		p.space()
+		if p.i >= len(p.s) || p.s[p.i] != '[' {
+			return fmt.Errorf("type argument: map is missing [")
+		}
+		p.i++
+		if err := p.typ(); err != nil {
+			return err
+		}
+		p.space()
+		if p.i >= len(p.s) || p.s[p.i] != ']' {
+			return fmt.Errorf("type argument: map is missing ]")
+		}
+		p.i++
+		return p.typ()
+	case c == 'f' && p.kw("func"):
+		p.space()
+		if p.i >= len(p.s) || p.s[p.i] != '(' {
+			return fmt.Errorf("type argument: func is missing (")
+		}
+		p.i++
+		if err := p.typeList(')'); err != nil {
+			return err
+		}
+		p.space()
+		if p.startsType() {
+			return p.typ()
+		}
+		return nil
+	case c == 's' && p.kw("struct"), c == 'i' && p.kw("interface"):
+		return fmt.Errorf("type argument: struct and interface literals are not part of the supported subset")
+	case isIdentStart(c):
+		return p.name()
+	default:
+		return fmt.Errorf("type argument: unexpected %q", p.s[p.i:])
+	}
+}
+
+// typeList parses a comma-separated type list closed by close, which is
+// consumed.
+func (p *typeArgParser) typeList(close byte) error {
+	p.space()
+	if p.i < len(p.s) && p.s[p.i] == close {
+		p.i++
+		return nil
+	}
+	if p.kw("...") {
+		if err := p.typ(); err != nil {
+			return err
+		}
+	} else if err := p.typ(); err != nil {
+		return err
+	}
+	for {
+		p.space()
+		if p.i >= len(p.s) || p.s[p.i] != ',' {
+			break
+		}
+		p.i++
+		if err := p.typ(); err != nil {
+			return err
+		}
+	}
+	p.space()
+	if p.i >= len(p.s) || p.s[p.i] != close {
+		return fmt.Errorf("type argument: missing %q", string(close))
+	}
+	p.i++
+	return nil
+}
+
+// name parses a package-qualified or bare name: segments of identifier
+// characters (hyphens included, as in import paths) joined by dots, with
+// slash-separated path elements ("example.com/x-y.T").
+func (p *typeArgParser) name() error {
+	if err := p.unit(); err != nil {
+		return err
+	}
+	for p.i < len(p.s) && (p.s[p.i] == '.' || p.s[p.i] == '/') {
+		p.i++
+		if err := p.unit(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (p *typeArgParser) unit() error {
+	start := p.i
+	for p.i < len(p.s) && isIdentCont(p.s[p.i]) {
+		p.i++
+	}
+	if p.i == start {
+		return fmt.Errorf("type argument: missing name after separator")
+	}
+	if p.s[start] == '-' || p.s[start] >= '0' && p.s[start] <= '9' {
+		return fmt.Errorf("type argument: invalid name %q", p.s[start:min(p.i+1, len(p.s))])
+	}
+	return nil
+}
+
+// expr parses a constant-expression array length: atoms joined by +, - and *,
+// where an atom is a number, a name or a parenthesized expression.
+func (p *typeArgParser) expr() error {
+	if err := p.atom(); err != nil {
+		return err
+	}
+	for {
+		p.space()
+		if p.i >= len(p.s) || p.s[p.i] != '+' && p.s[p.i] != '-' && p.s[p.i] != '*' {
+			return nil
+		}
+		p.i++
+		if err := p.atom(); err != nil {
+			return err
+		}
+	}
+}
+
+func (p *typeArgParser) atom() error {
+	p.space()
+	if p.i >= len(p.s) {
+		return fmt.Errorf("type argument: unexpected end in array length")
+	}
+	if p.s[p.i] == '(' {
+		p.i++
+		if err := p.expr(); err != nil {
+			return err
+		}
+		p.space()
+		if p.i >= len(p.s) || p.s[p.i] != ')' {
+			return fmt.Errorf("type argument: missing )")
+		}
+		p.i++
+		return nil
+	}
+	if p.s[p.i] >= '0' && p.s[p.i] <= '9' {
+		for p.i < len(p.s) && p.s[p.i] >= '0' && p.s[p.i] <= '9' {
+			p.i++
+		}
+		return nil
+	}
+	if isIdentStart(p.s[p.i]) {
+		return p.name()
+	}
+	return fmt.Errorf("type argument: unexpected %q in array length", p.s[p.i:])
 }
