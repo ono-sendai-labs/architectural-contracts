@@ -361,3 +361,42 @@ func f() {
 		})
 	}
 }
+
+// TestFromSelection_PredeclaredInterfaceError pins review-round-1 finding 4:
+// a selection on the predeclared error interface (universe object, Pkg()==nil)
+// returns an actionable error instead of panicking.
+func TestFromSelection_PredeclaredInterfaceError(t *testing.T) {
+	src := `package p
+
+func useErr() string {
+	var e error
+	return e.Error()
+}
+`
+	fset := token.NewFileSet()
+	file, err := parser.ParseFile(fset, "p.go", src, 0)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	info := &types.Info{
+		Defs:       map[*ast.Ident]types.Object{},
+		Uses:       map[*ast.Ident]types.Object{},
+		Selections: map[*ast.SelectorExpr]*types.Selection{},
+		Types:      map[ast.Expr]types.TypeAndValue{},
+	}
+	conf := types.Config{Importer: importer.Default()}
+	if _, err := conf.Check("p", fset, []*ast.File{file}, info); err != nil {
+		t.Fatalf("check: %v", err)
+	}
+	found := false
+	for _, sel := range info.Selections {
+		found = true
+		id, err := symbol.FromSelection(sel)
+		if err == nil {
+			t.Fatalf("FromSelection(%v) = %q; want an actionable error for the universe object", sel, id)
+		}
+	}
+	if !found {
+		t.Fatalf("fixture produced no selection on error.Error")
+	}
+}

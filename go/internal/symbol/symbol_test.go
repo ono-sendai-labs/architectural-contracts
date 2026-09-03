@@ -25,6 +25,8 @@ func TestParseFormat_RoundTrip(t *testing.T) {
 		{"init", "example.com/store.init"},
 		{"stdlib package", "os.ReadFile"},
 		{"stdlib method", "(os.File).Read"},
+		{"package path containing init element", "example.com/init.F"},
+		{"package path containing dotted init part", "example.com/sub.init.F"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -98,7 +100,6 @@ func TestParse_Malformed(t *testing.T) {
 		{"missing closing paren", "(example.com/store.Store.Get"},
 		{"empty receiver", "().Get"},
 		{"method without dot", "(example.com/store.Store)Get"},
-		{"init as name prefix", "pkg.init.sub"},
 		{"version prefix", "v1:pkg.Read"},
 		{"whitespace", "pkg. Read"},
 		{"invalid identifier name", "pkg.1Read"},

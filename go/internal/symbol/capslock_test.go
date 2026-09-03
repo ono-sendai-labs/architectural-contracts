@@ -1,8 +1,13 @@
 package symbol_test
 
 import (
+	"go/ast"
+	"go/parser"
+	"go/token"
+	"go/types"
 	"testing"
 
+	"github.com/ono-sendai-labs/architectural-contracts/go/internal/hostpolicy"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/symbol"
 )
 
@@ -79,6 +84,9 @@ func TestParseCapslock_Rejected(t *testing.T) {
 		{"bare receiver dot method with brackets", "example.com/store.Box[int].Get"},
 		{"empty brackets", "example.com/store.Read[]"},
 		{"method on pointer-typed package", "(*os).Read"},
+		{"lowercase dotted method spelling", "example.com/p.private.Read"},
+		{"invalid type-argument text", "(*example.com/store.Box[not a type]).Get"},
+		{"invalid type-argument colon", "(example.com/store.Map[string]int]).Get"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -88,4 +96,69 @@ func TestParseCapslock_Rejected(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestParseCapslock_CanonicalizesNamespace pins review-round-1 finding 1:
+// Capslock spellings are canonicalized through the same host-policy hook as
+// the go/types conversion, so the two producers produce identical IDs in a
+// host-rewritten namespace.
+func TestParseCapslock_CanonicalizesNamespace(t *testing.T) {
+	orig := hostpolicy.CanonicalizePath
+	defer func() { hostpolicy.CanonicalizePath = orig }()
+	hostpolicy.CanonicalizePath = func(p string) string {
+		return "canonical.example/" + p
+	}
+
+	// A small typed fixture: the same declaration converted from go/types.
+	src := `package raw
+
+type T struct{}
+
+func (t T) M() {}
+`
+	fset := token.NewFileSet()
+	file, err := parser.ParseFile(fset, "raw.go", src, 0)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	info := &types.Info{Defs: map[*ast.Ident]types.Object{}, Types: map[ast.Expr]types.TypeAndValue{}}
+	conf := types.Config{}
+	pkg, err := conf.Check("raw", fset, []*ast.File{file}, info)
+	if err != nil {
+		t.Fatalf("check: %v", err)
+	}
+	var method types.Object
+	for _, obj := range info.Defs {
+		if obj != nil && obj.Name() == "M" {
+			method = obj
+		}
+	}
+	if method == nil {
+		t.Fatalf("fixture method M not found")
+	}
+	fromTypes, err := symbol.FromObject(method)
+	if err != nil {
+		t.Fatalf("FromObject(method) error = %v", err)
+	}
+
+	for _, tc := range []struct {
+		name  string
+		input string
+		want  symbol.SymbolID
+	}{
+		{"method, pointer spelling", "(*raw.T).M", fromTypes},
+		{"method, value spelling", "(raw.T).M", fromTypes},
+		{"top-level", "raw.T", "canonical.example/raw.T"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := symbol.ParseCapslock(tc.input)
+			if err != nil {
+				t.Fatalf("ParseCapslock(%q) error = %v", tc.input, err)
+			}
+			if got != tc.want {
+				t.Fatalf("ParseCapslock(%q) = %q; want %q", tc.input, got, tc.want)
+			}
+		})
+	}
+	_ = pkg
 }

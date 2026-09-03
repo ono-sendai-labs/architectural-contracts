@@ -181,3 +181,24 @@ func TestExtractSurface_CanonicalizesNamespace(t *testing.T) {
 		t.Fatalf("ExtractSurface() = %v; want %v", got, want)
 	}
 }
+
+// TestExtractSurface_InitPackagePaths pins review-round-1 finding 3: valid
+// import paths containing an init element or dotted init part are not
+// reserved by the grammar, so their exact surfaces stay complete.
+func TestExtractSurface_InitPackagePaths(t *testing.T) {
+	src := "package initpkg\n\nfunc F() {}\n"
+	files, info := parsePackage(t, "example.com/init", src, importerDefault())
+	got := symbol.ExtractSurface(files, info)
+	want := []symbol.SymbolID{"example.com/init.F"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("ExtractSurface() = %v; want %v", got, want)
+	}
+
+	src2 := "package initpkg2\n\nfunc G() {}\n"
+	files2, info2 := parsePackage(t, "example.com/sub.init", src2, importerDefault())
+	got2 := symbol.ExtractSurface(files2, info2)
+	want2 := []symbol.SymbolID{"example.com/sub.init.G"}
+	if !reflect.DeepEqual(got2, want2) {
+		t.Fatalf("ExtractSurface() = %v; want %v", got2, want2)
+	}
+}

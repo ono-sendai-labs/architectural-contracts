@@ -136,15 +136,11 @@ func validPackagePath(pkg string) bool {
 		return false
 	}
 	for _, elem := range strings.Split(pkg, "/") {
-		if elem == "" || elem == "init" {
-			// "init" is reserved for package initialization; it is never a
-			// package path element.
+		if elem == "" {
 			return false
 		}
 		for _, part := range strings.Split(elem, ".") {
-			if part == "" || part == "init" {
-				// "init" is reserved for package initialization; it never
-				// appears inside a package path.
+			if part == "" {
 				return false
 			}
 			for _, r := range part {
