@@ -459,3 +459,17 @@ runtime injection, §4 SDK attrs) with `{}` defaults.
 - Friction-report items triaged as orthogonal: §1 (aspect provider bug), §5
   self-exemption, §6 golden work beyond the restructure, §7's `IsCanonicalPath` seam.
   See [`research/host-import-friction.md`](research/host-import-friction.md).
+
+---
+
+## Post-review decisions (2026-09-02)
+
+An independent design review
+([`2026-09-02-design-review.md`](2026-09-02-design-review.md)) raised nineteen
+findings. The assessment, the decisions taken for each, and six decisions flagged for
+user confirmation are recorded in
+[`2026-09-02-design-review-response.md`](2026-09-02-design-review-response.md). Where a
+decision there refines one above, the response document is authoritative; in particular
+Q12's "symbol entries may be sparse" is superseded by a total symbol inventory (DR-05),
+Q16's four-way vocabulary by three orthogonal status axes (DR-06), and Q7's rejection of
+wildcard membership now also removes the existing pattern-membership feature (DR-16).

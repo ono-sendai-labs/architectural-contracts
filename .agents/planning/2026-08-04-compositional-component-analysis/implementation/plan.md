@@ -1,379 +1,495 @@
 # Implementation plan — compositional component analysis
 
-**Date:** 2026-08-04
+**Date:** 2026-08-04 · **Revised:** 2026-09-02 (post design review)
 **Design:** [`../design/detailed-design.md`](../design/detailed-design.md)
-**Decision record:** [`../idea-honing.md`](../idea-honing.md)
+**Decision record:** [`../idea-honing.md`](../idea-honing.md),
+[`../2026-09-02-design-review-response.md`](../2026-09-02-design-review-response.md)
 **Baseline:** `dev-exp-go-bazel-mvp` @ `5011b726`
 
 Sequencing follows idea-honing **Q17**: the monorepo PoC will not re-import until this
 work lands, so the plan optimises for internal simplicity rather than incremental host
-benefit. Two consequences are already baked in — the load-deduplication step is dropped
-as superseded, and `absorbed_dependencies` removal moves from last to first.
+benefit. The load-deduplication step stays dropped and `absorbed_dependencies` removal
+stays first.
 
-One ordering constraint is not obvious and drives steps 4–6: the implements-closure
-workaround (`goanalysis.go:1620-1730`) exists to compensate for VTA. Replacing the
-dependency symbol source with a surface manifest **before** removing VTA would strip
-those concrete methods while dynamic resolution was still producing edges to them,
-breaking FR5. So the reference scan lands first, the workaround dies with it, and only
-then does the symbol source swap to a manifest.
+Three ordering constraints drive the middle of the plan, two of them new since the
+review:
 
-Core end-to-end functionality — a check that runs with no call graph — is available at
-**Step 4**. Full composability (N1/N2: cost independent of the closure) lands at
-**Step 6**.
+1. **Schemas and the symbol grammar come before anything that persists or compares
+   symbols** (DR-04, DR-15). Steps 3 precedes 4–7.
+2. **The stdlib map must be a declared Bazel artifact before the check depends on it**
+   (DR-07): Bazel sandboxes have no `go` binary and cannot share a native cache, and
+   `just ci` runs the Bazel checks. Step 4 delivers generator, port, Bazel rule and
+   native cache together.
+3. **The reference scan lands before export-data loading** (unchanged reasoning, one
+   more reason): the implements-closure workaround compensates for VTA, so surfaces
+   must not replace the symbol source until VTA is gone; and check-time Capslock needs
+   closure syntax, so closure sources cannot leave the runfiles until Capslock leaves
+   the check path. Steps 6 → 7 → 8.
+
+Core end-to-end functionality — a check with no call graph — lands at **Step 6**.
+Member-only inputs (N1/N2) land at **Step 8**.
+
+**Release constraint (DR-19.6).** Between Step 2 and Step 11 no revision satisfies I1.
+None of them is tagged, released, or imported; the series is consumed at its end.
 
 ---
 
 ## Progress checklist
 
 - [ ] **Step 1** — Baseline measurement and low-risk groundwork
-- [ ] **Step 2** — Remove `absorbed_dependencies`
-- [ ] **Step 3** — Standard-library authority map: generator and lookup port
-- [ ] **Step 4** — Reference scan replaces the call graph *(keystone)*
-- [ ] **Step 5** — Surface manifest emission
-- [ ] **Step 6** — Surface manifest consumption and boundary vocabulary
-- [ ] **Step 7** — Golden restructure: verdicts vs layout shape
-- [ ] **Step 8** — Map distribution, keying, and fail-closed behaviour
-- [ ] **Step 9** — `UnusedAuthority`
-- [ ] **Step 10** — `authority: UNKNOWN`
-- [ ] **Step 11** — Host adapter hooks
+- [ ] **Step 2** — Remove `absorbed_dependencies` and pattern membership
+- [ ] **Step 3** — Persisted schemas, symbol grammar, and the authority lattice
+- [ ] **Step 4** — Standard-library authority map: generator, port, Bazel artifact, native cache
+- [ ] **Step 5** — Build topology: analysis action, providers, surface emission, CLI outputs
+- [ ] **Step 6** — Reference scan replaces the call graph *(keystone)*
+- [ ] **Step 7** — Surface consumption, status axes, overlap, namespace
+- [ ] **Step 8** — Export-data type loading and member-only inputs
+- [ ] **Step 9** — Golden restructure: verdicts vs layout shape
+- [ ] **Step 10** — `UnusedAuthority`
+- [ ] **Step 11** — `authority: UNKNOWN`
+- [ ] **Step 12** — Host adapter hooks
+- [ ] **Step 13** — Cross-cutting acceptance: scaling, hermeticity, determinism
 
 ---
 
 ## Step 1: Baseline measurement and low-risk groundwork
 
 **Objective.** Establish where the time actually goes before restructuring anything, and
-land the three orthogonal fixes that reduce churn during the rest of the work.
+land three orthogonal fixes that reduce churn during the rest of the work.
 
 **Guidance.**
 - Profile `arcc check` on a large component, attributing wall/CPU between (a)
-  `packages.Load` and type-checking of member packages, (b) SSA construction over the
-  closure, (c) VTA, (d) Capslock's second load and analysis. The design eliminates
-  (b)–(d) and keeps (a); this attribution determines the real size of the win and may
-  reorder later steps. Record findings in
-  `../research/current-analysis-pipeline.md` under a new "measured attribution" section.
+  `packages.Load` and type-checking of member packages, (b) type-checking of the
+  closure, (c) SSA construction, (d) VTA, (e) Capslock's second load and analysis. The
+  design eliminates (b)–(e) and keeps (a); record findings in
+  `../research/current-analysis-pipeline.md` under "measured attribution".
 - Fix friction report §1: `aspect.bzl:28-29` returns `[]` for non-Go targets; return
-  `[ArccPackageInfo(packages = depset())]` so consumers need no `in target` guard.
-- Apply friction report §6(2): normalise both sides through
-  `hostpolicy.CanonicalizePath` before diffing in the golden comparison helper.
+  `[ArccPackageInfo(packages = depset())]`.
+- Apply friction report §6(2): normalise both sides through `hostpolicy.CanonicalizePath`
+  before diffing in the golden comparison helper.
+- Make `discoverStdlibWithContext` (`packagelayout.go:191`) fail loudly when
+  `os.Stat(sdkRoot)` fails instead of inviting a filesystem-walk fallback (moved up from
+  the old Step 11; this is the third fix).
 
 **Tests.**
-- A golden test whose expected file is written in a rewritten path namespace compares
-  equal after normalisation.
-- An aspect test asserting a non-Go dependency yields an empty `ArccPackageInfo` rather
-  than none.
+- A golden whose expected file is written in a rewritten path namespace compares equal
+  after normalisation.
+- An aspect test asserting a non-Go dependency yields an empty `ArccPackageInfo`.
+- A layout with a missing SDK root fails with an actionable error.
 
-**Integration.** Nothing structural changes; `just ci` must stay green.
+**Integration.** Nothing structural changes; `just ci` stays green.
 
-**Demo.** A cost-attribution note showing which phase dominates on a real component;
-goldens that previously required host patches now compare equal under normalisation; the
-aspect no longer forces defensive guards.
+**Demo.** A cost-attribution note showing which phase dominates on a real component.
 
 ---
 
-## Step 2: Remove `absorbed_dependencies`
+## Step 2: Remove `absorbed_dependencies` and pattern membership
 
-**Objective.** Delete the concept and everything that exists to support it, so every
-later step has fewer cases to handle. Pure deletion (R9, Q4).
+**Objective.** Delete both concepts and everything that exists to support them (R9, Q4,
+Q7, DR-16). Pure deletion.
 
 **Guidance.**
-- Remove the schema field and its parse/validation path; remove
-  `Manifest.AbsorbedDependencies`.
-- Remove `checker.go:100-112` (absorbed branch of the import sweep), `:189-205`
-  (absorbed overlap), and the unused-absorbed-dependency warning.
+- Remove proto field 4 and `AbsorbedDependency`; add `reserved 4; reserved
+  "absorbed_dependencies";`. Remove `Manifest.AbsorbedDependencies` and its
+  parse/validation path.
+- Remove `checker.go:100-112`, `:189-205`, the unused-absorbed warning, and
+  `ABSORBED_FUNC_VALUE_ESCAPE`.
 - Remove `facts.FuncValueEscapes`, `facts.BodilessAbsorbedPackages`,
   `goanalysis.scanFuncValueEscapes`, `collectBodilessAbsorbedPackages`, and
   `capanalyzer.AnalyzeRequest.PruneAtPackages` with its classifier branch.
-- Rewrite the README walkthrough (`README.md:296-340`): it currently teaches
-  `UNDECLARED_AUTHORITY` via absorption. Teach the same lesson directly — a component
-  that calls `os.ReadFile` without declaring FILES.
+- Remove pattern membership: `isPatternMembership`/`isAnyPatternMember`
+  (`goanalysis.go:1748-1762`), `resolvePatternMembershipDependencyInterface`
+  (`:1792-1879`), `facts.MatchesMember`, and the direct-load rejection at `:64-80`,
+  which becomes a parse-time rejection of glob metacharacters in `members`.
+- Rewrite the README walkthrough (`README.md:296-340`) to teach `UNDECLARED_AUTHORITY`
+  directly: a component calling `os.ReadFile` without declaring FILES.
 - Update self-components, `manifestparity`, and the Bazel `absorbed` attribute.
+- Verify no example or self-component manifest uses pattern members before deleting;
+  record the result in the change description.
 
-**Tests.** Existing absorbed fixtures (`goanalysis/testdata/escapes/`) are deleted, not
-weakened. Add a check that a manifest still carrying `absorbed_dependencies` is rejected
-with an actionable error rather than silently ignored.
+**Tests.** Existing absorbed and pattern fixtures are deleted, not weakened. A manifest
+still carrying `absorbed_dependencies` or a glob member is rejected with an actionable
+error.
 
-**Integration.** Self-check and `manifestparity` must stay green; they are the signal
-that the deletion is complete rather than partial.
+**Integration.** Self-check and `manifestparity` stay green.
 
-**Demo.** `just ci` green with the concept gone; the README walkthrough produces the
-same `UNDECLARED_AUTHORITY` verdict by a simpler route; `arcc` rejects a stale manifest
-that still declares absorbed dependencies.
+**Demo.** `just ci` green with both concepts gone; the README walkthrough produces the
+same verdict by a simpler route; `arcc` rejects a stale manifest.
 
 ---
 
-## Step 3: Standard-library authority map — generator and lookup port
+## Step 3: Persisted schemas, symbol grammar, and the authority lattice
 
-**Objective.** Produce the map and the interface the scan will consume, backed by an
-on-demand cache so distribution can wait (R5, R6, Q13).
+**Objective.** Define every artifact and identifier that crosses a process or action
+boundary before anything produces one (DR-04, DR-06, DR-15). Data and pure code only;
+the check path is untouched.
 
 **Guidance.**
-- Define the `StdlibAuthority` port core-side and the data model per the design's Data
-  Models section: total package enumeration, sparse symbol table, per-package init
-  entries, evidence paths, and `SDKKey` including `classifier_hash`.
-- Implement generation in a new `stdlibmap` shell package: run Capslock over the SDK with
-  every exported symbol as a root, reusing the existing classifier construction so the
-  `fileHandleUseMethods` reclassification (I2) is identical to today's.
-- Back lookup with an on-demand generate-and-cache implementation keyed by `SDKKey`. No
-  artifact distribution yet — that is Step 8.
-- Carry the FR10 Component Contract doc block on the new package, including its Ambient
-  Authority line.
+- `proto/archcontracts/v1/surface.proto` and `stdlibmap.proto` per the design's Data
+  Models: `format_version` first, sorted repeated entries, no `map` fields. Extend
+  `just gen` and `gen-is-clean`.
+- `component.proto`: add `authority` (enum `DECLARED`/`UNKNOWN`, default `DECLARED`);
+  remove fields 8 and 9 with `reserved` numbers and names. Parse rejects `UNKNOWN`
+  with non-empty `declared_authority`.
+- Core-side `SymbolID` type with the versioned textual grammar, a normaliser from
+  Capslock names, and a `go/types`-object-to-`SymbolID` function implementing the
+  declaring-object rule (aliases, promoted members, generic origins, pointer/value
+  receivers).
+- `AuthorityDeclaration` with `Join`; parse and serialise forbid the empty-set spelling of
+  `UNKNOWN`.
+- Canonical JSON encoder/decoder (`protojson` + compact/indent), SHA-256 digest helper,
+  atomic write helper, size caps.
+- `hostpolicy.NamespaceID` and `IsCanonicalPath` (friction report §7).
 
 **Tests.**
-- `os.ReadFile` resolves to FILES with a non-empty evidence path; a pure symbol
-  (`strings.TrimSpace`) resolves to empty authority; both are *in* the package
-  enumeration.
-- Totality: every package reported by the SDK enumeration is present in the map.
-- Determinism: two generations over the same SDK and classifier are byte-identical.
-- A package whose `init` exercises authority has an `inits` entry (needed by Step 4).
+- Table-driven `SymbolID` tests for every object kind in the design's grammar table,
+  including alias expansion, embedding/promotion, generics, and duplicate observations.
+- `Join` lattice tests: `UNKNOWN` absorbs; `∅ ⊔ ∅ = ∅`; parse rejects the forbidden
+  spelling; round-trip through JSON preserves `UNKNOWN`.
+- Encoding: two marshals of the same message are byte-identical; a message with
+  reordered repeated entries canonicalises to the same bytes; unknown major version is
+  rejected; unknown fields are ignored; oversize input is rejected.
+- Atomic write: a simulated crash mid-write leaves the previous file intact.
 
-**Integration.** Nothing consumes the port yet; the check path is untouched.
+**Integration.** Additive; nothing consumes the new types yet.
 
-**Demo.** Generate a map for the local toolchain and query it: `os.ReadFile` → FILES with
-evidence, `strings.TrimSpace` → empty, `net/http` present in the enumeration, and a
-regenerated map identical byte-for-byte.
+**Demo.** `just gen-is-clean` green with the new schemas; a unit-level walkthrough of the
+grammar table.
 
 ---
 
-## Step 4: Reference scan replaces the call graph *(keystone)*
+## Step 4: Standard-library authority map — generator, port, Bazel artifact, native cache
+
+**Objective.** Produce the map as a total, keyed, fail-closed artifact available in both
+modes before anything depends on it (R5, R6, N3, Q13, DR-05, DR-07, DR-09).
+
+**Guidance.**
+- `StdlibAuthority` port core-side per the design (fail-closed `SymbolAuthority`,
+  `PackageInitAuthority`, `Evidence`, `Key`).
+- `stdlibmap` shell package: inventory with `go/types` (every exported object, every
+  exported method of exported named/alias types, `init`); Capslock
+  `GranularityFunction` in one batch over all importable packages, grouped by
+  `Path[0]`; a **generation classifier** that keeps the minting-site reclassification
+  but does **not** wrap with `ClassifierExcludingUnanalyzed` (I4); var rule with the
+  handle minting-authority clause; consts/types/interface-specs `SAFE`; `init` keyed on
+  the aggregate; `unsafe.*` hardcoded; curated-safe provenance per entry. Generation
+  fails if any inventoried symbol lacks a classification.
+- `SDKKey` from the layout `platform` block plus toolchain version and GOEXPERIMENT;
+  `classifier_hash` over the generation classifier text and rule version.
+- Oracle: `go list std` natively; toolchain package list in Bazel. Enumerate `internal/…`
+  with `importable: false`.
+- Bazel: `arcc_stdlib_map` rule taking SDK sources (via the existing `go_sdk_srcs`
+  seam) and the toolchain, producing the map for the target configuration; wire it as
+  the default `_stdlib_map` attr of the analysis action (Step 5). Native: on-demand
+  generate-and-cache under the user cache dir keyed by `SDKKey`, with atomic writes and
+  corrupt-cache regeneration.
+- `arcc stdlibmap generate|inspect` subcommands.
+- Carry the FR10 Component Contract block including the Ambient Authority line.
+
+**Tests.**
+- `os.ReadFile` → FILES with non-empty evidence; `strings.TrimSpace` → `SAFE`;
+  `sort.Slice` → `UNANALYZED` (the spike's laundering case); `os.Stdin` → FILES;
+  `io.EOF` → `SAFE`; `http.DefaultClient` → NETWORK; `unsafe.Pointer` → `UNANALYZED`;
+  an init-bearing fixture has an `inits` entry.
+- Totality: every `go list std` package is enumerated; every inventoried symbol of
+  every importable package has an entry; deleting one entry from a map makes lookup
+  return the inventory-gap error.
+- Determinism: two generations are byte-identical.
+- Keying: two target configurations under one host (linux/amd64 cgo on vs off, and a
+  cross-compile to another GOOS) produce distinct keys and maps; lookup with a
+  mismatched `classifier_hash` or format version fails closed.
+- Bazel: the map builds in a sandbox with no network and no host `go` binary.
+
+**Integration.** Nothing consumes the port yet.
+
+**Demo.** Generate for the local toolchain and query it; build the Bazel artifact; show
+the laundering case classified `UNANALYZED` rather than absent.
+
+---
+
+## Step 5: Build topology — analysis action, providers, surface emission, CLI outputs
+
+**Objective.** Give surfaces a producer and consumers a provider edge before the
+analysis model changes (R7, R8, DR-01, DR-06, DR-19.3). Emission only; nothing reads a
+surface yet.
+
+**Guidance.**
+- CLI: `--report-out`, `--surface-out`, `--report-verdict-only` (exit 0 when analysis
+  ran; verdict in the report). Surface derived from manifest, layout and member facts
+  via the Step 3 extractor; symbols are the exact declared interface with no
+  implements-closure injection — **note** the workaround still runs for the *check* until
+  Step 6, so emission and check disagree by design for one step; document it.
+- `go_component`: add the analysis action with declared inputs per N2 (export data and
+  dependency surfaces are wired in Steps 7–8; until then the action's inputs are today's
+  runfiles). Outputs `<name>.report.json`, `<name>.surface.json`; `OutputGroupInfo(arcc)`;
+  `ArccComponentInfo` gains `surface`, `report`, `provenance`.
+- `manual`-tagged components (transitional stand-in for `UNKNOWN`) get an analysis-time
+  `ctx.actions.write` of an asserted surface and no action; `provenance = "asserted"`.
+- `check.bzl`: the three test rules assert over the report artifact (`arcc verdict
+  --expect pass|fail`, grep, golden) instead of running `arcc check` themselves.
+- Native dependency-surface location by convention (`<manifest>.surface.json`).
+
+**Tests.**
+- Byte-identical surface across repeated runs of an unchanged component.
+- A declared-interface component's surface contains exactly its interface symbols; a
+  `PACKAGE_SURFACE` component's contains its member packages and no symbols; both carry
+  namespace, SDK key, format version.
+- Digest test enumerates inputs: changes when a member source or the manifest changes;
+  unchanged when a dependency's source, a test file, or an unrelated file changes.
+- Bazel analysis test: `bazel test` of a dependent's `.check` builds the dependency's
+  analysis action; `bazel build //...` without the output group builds none.
+- `expect_violation` and golden tests pass via the report artifact.
+
+**Integration.** Check behaviour unchanged; only where it runs and what it writes.
+
+**Demo.** Build csvtool's components with `--output_groups=+arcc`; show surfaces and
+reports; a `manual`-tagged component yields an asserted surface and no action.
+
+---
+
+## Step 6: Reference scan replaces the call graph *(keystone)*
 
 **Objective.** Replace SSA/VTA and check-time Capslock with an AST + `types.Info` scan
-over member packages, treating references and imports as edges (R1–R4).
+over member packages (R1–R4, DR-10, DR-11). Dependency surfaces still come from the
+existing source-loading `ResolveDependencyInterface` in this step.
 
 **Guidance.**
-- Implement `ScanReferences` over `types.Info.Uses` / `Selections` plus each member
-  package's imports. Every reference to a symbol outside the member set is an edge; every
-  import is an edge.
-- Classify per the design's edge-classification diagram, resolving stdlib membership and
-  authority through the Step 3 port. Dependency surfaces still come from the existing
-  `ResolveDependencyInterface` in this step — swapping that is Step 6.
-- Delete `goanalysis.go:274-279` (SSA/VTA), `:281-326` (edge extraction), the
-  implements-closure computation at `:1620-1730`, and the five stdlib predicates
-  (`packagelayout.go:79`, `goanalysis.go:533,550,563`, and `hostpolicy.IsStdlibPath`'s
-  classification role). Remove `capslockadapter` from the check path, retaining it for
-  Step 3's generation.
-- Detect `//go:linkname`, assembly, and cgo in member code and emit `AnalysisLimitation`.
+- Implement `ScanReferences` producing `ReferenceEdge`s (Uses/Selections, deduplicated
+  per site) and `ImportEdge`s (every import declaration).
+- Classify per the design's two tables/diagrams, resolving stdlib membership and
+  authority through the Step 4 port; `UNANALYZED` becomes an `AnalysisDefeating`
+  finding under the existing policy model (violation by default).
+- Apply the declaring-object rule against the dependency's symbol set; delete the
+  implements-closure computation (`goanalysis.go:1619-1714`) in the same change.
+- Delete `goanalysis.go:274-279` (SSA/VTA), `:281-326` (edge extraction), the five
+  stdlib predicates, and Capslock from the check path (`app.go:200-229`, the
+  `capslockadapter` check entry point; the generation entry point stays).
+- Detect `//go:linkname`, assembly files, and cgo in member packages and emit an
+  `AnalysisDefeating` finding.
+- Findings per `(capability, class)` with sorted sites and map evidence (DR-17).
+- Load mode is unchanged in this step (`NeedDeps` stays until Step 8).
 
-**Tests.** The behaviour-pinning fixtures from the design's Testing Strategy:
-1. `f := os.ReadFile` never called → attributed FILES.
-2. Import-only init authority → attributed.
-3. `dep.Greeter.Greet()` with unexported implementation → **passes** (it passes today for
-   the wrong reason; it must still pass once the workaround is gone).
-4. Direct concrete-method call on a method implementing a declared interface → **fails**.
-   This is the deliberate behaviour change; today it wrongly passes.
+**Tests.** Design fixtures 1–6 and 9, in full, **before** the cutover commit is
+described: the reference-kind table and the import table are written against the new
+scanner and must pass with the workaround already deleted. Plus: an `AnalysisDefeating`
+fixture is a violation by default and a warning with policy; a finding with three sites
+renders one line with a count in text and three sites in JSON.
 
-**Integration.** This is where the analysis model actually changes. Expect golden churn;
-Step 7 cleans up the structure, but goldens must be *correct* here, not deferred.
+**Integration.** The analysis model changes here. Expect golden churn; Step 9 cleans up
+structure, but goldens must be *correct* here.
 
-**Demo.** `arcc check` runs end to end with no call graph and no Capslock in the check
-path, on the csvtool example and on arcc's own components. Show the wall-clock delta
-against the Step 1 baseline, and the two FR5 fixtures demonstrating the precision change.
+**Demo.** `arcc check` end to end with no call graph and no Capslock, on csvtool and
+arcc's own components; wall-clock delta against Step 1; the two FR5 fixtures showing the
+precision change; the surface emitted in Step 5 now agrees with the check.
 
 ---
 
-## Step 5: Surface manifest emission
+## Step 7: Surface consumption, status axes, overlap, namespace
 
-**Objective.** Every check emits a deterministic surface manifest describing its public
-surface, with provenance (R7, R8, Q16).
+**Objective.** Resolve dependency surfaces from artifacts instead of loading dependency
+source, with structural provenance (R7, R14, Q16, DR-03, DR-06, DR-08, DR-12).
 
 **Guidance.**
-- Define `SurfaceManifest` and `Provenance` per the design. Declared-interface components
-  enumerate symbols; `PACKAGE_SURFACE` components record member packages and leave symbols
-  empty.
-- Emit as an output of the check action, with `ProducedByCheck`, an `InputHash` over the
-  component's sources and manifest, and the canonical `Namespace` the symbols are written
-  in.
-- Deterministic serialisation: sorted symbols and packages, stable keys.
-- Now that Step 4 has made edges syntactic, the emitted symbol set is exactly the declared
-  interface — no implements-closure injection.
+- `ResolveDependencyInterface` reads the dependency's surface and, when present, report.
+  Delete the `./...` source load (`goanalysis.go:1441-1470`).
+- Bazel: the analysis action takes direct dependencies' `surface` and `report` from
+  `ArccComponentInfo` (declared and auto-attached) as inputs; the layout carries their
+  paths. Provenance derived: `CHECKED_PASS` iff a report is present with verdict pass;
+  `CHECKED_FAIL` → `DEPENDENCY_CHECK_FAILED` warning; asserted provider → `ASSERTED`.
+- Native: surfaces by convention; provenance `ASSERTED`; freshness by hashing readable
+  dependency source bytes without parsing, else `UNKNOWN`.
+- Verify `FormatVersion`, `Namespace`, `SDKKey` before use; each mismatch its own tool
+  error.
+- `DEPENDENCY_OVERLAP` before building any package-to-dependency map; the checker's
+  last-wins maps (`checker.go:65-70`, `213-227`) become insert-or-error.
+- `report.DependencyBoundary` carries the three axes; text summary words per the design.
+- Remove `OwnCheckRuns`/`CertificationReference` from facts, report and `defs.bzl:124`.
 
 **Tests.**
-- Byte-identical output across repeated runs of an unchanged component.
-- A declared-interface component's manifest contains exactly its interface symbols; a
-  `PACKAGE_SURFACE` component's contains its member packages and no symbols.
-- `InputHash` changes when a member source changes and not otherwise.
+- Parity: consuming a surface produces the same verdicts as Step 6's source path on
+  every existing fixture.
+- Failed dependency → `CHECKED_FAIL` + warning, never `certified`.
+- Native: `VERIFIED` when unchanged, `STALE` after touching a dependency source,
+  `UNKNOWN` when the dependency root is unreadable — and in all three cases no
+  dependency file is parsed (assert via a load hook or file-open counter).
+- Namespace: two distinct idempotent canonicalisers; each rejects the other's surface.
+- SDK key or format mismatch → exit 2. Missing surface → exit 2.
+- Two direct dependencies claiming one package → `DEPENDENCY_OVERLAP`.
 
-**Integration.** Emission only — nothing reads these yet, so the check's behaviour is
-unchanged.
+**Integration.** After this step no check *parses* a dependency's source. Closure
+sources are still staged in Bazel until Step 8.
 
-**Demo.** Check each csvtool component and show the emitted manifests; modify a member
-source and show the input hash move; re-run unchanged and show byte-identical output.
+**Demo.** Check `examples/csvtool/app` with its dependencies' sources made unreadable —
+it succeeds natively with freshness `UNKNOWN`; show `certified`, `stale`, and
+`check failed` renderings.
 
 ---
 
-## Step 6: Surface manifest consumption and boundary vocabulary
+## Step 8: Export-data type loading and member-only inputs
 
-**Objective.** Resolve dependency surfaces from manifests instead of loading dependency
-source, completing N1/N2 (R7, Q16).
+**Objective.** Complete N1/N2: members from source, everything else from compiled export
+data, no dependency source in the action (DR-02, DR-18).
 
 **Guidance.**
-- Rewrite `ResolveDependencyInterface` to read a dependency's surface manifest. Delete the
-  `./...` source load at `goanalysis.go:1440-1470`.
-- Implement the four-way boundary vocabulary: `certified` (produced by a check action),
-  `asserted` (present, provenance unverifiable), `stale` (input hash mismatch),
-  `untrusted` (reserved for Step 10).
-- Enforce namespace agreement: a manifest written in a foreign namespace is a tool error,
-  not a best-effort comparison.
-- Add `hostpolicy.IsCanonicalPath` (friction report §7) as the override-once predicate that
-  makes idempotent canonicalisation expressible.
+- Layout schema: per-package `export_file` for every non-member package (deps and
+  stdlib); keep the full transitive import graph; add `goexperiment` to `platform`.
+  Validate closure completeness and export-file presence before `packages.Load`,
+  returning a tool error rather than letting `go/packages` panic.
+- Driver: return `GoFiles`/`CompiledGoFiles` only for members; `ExportFile` for all
+  others.
+- Loader: drop `NeedDeps` (`goanalysis.go:104-109`); assert dependency `Syntax` is nil
+  post-load as a guard.
+- Aspect: collect `GoArchive.data.export_file` per package (verify the field name
+  against the pinned rules_go 0.61.1); stdlib export data from the toolchain's
+  `GoStdLib` via a new adapter seam (Step 12 formalises it; land the upstream default
+  here). Remove closure sources from `go_component` runfiles (`component.bzl:385-409`)
+  and from the analysis action's inputs; keep member sources only.
+- Native: obtain export data through `go list -export` for the closure; document that
+  native mode may shell out to the toolchain here.
+- Record non-member input count and bytes in the report's diagnostics section.
 
 **Tests.**
-- A check consuming a dependency manifest produces the same verdicts as the Step 4
-  source-loading path (regression parity).
-- A manifest with a mismatched input hash yields `stale` plus a warning.
-- A manifest in a foreign namespace is rejected with exit 2.
-- A missing manifest is a tool error, not a silent pass.
+- Bazel analysis test: the dependent's action inputs contain member `.go` files, export
+  files, surfaces, reports and the map, and no dependency `.go` file.
+- Hermetic integration test: dependency sources absent, export data present → check
+  succeeds with correct `Uses`/`Selections` for the reference-kind table.
+- A layout missing one transitive node or export file fails with a tool error naming it.
+- Export data produced by a mismatched toolchain fails at load with a tool error.
 
-**Integration.** After this step no check reads a transitive dependency's source. Verify
-by measuring a component whose dependency tree is deep and showing cost no longer tracks
-the closure.
+**Integration.** Runfiles shrink; `just ci` and the self-check must stay green in both
+modes.
 
-**Demo.** Check `examples/csvtool/app` with its dependencies' sources deliberately made
-unreadable — it still succeeds, reading only manifests. Show the report's dependency
-section rendering `certified`, and `stale` after touching a dependency without re-checking.
+**Demo.** The dependent's action inputs listed; a deep synthetic closure checked with no
+dependency source present; load time versus Step 6.
 
 ---
 
-## Step 7: Golden restructure — verdicts vs layout shape
+## Step 9: Golden restructure — verdicts vs layout shape
 
 **Objective.** Split host-independent verdict assertions from host-dependent layout-shape
 assertions, now that layouts have reached their final shape (friction report §6(1)).
 
 **Guidance.**
-- Separate each affected golden into a verdict golden ("component X reports
-  `UNDECLARED_AUTHORITY` FILES at `foo.go:20`") and, where genuinely needed, a
-  layout-shape golden.
-- Most tests should assert only verdicts. Confine layout-shape assertions to the small
-  number of tests actually about layout.
-- Surface manifests are now a golden-able artifact; add coverage for their shape here
-  rather than scattering it through earlier steps.
+- Separate each affected golden into a verdict golden and, where genuinely needed, a
+  layout-shape golden. Most tests assert only verdicts.
+- Surfaces, reports and maps are golden-able; add their shape coverage here.
 
-**Tests.** The restructure *is* test work, but it is not a testing-only step: it changes
-what the suite asserts and what a host must patch. Verify by confirming the verdict
-goldens contain no absolute paths, no closure package lists, and no host-specific import
-prefixes.
+**Tests.** Verdict goldens contain no absolute paths, no closure package lists, and no
+host-specific import prefixes.
 
-**Integration.** Combined with Step 1's normalisation, this is what makes the next import
-cheap.
+**Integration.** With Step 1's normalisation, this is what makes the next import cheap.
 
-**Demo.** Count of host-patchable golden files before and after; the verdict goldens
-compare equal under a simulated rewritten-prefix namespace.
+**Demo.** Count of host-patchable goldens before and after; verdict goldens compare equal
+under a simulated rewritten-prefix namespace.
 
 ---
 
-## Step 8: Map distribution, keying, and fail-closed behaviour
-
-**Objective.** Turn the on-demand cache from Step 3 into a pinned, keyed, verifiable
-artifact (N3, Q13).
-
-**Guidance.**
-- Key maps on `(go_version, GOOS, GOARCH, build_tags, classifier_hash)` and discover the
-  active toolchain's key at check time.
-- Fail closed: no map for the active key, or a `classifier_hash` mismatch, exits 2 with an
-  actionable message. Never fall back to a near-miss map.
-- Wire generation as a Bazel artifact of the pinned SDK, keeping the on-demand path for
-  native mode.
-- Express SDK enumeration as an explicit host seam — a total package set, not a path
-  heuristic (the point of Q12).
-
-**Tests.**
-- A check against a toolchain with no map exits 2 without analysing.
-- A map whose `classifier_hash` disagrees with the running classifier is rejected.
-- Two hosts with different `GOOS` resolve to different maps.
-
-**Integration.** The lookup port is unchanged from Step 3, so only its backing swaps.
-
-**Demo.** Check under the pinned SDK and succeed; point at a toolchain with no map and get
-a clear exit-2 refusal; corrupt the classifier hash and get a distinct refusal.
-
----
-
-## Step 9: `UnusedAuthority`
+## Step 10: `UnusedAuthority`
 
 **Objective.** Report authority declared but never exercised (R12, Q15).
 
-**Guidance.**
-- The scan already yields exercised authority per component; diff it against
-  `DeclaredAuthority`, which today only ever widens the policy (`checker.go:311`).
-- Report as a warning, matching the existing `UnusedDependency` shape.
-- Audit arcc's own components and tighten any declarations this surfaces — the self-check
-  is the first consumer.
+**Guidance.** Diff exercised authority (from the scan) against `DeclaredAuthority`
+(`checker.go:311` only ever widens). Warning, matching `UNUSED_DEPENDENCY`'s shape. Audit
+arcc's own components.
 
-**Tests.** A component declaring FILES without touching the filesystem warns; a component
-declaring exactly what it uses does not; an `AnalysisDefeating` finding does not mask a
-genuinely unused declaration.
+**Tests.** Declaring FILES without touching the filesystem warns; exact declarations do
+not; an `AnalysisDefeating` finding does not mask a genuinely unused declaration.
 
-**Integration.** Pure addition to `checker.Check`; no new inputs.
+**Integration.** Pure addition to `checker.Check`.
 
-**Demo.** Run against arcc's own components and show the over-declarations it finds (or a
-clean result plus a deliberately over-declaring fixture).
+**Demo.** Over-declarations found in arcc's own components, or a clean result plus a
+deliberately over-declaring fixture.
 
 ---
 
-## Step 10: `authority: UNKNOWN`
+## Step 11: `authority: UNKNOWN`
 
-**Objective.** Add the verification-status axis so unowned code can be adopted without
-being falsely certified (R10, R11, Q7–Q9).
+**Objective.** Land the verification-status axis so unowned code can be adopted without
+being falsely certified, and retire the transitional `manual` path (R10, R11, Q7–Q9,
+DR-13).
 
 **Guidance.**
-- Add `authority` to the schema as a separate axis from `interface_style`:
-  `DECLARED` (default) or `UNKNOWN`. Do **not** add a third `interface_style`.
-- Represent as `AuthorityDeclaration{Known bool; Set []Capability}`. `UNKNOWN` must not be
-  expressible as an empty set (R11); any join with an unknown operand is unknown.
-- An `UNKNOWN` component runs no check action — it contributes a surface manifest and
-  nothing else — and renders `untrusted` at every boundary that rests on it.
-- Replaces the host's `manual`-tagging patch (friction report §5), so the tagging
-  behaviour should become an attribute rather than a package-name string match.
+- The schema field and lattice type exist since Step 3; this step wires them: the Bazel
+  attribute selects the asserted-surface path (replacing the `manual` stand-in from
+  Step 5 and the host's package-name string match); the consumer renders `untrusted`.
+- `declared_authority` must be empty with `UNKNOWN` (already rejected at parse).
+- Document I1 as enforced-half plus governance assumption; the Q7 predicate remains
+  deferred.
 
-**Tests.**
-- A component depending on an `UNKNOWN` component does not compute as having empty
-  authority in any bound (design fixture 5).
-- `UNKNOWN` round-trips through the manifest and the surface manifest without becoming
-  empty.
-- The report renders `untrusted` for such a boundary.
+**Tests.** An `UNKNOWN` surface round-trips without becoming empty; a dependent renders
+`untrusted` and its JSON shows `authority: UNKNOWN`; an `UNKNOWN` component has no
+analysis action; the report never shows `certified` for such a boundary.
 
-**Integration.** Completes invariant I1: every component is checked, or explicitly
-unanalysed and visible as such.
+**Integration.** Completes the tool-enforced half of I1. The release constraint lifts
+here.
 
-**Demo.** Declare a `PACKAGE_SURFACE` wrapper over an unowned library with
-`authority: UNKNOWN`, depend on it, and show the check passing with the boundary rendered
-`untrusted` — and the dependent's authority bound refusing to read as pure.
+**Demo.** A `PACKAGE_SURFACE` wrapper over an unowned library with `authority: UNKNOWN`;
+the dependent passes with the boundary rendered `untrusted`.
 
 ---
 
-## Step 11: Host adapter hooks
+## Step 12: Host adapter hooks
 
-**Objective.** Land the two additive adapter hooks that take the host's remaining
-production patches to zero (friction report §3, §4; Q14).
+**Objective.** Land the additive adapter hooks that take the host's remaining production
+patches to zero, shaped for the post-redesign architecture (friction report §3, §4, §5;
+Q14; DR-14).
 
 **Guidance.**
 - `runtime_injection_attrs(deps_aspect)` and `extra_runtime_packages(ctx, root_packages)`,
-  both returning empty upstream. Parameterise by the aspect to avoid the load cycle.
-  Injected packages become visible to the **existing** infra auto-attachment
-  (`component.bzl:217-230`), which `checker.go:289-291` already exempts from the
-  unused-dependency warning — no new classification concept (Q14).
-- `GO_SDK_SRCS_ATTRS` merged into the three check rules' attribute dicts, returning empty
-  upstream.
-- Make `discoverStdlibWithContext` fail loudly when `os.Stat(sdkRoot)` fails rather than
-  inviting a filesystem-walk fallback.
-- Address friction report §5's self-exemption: derive infra self-exemption from the
-  component's own label rather than requiring a package-name literal.
+  empty upstream; injected packages become visible to the existing infra
+  auto-attachment.
+- Three SDK seams with upstream defaults: source enumeration on `arcc_stdlib_map` only;
+  export-data enumeration on the analysis action (formalising Step 8's default); target
+  platform and key discovery (toolchain version, GOEXPERIMENT).
+- Derive infra self-exemption from the component's own label rather than a package-name
+  literal (§5).
 
-**Tests.** With empty defaults, behaviour is identical to before (the regression bar). A
-fake adapter returning a synthetic injected package produces a component whose layout
-includes it and whose check passes without the author declaring it.
+**Tests.** With empty defaults behaviour is identical. A fake adapter injecting a
+synthetic runtime package produces a component whose layout includes it and whose check
+passes without a declaration. A fake adapter supplying an alternative export-data set is
+honoured by the analysis action's inputs.
 
-**Integration.** Additive and inert upstream, so no existing host is affected.
+**Integration.** Additive and inert upstream.
 
-**Demo.** A test host adapter injecting a synthetic runtime: the component type-checks,
-auto-attaches the infra component, and passes with no declaration written by the author.
+**Demo.** A test host adapter injecting a synthetic runtime; the component type-checks,
+auto-attaches the infra component, and passes.
+
+---
+
+## Step 13: Cross-cutting acceptance — scaling, hermeticity, determinism
+
+**Objective.** Turn N1, N4 and the design's acceptance matrix rows not owned by an
+earlier step into regression tests (DR-18).
+
+**Guidance.**
+- Synthetic scaling benchmark: fixed member source, dependency depth 1/4/16 and width
+  variants; record package-load, scan and total time and non-member input count; assert
+  no dependency parse/SSA/Capslock by construction (counters) and that scan time is flat.
+- A second benchmark with growing directly imported type surface, documenting the
+  residual export-data cost.
+- Hermeticity: run the Bazel suite with `--sandbox_writable_path` restrictions and no
+  host `go` on `PATH`; assert no undeclared cache directory is touched.
+- Determinism: repeated full builds produce identical map, surface and report bytes.
+- Record the numbers in `../research/current-analysis-pipeline.md` next to Step 1's
+  baseline.
+
+**Tests.** The benchmarks and hermeticity run are `-tags=integration` tests wired into
+`just ci`.
+
+**Integration.** Closes the plan; the next-host-import checklist in
+[`../research/host-import-friction.md`](../research/host-import-friction.md) is walked
+once here.
+
+**Demo.** Baseline versus final on the same component; the scaling table.
 
 ---
 
 ## Notes on what is deliberately absent
 
-- **No load-deduplication step.** Superseded by Steps 4 and 6 (Q17).
-- **No friction-report §2 step.** The five stdlib predicates delete in Step 4 rather than
-  being consolidated first (Q12, Q17).
-- **No transitive/tree-predicate step.** Deferred (Q10); the design records a barrier-marking
-  hint for when it is picked up.
-- **No bootstrap-CLI step.** Likely unnecessary given Step 10 (Q7).
+- **No load-deduplication step.** Superseded by Steps 6–8 (Q17).
+- **No friction-report §2 step.** The five stdlib predicates delete in Step 6 (Q12, Q17).
+- **No transitive/tree-predicate step and no `UNKNOWN` approval predicate.** Deferred
+  (Q10, Q7, DR-13); I1's governance half is documented, not enforced.
+- **No bootstrap-CLI step.** Likely unnecessary given Step 11 (Q7).
+- **No dual VTA/typed-edge path.** The reference table is pinned against the new scanner
+  inside Step 6 instead (review's proposed Step 5, not adopted).
