@@ -24,6 +24,15 @@ jobs:
       - name: Install just
         uses: extractions/setup-just@v2
 
+      - name: Install protoc
+        uses: arduino/setup-protoc@v3
+        with:
+          version: "36.1"
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install protoc-gen-go
+        run: go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.36.11
+
       - name: Run CI
         run: just ci
 
