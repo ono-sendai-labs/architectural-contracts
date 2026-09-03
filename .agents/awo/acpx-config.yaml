@@ -1,9 +1,6 @@
 # awo-acpx role configuration — see agent-skills/awo/awo-acpx/SKILL.md §Role Configuration
 #
 # Precedence: explicit invocation parameter > this file > skill defaults.
-# The orchestrator records the resolved values in its work_log before the first turn,
-# and re-asserts model/effort before EVERY prompt (a session's config is lost when its
-# adapter is reaped at the idle TTL and respawned).
 
 roles:
   # §2 — decomposes a plan step into code tasks.
