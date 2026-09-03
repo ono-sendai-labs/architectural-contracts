@@ -1,5 +1,8 @@
 name: "checker"
 interface_files: "checker.go"
+# Explicit spelling of the default axis (design R10): proves an explicit
+# DECLARED declaration is byte-compatible with the generated implicit one.
+authority: DECLARED
 members: "github.com/ono-sendai-labs/architectural-contracts/go/internal/checker"
 component_dependencies {
   name: "capanalyzer"

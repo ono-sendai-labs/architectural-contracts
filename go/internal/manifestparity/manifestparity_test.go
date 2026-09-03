@@ -50,6 +50,56 @@ func TestRun_NoArgs_Skips(t *testing.T) {
 	manifestparity.Run(t, nil)
 }
 
+// TestCompareManifests_AuthorityDeclarationCompared threads the structural
+// authority declaration through parity: both-default pairs agree, and a
+// checked-in UNKNOWN declaration cannot be normalized to the generated
+// known-default without a mismatch.
+func TestCompareManifests_AuthorityDeclarationCompared(t *testing.T) {
+	assertSeamRestored(t)
+	writeManifest := func(dir, name, extra string) string {
+		compDir := filepath.Join(dir, name)
+		if err := os.MkdirAll(compDir, 0755); err != nil {
+			t.Fatalf("MkdirAll: %v", err)
+		}
+		chkPath := filepath.Join(compDir, "component.textproto")
+		content := []byte("name: \"" + name + "\"\ninterface_files: \"" + name + ".go\"\n" + extra)
+		if err := os.WriteFile(chkPath, content, 0644); err != nil {
+			t.Fatalf("WriteFile: %v", err)
+		}
+		genPath := filepath.Join(compDir, name+"_component.component.textproto")
+		if err := os.WriteFile(genPath, []byte("name: \""+name+"_component\"\ninterface_files: \""+name+".go\"\n"), 0644); err != nil {
+			t.Fatalf("WriteFile: %v", err)
+		}
+		return chkPath
+	}
+
+	t.Run("both default declared agree", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		chk := writeManifest(tmpDir, "defaults", "")
+		spy := &spyTB{TB: t}
+		manifestparity.Run(spy, []string{chk, filepath.Join(tmpDir, "defaults", "defaults_component.component.textproto")})
+		if len(spy.errors) > 0 {
+			t.Errorf("unexpected errors for both-default pair: %v", spy.errors)
+		}
+	})
+
+	t.Run("checked-in unknown versus generated default mismatches", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		chk := writeManifest(tmpDir, "unowned", "authority: UNKNOWN\n")
+		spy := &spyTB{TB: t}
+		manifestparity.Run(spy, []string{chk, filepath.Join(tmpDir, "unowned", "unowned_component.component.textproto")})
+		found := false
+		for _, e := range spy.errors {
+			if strings.Contains(e, "authority") {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("expected an authority mismatch error, got %v", spy.errors)
+		}
+	})
+}
+
 func TestRun_MissingGeneratedCounterpart(t *testing.T) {
 	tmpDir := t.TempDir()
 	compDir := filepath.Join(tmpDir, "mycomp")

@@ -1,6 +1,7 @@
 package manifestparity
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -134,6 +135,11 @@ func CompareManifests(t testing.TB, dir string, gen, chk manifest.Manifest) {
 		t.Errorf("%s: declared authority = %v, want %v", dir, got, want)
 	}
 
+	// Authority declaration: the same structural element (known set or UNKNOWN).
+	if !manifest.Equal(gen.Authority, chk.Authority) {
+		t.Errorf("%s: authority = %s, want %s", dir, describeAuthority(gen.Authority), describeAuthority(chk.Authority))
+	}
+
 	// Component dependencies: same set of names, `_component` suffix normalized.
 	if got, want := depNames(gen.ComponentDependencies), depNames(chk.ComponentDependencies); !slices.Equal(got, want) {
 		t.Errorf("%s: component-dependency names = %v, want %v", dir, got, want)
@@ -219,4 +225,13 @@ func sorted(s []string) []string {
 	out := append([]string(nil), s...)
 	sort.Strings(out)
 	return out
+}
+
+// describeAuthority renders an authority declaration for parity diagnostics.
+func describeAuthority(d manifest.AuthorityDeclaration) string {
+	if !d.Known {
+		return "UNKNOWN"
+	}
+	set := sorted(d.Set)
+	return fmt.Sprintf("DECLARED{%s}", strings.Join(set, " "))
 }
