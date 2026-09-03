@@ -6,7 +6,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/google/capslock/interesting"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/capanalyzer"
 )
 
@@ -56,7 +55,7 @@ func TestClassifier_FileHandleUse_Safe(t *testing.T) {
 		}
 	}
 
-	cl, err := buildClassifier(nil, nil)
+	cl, err := buildClassifier(nil)
 	if err != nil {
 		t.Fatalf("failed to build classifier: %v", err)
 	}
@@ -72,7 +71,7 @@ func TestClassifier_FileHandleUse_Safe(t *testing.T) {
 
 // TestClassifier_UNANALYZED_Excluded verifies that UNANALYZED helpers are descended through.
 func TestClassifier_UNANALYZED_Excluded(t *testing.T) {
-	cl, err := buildClassifier(nil, nil)
+	cl, err := buildClassifier(nil)
 	if err != nil {
 		t.Fatalf("failed to build classifier: %v", err)
 	}
@@ -87,7 +86,7 @@ func TestClassifier_UNANALYZED_Excluded(t *testing.T) {
 
 // TestClassifier_AmbientMinting_FILES verifies that ambient minting functions remain visible.
 func TestClassifier_AmbientMinting_FILES(t *testing.T) {
-	cl, err := buildClassifier(nil, nil)
+	cl, err := buildClassifier(nil)
 	if err != nil {
 		t.Fatalf("failed to build classifier: %v", err)
 	}
@@ -103,7 +102,7 @@ func TestClassifier_AmbientMinting_FILES(t *testing.T) {
 
 // TestClassifier_Chdir_Unsafe verifies that (*os.File).Chdir is not safe and retains its system-state-modifying classification.
 func TestClassifier_Chdir_Unsafe(t *testing.T) {
-	cl, err := buildClassifier(nil, nil)
+	cl, err := buildClassifier(nil)
 	if err != nil {
 		t.Fatalf("failed to build classifier: %v", err)
 	}
@@ -120,204 +119,53 @@ func TestClassifier_Chdir_Unsafe(t *testing.T) {
 // TestClassifier_FailuresExplicit verifies that malformed input returns an error instead of falling back.
 func TestClassifier_FailuresExplicit(t *testing.T) {
 	// Passing an invalid capability category via newline injection to trigger parse errors in LoadClassifier
-	_, err := buildClassifier([]capanalyzer.InterfaceSymbol{"invalidKey\nfunc invalidFn INVALID_CAPABILITY_NAME"}, nil)
+	_, err := buildClassifier([]capanalyzer.InterfaceSymbol{"invalidKey\nfunc invalidFn INVALID_CAPABILITY_NAME"})
 	if err == nil {
 		t.Errorf("expected buildClassifier to fail with malformed custom classifier input")
 	}
 }
 
-// TestClassifier_PruneAtPackages_NilUnchanged verifies that empty/nil PruneAtPackages produces bit-for-bit identical classifier text (AC6).
-func TestClassifier_PruneAtPackages_NilUnchanged(t *testing.T) {
-	txtNil, err1 := buildClassifierText(nil, nil)
-	if err1 != nil {
-		t.Fatalf("buildClassifierText(nil, nil) failed: %v", err1)
-	}
-	txtEmpty, err2 := buildClassifierText(nil, []string{})
-	if err2 != nil {
-		t.Fatalf("buildClassifierText(nil, []) failed: %v", err2)
-	}
-
-	if txtNil != txtEmpty {
-		t.Errorf("expected buildClassifierText with nil and empty []string to be bit-for-bit identical:\nnil:\n%s\nempty:\n%s", txtNil, txtEmpty)
-	}
-
-	cl1, err1 := buildClassifier(nil, nil)
-	if err1 != nil {
-		t.Fatalf("buildClassifier(nil, nil) failed: %v", err1)
-	}
-	cl2, err2 := buildClassifier(nil, []string{})
-	if err2 != nil {
-		t.Fatalf("buildClassifier(nil, []) failed: %v", err2)
-	}
-	if cl1 == nil || cl2 == nil {
-		t.Fatalf("expected non-nil classifiers")
-	}
-}
-
-// TestClassifierText_Invariants verifies bit-level classifier text output contracts: deduplication, sorting, namespace separation, and determinism (AC5).
+// TestClassifierText_Invariants verifies bit-level classifier text output contracts:
+// symbol-key deduplication, ordering, determinism, and the absence of package-granularity rules.
 func TestClassifierText_Invariants(t *testing.T) {
-	// 1. Deduplication and Sorting
-	inputPkgs := []string{"example.com/pkgB", "example.com/pkgA", "example.com/pkgA", "example.com/pkgC"}
-	txt, err := buildClassifierText(nil, inputPkgs)
+	// 1. Deduplication and stable ordering of symbol keys
+	syms := []capanalyzer.InterfaceSymbol{
+		"example.com/pkgB.Do",
+		"example.com/pkgA.Do",
+		"example.com/pkgA.Do",
+		"(*example.com/pkgC.Store).Get",
+	}
+	txt, err := buildClassifierText(syms)
 	if err != nil {
 		t.Fatalf("buildClassifierText failed: %v", err)
 	}
 
-	expectedTail := "package example.com/pkgA CAPABILITY_SAFE\npackage example.com/pkgB CAPABILITY_SAFE\npackage example.com/pkgC CAPABILITY_SAFE\n"
-	if !strings.HasSuffix(txt, expectedTail) {
-		t.Errorf("expected classifier text to end with sorted, deduplicated package lines:\n%q\ngot:\n%q", expectedTail, txt)
+	wantLines := []string{
+		"func (*example.com/pkgC.Store).Get CAPABILITY_SAFE\n",
+		"func example.com/pkgA.Do CAPABILITY_SAFE\n",
+		"func example.com/pkgB.Do CAPABILITY_SAFE\n",
+	}
+	for _, want := range wantLines {
+		if strings.Count(txt, want) != 1 {
+			t.Errorf("expected classifier text to contain deduplicated symbol line exactly once: %q:\n%s", want, txt)
+		}
+	}
+	if strings.Count(txt, "func example.com/pkgA.Do CAPABILITY_SAFE\n") != 1 {
+		t.Errorf("expected duplicate symbol key to be emitted once:\n%s", txt)
+	}
+	if strings.Contains(txt, "package ") {
+		t.Errorf("expected no package-granularity rules in classifier text:\n%s", txt)
 	}
 
-	// 2. Namespace Separation (equal function and package strings emit both keyword forms)
-	syms := []capanalyzer.InterfaceSymbol{"example.com/foo"}
-	pkgs := []string{"example.com/foo"}
-	txtBoth, err := buildClassifierText(syms, pkgs)
-	if err != nil {
-		t.Fatalf("buildClassifierText failed: %v", err)
-	}
-
-	expectedFuncLine := "func example.com/foo CAPABILITY_SAFE\n"
-	expectedPkgLine := "package example.com/foo CAPABILITY_SAFE\n"
-	if !strings.Contains(txtBoth, expectedFuncLine) {
-		t.Errorf("expected text to contain function rule line %q, got:\n%s", expectedFuncLine, txtBoth)
-	}
-	if !strings.Contains(txtBoth, expectedPkgLine) {
-		t.Errorf("expected text to contain package rule line %q, got:\n%s", expectedPkgLine, txtBoth)
-	}
-
-	// 3. Determinism across repeated invocations
+	// 2. Determinism across repeated invocations
 	for i := 0; i < 10; i++ {
-		txtIter, err := buildClassifierText(syms, inputPkgs)
+		txtIter, err := buildClassifierText(syms)
 		if err != nil {
 			t.Fatalf("iteration %d failed: %v", i, err)
 		}
-		if i == 0 {
-			txt = txtIter
-		} else if txtIter != txt {
+		if txtIter != txt {
 			t.Fatalf("iteration %d output diverged from iteration 0:\niter 0:\n%s\niter %d:\n%s", i, txt, i, txtIter)
 		}
-	}
-}
-
-// TestClassifier_FunctionOverridesPackagePrecedence verifies that a per-function key overrides a package key in Capslock lookup order (AC2).
-func TestClassifier_FunctionOverridesPackagePrecedence(t *testing.T) {
-	// Directly test Capslock classifier resolution order when a package rule and a function rule with a distinct category coexist.
-	customRules := "package example.com/pkgA CAPABILITY_SAFE\nfunc example.com/pkgA.SpecificFunc CAPABILITY_FILES\n"
-	cl, err := interesting.LoadClassifier("test-precedence", strings.NewReader(customRules), false /* excludeBuiltin */)
-	if err != nil {
-		t.Fatalf("LoadClassifier failed: %v", err)
-	}
-
-	// Function with explicit rule returns function category "FILES", overriding package "SAFE"
-	if cat := cl.FunctionCategory("example.com/pkgA", "example.com/pkgA.SpecificFunc"); cat != "FILES" {
-		t.Errorf("expected FunctionCategory for example.com/pkgA.SpecificFunc to be FILES (function override), got %q", cat)
-	}
-
-	// Other function in same package falls back to package category "SAFE"
-	if cat := cl.FunctionCategory("example.com/pkgA", "example.com/pkgA.OtherFunc"); cat != "SAFE" {
-		t.Errorf("expected FunctionCategory for example.com/pkgA.OtherFunc to be SAFE (package fallback), got %q", cat)
-	}
-}
-
-// TestClassifier_PruneAtPackages_Malformed verifies that malformed package entries fail closed.
-func TestClassifier_PruneAtPackages_Malformed(t *testing.T) {
-	testCases := []struct {
-		name    string
-		pkgs    []string
-		wantErr string
-	}{
-		{
-			name:    "empty package entry",
-			pkgs:    []string{""},
-			wantErr: "empty prune package key",
-		},
-		{
-			name:    "package entry with newline",
-			pkgs:    []string{"foo/bar\nforged"},
-			wantErr: "prune package key \"foo/bar\\nforged\" contains newline characters",
-		},
-		{
-			name:    "package entry with carriage return",
-			pkgs:    []string{"foo/bar\rforged"},
-			wantErr: "prune package key \"foo/bar\\rforged\" contains newline characters",
-		},
-	}
-
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			_, err := buildClassifier(nil, tc.pkgs)
-			if err == nil {
-				t.Fatalf("expected error for %s, got nil", tc.name)
-			}
-			if !strings.Contains(err.Error(), tc.wantErr) {
-				t.Errorf("expected error containing %q, got %q", tc.wantErr, err.Error())
-			}
-		})
-	}
-}
-
-// TestClassifier_PruneAtPackages_PackageResolution verifies that package entries in buildClassifier result in SAFE categories for functions in those packages.
-func TestClassifier_PruneAtPackages_PackageResolution(t *testing.T) {
-	pkgs := []string{"example.com/pkgB", "example.com/pkgA", "example.com/pkgA"}
-	cl, err := buildClassifier(nil, pkgs)
-	if err != nil {
-		t.Fatalf("failed to build classifier: %v", err)
-	}
-
-	// Verify function inside pruned package resolves to SAFE
-	if cat := cl.FunctionCategory("example.com/pkgA", "example.com/pkgA.SomeFunc"); cat != "SAFE" {
-		t.Errorf("expected FunctionCategory for example.com/pkgA.SomeFunc to be SAFE, got %q", cat)
-	}
-	if cat := cl.FunctionCategory("example.com/pkgB", "example.com/pkgB.AnotherFunc"); cat != "SAFE" {
-		t.Errorf("expected FunctionCategory for example.com/pkgB.AnotherFunc to be SAFE, got %q", cat)
-	}
-}
-
-// TestClassifier_PruneAtPackages_NamespaceSeparation verifies that identical string keys across function and package namespaces do not suppress each other.
-func TestClassifier_PruneAtPackages_NamespaceSeparation(t *testing.T) {
-	// A package import path "example.com/foo" and a function key "example.com/foo"
-	syms := []capanalyzer.InterfaceSymbol{"example.com/foo"}
-	pkgs := []string{"example.com/foo"}
-
-	cl, err := buildClassifier(syms, pkgs)
-	if err != nil {
-		t.Fatalf("failed to build classifier: %v", err)
-	}
-
-	if cat := cl.FunctionCategory("example.com/foo", "Bar"); cat != "SAFE" {
-		t.Errorf("expected package prune to classify example.com/foo.Bar as SAFE, got %q", cat)
-	}
-}
-
-// TestAdapter_Analyze_PruneAtPackages_Success verifies that package granularity pruning suppresses findings end-to-end.
-func TestAdapter_Analyze_PruneAtPackages_Success(t *testing.T) {
-	adapter := NewAdapter()
-	pkgPath := "github.com/ono-sendai-labs/architectural-contracts/go/internal/capslockadapter/testdata/packageprune"
-	depPath := "github.com/ono-sendai-labs/architectural-contracts/go/internal/capslockadapter/testdata/filereader"
-
-	// 1. Without package pruning: reports FILES
-	reqUnpruned := capanalyzer.AnalyzeRequest{
-		Packages: []string{pkgPath},
-	}
-	findingsUnpruned, err := adapter.Analyze(reqUnpruned)
-	if err != nil {
-		t.Fatalf("failed to analyze unpruned: %v", err)
-	}
-	if len(findingsUnpruned) == 0 {
-		t.Fatalf("expected findings when unpruned, got none")
-	}
-
-	// 2. With package pruning: 0 findings
-	reqPruned := capanalyzer.AnalyzeRequest{
-		Packages:        []string{pkgPath},
-		PruneAtPackages: []string{depPath},
-	}
-	findingsPruned, err := adapter.Analyze(reqPruned)
-	if err != nil {
-		t.Fatalf("failed to analyze pruned: %v", err)
-	}
-	if len(findingsPruned) != 0 {
-		t.Errorf("expected 0 findings when dependency package %q is pruned, got %d findings: %+v", depPath, len(findingsPruned), findingsPruned)
 	}
 }
 

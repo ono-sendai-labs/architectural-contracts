@@ -51,15 +51,12 @@ type InterfaceSymbol string
 // Scope Semantics:
 //   - Analyzes every function in Packages (Capslock's native behavior).
 //   - "_test.go" files are excluded by construction.
-//   - Traversal is pruned per-symbol at PruneAt and at package granularity at
-//     PruneAtPackages. Every function in a package listed in PruneAtPackages is
-//     treated as capability-safe, with PruneAt's per-symbol keys taking
-//     precedence. Package pruning is weaker than symbol pruning and is what a
-//     PACKAGE_SURFACE dependency gets.
+//   - Traversal is pruned per-symbol at PruneAt, the only boundary-pruning input.
+//     Symbols declared at a dependency boundary (including package initializer
+//     keys of the form "func pkg.init") are treated as capability-safe.
 type AnalyzeRequest struct {
-	Packages        []string
-	PruneAt         []InterfaceSymbol
-	PruneAtPackages []string
+	Packages []string
+	PruneAt  []InterfaceSymbol
 }
 
 // CapabilityAnalyzer is the port the checker depends on; the Capslock adapter

@@ -41,8 +41,8 @@ var fileHandleUseMethods = []string{
 
 // buildClassifierText constructs the raw custom capability classifier text string for:
 // 1. Reclassifying the 22 (*os.File) handle-use methods as CAPABILITY_SAFE.
-// 2. Adding boundary-prune safe keys (both per-symbol and per-package).
-func buildClassifierText(pruneAt []capanalyzer.InterfaceSymbol, pruneAtPackages []string) (string, error) {
+// 2. Adding boundary-prune safe keys (per-symbol only).
+func buildClassifierText(pruneAt []capanalyzer.InterfaceSymbol) (string, error) {
 	var b strings.Builder
 	seenFunc := make(map[string]bool)
 
@@ -78,38 +78,16 @@ func buildClassifierText(pruneAt []capanalyzer.InterfaceSymbol, pruneAtPackages 
 		fmt.Fprintf(&b, "func %s CAPABILITY_SAFE\n", funcKey)
 	}
 
-	if len(pruneAtPackages) > 0 {
-		seenPkg := make(map[string]bool)
-		var uniquePkgs []string
-		for _, pkg := range pruneAtPackages {
-			if pkg == "" {
-				return "", fmt.Errorf("empty prune package key")
-			}
-			if strings.ContainsAny(pkg, "\r\n") {
-				return "", fmt.Errorf("prune package key %q contains newline characters", pkg)
-			}
-			if seenPkg[pkg] {
-				continue
-			}
-			seenPkg[pkg] = true
-			uniquePkgs = append(uniquePkgs, pkg)
-		}
-		sort.Strings(uniquePkgs)
-		for _, pkg := range uniquePkgs {
-			fmt.Fprintf(&b, "package %s CAPABILITY_SAFE\n", pkg)
-		}
-	}
-
 	return b.String(), nil
 }
 
 // buildClassifier constructs a per-run custom capability classifier that:
 // 1. Reclassifies the 22 (*os.File) handle-use methods as CAPABILITY_SAFE.
-// 2. Adds boundary-prune safe keys (both per-symbol and per-package) to the custom capability map (FR5b).
+// 2. Adds boundary-prune safe symbol keys to the custom capability map (FR5b).
 // 3. Merges the custom map with Capslock's built-ins (excludeBuiltin=false).
 // 4. Wraps the result to exclude UNANALYZED helper leaves.
-func buildClassifier(pruneAt []capanalyzer.InterfaceSymbol, pruneAtPackages []string) (analyzer.Classifier, error) {
-	text, err := buildClassifierText(pruneAt, pruneAtPackages)
+func buildClassifier(pruneAt []capanalyzer.InterfaceSymbol) (analyzer.Classifier, error) {
+	text, err := buildClassifierText(pruneAt)
 	if err != nil {
 		return nil, err
 	}
@@ -156,7 +134,7 @@ func (a *Adapter) Analyze(req capanalyzer.AnalyzeRequest) ([]capanalyzer.Capabil
 		return nil, fmt.Errorf("package request is empty; at least one package path must be provided")
 	}
 
-	classifier, err := buildClassifier(req.PruneAt, req.PruneAtPackages)
+	classifier, err := buildClassifier(req.PruneAt)
 	if err != nil {
 		return nil, err
 	}

@@ -338,9 +338,6 @@ interface_files: "api.go"
 	if len(analyzer.calledWith.PruneAt) != 0 {
 		t.Errorf("analyzer called with PruneAt %v, want empty", analyzer.calledWith.PruneAt)
 	}
-	if len(analyzer.calledWith.PruneAtPackages) != 0 {
-		t.Errorf("analyzer called with PruneAtPackages %v, want empty", analyzer.calledWith.PruneAtPackages)
-	}
 }
 
 func TestRunner_Check_InterfaceFileExclusion_WarnsInTextAndJSON(t *testing.T) {
@@ -1133,7 +1130,7 @@ component_dependencies: {
 	}
 }
 
-func TestRunner_Check_PackageSurfacePruneAtPackages(t *testing.T) {
+func TestRunner_Check_PackageSurfaceSymbolsInPruneAt(t *testing.T) {
 	parentDir := t.TempDir()
 
 	// 1. Declared-style dependency
@@ -1244,17 +1241,8 @@ component_dependencies: {
 		t.Fatalf("Run() returned %d, want 0. Stderr: %s", exitCode, stderr.String())
 	}
 
-	// AC 6: PruneAtPackages holds deduplicated and sorted package-surface packages
-	wantPruneAtPackages := []string{
-		"example.com/temp/shared-dep/pkga",
-		"example.com/temp/shared-dep/pkgb",
-		"example.com/temp/shared-dep/pkgz",
-	}
-	if !reflect.DeepEqual(analyzer.calledWith.PruneAtPackages, wantPruneAtPackages) {
-		t.Errorf("PruneAtPackages = %v, want %v", analyzer.calledWith.PruneAtPackages, wantPruneAtPackages)
-	}
-
-	// PruneAt contains symbols from all dependencies and init keys
+	// Package-surface dependencies contribute symbols and init keys to PruneAt
+	// (Capslock package-wide suppression is gone; symbol-level pruning remains).
 	mustPruneAt := []string{
 		"example.com/temp/dep-decl.DeclFunc",
 		"func example.com/temp/dep-decl.init",
