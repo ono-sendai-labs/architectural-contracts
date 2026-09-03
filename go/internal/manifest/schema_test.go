@@ -74,10 +74,6 @@ component_dependencies {
   name: "dependency"
   manifest: "../dependency/component.textproto"
 }
-absorbed_dependencies {
-  import_path: "example.com/absorbed"
-  reason: "implementation detail"
-}
 declared_authority: "FILES"
 `
 
@@ -98,14 +94,6 @@ declared_authority: "FILES"
 	dependency := dependencies[0]
 	if dependency.GetName() != "dependency" || dependency.GetManifest() != "../dependency/component.textproto" || dependency.GetAutoAttached() {
 		t.Fatalf("legacy dependency fields changed: %v", dependency)
-	}
-	absorbedDependencies := component.GetAbsorbedDependencies()
-	if len(absorbedDependencies) != 1 {
-		t.Fatalf("legacy absorbed dependencies changed: %v", absorbedDependencies)
-	}
-	absorbed := absorbedDependencies[0]
-	if absorbed.GetImportPath() != "example.com/absorbed" || absorbed.GetReason() != "implementation detail" {
-		t.Fatalf("legacy absorbed dependency changed: %v", absorbed)
 	}
 	if !reflect.DeepEqual(component.GetDeclaredAuthority(), []string{"FILES"}) {
 		t.Fatalf("legacy declared authority changed: %v", component.GetDeclaredAuthority())

@@ -145,17 +145,11 @@ func TestCompareManifests_RewrittenNamespacesEqual(t *testing.T) {
 		Name:           "mycomp_component",
 		InterfaceFiles: []string{"mycomp.go"},
 		Members:        []string{"rewritten.invalid/X/mycomp", "rewritten.invalid/X/mycomp/sub"},
-		AbsorbedDependencies: []manifest.AbsorbedDependency{
-			{ImportPath: "rewritten.invalid/X/lib"},
-		},
 	}
 	chk := manifest.Manifest{
 		Name:           "mycomp",
 		InterfaceFiles: []string{"mycomp.go"},
 		Members:        []string{"canonical.example/mycomp/sub"},
-		AbsorbedDependencies: []manifest.AbsorbedDependency{
-			{ImportPath: "canonical.example/lib"},
-		},
 	}
 
 	spy := &spyTB{TB: t}
@@ -176,17 +170,11 @@ func TestCompareManifests_RealMismatchesStillFailAfterCanonicalization(t *testin
 		Name:           "mycomp_component",
 		InterfaceFiles: []string{"mycomp.go"},
 		Members:        []string{"rewritten.invalid/X/alpha"},
-		AbsorbedDependencies: []manifest.AbsorbedDependency{
-			{ImportPath: "rewritten.invalid/X/libgen"},
-		},
 	}
 	chk := manifest.Manifest{
 		Name:           "mycomp",
 		InterfaceFiles: []string{"mycomp.go"},
 		Members:        []string{"canonical.example/beta"},
-		AbsorbedDependencies: []manifest.AbsorbedDependency{
-			{ImportPath: "canonical.example/libchk"},
-		},
 	}
 
 	spy := &spyTB{TB: t}
@@ -196,7 +184,7 @@ func TestCompareManifests_RealMismatchesStillFailAfterCanonicalization(t *testin
 		t.Fatalf("expected parity errors for genuinely different import paths, got none")
 	}
 	joined := strings.Join(spy.errors, "\n")
-	for _, want := range []string{"members", "canonical.example/alpha", "canonical.example/beta", "absorbed import paths"} {
+	for _, want := range []string{"members", "canonical.example/alpha", "canonical.example/beta"} {
 		if !strings.Contains(joined, want) {
 			t.Errorf("expected error containing %q, got %v", want, spy.errors)
 		}

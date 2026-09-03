@@ -37,9 +37,29 @@ go_deps.gazelle_override(
     directives = ["gazelle:proto disable_global"],
     path = "github.com/google/capslock",
 )
+
+# arcc's components declare protobuf and x/tools packages as members (the
+# absorbed_deps attribute was removed), so their generated go_library targets
+# must be referenceable across repository boundaries — including the internal
+# packages Go visibility would otherwise keep repo-local.
+go_deps.gazelle_override(
+    directives = ["gazelle:go_visibility //visibility:public"],
+    path = "google.golang.org/protobuf",
+)
+go_deps.gazelle_override(
+    directives = ["gazelle:go_visibility //visibility:public"],
+    path = "golang.org/x/tools",
+)
+
+# Declared so the x/tools closure's errgroup and semver imports resolve to
+# explicit repositories. The extension reports them as indirect because no
+# generated go_library imports them from a BUILD file, so `bazel mod tidy`
+# would drop them — they are referenced directly as component members instead.
 use_repo(
     go_deps,
     "com_github_google_capslock",
     "org_golang_google_protobuf",
+    "org_golang_x_mod",
+    "org_golang_x_sync",
     "org_golang_x_tools",
 )

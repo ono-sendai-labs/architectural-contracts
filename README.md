@@ -122,7 +122,7 @@ go_library(
 go_component(
     name = "csvfile_component",
     interface = ":csvfile",                       # exactly one go_library — the public surface
-    absorbed_deps = ["//csvtool/internal/parsecsv"],  # implementation details this component owns
+    members = ["//csvtool/internal/parsecsv"],    # implementation packages this component owns
     declared_authority = [FILES],                 # ambient authority it is permitted to use
     visibility = ["//visibility:public"],
 )
@@ -133,7 +133,6 @@ The attributes mirror the manifest schema below:
 - **`interface`** — the single `go_library` holding the component's public API. Passing a list is a load-time error. Required for the default (declared) style; rejected under `PACKAGE_SURFACE`.
 - **`members`** — additional `go_library` labels the component owns. The rule resolves each to its import path and writes the **fully expanded literal list** into the manifest's `members`, which is also the layout's `roots`. Member packages are analysis roots, so their authority is charged to this component whoever calls them, and their imports are checked against the component's declarations.
 - **`component_deps`** — other `go_component` targets this one depends on. Their packages are covered by them, so arcc prunes authority at their interfaces (the `app` example checks authority-free this way).
-- **`absorbed_deps`** — libraries absorbed as implementation details, whose ambient authority this component takes responsibility for. (Use a BUILD comment where a reason is worth noting; the rule records none.)
 - **`interface_style`** — omit for the declared style, or pass `PACKAGE_SURFACE` (exported by `defs.bzl`) to wrap a library that has no architectural interface. Under `PACKAGE_SURFACE`, `interface` must be absent and `members` non-empty, and members may be import-path patterns rather than labels — which is how a component covers packages that visibility rules make impossible to name as targets.
 - **`declared_authority`** — authority constants from `defs.bzl` (`FILES`, `NETWORK`, …). Empty means the component claims to be authority-free.
 - **`contract`** — optional contract documents; Bazel-only metadata arcc never reads.
@@ -146,7 +145,6 @@ go_component(
         ":svc_impl",              # concrete labels — no wildcards
         "//svc/internal/store",
     ],
-    absorbed_deps = ["@org_golang_x_crypto//sha3"],
     declared_authority = [FILES],
 )
 ```
@@ -296,78 +294,70 @@ every report that rests on it.
 ### Reproducing a Conformance Violation
 To see what a contract violation looks like, you can easily create a temporary failing component.
 
-While `app` successfully prunes authority by declaring `csvfile` as a `component_dependency`, we can see what happens when we *absorb* it instead. Absorbing a package transitively pulls its code and capabilities into the absorbing component's own contract boundaries.
+A component that uses ambient authority must declare it. The most direct failure is a component that calls `os.ReadFile` — which needs `FILES` — without declaring `FILES` in `declared_authority`.
 
 1. Create a temporary folder and files inside the `go/examples/csvtool/` directory:
 ```bash
-mkdir -p go/examples/csvtool/absorbapp
+mkdir -p go/examples/csvtool/authorityapp
 ```
 
-2. Save the following manifest as `go/examples/csvtool/absorbapp/component.textproto`. Notice we list `csvfile` under `absorbed_dependencies` instead of `component_dependencies`:
+2. Save the following manifest as `go/examples/csvtool/authorityapp/component.textproto`. Notice that `declared_authority` is absent:
 ```textproto
-name: "absorbapp"
+name: "authorityapp"
 interface_files: "main.go"
-absorbed_dependencies {
-  import_path: "github.com/ono-sendai-labs/architectural-contracts/go/examples/csvtool/csvfile"
-  reason: "Absorbing csvfile instead of declaring it as a component dependency"
-}
 ```
 
-3. Save the following code as `go/examples/csvtool/absorbapp/main.go`:
+3. Save the following code as `go/examples/csvtool/authorityapp/main.go`:
 ```go
 package main
 
-import (
-	"github.com/ono-sendai-labs/architectural-contracts/go/examples/csvtool/csvfile"
-)
+import "os"
 
 func Run() {
-	// Calling csvfile.Read, which internally uses the FILES capability.
-	// Since csvfile is absorbed, its authority requirements bleed into ours.
-	_, _ = csvfile.Read("test.csv")
+	// Calling os.ReadFile, which uses the FILES capability.
+	// Since the manifest declares no authority, this is a violation.
+	_, _ = os.ReadFile("test.csv")
 }
 ```
 
 4. Now, check this temporary component from inside the `go` directory:
 ```bash
 cd go
-../bin/arcc check examples/csvtool/absorbapp/component.textproto
+../bin/arcc check examples/csvtool/authorityapp/component.textproto
 ```
 
-The output will clearly list the `UNDECLARED_AUTHORITY` violation, show the exact call path where the capability was transitively minted, and return an exit code of `1`:
+The output will clearly list the `UNDECLARED_AUTHORITY` violation, show the exact call path where the capability was exercised, and return an exit code of `1`:
 
 ```
-Component: absorbapp
+Component: authorityapp
 
 Violations:
-- [UNDECLARED_AUTHORITY] use of undeclared authority "FILES" in package "github.com/ono-sendai-labs/architectural-contracts/go/examples/csvtool/absorbapp"
+- [UNDECLARED_AUTHORITY] use of undeclared authority "FILES" in package "github.com/ono-sendai-labs/architectural-contracts/go/examples/csvtool/authorityapp"
   Evidence:
-    - github.com/ono-sendai-labs/architectural-contracts/go/examples/csvtool/absorbapp.Run at :0
-    - github.com/ono-sendai-labs/architectural-contracts/go/examples/csvtool/csvfile.Read at main.go:10
-    - os.ReadFile at csvfile.go:22
+    - github.com/ono-sendai-labs/architectural-contracts/go/examples/csvtool/authorityapp.Run at :0
+    - os.ReadFile at main.go:7
 ```
 
 Using the JSON format:
 ```bash
-../bin/arcc check examples/csvtool/absorbapp/component.textproto --format=json
+../bin/arcc check examples/csvtool/authorityapp/component.textproto --format=json
 ```
 
 Yields:
 ```json
 {
-  "component": "absorbapp",
+  "component": "authorityapp",
   "violations": [
     {
       "kind": "UNDECLARED_AUTHORITY",
-      "message": "use of undeclared authority \"FILES\" in package \"github.com/ono-sendai-labs/architectural-contracts/go/examples/csvtool/absorbapp\"",
+      "message": "use of undeclared authority \"FILES\" in package \"github.com/ono-sendai-labs/architectural-contracts/go/examples/csvtool/authorityapp\"",
       "location": {
         "file": "",
         "line": 0
       },
       "evidence": [
-        "github.com/ono-sendai-labs/architectural-contracts/go/examples/csvtool/absorbapp.Run at :0",
-        "github.com/ono-sendai-labs/architectural-contracts/go/examples/csvtool/csvfile.Read at main.go:10",
-        "os.ReadFile at csvfile.go:22"
+        "github.com/ono-sendai-labs/architectural-contracts/go/examples/csvtool/authorityapp.Run at :0",
+        "os.ReadFile at main.go:7"
       ]
     }
   ],
@@ -375,7 +365,7 @@ Yields:
 }
 ```
 
-*Note: Be sure to delete the temporary `absorbapp` directory when finished checking.*
+*Note: Be sure to delete the temporary `authorityapp` directory when finished checking.*
 
 ---
 
@@ -400,9 +390,9 @@ There are two ways membership is determined:
   The package holding the interface files is implicitly a member and need not be
   listed. Generated manifests always declare `members`.
 
-A member may not also be covered by a `component_dependency` or listed in
-`absorbed_dependencies`; that contradiction is reported as `MEMBER_OVERLAP`.
-Overlap with an *unrelated* component's membership is not detected — see
+A member may not also be covered by a `component_dependency`; that
+contradiction is reported as `MEMBER_OVERLAP`. Overlap with an *unrelated*
+component's membership is not detected — see
 [Limitations](#limitations-and-scope).
 
 Declared-style components must list **literal import paths**. Import-path
@@ -422,9 +412,6 @@ The manifest structure is defined by the following fields:
   - `name` (string): Logical name of the dependent component.
   - `manifest` (string): Path to the dependent component's manifest, relative to the declaring manifest's folder.
   - `auto_attached` (bool, optional): The edge was injected by an emitter rather than written by an author, so an unused edge is nobody's mistake and never produces `UNUSED_DEPENDENCY`. See [Auto-attached dependencies](#auto-attached-infrastructure-dependencies).
-- **`absorbed_dependencies`** (repeated): Third-party or internal implementation-detail Go packages whose capabilities are transitively absorbed into this component's policy scope.
-  - `import_path` (string): Fully qualified import path (e.g. `github.com/foo/bar`).
-  - `reason` (string, optional): Prose explanation for why this is treated as an implementation detail.
 - **`declared_authority`** (repeated string): Capabilities from Capslock's classified set that this component is permitted to exercise. Leaving this empty makes the component ambient-authority-free.
   - Known Capabilities: `FILES`, `NETWORK`, `READ_SYSTEM_STATE`, `MODIFY_SYSTEM_STATE`, `OPERATING_SYSTEM`, `SYSTEM_CALLS`, `EXEC`, `RUNTIME`, `ARBITRARY_EXECUTION`, `CGO`, `UNSAFE_POINTER`, `REFLECT`, `UNANALYZED`.
 - **`own_check_runs`** (bool, optional) and **`certification_reference`** (string, optional): Whether this component's own conformance check runs as part of the build, and — when it does not — where its conformance is established instead (a scheduled job, a run record, a document). Both are **self-declarations at the same trust level as `declared_authority`**: arcc does not verify them. They drive the `certified` / `asserted` annotation each pruned boundary gets in the report's dependency listing, so that trusting a dependency's contract is visible rather than invisible.
@@ -494,12 +481,6 @@ component_dependencies {
   manifest: "../db_driver/component.textproto"
 }
 
-# Low-level package dependencies that are absorbed into our scope
-absorbed_dependencies {
-  import_path: "golang.org/x/crypto/sha3"
-  reason: "Cryptographic hashing implementation detail"
-}
-
 # Permitted ambient capabilities (validated at parse time)
 declared_authority: "FILES"
 declared_authority: "SYSTEM_CALLS"
@@ -514,26 +495,24 @@ The MVP implementation makes several engineering trade-offs and has known bounda
 ### Analysis scope and precision
 
 1. **Call-Graph Precision (VTA Over-approximation):** Boundary analysis relies on static call graph analysis (Variable Type Analysis - VTA) matching Capslock. Because dynamic dispatch and reflection cause over-approximation of call edges, the analyzer can occasionally register call paths that are unreachable at runtime, potentially leading to false-positive violations.
-2. **Absorbed Function-Value Escapes (`ABSORBED_FUNC_VALUE_ESCAPE`):** Owned member code is analyzed in full as analysis roots, so callback bodies defined in member packages attribute their authority directly to the component. However, when member code takes the value of a function defined in an *absorbed* package and passes it across a boundary without calling it directly, no analysis covers what that absorbed function body does when invoked elsewhere. The tool detects this shape and reports an `ABSORBED_FUNC_VALUE_ESCAPE` warning to make the residual gap visible, rather than proving the absorbed function body safe.
-3. **Call-Edge-Only Enforcement:** Only call edges are checked at boundaries. Reading exported struct fields, types, or accessing package-level variables across boundaries is outside the scope of MVP check coverage.
+2. **Call-Edge-Only Enforcement:** Only call edges are checked at boundaries. Reading exported struct fields, types, or accessing package-level variables across boundaries is outside the scope of MVP check coverage.
 4. **Compositional / Single-Component Checking:** Pruning depends on the honesty of dependencies' manifests. Therefore, security guarantees only hold if *every* component in the system is independently checked and conforms.
-5. **Generic Symbol Matching:** Generic SSA type parameter brackets are simplified for matching, which is conservative but can sometimes lead to loose checks (failing open on complex edge cases).
-6. **Go-only Scope:** The current implementation supports Go codebases only (layout is split under `go/` and schemas under `proto/` to permit future language extensions).
-7. **One platform per check.** `declared_authority` is platform-agnostic, but a check verifies exactly one platform (the layout's `platform` block, or `build.Default` natively). Authority exercised only in a `_windows.go` file is invisible on a Linux check.
-8. **Bodiless packages cannot be analyzed.** A package whose function bodies are unavailable cannot be a member — the loader errors, naming it — and absorbing it attributes nothing, so an `ANALYSIS_LIMITATION` warning names it instead of letting silence look like cleanliness. Nothing forces its authority to be declared.
+4. **Generic Symbol Matching:** Generic SSA type parameter brackets are simplified for matching, which is conservative but can sometimes lead to loose checks (failing open on complex edge cases).
+5. **Go-only Scope:** The current implementation supports Go codebases only (layout is split under `go/` and schemas under `proto/` to permit future language extensions).
+6. **One platform per check.** `declared_authority` is platform-agnostic, but a check verifies exactly one platform (the layout's `platform` block, or `build.Default` natively). Authority exercised only in a `_windows.go` file is invisible on a Linux check.
+7. **Bodiless packages cannot be analyzed.** A package whose function bodies are unavailable cannot be a member — the loader errors, naming it rather than letting silence look like cleanliness. Nothing forces its authority to be declared.
 
 ### Membership and boundaries
 
-9. **Absorbed code remains use-attributed.** Authority inside an absorbed dependency is charged to the absorbing component only where owned code reaches it. Authority in absorbed code that nothing owned reaches is not charged at all. Limitation 2 warns where that is most likely to matter; it does not close it.
-10. **Cross-component membership overlap is undetected.** `MEMBER_OVERLAP` catches a member that is also covered or absorbed *by the same component's own declarations*. Two unrelated components both claiming the same package is not detected — that needs a repo-wide uniqueness check, which does not exist yet.
-11. **A component's BUILD file changes when its implementation is restructured.** A declared-style component's `members` are explicit labels, so adding, removing or renaming an internal package edits the component declaration. This works against a goal the component model exists to serve — implementation changes should be reviewable with little attention *because* interface changes are the ones that surface — since an internal-only refactor now shows up as a diff to the component declaration. Bazel offers no mechanism that closes this: a package cannot enumerate packages below its immediate children, so "everything under here" is not expressible in one place (which is also why there is no wildcard helper). Partly mitigated: a member you *forget* to declare, but that owned code actually imports, is fail-closed — it lands in the closure, matches nothing, and is reported as `UNDECLARED_DEPENDENCY` naming the package to add. The silent residue is a nested package nothing imports, i.e. dead code, which stays unowned.
-12. **`PACKAGE_SURFACE` prunes at package granularity,** which is coarser than symbol pruning and will hide authority reached through unexported entry points. This was accepted knowingly for toolchain-injected runtimes; note that it now applies wherever an author chooses that style to wrap an existing library, which is the common case.
-13. **A `PACKAGE_SURFACE` component can launder authority.** Wrapping a large library and declaring the union of what it needs stops charging that authority to every caller — which is the value of drawing the boundary, and also the risk. The safeguard is that the wrapper's own check reports its actual authority; nothing prevents an author from declaring it and moving on. Review of `declared_authority` is the control, as it is for any component.
-14. **Pattern-membership components cannot be checked directly.** A `PACKAGE_SURFACE` component whose membership contains import-path patterns is resolved from the depender's layout, so a direct `arcc check` fails at load time and names the component and unanalyzable pattern entries. The `certified`/`asserted` annotation makes this dependency-side boundary visible in reports that depend on it; repo-wide enforcement is deferred with the uniqueness check above.
+8. **Cross-component membership overlap is undetected.** `MEMBER_OVERLAP` catches a member that is also covered *by the same component's own declarations*. Two unrelated components both claiming the same package is not detected — that needs a repo-wide uniqueness check, which does not exist yet.
+9. **A component's BUILD file changes when its implementation is restructured.** A declared-style component's `members` are explicit labels, so adding, removing or renaming an internal package edits the component declaration. This works against a goal the component model exists to serve — implementation changes should be reviewable with little attention *because* interface changes are the ones that surface — since an internal-only refactor now shows up as a diff to the component declaration. Bazel offers no mechanism that closes this: a package cannot enumerate packages below its immediate children, so "everything under here" is not expressible in one place (which is also why there is no wildcard helper). Partly mitigated: a member you *forget* to declare, but that owned code actually imports, is fail-closed — it lands in the closure, matches nothing, and is reported as `UNDECLARED_DEPENDENCY` naming the package to add. The silent residue is a nested package nothing imports, i.e. dead code, which stays unowned.
+10. **`PACKAGE_SURFACE` prunes at package granularity,** which is coarser than symbol pruning and will hide authority reached through unexported entry points. This was accepted knowingly for toolchain-injected runtimes; note that it now applies wherever an author chooses that style to wrap an existing library, which is the common case.
+11. **A `PACKAGE_SURFACE` component can launder authority.** Wrapping a large library and declaring the union of what it needs stops charging that authority to every caller — which is the value of drawing the boundary, and also the risk. The safeguard is that the wrapper's own check reports its actual authority; nothing prevents an author from declaring it and moving on. Review of `declared_authority` is the control, as it is for any component.
+12. **Pattern-membership components cannot be checked directly.** A `PACKAGE_SURFACE` component whose membership contains import-path patterns is resolved from the depender's layout, so a direct `arcc check` fails at load time and names the component and unanalyzable pattern entries. The `certified`/`asserted` annotation makes this dependency-side boundary visible in reports that depend on it; repo-wide enforcement is deferred with the uniqueness check above.
 
 ### Bazel-specific
 
-15. **A component whose closure contains a cgo package cannot be checked under Bazel.** A cgo package compiles from preprocessed sources that do not exist at analysis time, so the rule fails closed rather than emitting a layout naming files that will not be in the sandbox. **The exclusion propagates upward through importers:** a cgo package anywhere in a closure excludes every component above it, not merely the one that names it. Native mode is unaffected, because the go tool preprocesses cgo before `go/packages` sees it, so such a component keeps full native coverage and loses only its Bazel leg. This is why `bazel test //...` runs **six** self-checks while `just selfcheck` runs **eight**: `capslockadapter` absorbs capslock, whose closure contains `golang.org/x/sys/unix` built with cgo, and `cli` imports `capslockadapter`. One root cause, two components. The workaround of patching a third-party build file to claim the package is not cgo is deliberately not taken: buying a green check by falsifying build metadata is the exact failure mode these checks exist to remove.
+13. **A component whose closure contains a cgo package cannot be checked under Bazel.** A cgo package compiles from preprocessed sources that do not exist at analysis time, so the rule fails closed rather than emitting a layout naming files that will not be in the sandbox. **The exclusion propagates upward through importers:** a cgo package anywhere in a closure excludes every component above it, not merely the one that names it. Native mode is unaffected, because the go tool preprocesses cgo before `go/packages` sees it, so such a component keeps full native coverage and loses only its Bazel leg. This is why `bazel test //...` runs **six** self-checks while `just selfcheck` runs **eight**: `capslockadapter` owns capslock as member code, whose closure contains `golang.org/x/sys/unix` built with cgo, and `cli` imports `capslockadapter`. One root cause, two components. The workaround of patching a third-party build file to claim the package is not cgo is deliberately not taken: buying a green check by falsifying build metadata is the exact failure mode these checks exist to remove.
 
 ---
 
@@ -565,4 +544,4 @@ This compiles the local `arcc` binary and runs it against each of its own eight 
 
 Conflating the two would overclaim. A conforming component is not an authority-free one; it is one that stayed inside its declaration.
 
-The same components are also declared as `go_component` targets, so `bazel test //...` checks them hermetically — but only **six** of the eight: `capslockadapter` and `cli` are excluded because their closures contain a cgo package, which the Bazel rule refuses (limitation 15 above). Keeping both legs is deliberate rather than redundant: the native leg derives membership from directories (FR1) and the Bazel leg from declared `members`, so the two checking the same components cross-checks the membership model itself. A `self_manifest_parity_test` additionally asserts that the generated manifests and the checked-in ones agree, so the two forms cannot drift.
+The same components are also declared as `go_component` targets, so `bazel test //...` checks them hermetically — but only **six** of the eight: `capslockadapter` and `cli` are excluded because their closures contain a cgo package, which the Bazel rule refuses (limitation 13 above). Keeping both legs is deliberate rather than redundant: the native leg derives membership from directories (FR1) and the Bazel leg from declared `members`, so the two checking the same components cross-checks the membership model itself. A `self_manifest_parity_test` additionally asserts that the generated manifests and the checked-in ones agree, so the two forms cannot drift.

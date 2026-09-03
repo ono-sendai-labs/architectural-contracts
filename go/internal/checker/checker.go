@@ -13,7 +13,6 @@ package checker
 
 import (
 	"fmt"
-	"path"
 	"sort"
 	"strings"
 
@@ -71,7 +70,6 @@ func Check(in Inputs) report.ConformanceReport {
 
 	// 3. Track matches for declared dependencies
 	compDepMatched := make(map[string]bool)
-	absDepMatched := make(map[string]bool)
 
 	var violations []report.Finding
 
@@ -94,20 +92,6 @@ func Check(in Inputs) report.ConformanceReport {
 			// Check if allowed by resolved component dependencies
 			if compDep, exists := allowedPkgToCompDep[imp]; exists {
 				compDepMatched[compDep] = true
-				continue
-			}
-
-			// Check if allowed by absorbed dependencies using glob matching
-			allowedByAbsorbed := false
-			for _, absDep := range in.Manifest.AbsorbedDependencies {
-				matched, err := path.Match(absDep.ImportPath, imp)
-				if err == nil && matched {
-					absDepMatched[absDep.ImportPath] = true
-					allowedByAbsorbed = true
-				}
-			}
-
-			if allowedByAbsorbed {
 				continue
 			}
 
@@ -169,7 +153,7 @@ func Check(in Inputs) report.ConformanceReport {
 	}
 
 	// 4c. Member overlap checks (M7). Effective members must not also be
-	// covered by a resolved component dependency or an absorbed declaration.
+	// covered by a resolved component dependency.
 	for _, di := range in.DepIfaces {
 		var overlapping []string
 		for _, dpkg := range di.Packages {
@@ -184,24 +168,6 @@ func Check(in Inputs) report.ConformanceReport {
 				Message: fmt.Sprintf("member overlap with dependency %q: overlapping packages: %s", di.Component, strings.Join(overlapping, ", ")),
 			})
 		}
-	}
-
-	for _, absDep := range in.Manifest.AbsorbedDependencies {
-		var overlapping []string
-		for pkg := range compPkgs {
-			matched, err := path.Match(absDep.ImportPath, pkg)
-			if err == nil && matched {
-				overlapping = append(overlapping, pkg)
-			}
-		}
-		if len(overlapping) == 0 {
-			continue
-		}
-		sort.Strings(overlapping)
-		violations = append(violations, report.Finding{
-			Kind:    report.MemberOverlap,
-			Message: fmt.Sprintf("member overlap with absorbed dependency %q: overlapping packages: %s", absDep.ImportPath, strings.Join(overlapping, ", ")),
-		})
 	}
 
 	// 4d. FR5 Cross-component Call Boundary Checks (design §5.3b)
@@ -233,24 +199,6 @@ func Check(in Inputs) report.ConformanceReport {
 			Message: fmt.Sprintf("unresolved import %q in source file %q of package %q is an analysis limitation", unresolved.ImportPath, unresolved.File, unresolved.Package),
 			Location: report.Location{
 				File: unresolved.File,
-			},
-		})
-	}
-
-	for _, pkg := range in.Facts.BodilessAbsorbedPackages {
-		warnings = append(warnings, report.Finding{
-			Kind:    report.AnalysisLimitation,
-			Message: fmt.Sprintf("absorbed package %q has no source bodies; its authority could not be analyzed", pkg),
-		})
-	}
-
-	for _, esc := range in.Facts.FuncValueEscapes {
-		warnings = append(warnings, report.Finding{
-			Kind:    report.AbsorbedFuncValueEscape,
-			Message: fmt.Sprintf("member package %q takes function value %q from absorbed package without calling it; body is unanalyzed", esc.Package, esc.Symbol),
-			Location: report.Location{
-				File: esc.File,
-				Line: esc.Line,
 			},
 		})
 	}
@@ -293,16 +241,6 @@ func Check(in Inputs) report.ConformanceReport {
 			warnings = append(warnings, report.Finding{
 				Kind:    report.UnusedDependency,
 				Message: fmt.Sprintf("declared component dependency %q is unused", dep.Name),
-			})
-		}
-	}
-
-	// Check absorbed dependencies
-	for _, absDep := range in.Manifest.AbsorbedDependencies {
-		if !absDepMatched[absDep.ImportPath] {
-			warnings = append(warnings, report.Finding{
-				Kind:    report.UnusedDependency,
-				Message: fmt.Sprintf("declared absorbed dependency %q is unused", absDep.ImportPath),
 			})
 		}
 	}

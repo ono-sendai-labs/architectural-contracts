@@ -43,12 +43,40 @@ go_test(
 # model, the generated protobuf package gen is a declared member rather than an
 # interface file because manifest.go is the sole interface library while gen is a
 # separate internal Go package.
+# The protobuf runtime packages are declared members: absorbed_dependencies was
+# removed, and third-party libraries become ordinary (checked) member code whose
+# authority is charged to this component's declared_authority.
 go_component(
     name = "manifest_component",
-    absorbed_deps = [
-        "@org_golang_google_protobuf//encoding/prototext",
-        "@org_golang_google_protobuf//reflect/protoreflect",
-        "@org_golang_google_protobuf//runtime/protoimpl",
+    members = [
+        "//go/internal/manifest/gen",
+        "@org_golang_google_protobuf//encoding/prototext:prototext",
+        "@org_golang_google_protobuf//encoding/protowire:protowire",
+        "@org_golang_google_protobuf//internal/descfmt:descfmt",
+        "@org_golang_google_protobuf//internal/descopts:descopts",
+        "@org_golang_google_protobuf//internal/detrand:detrand",
+        "@org_golang_google_protobuf//internal/editiondefaults:editiondefaults",
+        "@org_golang_google_protobuf//internal/encoding/defval:defval",
+        "@org_golang_google_protobuf//internal/encoding/messageset:messageset",
+        "@org_golang_google_protobuf//internal/encoding/tag:tag",
+        "@org_golang_google_protobuf//internal/encoding/text:text",
+        "@org_golang_google_protobuf//internal/errors:errors",
+        "@org_golang_google_protobuf//internal/filedesc:filedesc",
+        "@org_golang_google_protobuf//internal/filetype:filetype",
+        "@org_golang_google_protobuf//internal/flags:flags",
+        "@org_golang_google_protobuf//internal/genid:genid",
+        "@org_golang_google_protobuf//internal/impl:impl",
+        "@org_golang_google_protobuf//internal/order:order",
+        "@org_golang_google_protobuf//internal/pragma:pragma",
+        "@org_golang_google_protobuf//internal/protolazy:protolazy",
+        "@org_golang_google_protobuf//internal/set:set",
+        "@org_golang_google_protobuf//internal/strs:strs",
+        "@org_golang_google_protobuf//internal/version:version",
+        "@org_golang_google_protobuf//proto:proto",
+        "@org_golang_google_protobuf//reflect/protoreflect:protoreflect",
+        "@org_golang_google_protobuf//reflect/protoregistry:protoregistry",
+        "@org_golang_google_protobuf//runtime/protoiface:protoiface",
+        "@org_golang_google_protobuf//runtime/protoimpl:protoimpl",
     ],
     declared_authority = [
         READ_SYSTEM_STATE,
@@ -58,6 +86,5 @@ go_component(
         UNSAFE_POINTER,
     ],
     interface = ":manifest",
-    members = ["//go/internal/manifest/gen"],
     visibility = ["//go:__subpackages__"],
 )

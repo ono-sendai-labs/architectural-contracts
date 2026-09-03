@@ -75,6 +75,7 @@
   "roots": [
     "example.com/aspect/api",
     "example.com/aspect/core",
+    "example.com/aspect/extradep",
     "example.com/aspect/lowlevel"
   ]
 }

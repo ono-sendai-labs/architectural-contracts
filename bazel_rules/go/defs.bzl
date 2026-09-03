@@ -169,13 +169,7 @@ go_component = macro(
         "component_deps": attr.label_list(
             configurable = False,
             doc = "Other go_component targets this component depends on. Their packages are " +
-                  "covered by them, and so are neither members of this component nor absorbed.",
-        ),
-        "absorbed_deps": attr.label_list(
-            configurable = False,
-            doc = "Libraries this component absorbs as implementation details, taking " +
-                  "responsibility for their ambient authority. No reasons are recorded: " +
-                  "a BUILD comment is the place for a note.",
+                  "covered by them, and so are not members of this component.",
         ),
         "contract": attr.label_list(
             allow_files = True,
@@ -215,7 +209,6 @@ Example:
         name = "svc_component",
         interface = ":svc",
         component_deps = ["//other:other_component"],
-        absorbed_deps = ["//third_party/csvparse"],
         declared_authority = [FILES],
         visibility = ["//visibility:public"],
     )

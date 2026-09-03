@@ -2,6 +2,39 @@ name: "goanalysis"
 own_check_runs: true
 interface_files: "goanalysis.go"
 members: "github.com/ono-sendai-labs/architectural-contracts/go/internal/goanalysis"
+members: "github.com/ono-sendai-labs/architectural-contracts/go/internal/hostpolicy"
+members: "github.com/ono-sendai-labs/architectural-contracts/go/internal/packagelayout"
+members: "golang.org/x/mod/semver"
+members: "golang.org/x/sync/errgroup"
+members: "golang.org/x/tools/go/ast/astutil"
+members: "golang.org/x/tools/go/ast/edge"
+members: "golang.org/x/tools/go/ast/inspector"
+members: "golang.org/x/tools/go/buildutil"
+members: "golang.org/x/tools/go/callgraph"
+members: "golang.org/x/tools/go/callgraph/internal/chautil"
+members: "golang.org/x/tools/go/callgraph/vta"
+members: "golang.org/x/tools/go/callgraph/vta/internal/trie"
+members: "golang.org/x/tools/go/gcexportdata"
+members: "golang.org/x/tools/go/internal/cgo"
+members: "golang.org/x/tools/go/loader"
+members: "golang.org/x/tools/go/packages"
+members: "golang.org/x/tools/go/ssa"
+members: "golang.org/x/tools/go/ssa/ssautil"
+members: "golang.org/x/tools/go/types/objectpath"
+members: "golang.org/x/tools/go/types/typeutil"
+members: "golang.org/x/tools/internal/aliases"
+members: "golang.org/x/tools/internal/event"
+members: "golang.org/x/tools/internal/event/core"
+members: "golang.org/x/tools/internal/event/keys"
+members: "golang.org/x/tools/internal/event/label"
+members: "golang.org/x/tools/internal/gcimporter"
+members: "golang.org/x/tools/internal/gocommand"
+members: "golang.org/x/tools/internal/packagesinternal"
+members: "golang.org/x/tools/internal/pkgbits"
+members: "golang.org/x/tools/internal/stdlib"
+members: "golang.org/x/tools/internal/typeparams"
+members: "golang.org/x/tools/internal/typesinternal"
+members: "golang.org/x/tools/internal/versions"
 component_dependencies {
   name: "capanalyzer"
   manifest: "../capanalyzer/component.textproto"
@@ -14,34 +47,6 @@ component_dependencies {
   name: "manifest"
   manifest: "../manifest/component.textproto"
 }
-absorbed_dependencies {
-  import_path: "github.com/ono-sendai-labs/architectural-contracts/go/internal/hostpolicy"
-  reason: "Host-overridable import-path canonicalization and stdlib classification policy"
-}
-absorbed_dependencies {
-  import_path: "github.com/ono-sendai-labs/architectural-contracts/go/internal/packagelayout"
-  reason: "Package layout driver and loading helpers"
-}
-absorbed_dependencies {
-  import_path: "golang.org/x/tools/go/callgraph"
-  reason: "Callgraph data structures"
-}
-absorbed_dependencies {
-  import_path: "golang.org/x/tools/go/callgraph/vta"
-  reason: "VTA callgraph construction"
-}
-absorbed_dependencies {
-  import_path: "golang.org/x/tools/go/packages"
-  reason: "Package loading"
-}
-absorbed_dependencies {
-  import_path: "golang.org/x/tools/go/ssa"
-  reason: "SSA representation"
-}
-absorbed_dependencies {
-  import_path: "golang.org/x/tools/go/ssa/ssautil"
-  reason: "SSA utility helpers"
-}
 declared_authority: "FILES"
 declared_authority: "EXEC"
 declared_authority: "READ_SYSTEM_STATE"
@@ -49,3 +54,4 @@ declared_authority: "OPERATING_SYSTEM"
 declared_authority: "REFLECT"
 declared_authority: "UNSAFE_POINTER"
 declared_authority: "MODIFY_SYSTEM_STATE"
+declared_authority: "ARBITRARY_EXECUTION"

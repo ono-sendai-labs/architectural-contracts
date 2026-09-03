@@ -12,19 +12,18 @@ go_library(
     ],
 )
 
-# One component covering all three membership classes:
-#   covered  — example.com/aspect/shared, via //shared:shared_component
-#   absorbed — example.com/aspect/extradep, listed below
-#   member   — example.com/aspect/{api,core,lowlevel}
+# One component covering two membership classes:
+#   covered — example.com/aspect/shared, via //shared:shared_component
+#   member  — example.com/aspect/{api,core,lowlevel,extradep}
 go_component(
     name = "api_component",
-    absorbed_deps = ["//bazel_rules/go/tests/testdata/extradep"],
     component_deps = ["//bazel_rules/go/tests/testdata/shared:shared_component"],
     contract = ["contract.md"],
     declared_authority = [FILES],
     interface = ":api",
     members = [
         "//bazel_rules/go/tests/testdata/core",
+        "//bazel_rules/go/tests/testdata/extradep",
         "//bazel_rules/go/tests/testdata/lowlevel",
     ],
     visibility = ["//bazel_rules:__subpackages__"],

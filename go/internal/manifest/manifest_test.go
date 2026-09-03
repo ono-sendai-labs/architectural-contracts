@@ -17,10 +17,6 @@ import (
 func TestParse_ValidRoundTrip(t *testing.T) {
 	input := `name: "toprow"
 interface_files: "toprow.go"
-absorbed_dependencies {
-  import_path: "example.com/csvtool/internal/parsecsv"
-  reason: "CSV parsing impl detail"
-}
 `
 	r := bytes.NewReader([]byte(input))
 	got, err := manifest.Parse(r)
@@ -28,16 +24,9 @@ absorbed_dependencies {
 		t.Fatalf("Parse failed: %v", err)
 	}
 
-	wantReason := "CSV parsing impl detail"
 	want := manifest.Manifest{
 		Name:           "toprow",
 		InterfaceFiles: []string{"toprow.go"},
-		AbsorbedDependencies: []manifest.AbsorbedDependency{
-			{
-				ImportPath: "example.com/csvtool/internal/parsecsv",
-				Reason:     &wantReason,
-			},
-		},
 	}
 
 	if !reflect.DeepEqual(got, want) {
@@ -58,17 +47,6 @@ component_dependencies {
   name: "dep2"
   manifest: "path/to/dep2/component.textproto"
 }
-absorbed_dependencies {
-  import_path: "github.com/some/pkg1"
-}
-absorbed_dependencies {
-  import_path: "github.com/some/pkg2"
-  reason: ""
-}
-absorbed_dependencies {
-  import_path: "github.com/some/pkg3"
-  reason: "custom reason"
-}
 declared_authority: "FILES"
 declared_authority: "EXEC"
 `
@@ -78,19 +56,12 @@ declared_authority: "EXEC"
 		t.Fatalf("Parse failed: %v", err)
 	}
 
-	reasonEmpty := ""
-	reasonCustom := "custom reason"
 	want := manifest.Manifest{
 		Name:           "allfields",
 		InterfaceFiles: []string{"file1.go", "file2.go"},
 		ComponentDependencies: []manifest.ComponentDependency{
 			{Name: "dep1", Manifest: "path/to/dep1/component.textproto"},
 			{Name: "dep2", Manifest: "path/to/dep2/component.textproto"},
-		},
-		AbsorbedDependencies: []manifest.AbsorbedDependency{
-			{ImportPath: "github.com/some/pkg1", Reason: nil},
-			{ImportPath: "github.com/some/pkg2", Reason: &reasonEmpty},
-			{ImportPath: "github.com/some/pkg3", Reason: &reasonCustom},
 		},
 		DeclaredAuthority: []string{"FILES", "EXEC"},
 	}
@@ -105,23 +76,25 @@ declared_authority: "EXEC"
 	if !reflect.DeepEqual(got.ComponentDependencies, want.ComponentDependencies) {
 		t.Errorf("ComponentDependencies = %+v, want %+v", got.ComponentDependencies, want.ComponentDependencies)
 	}
-	if len(got.AbsorbedDependencies) != len(want.AbsorbedDependencies) {
-		t.Fatalf("AbsorbedDependencies len = %d, want %d", len(got.AbsorbedDependencies), len(want.AbsorbedDependencies))
-	}
-	for i := range want.AbsorbedDependencies {
-		gotDep := got.AbsorbedDependencies[i]
-		wantDep := want.AbsorbedDependencies[i]
-		if gotDep.ImportPath != wantDep.ImportPath {
-			t.Errorf("AbsorbedDependencies[%d].ImportPath = %q, want %q", i, gotDep.ImportPath, wantDep.ImportPath)
-		}
-		if (gotDep.Reason == nil) != (wantDep.Reason == nil) {
-			t.Errorf("AbsorbedDependencies[%d].Reason nilness mismatch: got %v, want %v", i, gotDep.Reason == nil, wantDep.Reason == nil)
-		} else if gotDep.Reason != nil && *gotDep.Reason != *wantDep.Reason {
-			t.Errorf("AbsorbedDependencies[%d].Reason = %q, want %q", i, *gotDep.Reason, *wantDep.Reason)
-		}
-	}
 	if !reflect.DeepEqual(got.DeclaredAuthority, want.DeclaredAuthority) {
 		t.Errorf("DeclaredAuthority = %v, want %v", got.DeclaredAuthority, want.DeclaredAuthority)
+	}
+}
+
+func TestParse_RejectsStaleAbsorbedDependencies(t *testing.T) {
+	input := `name: "stale"
+interface_files: "api.go"
+absorbed_dependencies {
+  import_path: "example.com/impl"
+}
+`
+	r := bytes.NewReader([]byte(input))
+	_, err := manifest.Parse(r)
+	if err == nil {
+		t.Fatalf("expected Parse to reject absorbed_dependencies; it must never be silently ignored")
+	}
+	if !strings.Contains(err.Error(), "absorbed_dependencies") {
+		t.Errorf("expected error to identify unsupported field absorbed_dependencies, got: %v", err)
 	}
 }
 
@@ -175,7 +148,6 @@ func TestParse_MemberValidation(t *testing.T) {
 	tests := []struct {
 		name       string
 		members    string
-		absorbed   string
 		wantKind   string
 		wantMember string
 		wantText   string
@@ -198,18 +170,11 @@ func TestParse_MemberValidation(t *testing.T) {
 			wantMember: "example.com/app/*",
 			wantText:   "declared-style members must be literal",
 		},
-		{
-			name:       "absorbed contradiction",
-			members:    "members: \"example.com/app\"",
-			absorbed:   "absorbed_dependencies { import_path: \"example.com/app\" }",
-			wantMember: "example.com/app",
-			wantText:   "both a member and an absorbed dependency",
-		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			input := "name: \"component\"\ninterface_files: \"api.go\"\n" + tt.members + "\n" + tt.absorbed
+			input := "name: \"component\"\ninterface_files: \"api.go\"\n" + tt.members
 			_, err := manifest.Parse(bytes.NewBufferString(input))
 			if err == nil {
 				t.Fatalf("Parse() succeeded, want error for %s", tt.name)
@@ -371,24 +336,6 @@ component_dependencies {
 		var dupErr *manifest.DuplicateDeclarationError
 		if !errors.As(err, &dupErr) || dupErr.Kind != "component dependency" || dupErr.Value != "dep1" {
 			t.Fatalf("expected DuplicateDeclarationError for component dependency 'dep1', got: %v", err)
-		}
-	})
-
-	t.Run("DuplicateAbsorbedDependencies", func(t *testing.T) {
-		input := `name: "component"
-interface_files: "file.go"
-absorbed_dependencies {
-  import_path: "github.com/some/pkg"
-}
-absorbed_dependencies {
-  import_path: "github.com/some/pkg"
-}
-`
-		r := bytes.NewReader([]byte(input))
-		_, err := manifest.Parse(r)
-		var dupErr *manifest.DuplicateDeclarationError
-		if !errors.As(err, &dupErr) || dupErr.Kind != "absorbed dependency" || dupErr.Value != "github.com/some/pkg" {
-			t.Fatalf("expected DuplicateDeclarationError for absorbed dependency 'github.com/some/pkg', got: %v", err)
 		}
 	})
 
@@ -560,10 +507,6 @@ func TestSelfHostingManifests(t *testing.T) {
 
 			if len(m.DeclaredAuthority) > 0 {
 				t.Errorf("expected empty declared authority, got %v", m.DeclaredAuthority)
-			}
-
-			if len(m.AbsorbedDependencies) > 0 {
-				t.Errorf("expected empty absorbed dependencies, got %v", m.AbsorbedDependencies)
 			}
 
 			// Validate interface files

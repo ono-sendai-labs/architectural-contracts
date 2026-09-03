@@ -22,7 +22,7 @@ load("//bazel_rules:providers.bzl", "ArccComponentInfo")
 load(":paths.bzl", "runfiles_path")
 
 # Providers a Go library target must carry to take part as a component
-# interface, an absorbed dependency, or a closure node. Used in
+# interface or a closure node. Used in
 # `attr.label(providers = ...)` on the rule attributes.
 GO_PROVIDERS = [GoInfo, GoArchive]
 

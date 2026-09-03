@@ -1,7 +1,7 @@
 load("@rules_arcc//bazel_rules/go:defs.bzl", "go_component")
 
 # Uncorrected/failing component: 4 implementation/member packages reach 3 utility
-# packages that are neither members, covered, absorbed, nor stdlib.
+# packages that are neither members, covered, nor stdlib.
 go_component(
     name = "failing_hazard_component",
     interface = "//bazel_rules/go/tests/testdata/hazard/impl1",

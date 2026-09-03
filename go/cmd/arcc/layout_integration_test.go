@@ -190,9 +190,19 @@ func ToLower(s string) string {
 func createPlatformLayoutFixtures(t *testing.T) (string, string, string, string, string) {
 	t.Helper()
 
-	root := t.TempDir()
-	manifestPath := filepath.Join(root, "component.textproto")
-	manifest := "name: \"platformmember\"\ninterface_files: \"member/interface.go\"\nabsorbed_dependencies { import_path: \"example.com/linux\" }\nabsorbed_dependencies { import_path: \"example.com/windows\" }\n"
+	// The analyzed component root and its dependency component roots must be
+	// siblings, so the fixture uses one workspace directory holding all three.
+	absTmpDir, err := filepath.Abs(t.TempDir())
+	if err != nil {
+		t.Fatalf("resolve workspace: %v", err)
+	}
+	componentDir := filepath.Join(absTmpDir, "platformmember")
+	if err := os.MkdirAll(componentDir, 0755); err != nil {
+		t.Fatalf("create component dir: %v", err)
+	}
+
+	manifestPath := filepath.Join(componentDir, "component.textproto")
+	manifest := "name: \"platformmember\"\ninterface_files: \"platformmember/member/interface.go\"\ncomponent_dependencies { name: \"linuxdep\" manifest: \"../linuxdep/component.textproto\" }\ncomponent_dependencies { name: \"windowsdep\" manifest: \"../windowsdep/component.textproto\" }\n"
 	if err := os.WriteFile(manifestPath, []byte(manifest), 0644); err != nil {
 		t.Fatalf("write manifest: %v", err)
 	}
@@ -203,7 +213,7 @@ func createPlatformLayoutFixtures(t *testing.T) (string, string, string, string,
 		"linux/impl.go":         "package linux\n",
 		"windows/impl.go":       "package windows\n",
 	} {
-		path := filepath.Join(root, name)
+		path := filepath.Join(componentDir, name)
 		if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
 			t.Fatalf("create source directory: %v", err)
 		}
@@ -211,7 +221,7 @@ func createPlatformLayoutFixtures(t *testing.T) (string, string, string, string,
 			t.Fatalf("write source %s: %v", name, err)
 		}
 	}
-	sdkRoot := filepath.Join(root, "mock_sdk")
+	sdkRoot := filepath.Join(absTmpDir, "mock_sdk")
 	for name, content := range map[string]string{
 		"fmt/fmt.go":         "package fmt\n",
 		"os/os.go":           "package os\ntype File struct{}\nvar DevNull string\n",
@@ -227,19 +237,49 @@ func createPlatformLayoutFixtures(t *testing.T) (string, string, string, string,
 		}
 	}
 
+	// Dependency components: one package-surface component per platform package.
+	pkgJSON := func(id, name, goFile string) string {
+		return fmt.Sprintf(`{
+			"go_sdk_root": %q,
+			"roots": [%q],
+			"packages": [
+				{
+					"id": %q, "name": %q, "pkgPath": %q,
+					"goFiles": [%q], "compiledGoFiles": [%q]
+				}
+			]
+		}`, sdkRoot, id, id, name, id, goFile, goFile)
+	}
+	for _, dep := range []struct{ dir, pkgName, id, goFile string }{
+		{"linuxdep", "linux", "example.com/linux", "platformmember/linux/impl.go"},
+		{"windowsdep", "windows", "example.com/windows", "platformmember/windows/impl.go"},
+	} {
+		depDir := filepath.Join(absTmpDir, dep.dir)
+		if err := os.MkdirAll(depDir, 0755); err != nil {
+			t.Fatalf("create dep dir: %v", err)
+		}
+		depManifest := fmt.Sprintf("name: %q\ninterface_style: INTERFACE_STYLE_PACKAGE_SURFACE\nmembers: %q\n", dep.dir, dep.id)
+		if err := os.WriteFile(filepath.Join(depDir, "component.textproto"), []byte(depManifest), 0644); err != nil {
+			t.Fatalf("write dep manifest: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(depDir, "package-layout.json"), []byte(pkgJSON(dep.id, dep.pkgName, dep.goFile)), 0644); err != nil {
+			t.Fatalf("write dep layout: %v", err)
+		}
+	}
+
 	packages := []map[string]any{
 		{
 			"id": "example.com/member", "name": "member", "pkgPath": "example.com/member",
-			"goFiles":         []string{"member/api_linux.go", "member/api_windows.go", "member/interface.go"},
-			"compiledGoFiles": []string{"member/api_linux.go", "member/api_windows.go", "member/interface.go"},
+			"goFiles":         []string{"platformmember/member/api_linux.go", "platformmember/member/api_windows.go", "platformmember/member/interface.go"},
+			"compiledGoFiles": []string{"platformmember/member/api_linux.go", "platformmember/member/api_windows.go", "platformmember/member/interface.go"},
 		},
 		{
 			"id": "example.com/linux", "name": "linux", "pkgPath": "example.com/linux",
-			"goFiles": []string{"linux/impl.go"}, "compiledGoFiles": []string{"linux/impl.go"},
+			"goFiles": []string{"platformmember/linux/impl.go"}, "compiledGoFiles": []string{"platformmember/linux/impl.go"},
 		},
 		{
 			"id": "example.com/windows", "name": "windows", "pkgPath": "example.com/windows",
-			"goFiles": []string{"windows/impl.go"}, "compiledGoFiles": []string{"windows/impl.go"},
+			"goFiles": []string{"platformmember/windows/impl.go"}, "compiledGoFiles": []string{"platformmember/windows/impl.go"},
 		},
 	}
 	write := func(name, goos string, imports map[string]string) string {
@@ -258,7 +298,7 @@ func createPlatformLayoutFixtures(t *testing.T) (string, string, string, string,
 		if err != nil {
 			t.Fatalf("marshal %s layout: %v", name, err)
 		}
-		path := filepath.Join(root, name+".json")
+		path := filepath.Join(absTmpDir, name+".json")
 		if err := os.WriteFile(path, data, 0644); err != nil {
 			t.Fatalf("write %s layout: %v", name, err)
 		}
@@ -270,7 +310,7 @@ func createPlatformLayoutFixtures(t *testing.T) (string, string, string, string,
 		"example.com/linux":   "example.com/linux",
 		"example.com/windows": "example.com/windows",
 	})
-	return root, manifestPath, linux, windows, inconsistent
+	return absTmpDir, manifestPath, linux, windows, inconsistent
 }
 
 // createLayoutFixtureInModule is like createLayoutFixture but creates the temp dir inside the go module tree to preserve go.mod resolution.
@@ -589,7 +629,7 @@ func TestIntegration_LayoutMode_PlatformVariantsUseSameBinary(t *testing.T) {
 	for _, tc := range []struct {
 		layoutPath   string
 		unusedImport string
-	}{{linuxLayout, "example.com/windows"}, {windowsLayout, "example.com/linux"}} {
+	}{{linuxLayout, "windowsdep"}, {windowsLayout, "linuxdep"}} {
 		stdout, stderr, exitCode := runArccHermetic(t, []string{"check", manifestPath, "--package-layout=" + tc.layoutPath})
 		if exitCode != 0 || stderr != "" {
 			t.Fatalf("platform layout %s failed: exit=%d stderr=%q stdout=%q", tc.layoutPath, exitCode, stderr, stdout)
@@ -613,7 +653,7 @@ func TestIntegration_LayoutMode_PlatformVariantsUseSameBinary(t *testing.T) {
 
 func TestIntegration_LayoutMode_InterfaceExclusionFollowsDeclaredPlatform(t *testing.T) {
 	root, manifestPath, linuxLayout, windowsLayout, _ := createPlatformLayoutFixtures(t)
-	manifest := "name: \"platform-interface\"\ninterface_files: \"member/api_linux.go\"\ninterface_files: \"member/api_windows.go\"\nabsorbed_dependencies { import_path: \"example.com/linux\" }\nabsorbed_dependencies { import_path: \"example.com/windows\" }\n"
+	manifest := "name: \"platform-interface\"\ninterface_files: \"platformmember/member/api_linux.go\"\ninterface_files: \"platformmember/member/api_windows.go\"\ncomponent_dependencies { name: \"linuxdep\" manifest: \"../linuxdep/component.textproto\" }\ncomponent_dependencies { name: \"windowsdep\" manifest: \"../windowsdep/component.textproto\" }\n"
 	if err := os.WriteFile(manifestPath, []byte(manifest), 0o644); err != nil {
 		t.Fatalf("write manifest: %v", err)
 	}
@@ -631,8 +671,8 @@ func TestIntegration_LayoutMode_InterfaceExclusionFollowsDeclaredPlatform(t *tes
 		layoutPath string
 		file       string
 	}{
-		{layoutPath: linuxLayout, file: "member/api_windows.go"},
-		{layoutPath: windowsLayout, file: "member/api_linux.go"},
+		{layoutPath: linuxLayout, file: "platformmember/member/api_windows.go"},
+		{layoutPath: windowsLayout, file: "platformmember/member/api_linux.go"},
 	} {
 		textOutput, stderr, exitCode := runArccHermetic(t, []string{"check", manifestPath, "--package-layout=" + tc.layoutPath})
 		if exitCode != 0 || stderr != "" {
@@ -661,7 +701,7 @@ func TestIntegration_LayoutMode_InterfaceExclusionFollowsDeclaredPlatform(t *tes
 		}
 	}
 
-	if err := os.WriteFile(manifestPath, []byte("name: \"all-gated\"\ninterface_files: \"member/api_linux.go\"\n"), 0o644); err != nil {
+	if err := os.WriteFile(manifestPath, []byte("name: \"all-gated\"\ninterface_files: \"platformmember/member/api_linux.go\"\n"), 0o644); err != nil {
 		t.Fatalf("write all-gated manifest: %v", err)
 	}
 	_, stderr, exitCode := runArccHermetic(t, []string{"check", manifestPath, "--package-layout=" + windowsLayout})
@@ -672,7 +712,7 @@ func TestIntegration_LayoutMode_InterfaceExclusionFollowsDeclaredPlatform(t *tes
 
 func TestIntegration_LayoutMode_ExcludedUnresolvedImportHasNoWarning(t *testing.T) {
 	root, manifestPath, linuxLayout, _, _ := createPlatformLayoutFixtures(t)
-	excluded := filepath.Join(root, "member", "api_windows.go")
+	excluded := filepath.Join(root, "platformmember", "member", "api_windows.go")
 	if err := os.WriteFile(excluded, []byte("package member\nimport \"example.com/excluded\"\nfunc Hello() {}\n"), 0644); err != nil {
 		t.Fatalf("write excluded source: %v", err)
 	}
@@ -801,9 +841,6 @@ func TestIntegration_LayoutMode_UndeclaredAuthority(t *testing.T) {
 	manifest := `
 name: "violatingmember"
 interface_files: "member/api.go"
-absorbed_dependencies {
-	import_path: "example.com/dep"
-}
 `
 	files := map[string]string{
 		"member/api.go": `package member

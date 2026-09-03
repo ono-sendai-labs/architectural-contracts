@@ -27,7 +27,7 @@ import "strings"
 // loader's canonical package namespace. The shell routes every path that will
 // be compared by the checker through this hook: package import paths, a
 // package's direct imports, the packages of a resolved dependency interface,
-// absorbed-dependency patterns,
+// membership patterns,
 // and capability-finding package paths.
 //
 // The default is the identity function, which is correct whenever the loader and

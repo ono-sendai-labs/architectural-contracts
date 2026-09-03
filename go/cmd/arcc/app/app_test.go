@@ -272,11 +272,39 @@ func TestRunner_Check_MemberOverlapIsViolation(t *testing.T) {
 	manifest := `name: "member-overlap"
 interface_style: INTERFACE_STYLE_PACKAGE_SURFACE
 members: "example.com/overlap/member"
-absorbed_dependencies { import_path: "example.com/overlap/*" }
+component_dependencies {
+  name: "overdep"
+  manifest: "../overlapdep/component.textproto"
+}
 `
 	if err := os.WriteFile(manifestPath, []byte(manifest), 0644); err != nil {
 		t.Fatal(err)
 	}
+
+	// A member package on disk so the dependency's pattern-membership
+	// resolution can match it in the depender's closure.
+	if err := os.WriteFile(filepath.Join(workspace, "go.mod"), []byte("module example.com/overlap\n\ngo 1.21\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(workspace, "member"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(workspace, "member", "member.go"), []byte("package member\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	depDir := filepath.Join(filepath.Dir(workspace), "overlapdep")
+	if err := os.MkdirAll(depDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	depManifest := `name: "overdep"
+interface_style: INTERFACE_STYLE_PACKAGE_SURFACE
+members: "example.com/overlap/*"
+`
+	if err := os.WriteFile(filepath.Join(depDir, "component.textproto"), []byte(depManifest), 0644); err != nil {
+		t.Fatal(err)
+	}
+
 	runner := &app.Runner{
 		Loader: func(goanalysis.LoadRequest) (facts.PackageFacts, error) {
 			return facts.PackageFacts{Packages: []facts.PackageFact{{ImportPath: "example.com/overlap/member"}}}, nil
@@ -291,7 +319,7 @@ absorbed_dependencies { import_path: "example.com/overlap/*" }
 	if stderr != "" {
 		t.Fatalf("stderr = %q, want empty", stderr)
 	}
-	for _, piece := range []string{"MEMBER_OVERLAP", "example.com/overlap/member", "example.com/overlap/*"} {
+	for _, piece := range []string{"MEMBER_OVERLAP", "example.com/overlap/member"} {
 		if !strings.Contains(stdout, piece) {
 			t.Errorf("stdout = %q, want %q", stdout, piece)
 		}
@@ -1026,9 +1054,6 @@ interface_files: "api.go"
 component_dependencies: {
   name: "dep-a"
   manifest: "../dep-a/component.textproto"
-}
-absorbed_dependencies: {
-  import_path: "example.com/temp/absorbed-b"
 }
 `
 	if err := os.WriteFile(filepath.Join(analyzedDir, "go.mod"), []byte("module example.com/temp/analyzed\n\ngo 1.21\n\nrequire example.com/temp/dep-a v0.0.0\nreplace example.com/temp/dep-a => ../dep-a\n"), 0644); err != nil {

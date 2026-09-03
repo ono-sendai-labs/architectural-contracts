@@ -1,3 +1,0 @@
-package otherpkg
-
-func Helper() {}

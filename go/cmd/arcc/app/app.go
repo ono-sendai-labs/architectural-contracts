@@ -20,9 +20,7 @@ import (
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/checker"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/facts"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/goanalysis"
-	"github.com/ono-sendai-labs/architectural-contracts/go/internal/hostpolicy"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/manifest"
-	"github.com/ono-sendai-labs/architectural-contracts/go/internal/packagelayout"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/report"
 )
 
@@ -39,9 +37,6 @@ type Runner struct {
 
 // Run executes the application logic based on the provided CLI arguments.
 func (r *Runner) Run(args []string, stdout, stderr io.Writer) int {
-	packagelayout.CheckMu.Lock()
-	defer packagelayout.CheckMu.Unlock()
-
 	if len(args) == 0 || args[0] == "help" || args[0] == "--help" || args[0] == "-h" {
 		printUsage(stdout)
 		return 0
@@ -117,7 +112,7 @@ func (r *Runner) Run(args []string, stdout, stderr io.Writer) int {
 		}
 
 		var exitCode int
-		err = packagelayout.WithDriverEnv(absLayoutPath, workspaceDir, func() error {
+		err = goanalysis.WithDriverEnv(absLayoutPath, workspaceDir, func() error {
 			exitCode = r.runCheck(manifestPath, formatJSON, stdout, stderr)
 			return nil
 		})
@@ -146,14 +141,6 @@ func (r *Runner) runCheck(manifestPath string, formatJSON bool, stdout, stderr i
 		return 2
 	}
 
-	// Canonicalize the import paths the checker compares against loaded facts, so a
-	// host that rewrites import paths at build time compares in one namespace.
-	// Identity by default (hostpolicy.CanonicalizePath), so this is a no-op upstream.
-	for i := range parsedManifest.AbsorbedDependencies {
-		parsedManifest.AbsorbedDependencies[i].ImportPath =
-			hostpolicy.CanonicalizePath(parsedManifest.AbsorbedDependencies[i].ImportPath)
-	}
-
 	// 2. Derive the component root from the cleaned manifest path's directory
 	cleanPath := filepath.Clean(manifestPath)
 	componentRoot, err := filepath.Abs(filepath.Dir(cleanPath))
@@ -163,16 +150,11 @@ func (r *Runner) runCheck(manifestPath string, formatJSON bool, stdout, stderr i
 	}
 
 	// 3. Load facts for that root
-	var absorbed []string
-	for _, ad := range parsedManifest.AbsorbedDependencies {
-		absorbed = append(absorbed, ad.ImportPath)
-	}
 	loadedFacts, err := r.Loader(goanalysis.LoadRequest{
 		ComponentName:  parsedManifest.Name,
 		ComponentRoot:  componentRoot,
 		Members:        parsedManifest.Members,
 		InterfaceFiles: parsedManifest.InterfaceFiles,
-		Absorbed:       absorbed,
 	})
 	if err != nil {
 		fmt.Fprintf(stderr, "error: failed to load package facts: %v\n", err)

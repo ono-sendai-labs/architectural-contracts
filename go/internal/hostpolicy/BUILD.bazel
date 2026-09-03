@@ -4,7 +4,9 @@ go_library(
     name = "hostpolicy",
     srcs = ["hostpolicy.go"],
     importpath = "github.com/ono-sendai-labs/architectural-contracts/go/internal/hostpolicy",
-    visibility = ["//go:__subpackages__"],
+    # public: hostpolicy is a declared member of the goanalysis component, whose
+# go_component rule requires cross-package visibility for member labels.
+    visibility = ["//visibility:public"],
 )
 
 go_test(

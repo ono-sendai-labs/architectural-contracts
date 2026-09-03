@@ -165,7 +165,7 @@ testing_go_component(
 )
 
 # Design §7.1 fixture 3: a member importing a package that is neither member,
-# covered, absorbed, nor stdlib.
+# covered, nor stdlib.
 go_component(
     name = "undeclared_dep_component",
     interface = "//bazel_rules/go/tests/testdata/api:api",

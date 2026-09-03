@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"io"
 	"path"
+	"regexp"
 	"strings"
 
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/manifest/gen"
@@ -44,6 +45,46 @@ func (e *UnknownInterfaceStyleError) Error() string {
 	return fmt.Sprintf("unknown interface style: %d", e.Value)
 }
 
+// RemovedFieldError reports a manifest field that existed in an earlier schema
+// version but has been removed. Stale manifests must fail loudly rather than
+// have the removed declaration silently ignored by the lenient textproto
+// unmarshaler.
+type RemovedFieldError struct {
+	Field string
+}
+
+func (e *RemovedFieldError) Error() string {
+	return fmt.Sprintf(
+		"unsupported manifest field %q: this field was removed; migrate to explicit members or component_dependencies",
+		e.Field,
+	)
+}
+
+// removedFields are schema fields that must be rejected at parse time, with a
+// textual match at a field-name position (followed by ':' or '{').
+var removedFields = []struct {
+	field   string
+	pattern *regexp.Regexp
+}{
+	{
+		field:   "absorbed_dependencies",
+		pattern: regexp.MustCompile(`(^|[^\w.])absorbed_dependencies\s*[:{]`),
+	},
+}
+
+// checkRemovedFields rejects textproto content naming fields that no longer
+// exist in the schema. It runs before unmarshaling because the protobuf
+// unmarshaler silently ignores unknown fields, which would drop a stale
+// declaration without a trace.
+func checkRemovedFields(text []byte) error {
+	for _, rf := range removedFields {
+		if rf.pattern.Match(text) {
+			return &RemovedFieldError{Field: rf.field}
+		}
+	}
+	return nil
+}
+
 // InvalidMemberError reports a member that is empty or is not a valid import-path pattern.
 type InvalidMemberError struct {
 	Member string
@@ -54,18 +95,9 @@ func (e *InvalidMemberError) Error() string {
 	return fmt.Sprintf("invalid member %q: %s", e.Member, e.Reason)
 }
 
-// MemberAbsorbedDependencyError reports a member declared again as an absorbed dependency.
-type MemberAbsorbedDependencyError struct {
-	ImportPath string
-}
-
-func (e *MemberAbsorbedDependencyError) Error() string {
-	return fmt.Sprintf("import path %q is both a member and an absorbed dependency", e.ImportPath)
-}
-
 // DuplicateDeclarationError represents a duplicate declaration error.
 type DuplicateDeclarationError struct {
-	Kind  string // "interface file", "component dependency", "absorbed dependency", "member", "declared authority"
+	Kind  string // "interface file", "component dependency", "member", "declared authority"
 	Value string
 }
 
@@ -105,7 +137,6 @@ type Manifest struct {
 	Name                   string
 	InterfaceFiles         []string
 	ComponentDependencies  []ComponentDependency
-	AbsorbedDependencies   []AbsorbedDependency
 	DeclaredAuthority      []string
 	Members                []string
 	InterfaceStyle         InterfaceStyle
@@ -120,18 +151,16 @@ type ComponentDependency struct {
 	AutoAttached bool
 }
 
-// AbsorbedDependency represents an implementation-detail dependency (e.g. internal or third-party package).
-type AbsorbedDependency struct {
-	ImportPath string
-	Reason     *string
-}
-
 // Parse reads textproto content from the provided reader, unmarshals it into the
 // generated message, and maps it onto the native model. It is ambient-authority-free.
 func Parse(r io.Reader) (Manifest, error) {
 	bytes, err := io.ReadAll(r)
 	if err != nil {
 		return Manifest{}, fmt.Errorf("reading manifest: %w", err)
+	}
+
+	if err := checkRemovedFields(bytes); err != nil {
+		return Manifest{}, err
 	}
 
 	var pbComponent gen.Component
@@ -161,21 +190,6 @@ func Parse(r io.Reader) (Manifest, error) {
 				Name:         pbDep.GetName(),
 				Manifest:     pbDep.GetManifest(),
 				AutoAttached: pbDep.GetAutoAttached(),
-			}
-		}
-	}
-
-	if pbAbsDeps := pbComponent.GetAbsorbedDependencies(); len(pbAbsDeps) > 0 {
-		m.AbsorbedDependencies = make([]AbsorbedDependency, len(pbAbsDeps))
-		for i, pbAbsDep := range pbAbsDeps {
-			var reasonPtr *string
-			if pbAbsDep.Reason != nil {
-				val := *pbAbsDep.Reason
-				reasonPtr = &val
-			}
-			m.AbsorbedDependencies[i] = AbsorbedDependency{
-				ImportPath: pbAbsDep.GetImportPath(),
-				Reason:     reasonPtr,
 			}
 		}
 	}
@@ -245,14 +259,6 @@ func validate(m Manifest) error {
 		seenDeps[dep.Name] = true
 	}
 
-	seenAbsDeps := make(map[string]bool)
-	for _, absDep := range m.AbsorbedDependencies {
-		if seenAbsDeps[absDep.ImportPath] {
-			return &DuplicateDeclarationError{Kind: "absorbed dependency", Value: absDep.ImportPath}
-		}
-		seenAbsDeps[absDep.ImportPath] = true
-	}
-
 	seenMembers := make(map[string]bool)
 	for _, member := range m.Members {
 		if seenMembers[member] {
@@ -268,9 +274,6 @@ func validate(m Manifest) error {
 		}
 		if m.InterfaceStyle == InterfaceStyleUnspecified && strings.ContainsAny(member, "*?[]\\") {
 			return &InvalidMemberError{Member: member, Reason: "declared-style members must be literal import paths"}
-		}
-		if seenAbsDeps[member] {
-			return &MemberAbsorbedDependencyError{ImportPath: member}
 		}
 	}
 

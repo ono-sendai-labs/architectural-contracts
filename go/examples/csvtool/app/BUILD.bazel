@@ -30,11 +30,11 @@ exports_files(["component.textproto"])
 
 # Golden parity: the manifests the go_component rule generates must agree
 # semantically with the hand-written colocated manifests — same interface files,
-# absorbed deps, declared authority, and component-dependency structure (R11,
+# declared authority and component-dependency structure (R11,
 # design §8.2). Homed here, at the composition root that pulls in all three
 # components. The test parses both forms with //go/internal/manifest and
 # normalizes away what differs by construction (the `_component` target-name
-# suffix, absorbed-dependency `reason` text, and the path frame). It skips under
+# suffix and the path frame). It skips under
 # plain `go test`, which passes it no manifests.
 # This test is hand-maintained (its args/data are the point) and its name is
 # not gazelle's convention for this package, so gazelle would otherwise generate

@@ -7,7 +7,7 @@
 //   - provides:  Run.
 //   - authority: NONE — this is the FR5b showcase. app depends on csvfile as a
 //     *component dependency*; Capslock traversal is pruned at csvfile's declared
-//     interface (Read), so the FILES authority csvfile holds is NOT re-absorbed
+//     interface (Read), so the FILES authority csvfile holds stays behind
 //     into app. app orchestrates a file-reading component yet checks
 //     ambient-authority-free.
 //

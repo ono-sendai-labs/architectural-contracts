@@ -1,5 +1,6 @@
 load(
     "@rules_arcc//bazel_rules/go:defs.bzl",
+    "ARBITRARY_EXECUTION",
     "EXEC",
     "FILES",
     "MODIFY_SYSTEM_STATE",
@@ -31,25 +32,48 @@ go_library(
 )
 
 # Mirrors the checked-in goanalysis/component.textproto: depends on
-# capanalyzer, facts, and manifest components; absorbs //go/internal/hostpolicy
-# (Host-overridable import-path canonicalization and stdlib classification
-# policy), //go/internal/packagelayout (Package layout driver and loading
-# helpers), @org_golang_x_tools//go/callgraph (Callgraph data structures),
-# @org_golang_x_tools//go/callgraph/vta (VTA callgraph construction),
-# @org_golang_x_tools//go/packages (Package loading),
-# @org_golang_x_tools//go/ssa (SSA representation), and
-# @org_golang_x_tools//go/ssa/ssautil (SSA utility helpers); declares 7
-# authorities.
+# capanalyzer, facts, and manifest components; owns //go/internal/hostpolicy,
+# //go/internal/packagelayout, and the x/tools closure as declared members;
+# declares 8 authorities.
+# hostpolicy, packagelayout, and the x/tools closure are declared members:
+# absorbed_dependencies was removed, and code the component calls into is owned
+# member code whose authority is charged to this component's declared_authority.
 go_component(
     name = "goanalysis_component",
-    absorbed_deps = [
+    members = [
         "//go/internal/hostpolicy",
         "//go/internal/packagelayout",
-        "@org_golang_x_tools//go/callgraph",
-        "@org_golang_x_tools//go/callgraph/vta",
-        "@org_golang_x_tools//go/packages",
-        "@org_golang_x_tools//go/ssa",
-        "@org_golang_x_tools//go/ssa/ssautil",
+        "@org_golang_x_mod//semver:semver",
+        "@org_golang_x_sync//errgroup:errgroup",
+        "@org_golang_x_tools//go/ast/astutil:astutil",
+        "@org_golang_x_tools//go/ast/edge:edge",
+        "@org_golang_x_tools//go/ast/inspector:inspector",
+        "@org_golang_x_tools//go/buildutil:buildutil",
+        "@org_golang_x_tools//go/callgraph:callgraph",
+        "@org_golang_x_tools//go/callgraph/internal/chautil:chautil",
+        "@org_golang_x_tools//go/callgraph/vta:vta",
+        "@org_golang_x_tools//go/callgraph/vta/internal/trie:trie",
+        "@org_golang_x_tools//go/gcexportdata:gcexportdata",
+        "@org_golang_x_tools//go/internal/cgo:cgo",
+        "@org_golang_x_tools//go/loader:loader",
+        "@org_golang_x_tools//go/packages:packages",
+        "@org_golang_x_tools//go/ssa:ssa",
+        "@org_golang_x_tools//go/ssa/ssautil:ssautil",
+        "@org_golang_x_tools//go/types/objectpath:objectpath",
+        "@org_golang_x_tools//go/types/typeutil:typeutil",
+        "@org_golang_x_tools//internal/aliases:aliases",
+        "@org_golang_x_tools//internal/event:event",
+        "@org_golang_x_tools//internal/event/core:core",
+        "@org_golang_x_tools//internal/event/keys:keys",
+        "@org_golang_x_tools//internal/event/label:label",
+        "@org_golang_x_tools//internal/gcimporter:gcimporter",
+        "@org_golang_x_tools//internal/gocommand:gocommand",
+        "@org_golang_x_tools//internal/packagesinternal:packagesinternal",
+        "@org_golang_x_tools//internal/pkgbits:pkgbits",
+        "@org_golang_x_tools//internal/stdlib:stdlib",
+        "@org_golang_x_tools//internal/typeparams:typeparams",
+        "@org_golang_x_tools//internal/typesinternal:typesinternal",
+        "@org_golang_x_tools//internal/versions:versions",
     ],
     component_deps = [
         "//go/internal/capanalyzer:capanalyzer_component",
@@ -57,6 +81,7 @@ go_component(
         "//go/internal/manifest:manifest_component",
     ],
     declared_authority = [
+        ARBITRARY_EXECUTION,
         FILES,
         EXEC,
         READ_SYSTEM_STATE,

@@ -217,9 +217,9 @@ func Hello() {
 	}
 }
 
-func TestIntegration_Absorbapp_Failing_UndeclaredAuthority(t *testing.T) {
+func TestIntegration_Failing_UndeclaredAuthority(t *testing.T) {
 	manifest := `
-name: "absorbapp"
+name: "authorityapp"
 interface_files: "main.go"
 `
 	files := map[string]string{
@@ -231,7 +231,7 @@ func Hello() {
 `,
 	}
 
-	absTmpDir, manifestPath := createTempComponent(t, "absorbapp", manifest, files)
+	absTmpDir, manifestPath := createTempComponent(t, "authorityapp", manifest, files)
 
 	stdout1, stderr1, exitCode1 := runArcc([]string{"check", manifestPath})
 
@@ -261,7 +261,7 @@ func Hello() {
 	}
 
 	// Verify against deterministic golden output to assert stability, finding order, and evidence call-paths.
-	want := `Component: absorbapp
+	want := `Component: authorityapp
 
 Violations:
 - [UNDECLARED_AUTHORITY] use of undeclared authority "FILES" in package "github.com/ono-sendai-labs/architectural-contracts/go/examples/csvtool/<TEMP_DIR_NAME>"
@@ -271,6 +271,35 @@ Violations:
 `
 	if strings.TrimSpace(normalizedStdout1) != strings.TrimSpace(want) {
 		t.Errorf("normalized stdout does not match golden output.\nGOT:\n%q\nWANT:\n%q", normalizedStdout1, want)
+	}
+}
+
+func TestIntegration_StaleManifest_Exit2(t *testing.T) {
+	// A stale manifest naming the removed absorbed_dependencies field must fail
+	// at parse time with an actionable diagnostic, never silently ignore it.
+	manifest := `
+name: "stale-absorbed"
+interface_files: "api.go"
+absorbed_dependencies {
+	import_path: "example.com/impl"
+}
+`
+	files := map[string]string{
+		"api.go": "package main\n\nfunc Hello() {}\n",
+	}
+
+	_, manifestPath := createTempComponent(t, "stale-absorbed", manifest, files)
+
+	stdout, stderr, exitCode := runArcc([]string{"check", manifestPath})
+
+	if exitCode != 2 {
+		t.Fatalf("expected exit code 2, got %d. Stdout: %s", exitCode, stdout)
+	}
+	if stdout != "" {
+		t.Errorf("expected empty stdout, got %q", stdout)
+	}
+	if !strings.Contains(stderr, "absorbed_dependencies") {
+		t.Errorf("expected error to identify removed field absorbed_dependencies, got %q", stderr)
 	}
 }
 
@@ -325,7 +354,7 @@ this is completely invalid textproto data {{{
 
 func TestIntegration_FormatJSON(t *testing.T) {
 	manifest := `
-name: "absorbapp"
+name: "authorityapp"
 interface_files: "main.go"
 component_dependencies {
 	name: "toprow"
@@ -347,7 +376,7 @@ func Hello() {
 `,
 	}
 
-	absTmpDir, manifestPath := createTempComponent(t, "absorbapp-json", manifest, files)
+	absTmpDir, manifestPath := createTempComponent(t, "authorityapp-json", manifest, files)
 
 	// 1. Run in JSON format
 	stdoutJSON, stderrJSON, exitCodeJSON := runArcc([]string{"check", manifestPath, "--format=json"})
@@ -364,8 +393,8 @@ func Hello() {
 		t.Fatalf("failed to decode JSON output: %v, stdout: %s", err, stdoutJSON)
 	}
 
-	if rep.Component != "absorbapp" {
-		t.Errorf("rep.Component = %q, want 'absorbapp'", rep.Component)
+	if rep.Component != "authorityapp" {
+		t.Errorf("rep.Component = %q, want 'authorityapp'", rep.Component)
 	}
 
 	var vAuth, vDep *report.Finding
@@ -458,7 +487,7 @@ func Hello() {
 	}
 }
 
-func TestIntegration_PruningVsAbsorbedAuthority(t *testing.T) {
+func TestIntegration_PruningAtDependencyBoundary(t *testing.T) {
 	// 1. Create the authority-bearing dependency component "authdep"
 	depManifest := `
 name: "authdep"
@@ -528,39 +557,6 @@ component_dependencies {
 	}
 	if !strings.Contains(stdoutCD, `Component "caller-cd" conforms; does not exceed declared authority`) {
 		t.Errorf("expected stdout to confirm conformance, got: %s", stdoutCD)
-	}
-
-	// 3. Absorbed Dependency Variant: caller imports and calls the dependency,
-	// but declares it as absorbed instead of a component dependency.
-	// Because it is absorbed, its internal use of "FILES" remains attributed to caller-abs
-	// and triggers an UNDECLARED_AUTHORITY violation.
-	callerManifestAbs := fmt.Sprintf(`
-name: "caller-abs"
-interface_files: "caller.go"
-absorbed_dependencies {
-	import_path: "%s"
-}
-`, depImportPath)
-	callerFilesAbs := map[string]string{
-		"caller.go": fmt.Sprintf(`package main
-import dep "%s"
-func Hello() {
-	dep.ReadData()
-}
-`, depImportPath),
-	}
-
-	_, callerManifestPathAbs := createTempComponent(t, "caller-abs", callerManifestAbs, callerFilesAbs)
-
-	stdoutAbs, stderrAbs, exitCodeAbs := runArcc([]string{"check", callerManifestPathAbs})
-	if exitCodeAbs != 1 {
-		t.Fatalf("expected absorbed-dependency variant to fail (exit 1), got %d. Stderr: %s\nStdout: %s", exitCodeAbs, stderrAbs, stdoutAbs)
-	}
-	if stderrAbs != "" {
-		t.Errorf("expected empty stderr for absorbed-dependency variant, got %q", stderrAbs)
-	}
-	if !strings.Contains(stdoutAbs, `use of undeclared authority "FILES"`) {
-		t.Errorf("expected absorbed-dependency variant to report FILES undeclared authority, got: %s", stdoutAbs)
 	}
 }
 
@@ -653,7 +649,7 @@ component_dependencies {
 	}
 }
 
-func TestIntegration_InitPruningVsAbsorbedAuthority(t *testing.T) {
+func TestIntegration_InitPruningAtDependencyBoundary(t *testing.T) {
 	// 1. Create the authority-bearing dependency component "initdep" (authority only in init)
 	depManifest := `
 name: "initdep"
@@ -724,39 +720,6 @@ component_dependencies {
 	}
 	if !strings.Contains(stdoutCD, `Component "caller-init-cd" conforms; does not exceed declared authority`) {
 		t.Errorf("expected stdout to confirm conformance, got: %s", stdoutCD)
-	}
-
-	// 3. Absorbed Dependency Variant: caller imports and calls the dependency,
-	// but declares it as absorbed instead of a component dependency.
-	// Because it is absorbed, its internal use of "FILES" inside init() is attributed to caller-init-abs
-	// and triggers an UNDECLARED_AUTHORITY violation.
-	callerManifestAbs := fmt.Sprintf(`
-name: "caller-init-abs"
-interface_files: "caller.go"
-absorbed_dependencies {
-	import_path: "%s"
-}
-`, depImportPath)
-	callerFilesAbs := map[string]string{
-		"caller.go": fmt.Sprintf(`package main
-import dep "%s"
-func Hello() {
-	dep.Dummy()
-}
-`, depImportPath),
-	}
-
-	_, callerManifestPathAbs := createTempComponent(t, "caller-init-abs", callerManifestAbs, callerFilesAbs)
-
-	stdoutAbs, stderrAbs, exitCodeAbs := runArcc([]string{"check", callerManifestPathAbs})
-	if exitCodeAbs != 1 {
-		t.Fatalf("expected absorbed-dependency variant to fail (exit 1), got %d. Stderr: %s\nStdout: %s", exitCodeAbs, stderrAbs, stdoutAbs)
-	}
-	if stderrAbs != "" {
-		t.Errorf("expected empty stderr for absorbed-dependency variant, got %q", stderrAbs)
-	}
-	if !strings.Contains(stdoutAbs, `use of undeclared authority "FILES"`) {
-		t.Errorf("expected absorbed-dependency variant to report FILES undeclared authority, got: %s", stdoutAbs)
 	}
 }
 
@@ -978,14 +941,14 @@ func ViolateCorePurity() {
 	}
 }
 
-func TestIntegration_Fixture2_CallbackEscapePair(t *testing.T) {
-	// Design §7.1 Fixture 2 regression pair:
-	// Host component accepts callback.
-	// Editor component passes backend.Load across boundary to host.
+func TestIntegration_Fixture2_MemberCallbackConforms(t *testing.T) {
+	// Regression pair, absorbed-free: the editor passes backend.Load across the
+	// boundary to the host while backend is an owned member, so its authority is
+	// charged to the editor component and the report conforms.
 	hostFiles := map[string]string{
 		"api.go": `package host
 
-func Register(f func() ([]byte, error)) {}
+func Register(func() ([]byte, error)) {}
 `,
 	}
 	hostManifest := `
@@ -1001,7 +964,7 @@ interface_files: "api.go"
 	importPath := func(dir string) string {
 		rel, err := filepath.Rel(moduleRoot, dir)
 		if err != nil {
-			t.Fatalf("failed to resolve import path for %s: %v", dir, err)
+			t.Fatalf("failed to resolve import path for %v: %v", dir, err)
 		}
 		return "github.com/ono-sendai-labs/architectural-contracts/go/" + filepath.ToSlash(rel)
 	}
@@ -1025,8 +988,10 @@ func Connect() {
 `,
 		"backend/load.go": `package backend
 
+import "os"
+
 func Load() ([]byte, error) {
-	return []byte("data"), nil
+	return os.ReadFile("backend.txt")
 }
 `,
 	}
@@ -1035,75 +1000,15 @@ name: "fixture2-editor"
 interface_files: "api.go"
 `
 	editorDir, editorManifestPath := createTempComponent(t, "fixture2-editor", editorManifest, editorFiles)
+	editorImportPath := importPath(editorDir)
 	backendImportPath := importPath(filepath.Join(editorDir, "backend"))
 	relHostManifest, err := filepath.Rel(editorDir, hostManifestPath)
 	if err != nil {
 		t.Fatalf("failed to resolve host manifest path: %v", err)
 	}
 
-	// Part 1: backend is ABSORBED -> warns ABSORBED_FUNC_VALUE_ESCAPE, exit code 0
-	editorImportPath := importPath(editorDir)
-	absorbedManifest := fmt.Sprintf(`
-name: "fixture2-editor"
-interface_files: "api.go"
-members: "%s"
-absorbed_dependencies {
-	import_path: "%s"
-}
-component_dependencies {
-	name: "fixture2-host"
-	manifest: "%s"
-}
-`, editorImportPath, backendImportPath, filepath.ToSlash(relHostManifest))
-	if err := os.WriteFile(editorManifestPath, []byte(absorbedManifest), 0644); err != nil {
-		t.Fatalf("failed to write absorbed manifest: %v", err)
-	}
-
-	// Text format
-	stdoutAbs, stderrAbs, exitCodeAbs := runArcc([]string{"check", editorManifestPath})
-	if exitCodeAbs != 0 {
-		t.Fatalf("expected absorbed callback escape to warn with exit code 0, got %d. Stderr: %s\nStdout: %s", exitCodeAbs, stderrAbs, stdoutAbs)
-	}
-	if stderrAbs != "" {
-		t.Errorf("expected empty stderr for absorbed variant, got %q", stderrAbs)
-	}
-	if !strings.Contains(stdoutAbs, "ABSORBED_FUNC_VALUE_ESCAPE") {
-		t.Errorf("expected absorbed variant stdout to contain ABSORBED_FUNC_VALUE_ESCAPE, got: %s", stdoutAbs)
-	}
-	if !strings.Contains(stdoutAbs, "backend.Load") {
-		t.Errorf("expected absorbed variant stdout to name absorbed function backend.Load, got: %s", stdoutAbs)
-	}
-	if !strings.Contains(stdoutAbs, "at editor.go:") {
-		t.Errorf("expected absorbed variant stdout to carry file and line, got: %s", stdoutAbs)
-	}
-
-	// JSON format
-	stdoutJSON, stderrJSON, exitCodeJSON := runArcc([]string{"check", editorManifestPath, "--format=json"})
-	if exitCodeJSON != 0 {
-		t.Fatalf("expected JSON check exit code 0, got %d. Stderr: %s\nStdout: %s", exitCodeJSON, stderrJSON, stdoutJSON)
-	}
-	if stderrJSON != "" {
-		t.Errorf("expected empty stderr for JSON format, got %q", stderrJSON)
-	}
-	var jsonRep report.ConformanceReport
-	if err := json.Unmarshal([]byte(stdoutJSON), &jsonRep); err != nil {
-		t.Fatalf("failed to unmarshal JSON report: %v, raw: %s", err, stdoutJSON)
-	}
-	if len(jsonRep.Violations) != 0 || len(jsonRep.Warnings) != 1 {
-		t.Fatalf("expected 0 violations and 1 warning in JSON report, got %d violations, %d warnings: %+v", len(jsonRep.Violations), len(jsonRep.Warnings), jsonRep)
-	}
-	wJSON := jsonRep.Warnings[0]
-	if wJSON.Kind != report.AbsorbedFuncValueEscape {
-		t.Errorf("expected JSON warning kind ABSORB_FUNC_VALUE_ESCAPE, got %s", wJSON.Kind)
-	}
-	if !strings.Contains(wJSON.Message, "backend.Load") {
-		t.Errorf("expected JSON warning message to name backend.Load, got %q", wJSON.Message)
-	}
-	if wJSON.Location.File != "editor.go" || wJSON.Location.Line <= 0 {
-		t.Errorf("expected JSON warning location editor.go with positive line number, got %+v", wJSON.Location)
-	}
-
-	// Part 2: backend body in MEMBER -> no warning, clean conforming report, exit code 0
+	// backend is a MEMBER: its FILES use is charged to the editor, which
+	// declares it, so the report conforms with no warnings.
 	memberManifest := fmt.Sprintf(`
 name: "fixture2-editor"
 interface_files: "api.go"
@@ -1113,6 +1018,7 @@ component_dependencies {
 	name: "fixture2-host"
 	manifest: "%s"
 }
+declared_authority: "FILES"
 `, editorImportPath, backendImportPath, filepath.ToSlash(relHostManifest))
 	if err := os.WriteFile(editorManifestPath, []byte(memberManifest), 0644); err != nil {
 		t.Fatalf("failed to write member manifest: %v", err)
@@ -1124,9 +1030,6 @@ component_dependencies {
 	}
 	if stderrMem != "" {
 		t.Errorf("expected empty stderr for member variant, got %q", stderrMem)
-	}
-	if strings.Contains(stdoutMem, "ABSORBED_FUNC_VALUE_ESCAPE") {
-		t.Errorf("expected member variant stdout to NOT contain ABSORBED_FUNC_VALUE_ESCAPE, got: %s", stdoutMem)
 	}
 	if !strings.Contains(stdoutMem, `Component "fixture2-editor" conforms; does not exceed declared authority`) {
 		t.Errorf("expected member variant stdout to be conforming success line, got: %s", stdoutMem)

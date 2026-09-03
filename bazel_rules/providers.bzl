@@ -15,7 +15,7 @@ ArccComponentInfo = provider(
         "layout": "File, generated package-layout.json",
         "transitive_manifests": "depset[File], own + all component deps' manifests",
         "transitive_layouts": "depset[File], own + all component deps' layouts",
-        "closure": "depset[struct], this component's member + absorbed packages, " +
+        "closure": "depset[struct], this component's member packages, " +
                    "which dependents subtract from their own closure (design §5.3)",
         "contracts": "depset[File], contract docs (Bazel-only metadata)",
     },

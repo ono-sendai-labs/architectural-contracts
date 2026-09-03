@@ -103,7 +103,7 @@ func parse(t testing.TB, path string) manifest.Manifest {
 
 // CompareManifests compares a generated manifest against a checked-in manifest
 // for semantic equivalence, ignoring incidental differences (e.g., target name suffix,
-// absorbed dependency reasons, path frames for interface files).
+// path frames for interface files).
 func CompareManifests(t testing.TB, dir string, gen, chk manifest.Manifest) {
 	t.Helper()
 
@@ -134,11 +134,6 @@ func CompareManifests(t testing.TB, dir string, gen, chk manifest.Manifest) {
 	// state than the generated manifest.
 	if gen.OwnCheckRuns != chk.OwnCheckRuns {
 		t.Errorf("%s: own_check_runs = %t, want %t", dir, gen.OwnCheckRuns, chk.OwnCheckRuns)
-	}
-
-	// Absorbed dependencies: same import paths (canonicalized), reasons ignored.
-	if got, want := sorted(canonicalize(importPaths(gen.AbsorbedDependencies))), sorted(canonicalize(importPaths(chk.AbsorbedDependencies))); !slices.Equal(got, want) {
-		t.Errorf("%s: absorbed import paths = %v, want %v", dir, got, want)
 	}
 
 	// Declared authority: same set.
@@ -213,15 +208,6 @@ func basenames(paths []string) []string {
 	out := make([]string, len(paths))
 	for i, p := range paths {
 		out[i] = filepath.Base(p)
-	}
-	sort.Strings(out)
-	return out
-}
-
-func importPaths(deps []manifest.AbsorbedDependency) []string {
-	out := make([]string, len(deps))
-	for i, d := range deps {
-		out[i] = d.ImportPath
 	}
 	sort.Strings(out)
 	return out

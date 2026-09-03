@@ -5,10 +5,8 @@ component_dependencies {
   name: "shared_component"
   manifest: "../shared/shared_component.component.textproto"
 }
-absorbed_dependencies {
-  import_path: "example.com/aspect/extradep"
-}
 members: "example.com/aspect/api"
 members: "example.com/aspect/core"
+members: "example.com/aspect/extradep"
 members: "example.com/aspect/lowlevel"
 declared_authority: "FILES"

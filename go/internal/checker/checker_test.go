@@ -21,16 +21,13 @@ func TestCheck_FR3_ConformingImports(t *testing.T) {
 			ComponentDependencies: []manifest.ComponentDependency{
 				{Name: "dep1", Manifest: "dep1/manifest"},
 			},
-			AbsorbedDependencies: []manifest.AbsorbedDependency{
-				{ImportPath: "github.com/foo/bar"},
-			},
 		},
 		Facts: facts.PackageFacts{
 			StdlibImports: []string{"fmt"},
 			Packages: []facts.PackageFact{
 				{
 					ImportPath: "mycomponent/pkg1",
-					Imports:    []string{"github.com/dep1/pkg", "github.com/foo/bar", "fmt"},
+					Imports:    []string{"github.com/dep1/pkg", "fmt"},
 				},
 			},
 		},
@@ -60,15 +57,12 @@ func TestCheck_PopulatesDependenciesListingAndNoFindings(t *testing.T) {
 				{Name: "b-dep"},
 				{Name: "a-dep"},
 			},
-			AbsorbedDependencies: []manifest.AbsorbedDependency{
-				{ImportPath: "github.com/absorbed/pkg"},
-			},
 		},
 		Facts: facts.PackageFacts{
 			Packages: []facts.PackageFact{
 				{
 					ImportPath: "mycomponent/pkg1",
-					Imports:    []string{"github.com/a-dep/pkg", "github.com/b-dep/pkg", "github.com/absorbed/pkg"},
+					Imports:    []string{"github.com/a-dep/pkg", "github.com/b-dep/pkg"},
 				},
 			},
 		},
@@ -398,40 +392,39 @@ func TestCheck_FR3_StdlibAndIntraComponentAllowed(t *testing.T) {
 	}
 }
 
-func TestCheck_FR3_AbsorbedDependencyGlobMatch(t *testing.T) {
+func TestCheck_FR3_UnownedImportIsUndeclaredDependency(t *testing.T) {
 	in := checker.Inputs{
 		Manifest: manifest.Manifest{
 			Name: "mycomponent",
-			AbsorbedDependencies: []manifest.AbsorbedDependency{
-				{ImportPath: "github.com/foo/*"},
-			},
 		},
 		Facts: facts.PackageFacts{
 			Packages: []facts.PackageFact{
 				{
 					ImportPath: "mycomponent/pkg1",
-					Imports:    []string{"github.com/foo/bar", "github.com/foo/baz"},
+					Imports:    []string{"github.com/foo/bar"},
 				},
 			},
 		},
 	}
 
 	rep := checker.Check(in)
-	if len(rep.Violations) != 0 {
-		t.Errorf("expected 0 violations, got %d: %v", len(rep.Violations), rep.Violations)
+	if len(rep.Violations) != 1 {
+		t.Fatalf("expected 1 violation, got %d: %v", len(rep.Violations), rep.Violations)
+	}
+	if rep.Violations[0].Kind != report.UndeclaredDependency {
+		t.Errorf("expected violation kind %s, got %s", report.UndeclaredDependency, rep.Violations[0].Kind)
+	}
+	if !strings.Contains(rep.Violations[0].Message, "github.com/foo/bar") {
+		t.Errorf("expected violation to name the undeclared import, got %q", rep.Violations[0].Message)
 	}
 }
 
 func TestCheck_FR3_UnusedDependencies(t *testing.T) {
-	reason := "needed for testing"
 	in := checker.Inputs{
 		Manifest: manifest.Manifest{
 			Name: "mycomponent",
 			ComponentDependencies: []manifest.ComponentDependency{
 				{Name: "dep1", Manifest: "dep1/manifest"},
-			},
-			AbsorbedDependencies: []manifest.AbsorbedDependency{
-				{ImportPath: "github.com/unused/*", Reason: &reason},
 			},
 		},
 		Facts: facts.PackageFacts{
@@ -454,13 +447,12 @@ func TestCheck_FR3_UnusedDependencies(t *testing.T) {
 	if len(rep.Violations) != 0 {
 		t.Errorf("expected 0 violations, got %d: %v", len(rep.Violations), rep.Violations)
 	}
-	if len(rep.Warnings) != 2 {
-		t.Fatalf("expected 2 warnings, got %d", len(rep.Warnings))
+	if len(rep.Warnings) != 1 {
+		t.Fatalf("expected 1 warning, got %d", len(rep.Warnings))
 	}
 
 	expectedWarns := map[string]bool{
-		`declared component dependency "dep1" is unused`:               true,
-		`declared absorbed dependency "github.com/unused/*" is unused`: true,
+		`declared component dependency "dep1" is unused`: true,
 	}
 
 	for _, w := range rep.Warnings {
@@ -1021,46 +1013,6 @@ func TestCheck_MemberOverlapWithComponentDependency(t *testing.T) {
 	expectedMsg := `member overlap with dependency "dep1": overlapping packages: mycomponent/pkg/nested`
 	if v.Message != expectedMsg {
 		t.Errorf("expected message %q, got %q", expectedMsg, v.Message)
-	}
-}
-
-func TestCheck_MemberOverlapWithAbsorbedExactAndPattern(t *testing.T) {
-	in := checker.Inputs{
-		Manifest: manifest.Manifest{
-			Name:    "component",
-			Members: []string{"component/exact", "component/pattern"},
-			AbsorbedDependencies: []manifest.AbsorbedDependency{
-				{ImportPath: "component/exact"},
-				{ImportPath: "component/*"},
-			},
-		},
-		Facts: facts.PackageFacts{Packages: []facts.PackageFact{
-			{ImportPath: "component/exact"},
-			{ImportPath: "component/pattern"},
-		}},
-	}
-
-	first := checker.Check(in)
-	second := checker.Check(in)
-	if !reflect.DeepEqual(first, second) {
-		t.Fatalf("overlap findings are not deterministic: first=%#v second=%#v", first, second)
-	}
-	if len(first.Violations) != 2 {
-		t.Fatalf("violations = %#v, want two absorbed overlaps", first.Violations)
-	}
-	for _, want := range []string{
-		`member overlap with absorbed dependency "component/*": overlapping packages: component/exact, component/pattern`,
-		`member overlap with absorbed dependency "component/exact": overlapping packages: component/exact`,
-	} {
-		found := false
-		for _, violation := range first.Violations {
-			if violation.Kind == report.MemberOverlap && violation.Message == want {
-				found = true
-			}
-		}
-		if !found {
-			t.Errorf("violations = %#v, missing %q", first.Violations, want)
-		}
 	}
 }
 
@@ -1653,114 +1605,6 @@ Violations:
 	}
 }
 
-func TestCheck_AbsorbedFuncValueEscape_OneEscape(t *testing.T) {
-	in := checker.Inputs{
-		Manifest: manifest.Manifest{Name: "mycomponent"},
-		Facts: facts.PackageFacts{
-			Packages: []facts.PackageFact{
-				{ImportPath: "mycomponent/member"},
-			},
-			FuncValueEscapes: []facts.FuncValueEscape{
-				{
-					Symbol:  "example.com/absorbed.Load",
-					Package: "mycomponent/member",
-					File:    "member/member.go",
-					Line:    15,
-				},
-			},
-		},
-	}
-
-	rep := checker.Check(in)
-	if len(rep.Violations) != 0 {
-		t.Fatalf("expected 0 violations, got %d: %+v", len(rep.Violations), rep.Violations)
-	}
-	if len(rep.Warnings) != 1 {
-		t.Fatalf("expected 1 warning, got %d: %+v", len(rep.Warnings), rep.Warnings)
-	}
-
-	w := rep.Warnings[0]
-	if w.Kind != report.AbsorbedFuncValueEscape {
-		t.Errorf("expected warning kind %s, got %s", report.AbsorbedFuncValueEscape, w.Kind)
-	}
-	if w.Location.File != "member/member.go" || w.Location.Line != 15 {
-		t.Errorf("expected location member/member.go:15, got %+v", w.Location)
-	}
-	if !strings.Contains(w.Message, "mycomponent/member") || !strings.Contains(w.Message, "example.com/absorbed.Load") {
-		t.Errorf("expected message to name member package and absorbed function symbol, got %q", w.Message)
-	}
-	if !strings.Contains(w.Message, "without calling it") {
-		t.Errorf("expected message to explain no-direct-call ('without calling it'), got %q", w.Message)
-	}
-	if !strings.Contains(w.Message, "body is unanalyzed") {
-		t.Errorf("expected message to explain unanalyzed body ('body is unanalyzed'), got %q", w.Message)
-	}
-}
-
-func TestCheck_AbsorbedFuncValueEscape_EmptyOrNil(t *testing.T) {
-	inNil := checker.Inputs{
-		Manifest: manifest.Manifest{Name: "mycomponent"},
-		Facts: facts.PackageFacts{
-			Packages:         []facts.PackageFact{{ImportPath: "mycomponent/member"}},
-			FuncValueEscapes: nil,
-		},
-	}
-	repNil := checker.Check(inNil)
-	for _, w := range repNil.Warnings {
-		if w.Kind == report.AbsorbedFuncValueEscape {
-			t.Errorf("unexpected ABSORBED_FUNC_VALUE_ESCAPE warning for nil escapes: %+v", w)
-		}
-	}
-
-	inEmpty := checker.Inputs{
-		Manifest: manifest.Manifest{Name: "mycomponent"},
-		Facts: facts.PackageFacts{
-			Packages:         []facts.PackageFact{{ImportPath: "mycomponent/member"}},
-			FuncValueEscapes: []facts.FuncValueEscape{},
-		},
-	}
-	repEmpty := checker.Check(inEmpty)
-	for _, w := range repEmpty.Warnings {
-		if w.Kind == report.AbsorbedFuncValueEscape {
-			t.Errorf("unexpected ABSORBED_FUNC_VALUE_ESCAPE warning for empty escapes: %+v", w)
-		}
-	}
-}
-
-func TestCheck_AbsorbedFuncValueEscape_MultipleEscapesDeterministic(t *testing.T) {
-	in := checker.Inputs{
-		Manifest: manifest.Manifest{Name: "mycomponent"},
-		Facts: facts.PackageFacts{
-			Packages: []facts.PackageFact{
-				{ImportPath: "mycomponent/member-a"},
-				{ImportPath: "mycomponent/member-b"},
-			},
-			FuncValueEscapes: []facts.FuncValueEscape{
-				{Symbol: "example.com/absorbed.Z", Package: "mycomponent/member-b", File: "b.go", Line: 20},
-				{Symbol: "example.com/absorbed.A", Package: "mycomponent/member-a", File: "a.go", Line: 10},
-				{Symbol: "example.com/absorbed.M", Package: "mycomponent/member-a", File: "a.go", Line: 5},
-			},
-		},
-	}
-
-	rep1 := checker.Check(in)
-	rep2 := checker.Check(in)
-
-	if !reflect.DeepEqual(rep1, rep2) {
-		t.Fatalf("repeated Check calls differ: %#v vs %#v", rep1, rep2)
-	}
-	if len(rep1.Warnings) != 3 {
-		t.Fatalf("expected 3 warnings, got %d", len(rep1.Warnings))
-	}
-
-	// Verify warnings are sorted deterministically
-	text1 := report.RenderText(rep1)
-	text2 := report.RenderText(rep2)
-	if text1 != text2 {
-		t.Fatalf("rendered text outputs differ: %q vs %q", text1, text2)
-	}
-}
-
 func TestCheck_PackageSurface_CallsUndeclaredInterfaceSkipped(t *testing.T) {
 	in := checker.Inputs{
 		Manifest: manifest.Manifest{
@@ -1884,8 +1728,7 @@ func TestCheck_PackageSurfaceWrapper_UsedVsUnused(t *testing.T) {
 }
 
 func TestCheck_AutoAttachedDependencies_NeverWarnUnused(t *testing.T) {
-	// Matrix of 4 combinations: {used, unused} x {package-surface, declared-style}
-	// plus an unused absorbed dependency to verify it still warns.
+	// Matrix of 4 combinations: {used, unused} x {package-surface, declared-style}.
 	in := checker.Inputs{
 		Manifest: manifest.Manifest{
 			Name: "mycomponent",
@@ -1894,9 +1737,6 @@ func TestCheck_AutoAttachedDependencies_NeverWarnUnused(t *testing.T) {
 				{Name: "dep_unused_pkgsurf", AutoAttached: true},
 				{Name: "dep_used_declared", AutoAttached: true},
 				{Name: "dep_unused_declared", AutoAttached: true},
-			},
-			AbsorbedDependencies: []manifest.AbsorbedDependency{
-				{ImportPath: "example.com/unused_absorbed"},
 			},
 		},
 		Facts: facts.PackageFacts{
@@ -1932,12 +1772,8 @@ func TestCheck_AutoAttachedDependencies_NeverWarnUnused(t *testing.T) {
 	}
 
 	rep := checker.Check(in)
-	// Only example.com/unused_absorbed should produce a warning
-	if len(rep.Warnings) != 1 {
-		t.Fatalf("expected 1 warning (for unused absorbed dep), got %d: %+v", len(rep.Warnings), rep.Warnings)
-	}
-	if rep.Warnings[0].Kind != report.UnusedDependency || !strings.Contains(rep.Warnings[0].Message, "example.com/unused_absorbed") {
-		t.Errorf("expected warning for example.com/unused_absorbed, got %+v", rep.Warnings[0])
+	if len(rep.Warnings) != 0 {
+		t.Fatalf("expected 0 warnings (auto-attached deps never warn unused), got %d: %+v", len(rep.Warnings), rep.Warnings)
 	}
 }
 
@@ -1969,36 +1805,7 @@ func TestCheck_FR4_EmptyInterfaceFilesVacuous(t *testing.T) {
 	}
 }
 
-func TestCheck_BodilessAbsorbedPackagesAreAnalysisLimitations(t *testing.T) {
-	in := checker.Inputs{
-		Manifest: manifest.Manifest{
-			Name: "mycomponent",
-		},
-		Facts: facts.PackageFacts{
-			Packages: []facts.PackageFact{
-				{ImportPath: "mycomponent/pkg"},
-			},
-			BodilessAbsorbedPackages: []string{"example.com/bodiless_dep"},
-		},
-	}
-
-	rep := checker.Check(in)
-	if len(rep.Violations) != 0 {
-		t.Fatalf("expected 0 violations, got %d: %+v", len(rep.Violations), rep.Violations)
-	}
-	if len(rep.Warnings) != 1 {
-		t.Fatalf("expected 1 warning, got %d: %+v", len(rep.Warnings), rep.Warnings)
-	}
-	w := rep.Warnings[0]
-	if w.Kind != report.AnalysisLimitation {
-		t.Errorf("warning kind = %v, want ANALYSIS_LIMITATION", w.Kind)
-	}
-	if !strings.Contains(w.Message, "example.com/bodiless_dep") || !strings.Contains(w.Message, "no source bodies") {
-		t.Errorf("warning message = %q, want naming package and no source bodies", w.Message)
-	}
-}
-
-func TestCheck_ThreeAnalysisLimitationsAreDistinguishable(t *testing.T) {
+func TestCheck_TwoAnalysisLimitationsAreDistinguishable(t *testing.T) {
 	in := checker.Inputs{
 		Manifest: manifest.Manifest{
 			Name: "mycomponent",
@@ -2010,7 +1817,6 @@ func TestCheck_ThreeAnalysisLimitationsAreDistinguishable(t *testing.T) {
 			UnresolvedImports: []facts.UnresolvedImport{
 				{Package: "mycomponent/pkg", File: "foo.go", ImportPath: "example.com/missing"},
 			},
-			BodilessAbsorbedPackages: []string{"example.com/bodiless"},
 		},
 		Caps: []capanalyzer.CapabilityFinding{
 			{
@@ -2028,8 +1834,8 @@ func TestCheck_ThreeAnalysisLimitationsAreDistinguishable(t *testing.T) {
 	if len(rep.Violations) != 0 {
 		t.Fatalf("expected 0 violations, got %d: %+v", len(rep.Violations), rep.Violations)
 	}
-	if len(rep.Warnings) != 3 {
-		t.Fatalf("expected 3 warnings, got %d: %+v", len(rep.Warnings), rep.Warnings)
+	if len(rep.Warnings) != 2 {
+		t.Fatalf("expected 2 warnings, got %d: %+v", len(rep.Warnings), rep.Warnings)
 	}
 
 	for _, w := range rep.Warnings {
@@ -2043,16 +1849,13 @@ func TestCheck_ThreeAnalysisLimitationsAreDistinguishable(t *testing.T) {
 	for _, w := range rep.Warnings {
 		msgs[w.Message] = true
 	}
-	if len(msgs) != 3 {
-		t.Errorf("expected 3 distinct warning messages, got %d", len(msgs))
+	if len(msgs) != 2 {
+		t.Errorf("expected 2 distinct warning messages, got %d", len(msgs))
 	}
 
 	rendered := report.RenderText(rep)
 	if !strings.Contains(rendered, "unresolved import") {
 		t.Errorf("rendered report missing unresolved import limitation")
-	}
-	if !strings.Contains(rendered, "absorbed package") {
-		t.Errorf("rendered report missing absorbed package limitation")
 	}
 	if !strings.Contains(rendered, `capability "FILES"`) {
 		t.Errorf("rendered report missing capability analysis limitation")

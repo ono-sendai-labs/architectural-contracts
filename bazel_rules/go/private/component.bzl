@@ -2,8 +2,7 @@
 
 Everything here happens at analysis time; the only actions are the two writes.
 The rule classifies the union of the interface and declared member package
-closures into
-component-dep-covered, absorbed, and member packages (design §3.1, §4.8), emits the
+closures into component-dep-covered and member packages (design §3.1, §4.8), emits the
 manifest arcc checks and the layout arcc loads through, and forwards the
 interface library's Go providers so the component target is usable as a
 `deps` entry.
@@ -65,7 +64,7 @@ def _package_name(importpath):
 def _textproto_string(value):
     return '"' + value.replace("\\", "\\\\").replace('"', '\\"') + '"'
 
-def _manifest_content(ctx, interface_files, component_deps, auto_attached_deps, absorbed, declared_authority, manifest_dir, interface_style, members, own_check_runs):
+def _manifest_content(ctx, interface_files, component_deps, auto_attached_deps, declared_authority, manifest_dir, interface_style, members, own_check_runs):
     lines = ["name: " + _textproto_string(ctx.label.name)]
 
     # `manual` excludes the generated `.check` from `bazel test //...`; the
@@ -99,15 +98,6 @@ def _manifest_content(ctx, interface_files, component_deps, auto_attached_deps, 
         lines.append("  manifest: " + _textproto_string(manifest_path))
         if auto_attached:
             lines.append("  auto_attached: true")
-        lines.append("}")
-
-    for importpath in absorbed:
-        lines.append("absorbed_dependencies {")
-        lines.append("  import_path: " + _textproto_string(importpath))
-
-        # No `reason`: an absorbed dependency is an implementation detail the
-        # component takes responsibility for, and owes its consumers no
-        # justification (design §7.3).
         lines.append("}")
 
     for m in members:
@@ -162,13 +152,7 @@ def _layout_content(ctx, merged, roots, go_sdk_root, platform):
     ) + "\n"
 
 def _classify(ctx, merged, effective_members, covered):
-    """Splits the FR2 frontier into covered, member, and absorbed (design §3.1, §4.8)."""
-
-    absorbed_closure = {}
-    for dep in ctx.attr.absorbed_deps:
-        for pkg in dep[ArccPackageInfo].packages.to_list():
-            absorbed_closure[pkg.importpath] = True
-
+    """Splits the FR2 frontier into covered and member (design §3.1, §4.8)."""
     frontier = {}
     for member_path in effective_members:
         frontier[member_path] = True
@@ -178,7 +162,6 @@ def _classify(ctx, merged, effective_members, covered):
                 frontier[dep_path] = True
 
     members = []
-    absorbed = []
     for importpath in sorted(frontier.keys()):
         if importpath not in merged:
             continue
@@ -186,12 +169,9 @@ def _classify(ctx, merged, effective_members, covered):
             continue
         elif importpath in effective_members:
             members.append(importpath)
-        elif importpath in absorbed_closure:
-            # Coverage precedence has priority, but covered is checked first so we're good.
-            absorbed.append(importpath)
         # The checker reports the remaining frontier as UNDECLARED_DEPENDENCY.
 
-    return sorted(members), sorted(absorbed)
+    return sorted(members)
 
 def go_component_impl(ctx, attachment_fn = go_attached_infra):
     """Generates a component using the supplied adapter attachment function.
@@ -239,22 +219,6 @@ def go_component_impl(ctx, attachment_fn = go_attached_infra):
         for pkg in info.closure.to_list():
             covered[pkg.importpath] = info.component_name
 
-    absorbed_label_importpaths = {}
-    for dep in ctx.attr.absorbed_deps:
-        importpath = go_importpath(dep)
-        if not importpath:
-            fail("component %s: absorbed_dep %s has no importpath; only importable Go libraries can be absorbed." % (
-                ctx.label.name,
-                dep.label,
-            ))
-        absorbed_label_importpaths[importpath] = dep.label
-        if importpath in covered:
-            fail("component %s: %s is already covered by component_dep %s; remove it from absorbed_deps." % (
-                ctx.label.name,
-                dep.label,
-                covered[importpath],
-            ))
-
     member_importpaths = []
     for m in ctx.attr.members:
         m_path = go_importpath(m)
@@ -267,12 +231,6 @@ def go_component_impl(ctx, attachment_fn = go_attached_infra):
                 m.label,
                 covered[m_path],
             ))
-        if m_path in absorbed_label_importpaths:
-            fail("component %s: member %s is also listed in absorbed_deps (%s)" % (
-                ctx.label.name,
-                m.label,
-                absorbed_label_importpaths[m_path],
-            ))
 
     interface = ctx.attr.interface
     interface_importpath = go_importpath(interface) if interface else ""
@@ -283,12 +241,6 @@ def go_component_impl(ctx, attachment_fn = go_attached_infra):
                 ctx.label.name,
                 interface_importpath,
                 covered[interface_importpath],
-            ))
-        if interface_importpath in absorbed_label_importpaths:
-            fail("component %s: its own interface package %s is listed in absorbed_deps (%s)" % (
-                ctx.label.name,
-                interface_importpath,
-                absorbed_label_importpaths[interface_importpath],
             ))
 
     root_packages = []
@@ -321,11 +273,11 @@ def go_component_impl(ctx, attachment_fn = go_attached_infra):
             if match_path(pattern, importpath):
                 effective_members[importpath] = True
 
-    members, absorbed = _classify(ctx, merged, effective_members, covered)
+    members = _classify(ctx, merged, effective_members, covered)
 
     if interface and interface_importpath not in members:
-        fail(("component %s: its own interface package %s is covered by a component_dep or listed in " +
-              "absorbed_deps, which would leave the component with nothing to check.") % (
+        fail(("component %s: its own interface package %s is covered by a component_dep, " +
+              "which would leave the component with nothing to check.") % (
             ctx.label.name,
             interface_importpath,
         ))
@@ -373,7 +325,6 @@ def go_component_impl(ctx, attachment_fn = go_attached_infra):
             interface_files = interface_files,
             component_deps = ctx.attr.component_deps,
             auto_attached_deps = auto_attached_deps,
-            absorbed = absorbed,
             declared_authority = ctx.attr.declared_authority,
             manifest_dir = _dirname(runfiles_path(ctx, manifest)),
             interface_style = ctx.attr.interface_style,
@@ -400,8 +351,6 @@ def go_component_impl(ctx, attachment_fn = go_attached_infra):
     )
 
     covered_or_member = {importpath: True for importpath in members}
-    for importpath in absorbed:
-        covered_or_member[importpath] = True
 
     base_runfiles = ctx.runfiles(
         files = closure_srcs,
@@ -464,11 +413,6 @@ GO_COMPONENT_ATTRS = {
     "infra_deps": attr.label_list(
         providers = [ArccComponentInfo],
         doc = "Auto-attached infrastructure component dependencies.",
-    ),
-    "absorbed_deps": attr.label_list(
-        providers = GO_PROVIDERS,
-        aspects = [arcc_deps_aspect],
-        doc = "Libraries this component absorbs as implementation details.",
     ),
     "contract": attr.label_list(
         allow_files = True,

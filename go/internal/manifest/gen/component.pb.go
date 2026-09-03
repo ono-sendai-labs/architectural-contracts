@@ -94,7 +94,6 @@ type Component struct {
 	// component root; multi-package components use subdir
 	// paths (store/api.go)
 	ComponentDependencies []*ComponentDependency `protobuf:"bytes,3,rep,name=component_dependencies,json=componentDependencies,proto3" json:"component_dependencies,omitempty"`
-	AbsorbedDependencies  []*AbsorbedDependency  `protobuf:"bytes,4,rep,name=absorbed_dependencies,json=absorbedDependencies,proto3" json:"absorbed_dependencies,omitempty"`
 	DeclaredAuthority     []string               `protobuf:"bytes,5,rep,name=declared_authority,json=declaredAuthority,proto3" json:"declared_authority,omitempty"` // capability names, validated at parse time against the
 	// Member packages: the code this component is responsible for and analyzes
 	// as roots. Entries are import paths or import-path patterns (the same
@@ -168,13 +167,6 @@ func (x *Component) GetInterfaceFiles() []string {
 func (x *Component) GetComponentDependencies() []*ComponentDependency {
 	if x != nil {
 		return x.ComponentDependencies
-	}
-	return nil
-}
-
-func (x *Component) GetAbsorbedDependencies() []*AbsorbedDependency {
-	if x != nil {
-		return x.AbsorbedDependencies
 	}
 	return nil
 }
@@ -282,82 +274,24 @@ func (x *ComponentDependency) GetAutoAttached() bool {
 	return false
 }
 
-type AbsorbedDependency struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	ImportPath    string                 `protobuf:"bytes,1,opt,name=import_path,json=importPath,proto3" json:"import_path,omitempty"` // third-party/internal impl-detail package (may be a pattern)
-	Reason        *string                `protobuf:"bytes,2,opt,name=reason,proto3,oneof" json:"reason,omitempty"`                     // human note (why it's an impl detail)
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *AbsorbedDependency) Reset() {
-	*x = AbsorbedDependency{}
-	mi := &file_archcontracts_v1_component_proto_msgTypes[2]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *AbsorbedDependency) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*AbsorbedDependency) ProtoMessage() {}
-
-func (x *AbsorbedDependency) ProtoReflect() protoreflect.Message {
-	mi := &file_archcontracts_v1_component_proto_msgTypes[2]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use AbsorbedDependency.ProtoReflect.Descriptor instead.
-func (*AbsorbedDependency) Descriptor() ([]byte, []int) {
-	return file_archcontracts_v1_component_proto_rawDescGZIP(), []int{2}
-}
-
-func (x *AbsorbedDependency) GetImportPath() string {
-	if x != nil {
-		return x.ImportPath
-	}
-	return ""
-}
-
-func (x *AbsorbedDependency) GetReason() string {
-	if x != nil && x.Reason != nil {
-		return *x.Reason
-	}
-	return ""
-}
-
 var File_archcontracts_v1_component_proto protoreflect.FileDescriptor
 
 const file_archcontracts_v1_component_proto_rawDesc = "" +
 	"\n" +
-	" archcontracts/v1/component.proto\x12\x10archcontracts.v1\"\xf4\x03\n" +
+	" archcontracts/v1/component.proto\x12\x10archcontracts.v1\"\xb6\x03\n" +
 	"\tComponent\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12'\n" +
 	"\x0finterface_files\x18\x02 \x03(\tR\x0einterfaceFiles\x12\\\n" +
-	"\x16component_dependencies\x18\x03 \x03(\v2%.archcontracts.v1.ComponentDependencyR\x15componentDependencies\x12Y\n" +
-	"\x15absorbed_dependencies\x18\x04 \x03(\v2$.archcontracts.v1.AbsorbedDependencyR\x14absorbedDependencies\x12-\n" +
+	"\x16component_dependencies\x18\x03 \x03(\v2%.archcontracts.v1.ComponentDependencyR\x15componentDependencies\x12-\n" +
 	"\x12declared_authority\x18\x05 \x03(\tR\x11declaredAuthority\x12\x18\n" +
 	"\amembers\x18\x06 \x03(\tR\amembers\x12I\n" +
 	"\x0finterface_style\x18\a \x01(\x0e2 .archcontracts.v1.InterfaceStyleR\x0einterfaceStyle\x12$\n" +
 	"\x0eown_check_runs\x18\b \x01(\bR\fownCheckRuns\x127\n" +
-	"\x17certification_reference\x18\t \x01(\tR\x16certificationReference\"j\n" +
+	"\x17certification_reference\x18\t \x01(\tR\x16certificationReferenceJ\x04\b\x04\x10\x05R\x15absorbed_dependencies\"j\n" +
 	"\x13ComponentDependency\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x1a\n" +
 	"\bmanifest\x18\x02 \x01(\tR\bmanifest\x12#\n" +
-	"\rauto_attached\x18\x03 \x01(\bR\fautoAttached\"]\n" +
-	"\x12AbsorbedDependency\x12\x1f\n" +
-	"\vimport_path\x18\x01 \x01(\tR\n" +
-	"importPath\x12\x1b\n" +
-	"\x06reason\x18\x02 \x01(\tH\x00R\x06reason\x88\x01\x01B\t\n" +
-	"\a_reason*V\n" +
+	"\rauto_attached\x18\x03 \x01(\bR\fautoAttached*V\n" +
 	"\x0eInterfaceStyle\x12\x1f\n" +
 	"\x1bINTERFACE_STYLE_UNSPECIFIED\x10\x00\x12#\n" +
 	"\x1fINTERFACE_STYLE_PACKAGE_SURFACE\x10\x01BQZOgithub.com/ono-sendai-labs/architectural-contracts/go/internal/manifest/gen;genb\x06proto3"
@@ -375,22 +309,20 @@ func file_archcontracts_v1_component_proto_rawDescGZIP() []byte {
 }
 
 var file_archcontracts_v1_component_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_archcontracts_v1_component_proto_msgTypes = make([]protoimpl.MessageInfo, 3)
+var file_archcontracts_v1_component_proto_msgTypes = make([]protoimpl.MessageInfo, 2)
 var file_archcontracts_v1_component_proto_goTypes = []any{
 	(InterfaceStyle)(0),         // 0: archcontracts.v1.InterfaceStyle
 	(*Component)(nil),           // 1: archcontracts.v1.Component
 	(*ComponentDependency)(nil), // 2: archcontracts.v1.ComponentDependency
-	(*AbsorbedDependency)(nil),  // 3: archcontracts.v1.AbsorbedDependency
 }
 var file_archcontracts_v1_component_proto_depIdxs = []int32{
 	2, // 0: archcontracts.v1.Component.component_dependencies:type_name -> archcontracts.v1.ComponentDependency
-	3, // 1: archcontracts.v1.Component.absorbed_dependencies:type_name -> archcontracts.v1.AbsorbedDependency
-	0, // 2: archcontracts.v1.Component.interface_style:type_name -> archcontracts.v1.InterfaceStyle
-	3, // [3:3] is the sub-list for method output_type
-	3, // [3:3] is the sub-list for method input_type
-	3, // [3:3] is the sub-list for extension type_name
-	3, // [3:3] is the sub-list for extension extendee
-	0, // [0:3] is the sub-list for field type_name
+	0, // 1: archcontracts.v1.Component.interface_style:type_name -> archcontracts.v1.InterfaceStyle
+	2, // [2:2] is the sub-list for method output_type
+	2, // [2:2] is the sub-list for method input_type
+	2, // [2:2] is the sub-list for extension type_name
+	2, // [2:2] is the sub-list for extension extendee
+	0, // [0:2] is the sub-list for field type_name
 }
 
 func init() { file_archcontracts_v1_component_proto_init() }
@@ -398,14 +330,13 @@ func file_archcontracts_v1_component_proto_init() {
 	if File_archcontracts_v1_component_proto != nil {
 		return
 	}
-	file_archcontracts_v1_component_proto_msgTypes[2].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_archcontracts_v1_component_proto_rawDesc), len(file_archcontracts_v1_component_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   3,
+			NumMessages:   2,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

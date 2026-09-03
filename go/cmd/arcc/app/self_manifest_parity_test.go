@@ -13,7 +13,7 @@ import (
 // The test covers the six components that have go_component targets: capanalyzer,
 // report, facts, manifest, checker, and goanalysis.
 //
-// capslockadapter and cli are excluded by design: capslockadapter absorbs capslock,
+// capslockadapter and cli are excluded by design: capslockadapter owns capslock,
 // whose closure contains golang.org/x/sys/unix built with cgo, and the go_component
 // rule fails closed on cgo closures because preprocessed cgo sources do not exist at
 // analysis time. cli imports capslockadapter and inherits its cgo closure. Both
