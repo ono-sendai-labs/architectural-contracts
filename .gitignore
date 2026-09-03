@@ -1,6 +1,7 @@
 /bin/
 .agents/scratchpad/
 .agents/runs/
+.agents/runs-acpx/
 
 # Bazel convenience symlinks and machine-local config
 /bazel-*
