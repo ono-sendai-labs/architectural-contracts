@@ -37,6 +37,16 @@ type Runner struct {
 
 // Run executes the application logic based on the provided CLI arguments.
 func (r *Runner) Run(args []string, stdout, stderr io.Writer) int {
+	// Serialize all check executions in this process: layout mode mutates
+	// process-global state (active layout, driver env) that every check reads.
+	var code int
+	goanalysis.SerializeChecks(func() {
+		code = r.run(args, stdout, stderr)
+	})
+	return code
+}
+
+func (r *Runner) run(args []string, stdout, stderr io.Writer) int {
 	if len(args) == 0 || args[0] == "help" || args[0] == "--help" || args[0] == "-h" {
 		printUsage(stdout)
 		return 0

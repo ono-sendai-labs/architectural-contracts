@@ -56,14 +56,20 @@ type LoadRequest struct {
 	InterfaceFiles []string
 }
 
-// WithDriverEnv serializes concurrent layout checks and configures the
-// layout-driver environment for the duration of fn. It re-exports the
-// packagelayout seam so the cli component consumes goanalysis's declared
-// interface instead of calling layout plumbing directly.
+// WithDriverEnv re-exports the packagelayout seam so the cli component
+// consumes goanalysis's declared interface instead of calling layout plumbing
+// directly. The caller is responsible for serialization via SerializeChecks.
 func WithDriverEnv(layoutPath, workspaceDir string, fn func() error) error {
+	return packagelayout.WithDriverEnv(layoutPath, workspaceDir, fn)
+}
+
+// SerializeChecks runs fn while holding the global check mutex, so layout
+// mode's process-global state (active layout, driver env) cannot race other
+// check executions in the same process.
+func SerializeChecks(fn func()) {
 	packagelayout.CheckMu.Lock()
 	defer packagelayout.CheckMu.Unlock()
-	return packagelayout.WithDriverEnv(layoutPath, workspaceDir, fn)
+	fn()
 }
 
 // LoadPackageFacts loads Go package membership, direct-import, and standard-library facts
