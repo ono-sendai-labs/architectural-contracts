@@ -13,20 +13,10 @@
 package facts
 
 import (
-	"path"
 
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/capanalyzer"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/manifest"
 )
-
-// MatchesMember reports whether a canonical member entry matches a canonical
-// package import path. Entries use path.Match semantics; malformed patterns do
-// not match. Callers canonicalize both values with hostpolicy before invoking
-// this helper because the pure facts component does not own host policy.
-func MatchesMember(entry, packagePath string) bool {
-	matched, err := path.Match(entry, packagePath)
-	return err == nil && matched
-}
 
 // PackageFacts aggregates the loaded information for the component's internal packages,
 // including all direct imports, exported symbols, and inter-package static call edges.

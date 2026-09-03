@@ -11,7 +11,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"path"
 	"regexp"
 	"strings"
 
@@ -121,7 +120,8 @@ func scrubCommentsAndStrings(text []byte) []byte {
 	return scrubbed
 }
 
-// InvalidMemberError reports a member that is empty or is not a valid import-path pattern.
+// InvalidMemberError reports a member that is empty or is not a literal
+// import path (it contains glob metacharacters).
 type InvalidMemberError struct {
 	Member string
 	Reason string
@@ -305,11 +305,8 @@ func validate(m Manifest) error {
 		if member == "" {
 			return &InvalidMemberError{Member: member, Reason: "import path cannot be empty"}
 		}
-		if _, err := path.Match(member, ""); err != nil {
-			return &InvalidMemberError{Member: member, Reason: fmt.Sprintf("malformed import-path pattern: %v", err)}
-		}
-		if m.InterfaceStyle == InterfaceStyleUnspecified && strings.ContainsAny(member, "*?[]\\") {
-			return &InvalidMemberError{Member: member, Reason: "declared-style members must be literal import paths"}
+		if strings.ContainsAny(member, "*?[]\\") {
+			return &InvalidMemberError{Member: member, Reason: "members must be literal import paths; glob patterns are not accepted"}
 		}
 	}
 

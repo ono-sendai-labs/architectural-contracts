@@ -261,7 +261,6 @@ func TestCheck_InterfacePackageSelectionIsIdempotent(t *testing.T) {
 		members []string
 	}{
 		{name: "literal", members: []string{"component/interface"}},
-		{name: "pattern", members: []string{"component/*"}},
 	}
 
 	for _, tt := range tests {

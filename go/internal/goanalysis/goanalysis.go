@@ -43,11 +43,10 @@ var (
 )
 
 // LoadRequest describes the component-scoped package roots to load. Members are
-// canonical literal import paths for declared-style native manifests. A
-// PACKAGE_SURFACE manifest may contain path.Match patterns, but those entries
-// are dependency-side only; a direct check rejects them before loading. The
-// loader canonicalizes paths before applying membership matching. Interface
-// files are used to retain their containing package as an implicit member.
+// canonical literal import paths; the manifest parser rejects glob
+// metacharacters before loading. The loader canonicalizes paths before applying
+// membership matching. Interface files are used to retain their containing
+// package as an implicit member.
 type LoadRequest struct {
 	// ComponentName identifies the manifest in load diagnostics.
 	ComponentName  string
@@ -75,23 +74,6 @@ func SerializeChecks(fn func()) {
 // LoadPackageFacts loads Go package membership, direct-import, and standard-library facts
 // below the supplied component root using go/packages.
 func LoadPackageFacts(req LoadRequest) (facts.PackageFacts, error) {
-	if len(req.Members) > 0 && isAnyPatternMember(req.Members) {
-		componentName := req.ComponentName
-		if componentName == "" {
-			componentName = req.ComponentRoot
-		}
-		var patternMembers []string
-		for _, member := range req.Members {
-			if strings.ContainsAny(member, "*?[]\\") {
-				patternMembers = append(patternMembers, member)
-			}
-		}
-		return facts.PackageFacts{}, fmt.Errorf(
-			"component %q cannot be checked directly: pattern membership is dependency-side only; unanalyzable members: %v",
-			componentName, patternMembers,
-		)
-	}
-
 	componentRoot := req.ComponentRoot
 	var dir string
 	var patterns []string
@@ -445,12 +427,10 @@ func interfacePackagePatterns(interfaceFiles []string) []string {
 
 func validateDeclaredPackages(members []string, pkgs []*packages.Package) error {
 	for _, member := range members {
+		canonical := hostpolicy.CanonicalizePath(member)
 		found := false
 		for _, pkg := range pkgs {
-			if !facts.MatchesMember(
-				hostpolicy.CanonicalizePath(member),
-				hostpolicy.CanonicalizePath(pkg.PkgPath),
-			) {
+			if hostpolicy.CanonicalizePath(pkg.PkgPath) != canonical {
 				continue
 			}
 			found = true
@@ -487,7 +467,7 @@ func validateLoaderPackagePaths(pkgs []*packages.Package) error {
 func packageIsDeclaredMember(pkg *packages.Package, members []string) bool {
 	path := hostpolicy.CanonicalizePath(pkg.PkgPath)
 	for _, member := range members {
-		if facts.MatchesMember(hostpolicy.CanonicalizePath(member), path) {
+		if hostpolicy.CanonicalizePath(member) == path {
 			return true
 		}
 	}
@@ -1402,10 +1382,6 @@ func ResolveDependencyInterface(
 	cleanAnalyzed := filepath.Clean(analyzedRoot)
 	cleanDepRoot := filepath.Clean(depRoot)
 
-	if depManifest.InterfaceStyle == manifest.InterfaceStylePackageSurface && isPatternMembership(depManifest) {
-		return resolvePatternMembershipDependencyInterface(cleanAnalyzed, dep, depManifest)
-	}
-
 	// 4. Reject roots overlapping the analyzed component as actionable tool errors
 	if cleanDepRoot == cleanAnalyzed ||
 		strings.HasPrefix(cleanDepRoot, cleanAnalyzed+string(filepath.Separator)) ||
@@ -1769,22 +1745,6 @@ func ResolveDependencyInterface(
 	}, nil
 }
 
-func isPatternMembership(m manifest.Manifest) bool {
-	if m.InterfaceStyle != manifest.InterfaceStylePackageSurface {
-		return false
-	}
-	return len(m.Members) > 0 && isAnyPatternMember(m.Members)
-}
-
-func isAnyPatternMember(members []string) bool {
-	for _, m := range members {
-		if strings.ContainsAny(m, "*?[]\\") {
-			return true
-		}
-	}
-	return false
-}
-
 func addSurfaceSymbol(symbolSet map[string]bool, sym facts.ExportedSymbol) {
 	symbolSet[sym.Name] = true
 	recv := sym.Receiver
@@ -1811,95 +1771,6 @@ func addSurfaceSymbol(symbolSet map[string]bool, sym facts.ExportedSymbol) {
 			symbolSet[ptrKey] = true
 		}
 	}
-}
-
-func resolvePatternMembershipDependencyInterface(
-	cleanAnalyzed string,
-	dep manifest.ComponentDependency,
-	depManifest manifest.Manifest,
-) (facts.DependencyInterface, error) {
-	var loadDir string
-	var patterns []string
-
-	if packagelayout.IsLayoutMode() {
-		loadDir = packagelayout.GetActiveWorkspaceDir()
-		patterns = packagelayout.GetActiveLayout().Roots
-	} else {
-		loadDir = cleanAnalyzed
-		patterns = []string{"./..."}
-	}
-
-	cfg := &packages.Config{
-		Mode: packages.NeedName | packages.NeedFiles | packages.NeedCompiledGoFiles |
-			packages.NeedImports | packages.NeedDeps | packages.NeedSyntax |
-			packages.NeedTypes | packages.NeedTypesInfo | packages.NeedModule,
-		Dir: loadDir,
-	}
-
-	dependerPkgs, err := loadPackages(cfg, patterns...)
-	if err != nil {
-		return facts.DependencyInterface{}, fmt.Errorf("failed to load depender packages for pattern-membership dependency %q: %w", dep.Name, err)
-	}
-
-	var matchedPkgs []*packages.Package
-	var matchedPkgPaths []string
-	seenMatched := make(map[string]bool)
-
-	packages.Visit(dependerPkgs, nil, func(p *packages.Package) {
-		canonPath := hostpolicy.CanonicalizePath(p.PkgPath)
-		for _, pattern := range depManifest.Members {
-			canonPattern := hostpolicy.CanonicalizePath(pattern)
-			if facts.MatchesMember(canonPattern, canonPath) {
-				if !seenMatched[canonPath] {
-					seenMatched[canonPath] = true
-					matchedPkgs = append(matchedPkgs, p)
-					matchedPkgPaths = append(matchedPkgPaths, canonPath)
-				}
-				break
-			}
-		}
-	})
-
-	if len(matchedPkgPaths) == 0 {
-		return facts.DependencyInterface{}, fmt.Errorf("pattern-membership dependency %q matched no packages in closure of %q", dep.Name, cleanAnalyzed)
-	}
-
-	sort.Strings(matchedPkgPaths)
-
-	var extractRoot string
-	if packagelayout.IsLayoutMode() {
-		extractRoot = packagelayout.GetActiveWorkspaceDir()
-	} else {
-		extractRoot = cleanAnalyzed
-	}
-
-	symbolSet := make(map[string]bool)
-	for _, p := range matchedPkgs {
-		exportedSymbols, err := extractSymbols(p, extractRoot)
-		if err != nil {
-			return facts.DependencyInterface{}, fmt.Errorf("failed to extract symbols for dependency %q package %q: %w", dep.Name, p.PkgPath, err)
-		}
-		for _, sym := range exportedSymbols {
-			addSurfaceSymbol(symbolSet, sym)
-		}
-	}
-
-	var symbols []capanalyzer.InterfaceSymbol
-	for sym := range symbolSet {
-		symbols = append(symbols, capanalyzer.InterfaceSymbol(sym))
-	}
-	sort.Slice(symbols, func(i, j int) bool {
-		return symbols[i] < symbols[j]
-	})
-
-	return facts.DependencyInterface{
-		Component:              dep.Name,
-		InterfaceStyle:         depManifest.InterfaceStyle,
-		OwnCheckRuns:           depManifest.OwnCheckRuns,
-		CertificationReference: depManifest.CertificationReference,
-		Packages:               matchedPkgPaths,
-		Symbols:                symbols,
-	}, nil
 }
 
 func packageSourceFiles(p *packages.Package) []string {

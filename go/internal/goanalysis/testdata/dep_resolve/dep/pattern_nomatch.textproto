@@ -1,3 +1,0 @@
-name: "dep"
-interface_style: INTERFACE_STYLE_PACKAGE_SURFACE
-members: "nonexistent/package/pattern/*"

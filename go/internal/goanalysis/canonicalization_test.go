@@ -42,47 +42,6 @@ func TestValidateLoaderPackagePathsChecksDependencyGraph(t *testing.T) {
 	}
 }
 
-func TestLoadPackageFactsRejectsPatternMembershipBeforeLoading(t *testing.T) {
-	originalLoadPackages := loadPackages
-	t.Cleanup(func() { loadPackages = originalLoadPackages })
-	loadPackages = func(*packages.Config, ...string) ([]*packages.Package, error) {
-		t.Fatal("pattern membership reached packages.Load")
-		return nil, nil
-	}
-
-	tests := []struct {
-		name    string
-		members []string
-	}{
-		{
-			name:    "all patterns",
-			members: []string{"example.com/runtime/*"},
-		},
-		{
-			name:    "mixed literal and pattern",
-			members: []string{"example.com/runtime", "example.com/runtime/*"},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			_, err := LoadPackageFacts(LoadRequest{
-				ComponentName: "pattern_surface_comp",
-				ComponentRoot: t.TempDir(),
-				Members:       tt.members,
-			})
-			if err == nil {
-				t.Fatalf("LoadPackageFacts() error = nil, want pattern-membership load error")
-			}
-			for _, want := range append([]string{"pattern_surface_comp", "pattern membership"}, tt.members...) {
-				if !strings.Contains(err.Error(), want) {
-					t.Errorf("error = %q, want to contain %q", err, want)
-				}
-			}
-		})
-	}
-}
-
 func TestValidateLayoutMembershipSets(t *testing.T) {
 	tests := []struct {
 		name       string
@@ -641,85 +600,6 @@ members: "host/dep"
 	hostpolicy.CanonicalizePath = func(path string) string {
 		if path == "host/dep" {
 			return "canonical/dep"
-		}
-		return path
-	}
-	fset := token.NewFileSet()
-	file, err := parser.ParseFile(fset, apiPath, "package dep\n\nfunc Exported() {}\n", 0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	typesPkg := types.NewPackage("canonical/dep", "dep")
-	typesPkg.Scope().Insert(types.NewFunc(token.NoPos, typesPkg, "Exported", types.NewSignatureType(nil, nil, nil, nil, nil, false)))
-
-	loadedPackage := &packages.Package{
-		ID:        "canonical/dep",
-		PkgPath:   "canonical/dep",
-		Name:      "dep",
-		GoFiles:   []string{apiPath},
-		Fset:      fset,
-		Syntax:    []*ast.File{file},
-		Types:     typesPkg,
-		TypesInfo: &types.Info{},
-		Imports:   map[string]*packages.Package{},
-	}
-	loadPackages = func(_ *packages.Config, _ ...string) ([]*packages.Package, error) {
-		return []*packages.Package{loadedPackage}, nil
-	}
-
-	result, err := ResolveDependencyInterface(declaringRoot, declaringRoot, manifest.ComponentDependency{
-		Name:     "dep",
-		Manifest: "../dep/component.textproto",
-	})
-	if err != nil {
-		t.Fatalf("ResolveDependencyInterface() error = %v", err)
-	}
-	if len(result.Packages) != 1 || result.Packages[0] != "canonical/dep" {
-		t.Fatalf("result packages = %v, want ['canonical/dep']", result.Packages)
-	}
-	found := false
-	for _, sym := range result.Symbols {
-		if sym == "canonical/dep.Exported" {
-			found = true
-			break
-		}
-	}
-	if !found {
-		t.Fatalf("result symbols = %v, missing 'canonical/dep.Exported'", result.Symbols)
-	}
-}
-
-func TestResolveDependencyInterface_PatternMembership_Canonicalization(t *testing.T) {
-	workspace := t.TempDir()
-	declaringRoot := filepath.Join(workspace, "declaring")
-	depRoot := filepath.Join(workspace, "dep")
-	if err := os.MkdirAll(declaringRoot, 0755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.MkdirAll(depRoot, 0755); err != nil {
-		t.Fatal(err)
-	}
-	manifestContent := `name: "dep"
-interface_style: INTERFACE_STYLE_PACKAGE_SURFACE
-members: "host/*"
-`
-	if err := os.WriteFile(filepath.Join(depRoot, "component.textproto"), []byte(manifestContent), 0644); err != nil {
-		t.Fatal(err)
-	}
-	apiPath := filepath.Join(declaringRoot, "api.go")
-	if err := os.WriteFile(apiPath, []byte("package dep\n\nfunc Exported() {}\n"), 0644); err != nil {
-		t.Fatal(err)
-	}
-
-	originalPolicy := hostpolicy.CanonicalizePath
-	originalLoad := loadPackages
-	t.Cleanup(func() {
-		hostpolicy.CanonicalizePath = originalPolicy
-		loadPackages = originalLoad
-	})
-	hostpolicy.CanonicalizePath = func(path string) string {
-		if strings.HasPrefix(path, "host/") {
-			return "canonical/" + strings.TrimPrefix(path, "host/")
 		}
 		return path
 	}

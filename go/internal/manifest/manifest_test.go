@@ -118,7 +118,6 @@ certification_reference: "migrated from absorbed_dependencies: to members"
 func TestParse_DeclaredMembershipFields(t *testing.T) {
 	input := `name: "surface"
 members: "example.com/app"
-members: "example.com/app/*"
 interface_style: INTERFACE_STYLE_PACKAGE_SURFACE
 own_check_runs: true
 certification_reference: "build://surface-check"
@@ -137,8 +136,8 @@ component_dependencies {
 	if got.InterfaceStyle != manifest.InterfaceStylePackageSurface {
 		t.Errorf("InterfaceStyle = %v, want package surface", got.InterfaceStyle)
 	}
-	if !reflect.DeepEqual(got.Members, []string{"example.com/app", "example.com/app/*"}) {
-		t.Errorf("Members = %v, want [example.com/app example.com/app/*]", got.Members)
+	if !reflect.DeepEqual(got.Members, []string{"example.com/app"}) {
+		t.Errorf("Members = %v, want [example.com/app]", got.Members)
 	}
 	if !got.OwnCheckRuns {
 		t.Error("OwnCheckRuns = false, want true")
@@ -171,27 +170,51 @@ func TestParse_MemberValidation(t *testing.T) {
 	}{
 		{
 			name:       "duplicate",
-			members:    "members: \"example.com/app\"\nmembers: \"example.com/app\"",
+			members:    "interface_files: \"api.go\"\nmembers: \"example.com/app\"\nmembers: \"example.com/app\"",
 			wantKind:   "member",
 			wantMember: "example.com/app",
 		},
 		{
-			name:       "malformed pattern",
-			members:    "members: \"example.com/[\"",
-			wantMember: "example.com/[",
-			wantText:   "malformed import-path pattern",
+			name:       "glob member star",
+			members:    `interface_style: INTERFACE_STYLE_PACKAGE_SURFACE` + "\n" + `members: "example.com/app/*"`,
+			wantMember: "example.com/app/*",
+			wantText:   "literal import path",
 		},
 		{
-			name:       "declared style pattern",
-			members:    "members: \"example.com/app/*\"",
+			name:       "glob question mark",
+			members:    `interface_style: INTERFACE_STYLE_PACKAGE_SURFACE` + "\n" + `members: "example.com/app?"`,
+			wantMember: "example.com/app?",
+			wantText:   "literal import path",
+		},
+		{
+			name:       "glob bracket expression",
+			members:    `interface_style: INTERFACE_STYLE_PACKAGE_SURFACE` + "\n" + `members: "example.com/v[0-9]"`,
+			wantMember: "example.com/v[0-9]",
+			wantText:   "literal import path",
+		},
+		{
+			name:       "malformed bracket expression",
+			members:    `interface_style: INTERFACE_STYLE_PACKAGE_SURFACE` + "\n" + `members: "example.com/v["`,
+			wantMember: "example.com/v[",
+			wantText:   "literal import path",
+		},
+		{
+			name:       "glob escape",
+			members:    `interface_style: INTERFACE_STYLE_PACKAGE_SURFACE` + "\n" + `members: "example.com/v\\*"`,
+			wantMember: `example.com/v\\*`,
+			wantText:   "literal import path",
+		},
+		{
+			name:       "declared style glob",
+			members:    "interface_files: \"api.go\"\nmembers: \"example.com/app/*\"",
 			wantMember: "example.com/app/*",
-			wantText:   "declared-style members must be literal",
+			wantText:   "literal import path",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			input := "name: \"component\"\ninterface_files: \"api.go\"\n" + tt.members
+			input := "name: \"component\"\n" + tt.members
 			_, err := manifest.Parse(bytes.NewBufferString(input))
 			if err == nil {
 				t.Fatalf("Parse() succeeded, want error for %s", tt.name)
@@ -232,10 +255,6 @@ func TestParse_PackageSurfaceShape(t *testing.T) {
 			name:  "accepts literals",
 			input: `name: "surface" interface_style: INTERFACE_STYLE_PACKAGE_SURFACE members: "example.com/app"`,
 		},
-		{
-			name:  "accepts patterns",
-			input: `name: "surface" interface_style: INTERFACE_STYLE_PACKAGE_SURFACE members: "example.com/app/*"`,
-		},
 	}
 
 	for _, tt := range tests {
@@ -251,6 +270,14 @@ func TestParse_PackageSurfaceShape(t *testing.T) {
 				t.Fatalf("Parse() error = %v, want text %q", err, tt.want)
 			}
 		})
+	}
+
+	for _, m := range []string{"example.com/app*", "example.com/app?", "example.com/[a-z]", "example.com/ap[p", `example.com/ap\\p`} {
+		input := `name: "surface" interface_style: INTERFACE_STYLE_PACKAGE_SURFACE members: "` + m + `"`
+		_, err := manifest.Parse(bytes.NewBufferString(input))
+		if err == nil || !strings.Contains(err.Error(), "literal import path") {
+			t.Errorf("Parse(%s) error = %v, want literal-import-path member error", input, err)
+		}
 	}
 }
 

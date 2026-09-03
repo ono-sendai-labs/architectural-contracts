@@ -323,9 +323,9 @@ func Check(in Inputs) report.ConformanceReport {
 
 // buildMembership returns the package paths owned by a component. An empty
 // members declaration preserves FR1 by owning every supplied package. When
-// members are declared, entries are matched against package import paths; the
-// interface package is then added from the package fact containing each
-// declared interface file.
+// members are declared, membership is exact canonical identity; the interface
+// package is then added from the package fact containing each declared
+// interface file.
 func buildMembership(m manifest.Manifest, packages []facts.PackageFact) map[string]bool {
 	members := make(map[string]bool)
 	if len(m.Members) == 0 {
@@ -335,12 +335,13 @@ func buildMembership(m manifest.Manifest, packages []facts.PackageFact) map[stri
 		return members
 	}
 
+	declared := make(map[string]bool, len(m.Members))
+	for _, member := range m.Members {
+		declared[member] = true
+	}
 	for _, pkg := range packages {
-		for _, pattern := range m.Members {
-			if facts.MatchesMember(pattern, pkg.ImportPath) {
-				members[pkg.ImportPath] = true
-				break
-			}
+		if declared[pkg.ImportPath] {
+			members[pkg.ImportPath] = true
 		}
 	}
 

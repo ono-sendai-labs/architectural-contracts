@@ -281,27 +281,21 @@ component_dependencies {
 		t.Fatal(err)
 	}
 
-	// A member package on disk so the dependency's pattern-membership
-	// resolution can match it in the depender's closure.
-	if err := os.WriteFile(filepath.Join(workspace, "go.mod"), []byte("module example.com/overlap\n\ngo 1.21\n"), 0644); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.MkdirAll(filepath.Join(workspace, "member"), 0755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(workspace, "member", "member.go"), []byte("package member\n"), 0644); err != nil {
-		t.Fatal(err)
-	}
-
 	depDir := filepath.Join(filepath.Dir(workspace), "overlapdep")
-	if err := os.MkdirAll(depDir, 0755); err != nil {
+	if err := os.MkdirAll(filepath.Join(depDir, "member"), 0755); err != nil {
 		t.Fatal(err)
 	}
 	depManifest := `name: "overdep"
 interface_style: INTERFACE_STYLE_PACKAGE_SURFACE
-members: "example.com/overlap/*"
+members: "example.com/overlap/member"
 `
 	if err := os.WriteFile(filepath.Join(depDir, "component.textproto"), []byte(depManifest), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(depDir, "go.mod"), []byte("module example.com/overlap\n\ngo 1.21\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(depDir, "member", "member.go"), []byte("package member\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -464,35 +458,6 @@ members: "example.com/temp/loader-request"
 		!reflect.DeepEqual(gotRequest.Members, []string{"example.com/temp/loader-request"}) ||
 		!reflect.DeepEqual(gotRequest.InterfaceFiles, []string{"api.go"}) {
 		t.Fatalf("loader request = %+v, want manifest membership and interface context", gotRequest)
-	}
-}
-
-func TestRunner_Check_PatternMembershipFailsClosed(t *testing.T) {
-	manifestContent := `
-name: "pattern_surface_comp"
-interface_style: INTERFACE_STYLE_PACKAGE_SURFACE
-members: "example.com/runtime/*"
-declared_authority: "FILES"
-`
-	_, manifestPath := createTempComponent(t, "pattern-membership", manifestContent, nil)
-
-	runner := &app.Runner{
-		Loader:   goanalysis.LoadPackageFacts,
-		Analyzer: &mockAnalyzer{},
-	}
-
-	var stdout, stderr bytes.Buffer
-	exitCode := runner.Run([]string{"check", manifestPath}, &stdout, &stderr)
-	if exitCode != 2 {
-		t.Fatalf("Run() returned %d, want tool error 2; stdout = %q, stderr = %q", exitCode, stdout.String(), stderr.String())
-	}
-	if stdout.Len() != 0 {
-		t.Fatalf("stdout = %q, want no conformance report", stdout.String())
-	}
-	for _, want := range []string{"pattern_surface_comp", "example.com/runtime/*", "pattern membership"} {
-		if !strings.Contains(stderr.String(), want) {
-			t.Errorf("stderr = %q, want to contain %q", stderr.String(), want)
-		}
 	}
 }
 
