@@ -24,6 +24,7 @@ func TestComponentSchema_AdditiveFieldsAndTextproto(t *testing.T) {
 	for name, wantNumber := range map[protoreflect.Name]protoreflect.FieldNumber{
 		"members":         6,
 		"interface_style": 7,
+		"authority":       10,
 	} {
 		field := componentFields.ByName(name)
 		if field == nil {
@@ -48,6 +49,15 @@ func TestComponentSchema_AdditiveFieldsAndTextproto(t *testing.T) {
 	}
 	if got := gen.InterfaceStyle_INTERFACE_STYLE_PACKAGE_SURFACE; got != 1 {
 		t.Errorf("INTERFACE_STYLE_PACKAGE_SURFACE = %d, want 1", got)
+	}
+
+	// Authority axis: DECLARED is the zero value so omitted fields default to
+	// known-declared; UNKNOWN is the only other accepted value.
+	if got := gen.Authority_AUTHORITY_DECLARED; got != 0 {
+		t.Errorf("AUTHORITY_DECLARED = %d, want 0", got)
+	}
+	if got := gen.Authority_AUTHORITY_UNKNOWN; got != 1 {
+		t.Errorf("AUTHORITY_UNKNOWN = %d, want 1", got)
 	}
 
 	encoded, err := prototext.Marshal(component)

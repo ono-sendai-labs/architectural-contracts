@@ -29,6 +29,59 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
+// Authority distinguishes a verified declaration of ambient authority from an
+// unanalysed component. An empty declared_authority list under DECLARED means
+// "checked, uses nothing"; UNKNOWN must never be represented that way.
+type Authority int32
+
+const (
+	// The component's authority is declared in declared_authority and verified
+	// by analysis. This is the backward-compatible default.
+	Authority_AUTHORITY_DECLARED Authority = 0
+	// The component has not been analysed; its authority is unknown rather than
+	// empty. declared_authority must be empty.
+	Authority_AUTHORITY_UNKNOWN Authority = 1
+)
+
+// Enum value maps for Authority.
+var (
+	Authority_name = map[int32]string{
+		0: "AUTHORITY_DECLARED",
+		1: "AUTHORITY_UNKNOWN",
+	}
+	Authority_value = map[string]int32{
+		"AUTHORITY_DECLARED": 0,
+		"AUTHORITY_UNKNOWN":  1,
+	}
+)
+
+func (x Authority) Enum() *Authority {
+	p := new(Authority)
+	*p = x
+	return p
+}
+
+func (x Authority) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (Authority) Descriptor() protoreflect.EnumDescriptor {
+	return file_archcontracts_v1_component_proto_enumTypes[0].Descriptor()
+}
+
+func (Authority) Type() protoreflect.EnumType {
+	return &file_archcontracts_v1_component_proto_enumTypes[0]
+}
+
+func (x Authority) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use Authority.Descriptor instead.
+func (Authority) EnumDescriptor() ([]byte, []int) {
+	return file_archcontracts_v1_component_proto_rawDescGZIP(), []int{0}
+}
+
 // InterfaceStyle distinguishes a component that declares its surface from one
 // that wraps code never written to have an architectural interface.
 type InterfaceStyle int32
@@ -64,11 +117,11 @@ func (x InterfaceStyle) String() string {
 }
 
 func (InterfaceStyle) Descriptor() protoreflect.EnumDescriptor {
-	return file_archcontracts_v1_component_proto_enumTypes[0].Descriptor()
+	return file_archcontracts_v1_component_proto_enumTypes[1].Descriptor()
 }
 
 func (InterfaceStyle) Type() protoreflect.EnumType {
-	return &file_archcontracts_v1_component_proto_enumTypes[0]
+	return &file_archcontracts_v1_component_proto_enumTypes[1]
 }
 
 func (x InterfaceStyle) Number() protoreflect.EnumNumber {
@@ -77,7 +130,7 @@ func (x InterfaceStyle) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use InterfaceStyle.Descriptor instead.
 func (InterfaceStyle) EnumDescriptor() ([]byte, []int) {
-	return file_archcontracts_v1_component_proto_rawDescGZIP(), []int{0}
+	return file_archcontracts_v1_component_proto_rawDescGZIP(), []int{1}
 }
 
 // A component's manifest, stored as component.textproto at the COMPONENT ROOT.
@@ -104,8 +157,13 @@ type Component struct {
 	Members []string `protobuf:"bytes,6,rep,name=members,proto3" json:"members,omitempty"`
 	// How this component's exposed interface is determined.
 	InterfaceStyle InterfaceStyle `protobuf:"varint,7,opt,name=interface_style,json=interfaceStyle,proto3,enum=archcontracts.v1.InterfaceStyle" json:"interface_style,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	// Whether this component's authority was verified by analysis (DECLARED, the
+	// backward-compatible default) or is unknown because the component has not
+	// been analysed. When UNKNOWN, declared_authority must be empty: unknown
+	// means the component could use any ambient authority, not that it uses none.
+	Authority     Authority `protobuf:"varint,10,opt,name=authority,proto3,enum=archcontracts.v1.Authority" json:"authority,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *Component) Reset() {
@@ -180,6 +238,13 @@ func (x *Component) GetInterfaceStyle() InterfaceStyle {
 	return InterfaceStyle_INTERFACE_STYLE_UNSPECIFIED
 }
 
+func (x *Component) GetAuthority() Authority {
+	if x != nil {
+		return x.Authority
+	}
+	return Authority_AUTHORITY_DECLARED
+}
+
 type ComponentDependency struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	Name  string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"` // referenced component's name; must match the `name`
@@ -252,19 +317,24 @@ var File_archcontracts_v1_component_proto protoreflect.FileDescriptor
 
 const file_archcontracts_v1_component_proto_rawDesc = "" +
 	"\n" +
-	" archcontracts/v1/component.proto\x12\x10archcontracts.v1\"\x8c\x03\n" +
+	" archcontracts/v1/component.proto\x12\x10archcontracts.v1\"\xc7\x03\n" +
 	"\tComponent\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12'\n" +
 	"\x0finterface_files\x18\x02 \x03(\tR\x0einterfaceFiles\x12\\\n" +
 	"\x16component_dependencies\x18\x03 \x03(\v2%.archcontracts.v1.ComponentDependencyR\x15componentDependencies\x12-\n" +
 	"\x12declared_authority\x18\x05 \x03(\tR\x11declaredAuthority\x12\x18\n" +
 	"\amembers\x18\x06 \x03(\tR\amembers\x12I\n" +
-	"\x0finterface_style\x18\a \x01(\x0e2 .archcontracts.v1.InterfaceStyleR\x0einterfaceStyleJ\x04\b\x04\x10\x05J\x04\b\b\x10\tJ\x04\b\t\x10\n" +
+	"\x0finterface_style\x18\a \x01(\x0e2 .archcontracts.v1.InterfaceStyleR\x0einterfaceStyle\x129\n" +
+	"\tauthority\x18\n" +
+	" \x01(\x0e2\x1b.archcontracts.v1.AuthorityR\tauthorityJ\x04\b\x04\x10\x05J\x04\b\b\x10\tJ\x04\b\t\x10\n" +
 	"R\x15absorbed_dependenciesR\x0eown_check_runsR\x17certification_reference\"j\n" +
 	"\x13ComponentDependency\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x1a\n" +
 	"\bmanifest\x18\x02 \x01(\tR\bmanifest\x12#\n" +
-	"\rauto_attached\x18\x03 \x01(\bR\fautoAttached*V\n" +
+	"\rauto_attached\x18\x03 \x01(\bR\fautoAttached*:\n" +
+	"\tAuthority\x12\x16\n" +
+	"\x12AUTHORITY_DECLARED\x10\x00\x12\x15\n" +
+	"\x11AUTHORITY_UNKNOWN\x10\x01*V\n" +
 	"\x0eInterfaceStyle\x12\x1f\n" +
 	"\x1bINTERFACE_STYLE_UNSPECIFIED\x10\x00\x12#\n" +
 	"\x1fINTERFACE_STYLE_PACKAGE_SURFACE\x10\x01BQZOgithub.com/ono-sendai-labs/architectural-contracts/go/internal/manifest/gen;genb\x06proto3"
@@ -281,21 +351,23 @@ func file_archcontracts_v1_component_proto_rawDescGZIP() []byte {
 	return file_archcontracts_v1_component_proto_rawDescData
 }
 
-var file_archcontracts_v1_component_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
+var file_archcontracts_v1_component_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
 var file_archcontracts_v1_component_proto_msgTypes = make([]protoimpl.MessageInfo, 2)
 var file_archcontracts_v1_component_proto_goTypes = []any{
-	(InterfaceStyle)(0),         // 0: archcontracts.v1.InterfaceStyle
-	(*Component)(nil),           // 1: archcontracts.v1.Component
-	(*ComponentDependency)(nil), // 2: archcontracts.v1.ComponentDependency
+	(Authority)(0),              // 0: archcontracts.v1.Authority
+	(InterfaceStyle)(0),         // 1: archcontracts.v1.InterfaceStyle
+	(*Component)(nil),           // 2: archcontracts.v1.Component
+	(*ComponentDependency)(nil), // 3: archcontracts.v1.ComponentDependency
 }
 var file_archcontracts_v1_component_proto_depIdxs = []int32{
-	2, // 0: archcontracts.v1.Component.component_dependencies:type_name -> archcontracts.v1.ComponentDependency
-	0, // 1: archcontracts.v1.Component.interface_style:type_name -> archcontracts.v1.InterfaceStyle
-	2, // [2:2] is the sub-list for method output_type
-	2, // [2:2] is the sub-list for method input_type
-	2, // [2:2] is the sub-list for extension type_name
-	2, // [2:2] is the sub-list for extension extendee
-	0, // [0:2] is the sub-list for field type_name
+	3, // 0: archcontracts.v1.Component.component_dependencies:type_name -> archcontracts.v1.ComponentDependency
+	1, // 1: archcontracts.v1.Component.interface_style:type_name -> archcontracts.v1.InterfaceStyle
+	0, // 2: archcontracts.v1.Component.authority:type_name -> archcontracts.v1.Authority
+	3, // [3:3] is the sub-list for method output_type
+	3, // [3:3] is the sub-list for method input_type
+	3, // [3:3] is the sub-list for extension type_name
+	3, // [3:3] is the sub-list for extension extendee
+	0, // [0:3] is the sub-list for field type_name
 }
 
 func init() { file_archcontracts_v1_component_proto_init() }
@@ -308,7 +380,7 @@ func file_archcontracts_v1_component_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_archcontracts_v1_component_proto_rawDesc), len(file_archcontracts_v1_component_proto_rawDesc)),
-			NumEnums:      1,
+			NumEnums:      2,
 			NumMessages:   2,
 			NumExtensions: 0,
 			NumServices:   0,

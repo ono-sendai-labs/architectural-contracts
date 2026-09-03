@@ -47,6 +47,25 @@ message Component {
 
   // How this component's exposed interface is determined.
   InterfaceStyle interface_style = 7;
+
+  // Whether this component's authority was verified by analysis (DECLARED, the
+  // backward-compatible default) or is unknown because the component has not
+  // been analysed. When UNKNOWN, declared_authority must be empty: unknown
+  // means the component could use any ambient authority, not that it uses none.
+  Authority authority = 10;
+}
+
+// Authority distinguishes a verified declaration of ambient authority from an
+// unanalysed component. An empty declared_authority list under DECLARED means
+// "checked, uses nothing"; UNKNOWN must never be represented that way.
+enum Authority {
+  // The component's authority is declared in declared_authority and verified
+  // by analysis. This is the backward-compatible default.
+  AUTHORITY_DECLARED = 0;
+
+  // The component has not been analysed; its authority is unknown rather than
+  // empty. declared_authority must be empty.
+  AUTHORITY_UNKNOWN = 1;
 }
 
 // InterfaceStyle distinguishes a component that declares its surface from one
