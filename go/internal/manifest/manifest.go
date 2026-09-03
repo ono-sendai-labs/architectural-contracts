@@ -94,23 +94,23 @@ func checkRemovedFields(text []byte) error {
 func scrubCommentsAndStrings(text []byte) []byte {
 	scrubbed := make([]byte, len(text))
 	copy(scrubbed, text)
-	inString := false
+	var quote byte // 0 when not inside a string literal
 	for i := 0; i < len(scrubbed); i++ {
 		c := scrubbed[i]
 		switch {
-		case inString:
+		case quote != 0:
 			if c == '\\' && i+1 < len(scrubbed) {
 				scrubbed[i+1] = ' '
 				i++
 				continue
 			}
-			if c == '"' {
-				inString = false
+			if c == quote {
+				quote = 0
 			} else {
 				scrubbed[i] = ' '
 			}
-		case c == '"':
-			inString = true
+		case c == '"' || c == '\'':
+			quote = c
 		case c == '#':
 			for i < len(scrubbed) && scrubbed[i] != '\n' {
 				scrubbed[i] = ' '
