@@ -1,0 +1,15 @@
+# A non-Go target the aspect reaches: a dependency edge can point at a
+# filegroup, a proto target, or anything else that is not a Go library.
+load("//bazel_rules/go/tests:probe.bzl", "arcc_non_go_closure_probe")
+
+filegroup(
+    name = "nongo_resources",
+    srcs = ["nongo_data.txt"],
+    visibility = ["//bazel_rules:__subpackages__"],
+)
+
+arcc_non_go_closure_probe(
+    name = "non_go_closure_probe",
+    target = ":nongo_resources",
+    visibility = ["//bazel_rules:__subpackages__"],
+)

@@ -147,6 +147,23 @@ def _go_attach_infra_is_conforming_by_default_impl(env, target):
     env.expect.that_bool(platform.infra_attached).equals(True)
     env.expect.that_collection(platform.registry).contains_exactly([])
 
+_NON_GO_PROBE = "//bazel_rules/go/tests/testdata/nongo:non_go_closure_probe"
+
+def _non_go_target_provides_empty_provider_test(name):
+    analysis_test(
+        name = name,
+        target = _NON_GO_PROBE,
+        impl = _non_go_target_provides_empty_provider_impl,
+        attr_values = {"size": "small"},
+    )
+
+def _non_go_target_provides_empty_provider_impl(env, target):
+    # The aspect declares ArccPackageInfo in `provides`, so every target it
+    # visits must carry one — including filegroups and other non-Go targets —
+    # and a non-Go target contributes no packages.
+    env.expect.that_bool(ArccPackageInfo in target).equals(True)
+    env.expect.that_collection(target[ArccPackageInfo].packages.to_list()).contains_exactly([])
+
 def arcc_deps_aspect_test_suite(name):
     test_suite(
         name = name,
@@ -156,6 +173,7 @@ def arcc_deps_aspect_test_suite(name):
             _embedded_srcs_merge_into_the_embedder_test,
             _embed_only_dependency_is_reached_test,
             _no_cgo_in_a_pure_go_closure_test,
+            _non_go_target_provides_empty_provider_test,
             _go_build_platform_uses_target_mode_test,
             _go_attach_infra_is_conforming_by_default_test,
         ],

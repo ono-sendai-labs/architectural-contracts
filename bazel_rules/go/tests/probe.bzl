@@ -55,6 +55,22 @@ arcc_closure_probe = rule(
     doc = "Exposes the arcc package closure of a go_library for analysis tests.",
 )
 
+def _arcc_non_go_closure_probe_impl(ctx):
+    return [ctx.attr.target[ArccPackageInfo]]
+
+arcc_non_go_closure_probe = rule(
+    implementation = _arcc_non_go_closure_probe_impl,
+    attrs = {
+        "target": attr.label(
+            mandatory = True,
+            aspects = [arcc_deps_aspect],
+            doc = "A non-Go target whose aspect-applied provider to expose.",
+        ),
+    },
+    provides = [ArccPackageInfo],
+    doc = "Exposes the arcc provider a non-Go target receives from arcc_deps_aspect.",
+)
+
 def _go_platform_probe_impl(ctx):
     target = ctx.attr.target[0]
     platform = go_build_platform(target)

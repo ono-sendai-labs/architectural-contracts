@@ -24,9 +24,11 @@ _ATTR_ASPECTS = ["deps", "embed"]
 
 def _arcc_deps_impl(target, ctx):
     # A dependency edge can point at a filegroup, a proto target, or anything
-    # else that is not a Go library.
+    # else that is not a Go library. The aspect declares ArccPackageInfo in
+    # `provides`, so every target it visits carries one; a non-Go target
+    # contributes no packages, and its traversal adds nothing.
     if not is_go_target(target):
-        return []
+        return [ArccPackageInfo(packages = depset())]
 
     transitive = []
     for attr_name in _ATTR_ASPECTS:
