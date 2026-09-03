@@ -70,7 +70,12 @@ bazel-test:
 	TEST_SRCDIR="$PWD" TEST_TMPDIR="${TMPDIR:-/tmp}" bazel_rules/go/tests/members_label_validation_test.sh
 	TEST_SRCDIR="$PWD" TEST_TMPDIR="${TMPDIR:-/tmp}" bazel_rules/go/tests/component_shape_validation_test.sh
 
-ci: gen-is-clean lint build test test-integration selfcheck bazel-test
+# Go-only leg: everything except selfcheck and bazel-test. Mirrors the
+# ci.yml "Go" job so the three CI jobs can run in parallel on separate
+# runners; selfcheck and bazel-test run as their own CI jobs.
+ci-go: gen-is-clean lint build test test-integration
+
+ci: ci-go selfcheck bazel-test
 
 clean:
 	cd {{go_dir}} && go clean ./...

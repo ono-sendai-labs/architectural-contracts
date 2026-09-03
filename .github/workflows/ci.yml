@@ -8,7 +8,7 @@ permissions:
   contents: read
 
 jobs:
-  ci:
+  ci-go:
     name: Go
     runs-on: ubuntu-latest
     steps:
@@ -34,7 +34,7 @@ jobs:
         run: go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.36.11
 
       - name: Run CI
-        run: just ci
+        run: just ci-go
 
   selfcheck:
     name: Self-hosting Check
@@ -54,3 +54,16 @@ jobs:
 
       - name: Run Selfcheck
         run: just selfcheck
+
+  bazel:
+    name: Bazel
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install just
+        uses: extractions/setup-just@v2
+
+      - name: Run Bazel build/test
+        run: just bazel-test
