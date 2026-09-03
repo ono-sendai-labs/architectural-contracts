@@ -133,7 +133,7 @@ The attributes mirror the manifest schema below:
 - **`interface`** — the single `go_library` holding the component's public API. Passing a list is a load-time error. Required for the default (declared) style; rejected under `PACKAGE_SURFACE`.
 - **`members`** — additional `go_library` labels the component owns. The rule resolves each to its import path and writes the **fully expanded literal list** into the manifest's `members`, which is also the layout's `roots`. Member packages are analysis roots, so their authority is charged to this component whoever calls them, and their imports are checked against the component's declarations.
 - **`component_deps`** — other `go_component` targets this one depends on. Their packages are covered by them, so arcc prunes authority at their interfaces (the `app` example checks authority-free this way).
-- **`interface_style`** — omit for the declared style, or pass `PACKAGE_SURFACE` (exported by `defs.bzl`) to wrap a library that has no architectural interface. Under `PACKAGE_SURFACE`, `interface` must be absent and `members` non-empty, and members may be import-path patterns rather than labels — which is how a component covers packages that visibility rules make impossible to name as targets.
+- **`interface_style`** — omit for the declared style, or pass `PACKAGE_SURFACE` (exported by `defs.bzl`) to wrap a library that has no architectural interface. Under `PACKAGE_SURFACE`, `interface` must be absent and `members` non-empty. Members are always literal target labels; import-path patterns are rejected.
 - **`declared_authority`** — authority constants from `defs.bzl` (`FILES`, `NETWORK`, …). Empty means the component claims to be authority-free.
 - **`contract`** — optional contract documents; Bazel-only metadata arcc never reads.
 
@@ -395,18 +395,17 @@ contradiction is reported as `MEMBER_OVERLAP`. Overlap with an *unrelated*
 component's membership is not detected — see
 [Limitations](#limitations-and-scope).
 
-Declared-style components must list **literal import paths**. Import-path
-patterns (`example.com/logger/*`) are accepted only under
-`interface_style: INTERFACE_STYLE_PACKAGE_SURFACE`, where membership only
-derives prune keys and an exported-symbol set. Everywhere else the point of
-`members` is that a reader can see exactly what the component owns, which a
-pattern defeats.
+Every member entry is a **literal import path**. Import-path patterns
+(`example.com/logger/*`) are rejected at parse time for every interface style:
+wildcard membership hides newly introduced transitive packages from review,
+and the point of `members` is that a reader can see exactly what the component
+owns.
 
 ### Schema Fields
 The manifest structure is defined by the following fields:
 - **`name`** (string): Sibling-unique logical name of the component.
 - **`interface_files`** (repeated string): Paths to Go files relative to the component root that declare the public surface (functions, types, vars, constants, receiver types). Exported methods whose receiver type is declared in an interface file must also be defined in an interface file.
-- **`members`** (repeated string, optional): Import paths of the packages this component owns and analyzes as roots. Empty means directory-based membership (above). Patterns are allowed only under `INTERFACE_STYLE_PACKAGE_SURFACE`.
+- **`members`** (repeated string, optional): Import paths of the packages this component owns and analyzes as roots. Empty means directory-based membership (above). Every entry must be a literal import path; glob metacharacters are rejected at parse time.
 - **`interface_style`** (enum, optional): `INTERFACE_STYLE_UNSPECIFIED` (the default) means `interface_files` declare the surface. `INTERFACE_STYLE_PACKAGE_SURFACE` means the interface is *every exported symbol of every member* — see below.
 - **`component_dependencies`** (repeated): Dependencies on other first-class components.
   - `name` (string): Logical name of the dependent component.
@@ -508,11 +507,10 @@ The MVP implementation makes several engineering trade-offs and has known bounda
 9. **A component's BUILD file changes when its implementation is restructured.** A declared-style component's `members` are explicit labels, so adding, removing or renaming an internal package edits the component declaration. This works against a goal the component model exists to serve — implementation changes should be reviewable with little attention *because* interface changes are the ones that surface — since an internal-only refactor now shows up as a diff to the component declaration. Bazel offers no mechanism that closes this: a package cannot enumerate packages below its immediate children, so "everything under here" is not expressible in one place (which is also why there is no wildcard helper). Partly mitigated: a member you *forget* to declare, but that owned code actually imports, is fail-closed — it lands in the closure, matches nothing, and is reported as `UNDECLARED_DEPENDENCY` naming the package to add. The silent residue is a nested package nothing imports, i.e. dead code, which stays unowned.
 10. **`PACKAGE_SURFACE` prunes at package granularity,** which is coarser than symbol pruning and will hide authority reached through unexported entry points. This was accepted knowingly for toolchain-injected runtimes; note that it now applies wherever an author chooses that style to wrap an existing library, which is the common case.
 11. **A `PACKAGE_SURFACE` component can launder authority.** Wrapping a large library and declaring the union of what it needs stops charging that authority to every caller — which is the value of drawing the boundary, and also the risk. The safeguard is that the wrapper's own check reports its actual authority; nothing prevents an author from declaring it and moving on. Review of `declared_authority` is the control, as it is for any component.
-12. **Pattern-membership components cannot be checked directly.** A `PACKAGE_SURFACE` component whose membership contains import-path patterns is resolved from the depender's layout, so a direct `arcc check` fails at load time and names the component and unanalyzable pattern entries. The `certified`/`asserted` annotation makes this dependency-side boundary visible in reports that depend on it; repo-wide enforcement is deferred with the uniqueness check above.
 
 ### Bazel-specific
 
-13. **A component whose closure contains a cgo package cannot be checked under Bazel.** A cgo package compiles from preprocessed sources that do not exist at analysis time, so the rule fails closed rather than emitting a layout naming files that will not be in the sandbox. **The exclusion propagates upward through importers:** a cgo package anywhere in a closure excludes every component above it, not merely the one that names it. Native mode is unaffected, because the go tool preprocesses cgo before `go/packages` sees it, so such a component keeps full native coverage and loses only its Bazel leg. This is why `bazel test //...` runs **six** self-checks while `just selfcheck` runs **eight**: `capslockadapter` owns capslock as member code, whose closure contains `golang.org/x/sys/unix` built with cgo, and `cli` imports `capslockadapter`. One root cause, two components. The workaround of patching a third-party build file to claim the package is not cgo is deliberately not taken: buying a green check by falsifying build metadata is the exact failure mode these checks exist to remove.
+12. **A component whose closure contains a cgo package cannot be checked under Bazel.** A cgo package compiles from preprocessed sources that do not exist at analysis time, so the rule fails closed rather than emitting a layout naming files that will not be in the sandbox. **The exclusion propagates upward through importers:** a cgo package anywhere in a closure excludes every component above it, not merely the one that names it. Native mode is unaffected, because the go tool preprocesses cgo before `go/packages` sees it, so such a component keeps full native coverage and loses only its Bazel leg. This is why `bazel test //...` runs **six** self-checks while `just selfcheck` runs **eight**: `capslockadapter` owns capslock as member code, whose closure contains `golang.org/x/sys/unix` built with cgo, and `cli` imports `capslockadapter`. One root cause, two components. The workaround of patching a third-party build file to claim the package is not cgo is deliberately not taken: buying a green check by falsifying build metadata is the exact failure mode these checks exist to remove.
 
 ---
 

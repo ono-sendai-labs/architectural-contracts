@@ -43,26 +43,6 @@ go_component(
     visibility = ["//bazel_rules:__subpackages__"],
 )
 
-# A package-surface component with pattern membership.
-go_component(
-    name = "pattern_membership_component",
-    interface_style = PACKAGE_SURFACE,
-    members = [
-        "example.com/infra/runtime*",
-    ],
-    tags = ["manual"],
-    visibility = ["//bazel_rules:__subpackages__"],
-)
-
-# A depender component that depends on pattern_membership_component.
-go_component(
-    name = "pattern_membership_consumer_component",
-    interface = "//bazel_rules/go/tests/testdata/infra/consumer:consumer",
-    component_deps = [":pattern_membership_component"],
-    tags = ["manual"],
-    visibility = ["//bazel_rules:__subpackages__"],
-)
-
 # Test target for auto-attached infra component.
 testing_go_component(
     name = "auto_attached_infra_component",

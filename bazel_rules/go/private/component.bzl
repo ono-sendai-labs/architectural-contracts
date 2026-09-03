@@ -267,12 +267,6 @@ def go_component_impl(ctx, attachment_fn = go_attached_infra):
     for m_path in member_importpaths:
         effective_members[m_path] = True
 
-    member_patterns = ctx.attr.member_patterns
-    for pattern in member_patterns:
-        for importpath in merged.keys():
-            if match_path(pattern, importpath):
-                effective_members[importpath] = True
-
     members = _classify(ctx, merged, effective_members, covered)
 
     if interface and interface_importpath not in members:
@@ -285,8 +279,6 @@ def go_component_impl(ctx, attachment_fn = go_attached_infra):
     all_manifest_members = {}
     for m_path in members:
         all_manifest_members[m_path] = True
-    for pattern in member_patterns:
-        all_manifest_members[pattern] = True
     manifest_members = sorted(list(all_manifest_members.keys()))
 
     manifest = ctx.actions.declare_file(ctx.label.name + ".component.textproto")
@@ -402,9 +394,6 @@ GO_COMPONENT_ATTRS = {
         aspects = [arcc_deps_aspect],
         doc = "Concrete Go library labels whose transitive closures are analyzed " +
               "alongside the interface closure.",
-    ),
-    "member_patterns": attr.string_list(
-        doc = "Unexpanded import-path patterns authored as membership under PACKAGE_SURFACE.",
     ),
     "component_deps": attr.label_list(
         providers = [ArccComponentInfo],

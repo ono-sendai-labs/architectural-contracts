@@ -96,6 +96,10 @@ def _validate_component_shape(name, kwargs):
             name,
             PACKAGE_SURFACE,
         ))
+    for m in members:
+        m_str = str(m)
+        if not _is_label(m_str) or _has_wildcards(m_str):
+            fail("component %s: members must be literal target labels: %r" % (name, m_str))
 
 def _go_component_impl(name, visibility, **kwargs):
     # Validate the authoring shape before dropping unset inherited attributes
@@ -109,16 +113,14 @@ def _go_component_impl(name, visibility, **kwargs):
 
     raw_members = set_kwargs.get("members", [])
     target_members = []
-    pattern_members = []
     for m in raw_members:
         m_str = str(m)
         if _is_label(m_str) and not _has_wildcards(m_str):
             target_members.append(m_str)
         else:
-            pattern_members.append(m_str)
+            fail("component %s: members must be literal target labels: %r" % (name, m_str))
 
     set_kwargs["members"] = target_members
-    set_kwargs["member_patterns"] = pattern_members
     # Bazel wildcard tests exclude manual targets, so the generated manifest
     # must carry the same fact as the check target created below.
     set_kwargs["own_check_runs"] = "manual" not in set_kwargs.get("tags", [])
@@ -164,7 +166,8 @@ go_component = macro(
         ),
         "members": attr.string_list(
             configurable = False,
-            doc = "Concrete go_library labels or import-path patterns (under PACKAGE_SURFACE) declared as component members.",
+            doc = "Concrete go_library target labels declared as component members. " +
+                  "Import-path patterns are rejected; membership is literal.",
         ),
         "component_deps": attr.label_list(
             configurable = False,

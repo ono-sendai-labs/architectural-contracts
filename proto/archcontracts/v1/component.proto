@@ -30,13 +30,11 @@ message Component {
                                             // known capability set (C11); empty = ambient-authority-free
 
   // Member packages: the code this component is responsible for and analyzes
-  // as roots. Entries are import paths or import-path patterns. The interface
-  // package is implicitly a member and need not be listed; a pattern matching
-  // it is not an error.
+  // as roots. Entries are literal import paths; glob metacharacters are
+  // rejected at parse time. The interface package is implicitly a member and
+  // need not be listed.
   //
-  // Empty means FR1: every package under the component root. Emitters write
-  // the fully expanded literal list rather than patterns for declared-style
-  // components.
+  // Empty means FR1: every package under the component root.
   repeated string members = 6;
 
   // How this component's exposed interface is determined.

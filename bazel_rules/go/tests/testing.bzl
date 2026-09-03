@@ -95,17 +95,15 @@ def testing_go_component(name, visibility = None, **kwargs):
 
     raw_members = set_kwargs.get("members", [])
     target_members = []
-    pattern_members = []
     for m in raw_members:
         m_str = str(m)
         if m_str.startswith("//") or m_str.startswith(":") or m_str.startswith("@"):
             if not any([c in m_str for c in ["*", "?", "[", "]", "\\"]]):
                 target_members.append(m_str)
                 continue
-        pattern_members.append(m_str)
+        fail("component %s: members must be literal target labels: %r" % (name, m_str))
 
     set_kwargs["members"] = target_members
-    set_kwargs["member_patterns"] = pattern_members
     # Keep the analysis-test macro's generated manifest aligned with its
     # manual-aware `.check` target, just like the public go_component macro.
     set_kwargs["own_check_runs"] = "manual" not in set_kwargs.get("tags", [])
