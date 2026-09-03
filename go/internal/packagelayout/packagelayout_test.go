@@ -3,8 +3,10 @@ package packagelayout
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"go/build"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -1417,6 +1419,9 @@ func TestValidateAndResolve_SDKRootFailureClasses(t *testing.T) {
 		}
 		if !strings.Contains(err.Error(), nonexistent) {
 			t.Errorf("expected error to identify the SDK root context %q, got %v", nonexistent, err)
+		}
+		if !errors.Is(err, fs.ErrNotExist) {
+			t.Errorf("expected error to wrap the os.Stat failure (%v), got %v", fs.ErrNotExist, err)
 		}
 	})
 
