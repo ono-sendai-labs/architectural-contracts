@@ -331,23 +331,56 @@ action-input inspection). Applied: plan Steps 8, 13.
   recorded instead.
 - **Approval allowlist for `UNKNOWN`.** Not adopted (DR-13); I1 weakened instead.
 
-## 4. Decisions the user should confirm
+## 4. Decisions taken and confirmed by the user
 
-These were taken to keep the design implementable; each is reversible at the design
-level and none has been implemented.
+These were taken to keep the design implementable and flagged for confirmation. The
+user confirmed all six on 2026-09-02, with one stated priority: **Bazel mode comes
+first; a lower-fidelity native-mode implementation is acceptable.** Native-only concerns
+are weighed accordingly throughout the plan.
 
-1. **Pattern membership is removed** (DR-16). Bazel never emits it and it cannot be
-   checked under I1, but it is an existing native-mode feature.
+1. **Pattern membership is removed** (DR-16). Confirmed. Native-only; the Bazel emitter
+   writes literal package IDs and is unaffected.
 2. **Analysis action stays green on violations**; the `.check` test asserts the verdict
-   (DR-01). The alternative (action fails) makes `bazel build` of a dependent fail when a
-   leaf violates.
+   (DR-01). Confirmed.
 3. **`own_check_runs` and `certification_reference` are removed** from the manifest
-   (DR-06).
-4. **I1's "approved" becomes an external governance assumption** (DR-13).
-5. **Pre-minted stdlib handle vars inherit minting authority** (`os.Stdin` → FILES),
-   going beyond the spike's method-union rule (DR-05).
-6. **JSON-over-protobuf encoding** for surfaces and the map, canonicalised for byte
-   stability (DR-15), rather than the manifest's textproto.
+   (DR-06). Confirmed.
+4. **I1's "approved" becomes an external governance assumption** (DR-13). Confirmed;
+   whole-graph predicates remain deferred with Q10.
+5. **Pre-minted stdlib handle vars inherit minting authority** (`os.Stdin` → FILES)
+   (DR-05). Confirmed. A distinct `STDIO` capability for the standard streams was
+   considered and **deferred** — see §4.1.
+6. **JSON-over-protobuf encoding**, canonicalised, for surfaces and the map (DR-15).
+   Confirmed, on the condition that canonicalisation is genuinely byte-stable; the
+   argument is recorded in §4.2 and Step 3 tests it.
+
+### 4.1 Deferred: a `STDIO` capability
+
+Today printing carries no authority at all: Capslock curates `package fmt
+CAPABILITY_SAFE` and `log.Print*` as `CAPABILITY_SAFE`, and the minting-site rule makes
+`(*os.File).Write` safe. So a verbose-guarded `fmt.Printf` needs no declaration, and
+under decision 5 a direct reference to `os.Stdout` would need FILES, which overstates
+the risk. A distinct `STDIO` capability would be an arcc-side overlay in the map
+generator (Capslock's capability enum is fixed and its curation cannot be extended
+through the classifier text): the three stream vars → `STDIO`; a hand-maintained list of
+stdlib writers to the streams (`fmt.Print*`, the `log` default-logger functions, the
+`print`/`println` builtins) → `STDIO`; the overlay hashed into `classifier_hash`.
+Consequence: every component that prints must declare `STDIO`, including arcc's own
+components and the examples. **Deferred by the user (2026-09-02):** direct references to
+the streams stay FILES for now, on the reasoning that such a reference is unlikely to be
+buried in an otherwise pure library. If revisited it is a Step 4 rule plus a Step 10
+self-audit, and a `classifier_hash` change.
+
+### 4.2 Why the canonical JSON form is byte-stable
+
+`protojson` emits known fields in descriptor declaration order (`order.IndexNameFieldOrder`)
+and encodes each scalar deterministically; its only documented instability is random
+whitespace injected after commas and colons. `json.Compact` removes all whitespace and
+`json.Indent` re-adds it deterministically, touching nothing else. Two rules keep this
+true: marshal options are pinned (`UseProtoNames`, no `EmitUnpopulated`), and the bytes
+are never round-tripped through `map[string]any`, which would lose int64 precision and
+re-sort keys. Reordering fields in a `.proto` changes the bytes, which is treated as a
+format-version bump. Step 3 asserts stability across repeated marshals and across
+reordered repeated entries.
 
 ## 5. Where things landed
 
