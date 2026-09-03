@@ -1,0 +1,4 @@
+name: "symbol"
+interface_files: "symbol.go"
+members: "github.com/ono-sendai-labs/architectural-contracts/go/internal/symbol"
+members: "github.com/ono-sendai-labs/architectural-contracts/go/internal/hostpolicy"

@@ -1,0 +1,40 @@
+load("@rules_arcc//bazel_rules/go:defs.bzl", "go_component")
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "symbol",
+    srcs = [
+        "capslock.go",
+        "extract.go",
+        "symbol.go",
+        "typesconv.go",
+    ],
+    importpath = "github.com/ono-sendai-labs/architectural-contracts/go/internal/symbol",
+    visibility = ["//go:__subpackages__"],
+    deps = ["//go/internal/hostpolicy"],
+)
+
+go_test(
+    name = "symbol_test",
+    size = "small",
+    srcs = [
+        "capslock_test.go",
+        "extract_test.go",
+        "symbol_test.go",
+        "typesconv_test.go",
+    ],
+    deps = [
+        ":symbol",
+        "//go/internal/hostpolicy",
+    ],
+)
+
+# Mirrors the checked-in symbol/component.textproto.
+go_component(
+    name = "symbol_component",
+    interface = ":symbol",
+    members = ["//go/internal/hostpolicy"],
+    visibility = ["//go:__subpackages__"],
+)
+
+exports_files(["component.textproto"])

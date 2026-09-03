@@ -34,9 +34,9 @@ run *args:
 	cd {{go_dir}} && go run ./cmd/arcc {{args}}
 
 # Self-check leg relationship:
-# The six Bazel `.check` targets run by `bazel test //...` (in //go/internal/...)
-# correspond one-to-one with six of the eight components checked here:
-#   capanalyzer, facts, report, checker, manifest, goanalysis.
+# The Bazel `.check` targets run by `bazel test //...` (in //go/internal/...)
+# correspond one-to-one with the pure components checked here:
+#   capanalyzer, symbol, facts, report, checker, manifest, goanalysis.
 #
 # The other two components — capslockadapter and cli — are native-only because
 # capslock's closure contains golang.org/x/sys/unix built with cgo. The Bazel
@@ -54,6 +54,7 @@ selfcheck:
 	cd {{go_dir}} && ../bin/arcc check internal/facts/component.textproto
 	cd {{go_dir}} && ../bin/arcc check internal/report/component.textproto
 	cd {{go_dir}} && ../bin/arcc check internal/capanalyzer/component.textproto
+	cd {{go_dir}} && ../bin/arcc check internal/symbol/component.textproto
 	@echo "=== Running self-hosting checks (remaining components) ==="
 	cd {{go_dir}} && ../bin/arcc check internal/manifest/component.textproto
 	cd {{go_dir}} && ../bin/arcc check internal/goanalysis/component.textproto
