@@ -1,0 +1,55 @@
+result:
+  task_file: .agents/tasks/2026-08-04-compositional-component-analysis/step03/task-02-add-authority-declaration-lattice.code-task.md
+  change_id: srwvxuvyrotqlrpuprpvlvqmuqtqsntz
+  status: completed
+  schema_version: 2
+  produced_at: 2026-09-03T12:59:00Z
+
+acceptance_criteria:
+  - text: "Default declaration remains known — parsed manifests without `authority` are DECLARED{} and existing declared manifests retain their current checker behavior"
+    addressed: yes
+    evidence: |
+      go/internal/manifest/manifest.go:230-243 maps the persisted axis through FromPersisted, defaulting to known DECLARED;
+      go/internal/manifest/manifest_test.go TestParse_AuthorityDefaultsAndUnknown/OmittedDefaultsToKnownDeclared and the updated
+      TestParse_ValidRoundTrip assert the known-empty default; checker.go:249 still reads DeclaredAuthority, unchanged.
+  - text: "Unknown is structurally distinct — authority UNKNOWN and the default with an empty capability list stay distinct through the native model"
+    addressed: yes
+    evidence: |
+      go/internal/manifest/authority.go AuthorityDeclaration{Known, Set} with Equal comparing Known before slices;
+      go/internal/manifest/authority_test.go TestEqual_DistinguishesEmptyFromUnknown and TestParse_AuthorityDefaultsAndUnknown/UnknownWithEmptyDeclaredAuthority.
+  - text: "Contradictory input fails — UNKNOWN with declared_authority entries or an unrecognized enum value fails with an actionable error"
+    addressed: yes
+    evidence: |
+      go/internal/manifest/authority.go:118-126 FromPersisted rejects UNKNOWN with capabilities (message names declared_authority) and :127-129 rejects unknown enum values;
+      manifest_test.go TestParse_AuthorityDefaultsAndUnknown/UnknownWithDeclaredAuthorityIsContradictory and /UnknownAuthorityEnumValueRejected; ToPersisted likewise refuses a non-canonical unknown-with-caps (authority_test.go TestToPersisted_RejectsUnknownWithCapabilities).
+  - text: "Join obeys the lattice — unknown absorbs, known sets union deterministically, DECLARED{}⊔DECLARED{} is known-empty, duplicates removed, inputs unchanged"
+    addressed: yes
+    evidence: |
+      go/internal/manifest/authority.go:62-77 Join; authority_test.go TestJoin_LatticePairs covers every ordered pair among UNKNOWN, DECLARED{}, DECLARED{FILES}, DECLARED{NETWORK};
+      TestJoin_InputsUnchanged verifies fresh allocation and input immutability; dedup/ordering via TestJoin_InputsUnchanged and NewDeclared sorting.
+  - text: "Persisted round trips preserve meaning — valid declared and unknown native values survive conversion to the persisted representation and back"
+    addressed: yes
+    evidence: |
+      go/internal/manifest/authority.go ToPersisted/FromPersisted; authority_test.go TestAuthorityPersistedRoundTrip (unknown, declared-empty, declared-unsorted-input)
+      and TestFromPersisted_RejectsNonCanonical (unknown+caps, unknown capability name).
+  - text: "Integration remains green without premature consumers — just gen-is-clean and just ci pass, and no later-step authority semantics were introduced"
+    addressed: yes
+    evidence: |
+      work.log records `just gen-is-clean` clean and `just ci` fully green (go vet/gofmt/build/test/integration, bazel build + 76/76 test targets);
+      rg over checker/goanalysis/capanalyzer/cmd shows no manifest.Authority, UnknownAuthority or asserted-surface consumers.
+
+artifacts:
+  scratchpad_dir: .agents/scratchpad/2026-08-04-compositional-component-analysis/step03/task-02-add-authority-declaration-lattice/
+  files:
+    - context.md
+    - plan.md
+    - progress.md
+    - work.log
+    - result.yaml
+
+notes: |
+  Added the persisted authority axis (Authority enum with DECLARED=0/UNKNOWN=1 at field 10, enum names matching the
+  manifest spelling), the native AuthorityDeclaration lattice with total Join, parse integration with fail-closed
+  contradictory-input handling, parity threading, and exhaustive table-driven tests. Work was committed in four coherent
+  jj changes; the final full CI gate (including Bazel) is green. One transient arcc_binary_test smoke failure passed on
+  re-run and is unrelated to these changes.

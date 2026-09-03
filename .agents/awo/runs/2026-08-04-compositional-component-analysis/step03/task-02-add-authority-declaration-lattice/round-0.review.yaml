@@ -1,0 +1,127 @@
+review:
+  task_file: .agents/tasks/2026-08-04-compositional-component-analysis/step03/task-02-add-authority-declaration-lattice.code-task.md
+  change_id: srwvxuvyrotqlrpuprpvlvqmuqtqsntz
+  reviewed_at: 2026-09-03T19:56:19Z
+  verdict: approved
+  schema_version: 2
+  lsp_coverage: partial
+
+merge_request:
+  title: "feat(manifest): add persisted authority lattice and parity [Authority Lattice: Step 03/Task 02]"
+  body: |
+    Reviews the complete ordered five-change task series from the supplied base
+    through the current change. The initial schema change adds the DECLARED/
+    UNKNOWN enum, field 10, generated binding, and descriptor assertions; the
+    next change adds the native lattice, joins, conversions, and tests; the
+    third integrates parsing and validation; the fourth threads authority
+    through manifest parity and adds an explicit DECLARED fixture spelling; the
+    final change updates Bazel source lists. No rework round was present.
+
+summary: |
+  All six acceptance criteria are satisfied across the complete five-change
+  series, with current full Go tests, vet, and formatting checks passing and the
+  recorded generation-clean and full CI gates green. One non-blocking test
+  quality issue remains: the one-sided alias assertion at authority_test.go:93
+  is an impossible nil check, so that specific scenario is not actually tested.
+  Go LSP diagnostics were attempted for every touched Go file; non-Go touched
+  files have no available LSP provider.
+
+acceptance_criteria:
+  - text: |
+      1. **Default declaration remains known**
+         - Given an existing component textproto with no `authority` field and no declared capabilities
+         - When it is parsed
+         - Then its authority is `DECLARED{}` rather than `UNKNOWN`, and existing declared manifests retain their current checker behavior.
+    status: pass
+    evidence: |
+      manifest.Parse maps the protobuf zero value through FromPersisted at
+      go/internal/manifest/manifest.go:231-245, producing a known empty
+      declaration. The behavior is asserted by
+      go/internal/manifest/manifest_test.go:671-681 and
+      go/internal/manifest/manifest_test.go:17-35; the checker still consumes
+      DeclaredAuthority at go/internal/checker/checker.go:249.
+  - text: |
+      2. **Unknown is structurally distinct**
+         - Given one manifest spelling `authority: UNKNOWN` and another using the default with an empty capability list
+         - When both are parsed and round-tripped through the native model
+         - Then the first remains unknown and the second remains known-empty; neither can be inferred solely from slice emptiness.
+    status: pass
+    evidence: |
+      The Known bit is compared independently of Set by Equal at
+      go/internal/manifest/authority.go:76-87. Omitted and explicit UNKNOWN
+      parsing are covered at go/internal/manifest/manifest_test.go:671-712,
+      and native persisted round trips are covered at
+      go/internal/manifest/authority_test.go:144-170 and the distinction test
+      at go/internal/manifest/authority_test.go:198-210.
+  - text: |
+      3. **Contradictory input fails**
+         - Given `authority: UNKNOWN` with one or more `declared_authority` entries, or an unrecognized enum value
+         - When parsing or serialization is attempted
+         - Then it fails with an actionable error and does not emit a normalized but misleading declaration.
+    status: pass
+    evidence: |
+      FromPersisted rejects UNKNOWN with capabilities and unknown enum values
+      at go/internal/manifest/authority.go:103-117, while ToPersisted rejects
+      an invalid UNKNOWN value at go/internal/manifest/authority.go:89-100.
+      Parse cases and actionable error checks are at
+      go/internal/manifest/manifest_test.go:714-740; conversion rejection is
+      covered at go/internal/manifest/authority_test.go:173-192.
+  - text: |
+      4. **Join obeys the lattice**
+         - Given every pair among unknown, known-empty, and known non-empty declarations
+         - When `Join` is evaluated
+         - Then unknown absorbs, known sets union deterministically, `DECLARED{} ⊔ DECLARED{}` is known-empty, duplicates are removed, and inputs are unchanged.
+    status: pass
+    evidence: |
+      Join implements absorbing UNKNOWN, fresh union allocation, sorting, and
+      compaction at go/internal/manifest/authority.go:57-74. The 4-by-4 ordered
+      pair table is at go/internal/manifest/authority_test.go:27-40, and
+      duplicate removal plus input/result immutability is exercised at
+      go/internal/manifest/authority_test.go:70-90.
+  - text: |
+      5. **Persisted round trips preserve meaning**
+         - Given valid declared and unknown native values
+         - When converted to their persisted authority and capability representation and read back
+         - Then equality, canonical ordering, and known/unknown state are preserved exactly.
+    status: pass
+    evidence: |
+      ToPersisted and FromPersisted provide the bidirectional conversion at
+      go/internal/manifest/authority.go:89-117. Round trips for UNKNOWN,
+      known-empty, and a non-empty declared set are asserted at
+      go/internal/manifest/authority_test.go:140-170, with non-canonical input
+      rejection at go/internal/manifest/authority_test.go:173-192.
+  - text: |
+      6. **Integration remains green without premature consumers**
+         - Given the new axis and lattice
+         - When `just gen-is-clean` and `just ci` run
+         - Then both pass, and no authority aggregation, surface provenance, or unknown-component execution semantics from later steps have been introduced.
+    status: pass
+    evidence: |
+      The recorded gates show generation cleanliness and a fully green 76/76
+      CI run in
+      .agents/scratchpad/2026-08-04-compositional-component-analysis/step03/task-02-add-authority-declaration-lattice/work.log:64-75.
+      The same log records no premature consumers at lines 76-78. The schema
+      and field allocation are present at proto/archcontracts/v1/component.proto:21-72
+      and asserted at go/internal/manifest/schema_test.go:23-61.
+
+findings:
+  - severity: suggestion
+    category: tests
+    file: go/internal/manifest/authority_test.go
+    line: 93
+    title: One-sided alias test uses an impossible nil check
+    details: |
+      The condition at authority_test.go:93 compares &solo.Set with nil. The
+      address of a local variable cannot be nil, and gopls reports the
+      condition as impossible. The test therefore never mutates the one-sided
+      Join result or checks it against its source declaration, despite the
+      comment claiming to verify that case. The two-sided mutation check and
+      the implementation's fresh allocation still cover the main behavior, so
+      this is non-blocking.
+    suggested_action: |
+      Keep a named source declaration, call Join(source, knownEmpty), mutate a
+      non-empty result element, and assert that source.Set is unchanged. Remove
+      the &solo.Set == nil expression.
+    source: built-in
+
+ecosystem_reviews: []
