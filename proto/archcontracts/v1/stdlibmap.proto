@@ -1,0 +1,200 @@
+// Package gen provides protobuf generated types.
+//
+// Component Contract (FR10):
+// - What it does: Generated API and structures for the standard-library authority
+//   map schema. This package is an implementation detail of the stdlibmap and
+//   surface components.
+// - What it requires: Protobuf unmarshaler to populate the models.
+// - What it provides: Protoreflect-enabled struct types for parsing stdlib maps
+//   and the SDK key that pins a map to one target SDK configuration.
+// - Ambient Authority: This package is clean of filesystem/network ambient
+//   authority but leverages REFLECT, RUNTIME, SYSTEM_CALLS, and UNSAFE_POINTER
+//   internally via protobuf unmarshaling.
+syntax = "proto3";
+
+package archcontracts.v1;
+
+option go_package = "github.com/ono-sendai-labs/architectural-contracts/go/internal/archcontracts/gen;gen";
+
+// StdlibMap is the precomputed standard-library authority map for one target
+// SDK configuration (design R5–R6, DR-05). It is the definition of what
+// "standard library" means: a package is standard library exactly when it
+// appears in `packages`. The inventory is TOTAL (I3): every enumerated
+// importable package lists every externally referencable exported symbol and
+// its aggregate init, each with an explicit terminal classification, so that a
+// lookup of an unknown symbol in an enumerated package is always an inventory
+// gap (a tool error), never an implicit "pure".
+//
+// Determinism (DR-15): no proto map fields are used anywhere; every keyed
+// collection is a repeated entry whose canonical sort key is documented on the
+// field, and Task 5's canonical encoder sorts each collection before writing.
+// `format_version` is field 1 and is a MAJOR format version: readers reject
+// unknown major versions rather than guessing.
+message StdlibMap {
+  // Major format version of the map schema and of the SDKKey below. Must be
+  // field 1 in every persisted artifact. Readers fail closed on an unknown
+  // major version.
+  int32 format_version = 1;
+
+  // The target SDK configuration this map was generated against (DR-09).
+  // Lookup fails closed when the consumer's SDK key differs.
+  SDKKey key = 2;
+
+  // Total package inventory over `go list std` (natively) or the toolchain's
+  // stdlib package list (Bazel) — the enumeration oracle (I3). Sort key:
+  // PackageInventory.path, lexicographic byte order.
+  repeated PackageInventory packages = 3;
+
+  // Total symbol inventory: every externally referencable exported package-
+  // level object and every exported method of every exported (named or alias)
+  // type of every importable package, each with an explicit terminal
+  // classification (DR-05). Sort key: (SymbolRecord.package, SymbolRecord.id),
+  // lexicographic byte order.
+  repeated SymbolRecord symbols = 4;
+
+  // Package-init classifications, one per package in the inventory, keyed on
+  // the compiler-synthesised aggregate `pkg.init` that unions every `init#N`
+  // (design R3, DR-05). Sort key: InitRecord.package, lexicographic byte order.
+  repeated InitRecord inits = 5;
+
+  // Generator-produced evidence: for a symbol classified with capabilities,
+  // the canned path explaining why it reaches each capability. One entry per
+  // (symbol, capability) pair. Sort key: (Evidence.symbol_id,
+  // Evidence.capability), lexicographic byte order.
+  repeated Evidence evidence = 6;
+}
+
+// SDKKey pins a stdlib map (and a surface, which embeds it) to one SDK
+// configuration. Every field describes the TARGET configuration used to
+// compile member code — never the host running the tool (DR-09): a
+// cross-compile from linux/amd64 to darwin/arm64 must select the darwin/arm64
+// map. Two configurations that differ in any field select distinct maps.
+message SDKKey {
+  // Exact target toolchain version including patch (e.g. "go1.26.4"). Export
+  // data producer vs x/tools version skew is detected against this.
+  string toolchain_version = 1;
+
+  // Target operating system (GOOS) for the member code, not the host's.
+  string goos = 2;
+
+  // Target architecture (GOARCH) for the member code, not the host's.
+  string goarch = 3;
+
+  // Whether cgo is enabled in the target configuration.
+  bool cgo_enabled = 4;
+
+  // Build tags active in the target configuration. Sort key: lexicographic
+  // byte order; duplicates are not permitted.
+  repeated string build_tags = 5;
+
+  // GOEXPERIMENT setting of the target toolchain (empty when default).
+  string goexperiment = 6;
+
+  // Hash of the generation classifier text (Capslock builtins plus the
+  // minting-site reclassification and the var/handle rule), so generation-time
+  // and check-time assumptions cannot drift silently (I2).
+  string classifier_hash = 7;
+
+  // Map format version the key was computed for; must equal the map's own
+  // format_version, enforced at load (N3).
+  int32 map_format_version = 8;
+}
+
+// PackageInventory is one entry of the total package enumeration. Internal
+// packages (`internal/…`) are enumerated with importable=false and carry no
+// symbol inventory; they exist so that membership queries are total.
+message PackageInventory {
+  // Canonical stdlib import path. Sort key for the parent collection.
+  string path = 1;
+
+  // Whether the package can be imported by member code. Internal packages are
+  // false. A false package never appears in symbols or inits.
+  bool importable = 2;
+}
+
+// Classification is the terminal classification of a symbol or aggregate init
+// (DR-05): exactly one of SAFE, a non-empty capability set, or UNANALYZED.
+// There is no default that can be read as "pure": the zero enum value is
+// UNSPECIFIED, which is never persisted and fails validation on read.
+enum Classification {
+  // Never persisted; guards against reading an unset field as SAFE.
+  CLASSIFICATION_UNSPECIFIED = 0;
+
+  // Analysed and capability-free. Stored explicitly; absence of an entry never
+  // means safe (R6).
+  SAFE = 1;
+
+  // Reaches a non-empty set of capabilities, listed in capabilities. Persisted
+  // only with a non-empty capability list.
+  CAPABILITIES = 2;
+
+  // Unanalysable (assembly, cgo, linkname, builtins such as unsafe.*); stored
+  // as such and rendered as an AnalysisDefeating finding at check time (I4).
+  UNANALYZED = 3;
+}
+
+// SymbolRecord is one entry of the total per-package symbol inventory.
+message SymbolRecord {
+  // Package the symbol is declared in; a canonical stdlib import path.
+  string package = 1;
+
+  // Symbol identifier in the shared versioned textual grammar (DR-04):
+  // `pkg.F`, `pkg.T`, `pkg.V`, `(pkg.T).M`, `pkg.init`; receiver written
+  // without `*` or type arguments. Sort key for the parent collection
+  // (together with `package`).
+  string id = 2;
+
+  // Terminal classification; never UNSPECIFIED in a persisted map.
+  Classification classification = 3;
+
+  // Capability names when classification is CAPABILITIES; non-empty exactly
+  // then. Sort key: lexicographic byte order.
+  repeated string capabilities = 4;
+
+  // Generation-time trust annotation for curated entries (e.g. Capslock's
+  // CAPABILITY_SAFE curation of os.Exit, runtime.* records
+  // "capslock-curated") so the trust boundary is visible. Empty for ordinary
+  // entries. This is NOT a checked/asserted provenance claim about a surface.
+  string provenance = 5;
+}
+
+// InitRecord carries the classification of one package's aggregate init.
+message InitRecord {
+  // Package whose init this describes; a canonical stdlib import path. Sort
+  // key for the parent collection.
+  string package = 1;
+
+  // Terminal classification of the aggregate init; never UNSPECIFIED.
+  Classification classification = 2;
+
+  // Capability names when classification is CAPABILITIES; non-empty exactly
+  // then. Sort key: lexicographic byte order.
+  repeated string capabilities = 3;
+}
+
+// Evidence is the generator's canned path for one (symbol, capability) pair.
+message Evidence {
+  // Symbol the evidence describes (SymbolRecord.id grammar). Sort key for the
+  // parent collection (together with `capability`).
+  string symbol_id = 1;
+
+  // Capability name the path explains. Sort key for the parent collection
+  // (together with `symbol_id`).
+  string capability = 2;
+
+  // Ordered frames from the symbol down to the capability use.
+  repeated Frame frames = 3;
+}
+
+// Frame is one hop of an evidence path, retaining the function/file/line data
+// the report needs later (DR-17).
+message Frame {
+  // Fully qualified function or method name of the hop.
+  string function = 1;
+
+  // File the call site lives in.
+  string file = 2;
+
+  // Line within `file` of the call site.
+  int32 line = 3;
+}

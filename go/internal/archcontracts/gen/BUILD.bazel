@@ -1,0 +1,16 @@
+load("@rules_go//go:def.bzl", "go_library")
+
+go_library(
+    name = "gen",
+    srcs = [
+        "stdlibmap.pb.go",
+        "surface.pb.go",
+    ],
+    importpath = "github.com/ono-sendai-labs/architectural-contracts/go/internal/archcontracts/gen",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//go/internal/manifest/gen",
+        "@org_golang_google_protobuf//reflect/protoreflect",
+        "@org_golang_google_protobuf//runtime/protoimpl",
+    ],
+)

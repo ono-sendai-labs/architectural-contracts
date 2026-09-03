@@ -1,0 +1,99 @@
+// Package gen provides protobuf generated types.
+//
+// Component Contract (FR10):
+// - What it does: Generated API and structures for the surface manifest schema.
+//   This package is an implementation detail of the surface component.
+// - What it requires: Protobuf unmarshaler to populate the models.
+// - What it provides: Protoreflect-enabled struct types for parsing surface
+//   manifests that cross process and Bazel action boundaries.
+// - Ambient Authority: This package is clean of filesystem/network ambient
+//   authority but leverages REFLECT, RUNTIME, SYSTEM_CALLS, and UNSAFE_POINTER
+//   internally via protobuf unmarshaling.
+syntax = "proto3";
+
+package archcontracts.v1;
+
+import "archcontracts/v1/component.proto";
+import "archcontracts/v1/stdlibmap.proto";
+
+option go_package = "github.com/ono-sendai-labs/architectural-contracts/go/internal/archcontracts/gen;gen";
+
+// SurfaceManifest describes a component's public surface and is consumed by
+// dependents in place of the dependency's sources (design R7, DR-15). The same
+// file schema serves checked surfaces (produced by the analysis action) and
+// asserted surfaces (for `authority: UNKNOWN`); how a surface was produced is
+// established by the build graph or producer, NEVER by a flag inside the file —
+// there is deliberately no provenance field (DR-01, DR-06, task req 5).
+//
+// Determinism (DR-15): no proto map fields; every keyed collection is a
+// repeated entry whose canonical sort key is documented on the field, sorted
+// explicitly by Task 5's canonical encoder. `format_version` is field 1 and is
+// a MAJOR format version: readers reject unknown major versions and ignore
+// unknown fields.
+message SurfaceManifest {
+  // Major format version of the surface schema. Must be field 1 in every
+  // persisted artifact. Readers fail closed on an unknown major version.
+  int32 format_version = 1;
+
+  // Logical component name, matching the manifest's `name`.
+  string component = 2;
+
+  // How the component's exposed interface is determined. Reuses the manifest
+  // enum rather than duplicating interface-style semantics (task req 4):
+  // INTERFACE_STYLE_UNSPECIFIED means declared-interface; the declared
+  // INTERFACE_STYLE_PACKAGE_SURFACE means "everything exported by packages".
+  archcontracts.v1.InterfaceStyle interface_style = 3;
+
+  // Structural authority of the component: DECLARED{set} or UNKNOWN (R10,
+  // R11). UNKNOWN must never be read as an empty declaration.
+  AuthorityDeclaration authority = 4;
+
+  // Concrete import paths of the component's member packages, in the emitter's
+  // namespace. Never patterns (DR-16). For PACKAGE_SURFACE components this is
+  // the entire exposed surface; for declared-interface style it names the
+  // packages the symbols below belong to. Sort key: lexicographic byte order.
+  repeated string packages = 5;
+
+  // Symbol identifiers of the declared interface (declared-interface style
+  // only; empty for PACKAGE_SURFACE), in the shared versioned textual grammar
+  // (DR-04). This is the exact declared set with no implements-closure
+  // injection. Sort key: lexicographic byte order.
+  repeated string symbols = 6;
+
+  // hostpolicy.NamespaceID of the emitter. A consumer reading a surface whose
+  // namespace differs from its own fails with a tool error — never a
+  // best-effort comparison (DR-08). The stdlib map is namespace-free, so this
+  // namespace never applies to SDKKey-driven stdlib lookups.
+  string namespace = 7;
+
+  // The target SDK configuration the member code is compiled against (DR-09);
+  // a consumer fails closed on mismatch. Target-vs-host semantics are defined
+  // on SDKKey.
+  SDKKey sdk_key = 8;
+
+  // Version of the producer that emitted this surface; audit information.
+  string producer_version = 9;
+
+  // SHA-256 digest over member source bytes (sorted by path), manifest bytes,
+  // format version, namespace, SDK key and producer version (DR-03). Audit +
+  // native freshness only; not a provenance claim.
+  string digest = 10;
+}
+
+// AuthorityDeclaration carries the component's structural authority axis. It
+// reuses the manifest's Authority enum rather than duplicating its semantics
+// (task req 4): DECLARED with a (possibly empty) validated capability set, or
+// UNKNOWN meaning the component has not been analysed (R10, R11).
+//
+// UNKNOWN must never be encoded as an empty declared_authority list — the
+// authority field distinguishes "checked, uses nothing" (DECLARED, empty set)
+// from "could be anything" (UNKNOWN). Task 5's parse rejects a persisted
+// UNKNOWN with a non-empty declared_authority.
+message AuthorityDeclaration {
+  // DECLARED or UNKNOWN; the manifest's enum, shared by import.
+  archcontracts.v1.Authority authority = 1;
+
+  // Capability names, meaningful only when authority is DECLARED; must be
+  // empty when UNKNOWN. Sort key: lexicographic byte order.
+  repeated string declared_authority = 2;
+}
