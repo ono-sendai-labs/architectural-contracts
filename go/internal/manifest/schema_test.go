@@ -52,11 +52,12 @@ func TestComponentSchema_AdditiveFieldsAndTextproto(t *testing.T) {
 	}
 
 	// Authority axis: DECLARED is the zero value so omitted fields default to
-	// known-declared; UNKNOWN is the only other accepted value.
-	if got := gen.Authority_AUTHORITY_DECLARED; got != 0 {
+	// known-declared; UNKNOWN is the only other accepted value. The value
+	// names match the manifest spelling (design R10).
+	if got := gen.Authority_DECLARED; got != 0 {
 		t.Errorf("AUTHORITY_DECLARED = %d, want 0", got)
 	}
-	if got := gen.Authority_AUTHORITY_UNKNOWN; got != 1 {
+	if got := gen.Authority_UNKNOWN; got != 1 {
 		t.Errorf("AUTHORITY_UNKNOWN = %d, want 1", got)
 	}
 

@@ -61,11 +61,14 @@ message Component {
 enum Authority {
   // The component's authority is declared in declared_authority and verified
   // by analysis. This is the backward-compatible default.
-  AUTHORITY_DECLARED = 0;
+  //
+  // The value names deliberately match the manifest spelling (design R10:
+  // `authority: UNKNOWN` in textproto), without an enum-name prefix.
+  DECLARED = 0;
 
   // The component has not been analysed; its authority is unknown rather than
   // empty. declared_authority must be empty.
-  AUTHORITY_UNKNOWN = 1;
+  UNKNOWN = 1;
 }
 
 // InterfaceStyle distinguishes a component that declares its surface from one

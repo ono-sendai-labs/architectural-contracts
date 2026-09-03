@@ -27,6 +27,7 @@ interface_files: "toprow.go"
 	want := manifest.Manifest{
 		Name:           "toprow",
 		InterfaceFiles: []string{"toprow.go"},
+		Authority:      manifest.DeclaredAuthority(),
 	}
 
 	if !reflect.DeepEqual(got, want) {
@@ -660,4 +661,82 @@ func TestSelfHostingManifests(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestParse_AuthorityDefaultsAndUnknown covers the persisted authority axis
+// (task requirements 1, 3): omitted authority parses as known DECLARED, an
+// explicit UNKNOWN with empty declared_authority parses as the distinct
+// unknown value, and the contradictory spellings fail with actionable errors.
+func TestParse_AuthorityDefaultsAndUnknown(t *testing.T) {
+	t.Run("OmittedDefaultsToKnownDeclared", func(t *testing.T) {
+		input := `name: "legacy"
+interface_files: "api.go"
+`
+		got, err := manifest.Parse(bytes.NewReader([]byte(input)))
+		if err != nil {
+			t.Fatalf("Parse: %v", err)
+		}
+		if !got.Authority.Known || len(got.Authority.Set) != 0 {
+			t.Errorf("Authority = %+v, want known-empty DECLARED{}", got.Authority)
+		}
+	})
+
+	t.Run("ExplicitDeclaredWithCapabilities", func(t *testing.T) {
+		input := `name: "explicit"
+interface_files: "api.go"
+authority: DECLARED
+declared_authority: "NETWORK"
+declared_authority: "FILES"
+`
+		got, err := manifest.Parse(bytes.NewReader([]byte(input)))
+		if err != nil {
+			t.Fatalf("Parse: %v", err)
+		}
+		if !manifest.Equal(got.Authority, manifest.DeclaredAuthority("FILES", "NETWORK")) {
+			t.Errorf("Authority = %+v, want sorted DECLARED{FILES NETWORK}", got.Authority)
+		}
+	})
+
+	t.Run("UnknownWithEmptyDeclaredAuthority", func(t *testing.T) {
+		input := `name: "unowned"
+interface_files: "api.go"
+authority: UNKNOWN
+`
+		got, err := manifest.Parse(bytes.NewReader([]byte(input)))
+		if err != nil {
+			t.Fatalf("Parse: %v", err)
+		}
+		if got.Authority.Known {
+			t.Errorf("Authority = %+v, want UNKNOWN", got.Authority)
+		}
+	})
+
+	t.Run("UnknownWithDeclaredAuthorityIsContradictory", func(t *testing.T) {
+		input := `name: "contradiction"
+interface_files: "api.go"
+authority: UNKNOWN
+declared_authority: "FILES"
+`
+		_, err := manifest.Parse(bytes.NewReader([]byte(input)))
+		if err == nil {
+			t.Fatal("Parse(UNKNOWN + declared_authority), want error")
+		}
+		if !strings.Contains(err.Error(), "declared_authority") {
+			t.Errorf("error = %v, want actionable message naming declared_authority", err)
+		}
+	})
+
+	t.Run("UnknownAuthorityEnumValueRejected", func(t *testing.T) {
+		input := `name: "bogus"
+interface_files: "api.go"
+authority: 99
+`
+		_, err := manifest.Parse(bytes.NewReader([]byte(input)))
+		if err == nil {
+			t.Fatal("Parse(authority: 99), want error")
+		}
+		if !strings.Contains(err.Error(), "authority") {
+			t.Errorf("error = %v, want message naming authority", err)
+		}
+	})
 }

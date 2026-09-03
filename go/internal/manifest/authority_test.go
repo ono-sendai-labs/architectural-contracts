@@ -9,8 +9,8 @@ import (
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/manifest/gen"
 )
 
-func unknownPersisted() gen.Authority  { return gen.Authority_AUTHORITY_UNKNOWN }
-func declaredPersisted() gen.Authority { return gen.Authority_AUTHORITY_DECLARED }
+func unknownPersisted() gen.Authority  { return gen.Authority_UNKNOWN }
+func declaredPersisted() gen.Authority { return gen.Authority_DECLARED }
 
 // knownDeclarations are the declaration archetypes the lattice is defined over:
 // the absorbing top element, known-empty, and two known non-empty sets.
@@ -45,6 +45,7 @@ func joinWant(a, b string, aDecl, bDecl manifest.AuthorityDeclaration) manifest.
 	}
 	merged := append(slices.Clone(aDecl.Set), bDecl.Set...)
 	slices.Sort(merged)
+	merged = slices.Compact(merged)
 	return manifest.DeclaredAuthority(merged...)
 }
 
@@ -158,8 +159,12 @@ func TestAuthorityPersistedRoundTrip(t *testing.T) {
 			if err != nil {
 				t.Fatalf("FromPersisted: %v", err)
 			}
-			if !manifest.Equal(back, tc.decl) {
-				t.Errorf("round trip = %s, want %s", renderDeclaration(back), renderDeclaration(tc.decl))
+			want := tc.decl
+			if want.Known {
+				slices.Sort(want.Set)
+			}
+			if !manifest.Equal(back, want) {
+				t.Errorf("round trip = %s, want %s", renderDeclaration(back), renderDeclaration(want))
 			}
 		})
 	}

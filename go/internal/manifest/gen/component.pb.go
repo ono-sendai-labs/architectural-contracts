@@ -37,21 +37,24 @@ type Authority int32
 const (
 	// The component's authority is declared in declared_authority and verified
 	// by analysis. This is the backward-compatible default.
-	Authority_AUTHORITY_DECLARED Authority = 0
+	//
+	// The value names deliberately match the manifest spelling (design R10:
+	// `authority: UNKNOWN` in textproto), without an enum-name prefix.
+	Authority_DECLARED Authority = 0
 	// The component has not been analysed; its authority is unknown rather than
 	// empty. declared_authority must be empty.
-	Authority_AUTHORITY_UNKNOWN Authority = 1
+	Authority_UNKNOWN Authority = 1
 )
 
 // Enum value maps for Authority.
 var (
 	Authority_name = map[int32]string{
-		0: "AUTHORITY_DECLARED",
-		1: "AUTHORITY_UNKNOWN",
+		0: "DECLARED",
+		1: "UNKNOWN",
 	}
 	Authority_value = map[string]int32{
-		"AUTHORITY_DECLARED": 0,
-		"AUTHORITY_UNKNOWN":  1,
+		"DECLARED": 0,
+		"UNKNOWN":  1,
 	}
 )
 
@@ -242,7 +245,7 @@ func (x *Component) GetAuthority() Authority {
 	if x != nil {
 		return x.Authority
 	}
-	return Authority_AUTHORITY_DECLARED
+	return Authority_DECLARED
 }
 
 type ComponentDependency struct {
@@ -331,10 +334,10 @@ const file_archcontracts_v1_component_proto_rawDesc = "" +
 	"\x13ComponentDependency\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x1a\n" +
 	"\bmanifest\x18\x02 \x01(\tR\bmanifest\x12#\n" +
-	"\rauto_attached\x18\x03 \x01(\bR\fautoAttached*:\n" +
-	"\tAuthority\x12\x16\n" +
-	"\x12AUTHORITY_DECLARED\x10\x00\x12\x15\n" +
-	"\x11AUTHORITY_UNKNOWN\x10\x01*V\n" +
+	"\rauto_attached\x18\x03 \x01(\bR\fautoAttached*&\n" +
+	"\tAuthority\x12\f\n" +
+	"\bDECLARED\x10\x00\x12\v\n" +
+	"\aUNKNOWN\x10\x01*V\n" +
 	"\x0eInterfaceStyle\x12\x1f\n" +
 	"\x1bINTERFACE_STYLE_UNSPECIFIED\x10\x00\x12#\n" +
 	"\x1fINTERFACE_STYLE_PACKAGE_SURFACE\x10\x01BQZOgithub.com/ono-sendai-labs/architectural-contracts/go/internal/manifest/gen;genb\x06proto3"

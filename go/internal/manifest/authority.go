@@ -93,11 +93,11 @@ func Equal(a, b AuthorityDeclaration) bool {
 func ToPersisted(d AuthorityDeclaration) (gen.Authority, []Capability, error) {
 	if !d.Known {
 		if len(d.Set) > 0 {
-			return gen.Authority_AUTHORITY_UNKNOWN, nil, fmt.Errorf("unknown authority declaration carries %d declared capabilities; declared_authority must be empty when authority is UNKNOWN", len(d.Set))
+			return gen.Authority_UNKNOWN, nil, fmt.Errorf("unknown authority declaration carries %d declared capabilities; declared_authority must be empty when authority is UNKNOWN", len(d.Set))
 		}
-		return gen.Authority_AUTHORITY_UNKNOWN, nil, nil
+		return gen.Authority_UNKNOWN, nil, nil
 	}
-	return gen.Authority_AUTHORITY_DECLARED, slices.Clone(d.Set), nil
+	return gen.Authority_DECLARED, slices.Clone(d.Set), nil
 }
 
 // FromPersisted converts the persisted authority-plus-capabilities
@@ -106,12 +106,12 @@ func ToPersisted(d AuthorityDeclaration) (gen.Authority, []Capability, error) {
 // capability names; nothing is normalized away.
 func FromPersisted(authority gen.Authority, capabilities []Capability) (AuthorityDeclaration, error) {
 	switch authority {
-	case gen.Authority_AUTHORITY_UNKNOWN:
+	case gen.Authority_UNKNOWN:
 		if len(capabilities) > 0 {
 			return AuthorityDeclaration{}, fmt.Errorf("authority is UNKNOWN but declared_authority is non-empty (%s); declared_authority must be empty when authority is UNKNOWN", strings.Join(capabilities, ", "))
 		}
 		return UnknownAuthority(), nil
-	case gen.Authority_AUTHORITY_DECLARED:
+	case gen.Authority_DECLARED:
 		return NewDeclared(capabilities...)
 	default:
 		return AuthorityDeclaration{}, fmt.Errorf("unknown authority value: %d", int32(authority))

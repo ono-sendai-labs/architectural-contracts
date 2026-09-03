@@ -190,8 +190,13 @@ type Manifest struct {
 	InterfaceFiles        []string
 	ComponentDependencies []ComponentDependency
 	DeclaredAuthority     []string
-	Members               []string
-	InterfaceStyle        InterfaceStyle
+	// Authority is the structural declaration over the persisted axis: a
+	// known, verified declaration (default) or the unknown value for a
+	// component that has not been analysed. DeclaredAuthority is retained as
+	// the declared capability list the checker consumes during the transition.
+	Authority      AuthorityDeclaration
+	Members        []string
+	InterfaceStyle InterfaceStyle
 }
 
 // ComponentDependency represents a dependency on a first-class component.
@@ -223,10 +228,18 @@ func Parse(r io.Reader) (Manifest, error) {
 		return Manifest{}, err
 	}
 
+	// The persisted axis defaults to a known declaration, and an UNKNOWN
+	// component must not claim declared capabilities (R10, R11).
+	authority, err := FromPersisted(pbComponent.GetAuthority(), pbComponent.GetDeclaredAuthority())
+	if err != nil {
+		return Manifest{}, err
+	}
+
 	m := Manifest{
 		Name:              pbComponent.GetName(),
 		InterfaceFiles:    copyStrings(pbComponent.GetInterfaceFiles()),
 		DeclaredAuthority: copyStrings(pbComponent.GetDeclaredAuthority()),
+		Authority:         authority,
 		Members:           copyStrings(pbComponent.GetMembers()),
 		InterfaceStyle:    interfaceStyle,
 	}
