@@ -13,7 +13,6 @@
 package facts
 
 import (
-
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/capanalyzer"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/manifest"
 )
