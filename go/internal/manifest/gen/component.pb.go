@@ -96,10 +96,9 @@ type Component struct {
 	ComponentDependencies []*ComponentDependency `protobuf:"bytes,3,rep,name=component_dependencies,json=componentDependencies,proto3" json:"component_dependencies,omitempty"`
 	DeclaredAuthority     []string               `protobuf:"bytes,5,rep,name=declared_authority,json=declaredAuthority,proto3" json:"declared_authority,omitempty"` // capability names, validated at parse time against the
 	// Member packages: the code this component is responsible for and analyzes
-	// as roots. Entries are import paths or import-path patterns (the same
-	// pattern idiom absorbed_dependencies uses). The interface package is
-	// implicitly a member and need not be listed; a pattern matching it is not
-	// an error.
+	// as roots. Entries are import paths or import-path patterns. The interface
+	// package is implicitly a member and need not be listed; a pattern matching
+	// it is not an error.
 	//
 	// Empty means FR1: every package under the component root. Emitters write
 	// the fully expanded literal list rather than patterns for declared-style

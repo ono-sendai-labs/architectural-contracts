@@ -1671,6 +1671,15 @@ func ResolveDependencyInterface(
 		}
 	}
 
+	// The universal stdlib error interface is implemented by error values any
+	// dependency may return; calls reached through it are part of the
+	// dependency's surface.
+	if errObj := types.Universe.Lookup("error"); errObj != nil {
+		if errIface, ok := errObj.Type().Underlying().(*types.Interface); ok {
+			interfaceTypes["error"] = errIface
+		}
+	}
+
 	// 10. Collect all concrete named types in the dependency packages
 	var concreteTypes []*types.Named
 	for _, p := range depPkgs {

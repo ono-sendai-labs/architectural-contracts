@@ -52,6 +52,8 @@ func TestResolveDependencyInterface_Success(t *testing.T) {
 		capanalyzer.InterfaceSymbol("(*" + pkgPath + ".Box).Get"),
 		capanalyzer.InterfaceSymbol("(*" + pkgPath + ".GreeterImpl).Greet"),
 		capanalyzer.InterfaceSymbol("(" + pkgPath + ".GreeterImpl).Greet"),
+		capanalyzer.InterfaceSymbol("(" + pkgPath + ".statusErr).Error"),
+		capanalyzer.InterfaceSymbol("(*" + pkgPath + ".statusErr).Error"),
 		capanalyzer.InterfaceSymbol(pkgPath + ".Base"),
 		capanalyzer.InterfaceSymbol(pkgPath + ".Box"),
 		capanalyzer.InterfaceSymbol(pkgPath + ".ExportedConst"),
@@ -104,6 +106,44 @@ func TestResolveDependencyInterface_DeclaredStyleWithMembers(t *testing.T) {
 	}
 	if len(result.Symbols) == 0 {
 		t.Errorf("expected non-empty symbols from declared interface files")
+	}
+}
+
+func TestResolveDependencyInterface_UniversalErrorInterface(t *testing.T) {
+	declaringRoot, err := filepath.Abs("testdata/dep_resolve/declaring")
+	if err != nil {
+		t.Fatalf("failed to get absolute path to declaring: %v", err)
+	}
+
+	dep := manifest.ComponentDependency{
+		Name:     "dep",
+		Manifest: "../dep/component.textproto",
+	}
+
+	result, err := goanalysis.ResolveDependencyInterface(declaringRoot, declaringRoot, dep)
+	if err != nil {
+		t.Fatalf("unexpected error resolving dependency: %v", err)
+	}
+
+	// Methods on dependency types implementing the universal stdlib error
+	// interface are part of the dependency surface, even when neither the type
+	// nor the method is declared in an interface file.
+	pkgPath := "github.com/ono-sendai-labs/architectural-contracts/go/internal/goanalysis/testdata/dep_resolve/dep"
+	mustContain := []capanalyzer.InterfaceSymbol{
+		capanalyzer.InterfaceSymbol("(" + pkgPath + ".statusErr).Error"),
+		capanalyzer.InterfaceSymbol("(*" + pkgPath + ".statusErr).Error"),
+	}
+	for _, expected := range mustContain {
+		found := false
+		for _, sym := range result.Symbols {
+			if sym == expected {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("expected symbol %q not found in derived symbols: %v", expected, result.Symbols)
+		}
 	}
 }
 

@@ -942,7 +942,7 @@ func ViolateCorePurity() {
 }
 
 func TestIntegration_Fixture2_MemberCallbackConforms(t *testing.T) {
-	// Regression pair, absorbed-free: the editor passes backend.Load across the
+	// Regression pair: the editor passes backend.Load across the
 	// boundary to the host while backend is an owned member, so its authority is
 	// charged to the editor component and the report conforms.
 	hostFiles := map[string]string{
