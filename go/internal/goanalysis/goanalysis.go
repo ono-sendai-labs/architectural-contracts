@@ -1677,15 +1677,6 @@ func ResolveDependencyInterface(
 		}
 	}
 
-	// The universal stdlib error interface is implemented by error values any
-	// dependency may return; calls reached through it are part of the
-	// dependency's surface.
-	if errObj := types.Universe.Lookup("error"); errObj != nil {
-		if errIface, ok := errObj.Type().Underlying().(*types.Interface); ok {
-			interfaceTypes["error"] = errIface
-		}
-	}
-
 	// 10. Collect all concrete named types in the dependency packages
 	var concreteTypes []*types.Named
 	for _, p := range depPkgs {
@@ -1742,6 +1733,22 @@ func ResolveDependencyInterface(
 
 	for key := range concreteMethods {
 		symbolSet[key] = true
+	}
+
+	// 12b. Error values any dependency may return are reached through the
+	// universal stdlib error interface, so callers can invoke Error without a
+	// declaration. Expose only that method of error-implementing types — never
+	// their remaining method set, which stays architecture-private.
+	if errObj := types.Universe.Lookup("error"); errObj != nil {
+		if errIface, ok := errObj.Type().Underlying().(*types.Interface); ok {
+			for _, named := range concreteTypes {
+				if types.Implements(named, errIface) || types.Implements(types.NewPointer(named), errIface) {
+					formattedTypeName := stripGenericBrackets(types.TypeString(named, nil))
+					symbolSet[canonicalizeSymbol("(*"+formattedTypeName+").Error")] = true
+					symbolSet[canonicalizeSymbol("("+formattedTypeName+").Error")] = true
+				}
+			}
+		}
 	}
 
 	var symbols []capanalyzer.InterfaceSymbol

@@ -4,9 +4,10 @@ go_library(
     name = "packagelayout",
     srcs = ["packagelayout.go"],
     importpath = "github.com/ono-sendai-labs/architectural-contracts/go/internal/packagelayout",
-# public: packagelayout is a declared member of the goanalysis component,
-# whose go_component rule requires cross-package visibility for member labels.
-    visibility = ["//visibility:public"],
+    visibility = [
+        "//bazel_rules:__subpackages__",
+        "//go:__subpackages__",
+    ],
     deps = [
         "//go/internal/hostpolicy",
         "@org_golang_x_tools//go/packages",

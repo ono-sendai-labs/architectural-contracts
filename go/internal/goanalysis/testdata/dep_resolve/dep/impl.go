@@ -14,3 +14,7 @@ func PrivateFunc() {}
 type statusErr struct{ code int }
 
 func (statusErr) Error() string { return "status" }
+
+// Code is a second method on the error-implementing type; it must stay outside
+// the derived dependency surface.
+func (statusErr) Code() int { return 0 }

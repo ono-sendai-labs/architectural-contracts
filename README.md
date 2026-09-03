@@ -335,7 +335,7 @@ Violations:
 - [UNDECLARED_AUTHORITY] use of undeclared authority "FILES" in package "github.com/ono-sendai-labs/architectural-contracts/go/examples/csvtool/authorityapp"
   Evidence:
     - github.com/ono-sendai-labs/architectural-contracts/go/examples/csvtool/authorityapp.Run at :0
-    - os.ReadFile at main.go:7
+    - os.ReadFile at main.go:8
 ```
 
 Using the JSON format:
@@ -357,7 +357,7 @@ Yields:
       },
       "evidence": [
         "github.com/ono-sendai-labs/architectural-contracts/go/examples/csvtool/authorityapp.Run at :0",
-        "os.ReadFile at main.go:7"
+        "os.ReadFile at main.go:8"
       ]
     }
   ],

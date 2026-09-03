@@ -78,5 +78,3 @@ message ComponentDependency {
   // unused auto-attached edge is not the author's mistake.
   bool auto_attached = 3;
 }
-
-// InterfaceStyle distinguishes

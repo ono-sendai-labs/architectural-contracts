@@ -98,6 +98,22 @@ absorbed_dependencies {
 	}
 }
 
+func TestParse_RemovedFieldMentionsOutsideFieldPositions(t *testing.T) {
+	input := `# a comment explaining that absorbed_dependencies { } used to exist here
+name: "absorbed_dependencies legacy"
+interface_files: "api.go"
+certification_reference: "migrated from absorbed_dependencies: to members"
+`
+	r := bytes.NewReader([]byte(input))
+	m, err := manifest.Parse(r)
+	if err != nil {
+		t.Fatalf("expected Parse to accept removed-field mentions in comments and string values, got: %v", err)
+	}
+	if m.Name != "absorbed_dependencies legacy" {
+		t.Errorf("Name = %q, want %q", m.Name, "absorbed_dependencies legacy")
+	}
+}
+
 func TestParse_DeclaredMembershipFields(t *testing.T) {
 	input := `name: "surface"
 members: "example.com/app"

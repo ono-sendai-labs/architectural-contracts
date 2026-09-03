@@ -75,14 +75,50 @@ var removedFields = []struct {
 // checkRemovedFields rejects textproto content naming fields that no longer
 // exist in the schema. It runs before unmarshaling because the protobuf
 // unmarshaler silently ignores unknown fields, which would drop a stale
-// declaration without a trace.
+// declaration without a trace. Comments and quoted string values are stripped
+// first so the removed-field names are only matched at field-name positions,
+// never inside prose or data.
 func checkRemovedFields(text []byte) error {
+	scrubbed := scrubCommentsAndStrings(text)
 	for _, rf := range removedFields {
-		if rf.pattern.Match(text) {
+		if rf.pattern.Match(scrubbed) {
 			return &RemovedFieldError{Field: rf.field}
 		}
 	}
 	return nil
+}
+
+// scrubCommentsAndStrings removes '#' comments and replaces the contents of
+// quoted string literals so removed-field detection cannot be tripped by
+// occurrences inside comments or data values.
+func scrubCommentsAndStrings(text []byte) []byte {
+	scrubbed := make([]byte, len(text))
+	copy(scrubbed, text)
+	inString := false
+	for i := 0; i < len(scrubbed); i++ {
+		c := scrubbed[i]
+		switch {
+		case inString:
+			if c == '\\' && i+1 < len(scrubbed) {
+				scrubbed[i+1] = ' '
+				i++
+				continue
+			}
+			if c == '"' {
+				inString = false
+			} else {
+				scrubbed[i] = ' '
+			}
+		case c == '"':
+			inString = true
+		case c == '#':
+			for i < len(scrubbed) && scrubbed[i] != '\n' {
+				scrubbed[i] = ' '
+				i++
+			}
+		}
+	}
+	return scrubbed
 }
 
 // InvalidMemberError reports a member that is empty or is not a valid import-path pattern.

@@ -23,7 +23,6 @@ go_library(
         "//go/internal/hostpolicy",
         "//go/internal/manifest",
         "//go/internal/packagelayout",
-        "@org_golang_x_tools//go/callgraph",
         "@org_golang_x_tools//go/callgraph/vta",
         "@org_golang_x_tools//go/packages",
         "@org_golang_x_tools//go/ssa",
@@ -36,8 +35,8 @@ go_library(
 # //go/internal/packagelayout, and the x/tools closure as declared members;
 # declares 8 authorities.
 # hostpolicy, packagelayout, and the x/tools closure are declared members:
-# absorbed_dependencies was removed, and code the component calls into is owned
-# member code whose authority is charged to this component's declared_authority.
+# code the component calls into is owned member code whose authority is charged
+# to this component's declared_authority.
 go_component(
     name = "goanalysis_component",
     members = [

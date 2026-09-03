@@ -145,6 +145,19 @@ func TestResolveDependencyInterface_UniversalErrorInterface(t *testing.T) {
 			t.Errorf("expected symbol %q not found in derived symbols: %v", expected, result.Symbols)
 		}
 	}
+
+	// Only Error is published for error-implementing types; other methods on
+	// those types stay architecture-private.
+	for _, forbidden := range []capanalyzer.InterfaceSymbol{
+		capanalyzer.InterfaceSymbol("(" + pkgPath + ".statusErr).Code"),
+		capanalyzer.InterfaceSymbol("(*" + pkgPath + ".statusErr).Code"),
+	} {
+		for _, sym := range result.Symbols {
+			if sym == forbidden {
+				t.Errorf("non-interface method %q must not appear in derived symbols: %v", forbidden, result.Symbols)
+			}
+		}
+	}
 }
 
 func TestResolveDependencyInterface_Errors(t *testing.T) {

@@ -43,9 +43,9 @@ go_test(
 # model, the generated protobuf package gen is a declared member rather than an
 # interface file because manifest.go is the sole interface library while gen is a
 # separate internal Go package.
-# The protobuf runtime packages are declared members: absorbed_dependencies was
-# removed, and third-party libraries become ordinary (checked) member code whose
-# authority is charged to this component's declared_authority.
+# The protobuf runtime packages are declared members: third-party libraries
+# become ordinary (checked) member code whose authority is charged to this
+# component's declared_authority.
 go_component(
     name = "manifest_component",
     members = [
