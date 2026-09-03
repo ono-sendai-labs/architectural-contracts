@@ -1,0 +1,174 @@
+review:
+  project: 2026-08-04-compositional-component-analysis
+  plan_path: .agents/planning/2026-08-04-compositional-component-analysis/implementation/plan.md
+  design_path: .agents/planning/2026-08-04-compositional-component-analysis/design/detailed-design.md
+  reviewed_at: 2026-09-03T10:14:39Z
+  schema_version: 1
+  steps_in_scope: [2]
+  commits_in_scope: 9
+  remediation_step: null
+  verdict: clean
+
+summary: |
+  Step 2 implements the planned deletion cleanly across the manifest schema,
+  Go analysis and checker pipeline, Bazel authoring surface, fixtures, and user
+  documentation. All three task-level reviews are approved, with no unresolved
+  important or critical findings, and the current code preserves literal,
+  canonical membership with focused seam coverage. Fresh Go unit, integration,
+  and self-check validation passed; Bazel could not start in this review sandbox
+  because its configured output base was not writable, while the committed task
+  evidence records the full Bazel suite passing. One stale source-comment phrase
+  remains as a non-blocking suggestion and does not warrant a remediation task.
+
+architecture:
+  - element: Package-granularity capability pruning
+    expected: |
+      Remove AnalyzeRequest.PruneAtPackages and the Capslock package-safe
+      classifier branch while preserving deterministic symbol-level PruneAt
+      behavior during the transition to the Step 6 reference scanner.
+    actual: |
+      AnalyzeRequest contains only Packages and PruneAt. Runner.runCheck builds
+      a sorted, deduplicated symbol prune set, and capslockadapter constructs
+      safe classifier entries only for those symbols.
+    status: aligned
+    files:
+      - go/internal/capanalyzer/capanalyzer.go
+      - go/internal/capslockadapter/capslockadapter.go
+      - go/cmd/arcc/app/app.go
+    notes: |
+      Package-surface dependency symbols and package initializer symbols remain
+      in PruneAt as required by the transitional check path.
+
+  - element: Absorbed-dependency persisted model
+    expected: |
+      Delete component.proto field 4 and AbsorbedDependency, permanently reserve
+      the field number and name, and reject stale authored manifests rather than
+      silently ignoring the removed declaration.
+    actual: |
+      component.proto reserves field 4 and "absorbed_dependencies" and has no
+      AbsorbedDependency message. Manifest parsing performs quote- and
+      comment-aware removed-field detection and returns RemovedFieldError before
+      protobuf unmarshalling.
+    status: aligned
+    files:
+      - proto/archcontracts/v1/component.proto
+      - go/internal/manifest/gen/component.pb.go
+      - go/internal/manifest/manifest.go
+      - go/internal/manifest/manifest_test.go
+    notes: |
+      Intentional appearances of the retired spelling are limited to reserved
+      schema metadata, the rejection guard, and its tests.
+
+  - element: Absorbed-dependency runtime semantics
+    expected: |
+      Remove absorbed import allowances, overlap and unused warnings,
+      function-value escape and bodiless-package facts, loader and application
+      plumbing, obsolete report kinds, fixtures, and Bazel attributes.
+    actual: |
+      The facts DTO, loader request, checker, report model, application request
+      path, Bazel component rule, manifests, and fixtures no longer expose or
+      consume absorbed-dependency state. Unowned non-standard-library imports
+      flow directly to UNDECLARED_DEPENDENCY.
+    status: aligned
+    files:
+      - go/internal/facts/facts.go
+      - go/internal/goanalysis/goanalysis.go
+      - go/internal/checker/checker.go
+      - go/internal/report/report.go
+      - bazel_rules/go/defs.bzl
+      - bazel_rules/go/private/component.bzl
+    notes: |
+      The retained universal error-interface bridge is narrow to Error methods
+      and preserves the existing check path for explicitly migrated members; it
+      is transitional code superseded by the Step 6 declaring-object scan.
+
+  - element: Literal manifest membership grammar
+    expected: |
+      Treat every members entry as a literal package identity and reject all
+      spellings supported by the former glob grammar during manifest parsing,
+      for both declared-interface and PACKAGE_SURFACE components.
+    actual: |
+      Manifest validation returns InvalidMemberError for empty members or any
+      entry containing *, ?, [, ], or backslash. Table-driven tests cover both
+      interface styles and malformed as well as well-formed glob spellings.
+    status: aligned
+    files:
+      - go/internal/manifest/manifest.go
+      - go/internal/manifest/manifest_test.go
+      - proto/archcontracts/v1/component.proto
+    notes: ""
+
+  - element: Exact Go membership and dependency resolution
+    expected: |
+      Remove MatchesMember, path.Match-based membership, direct-load pattern
+      rejection, and pattern dependency-interface expansion; use exact
+      canonical package identity throughout loading, resolution, and checking.
+    actual: |
+      goanalysis validates and selects declared members through canonical string
+      equality, checker builds an exact member set, and the old pattern helpers,
+      resolver, facts helper, and pattern-only fixtures are absent.
+    status: aligned
+    files:
+      - go/internal/goanalysis/goanalysis.go
+      - go/internal/checker/checker.go
+      - go/internal/facts/facts.go
+    notes: |
+      Existing explicit PACKAGE_SURFACE and host-canonicalization coverage remains.
+
+  - element: Bazel literal-member authoring surface
+    expected: |
+      Remove absorbed_deps and member_patterns, accept only explicit Go target
+      labels as members, and delete pattern-membership fixtures without removing
+      independent explicit PACKAGE_SURFACE coverage.
+    actual: |
+      The public macro validates literal target labels, the private rule uses a
+      typed label_list, and manifest emission serializes classified concrete
+      import paths. Pattern-only producer/consumer fixtures are deleted while
+      explicit package-surface tests remain.
+    status: aligned
+    files:
+      - bazel_rules/go/defs.bzl
+      - bazel_rules/go/private/component.bzl
+      - bazel_rules/go/tests/testing.bzl
+      - bazel_rules/go/tests/component_tests.bzl
+    notes: |
+      match_path remains only for the distinct infrastructure auto-attachment
+      registry, which the design and task explicitly leave in place.
+
+  - element: User-facing migration documentation
+    expected: |
+      Replace the absorbed-dependency walkthrough with a direct
+      UNDECLARED_AUTHORITY example using os.ReadFile without FILES, and document
+      literal member inputs.
+    actual: |
+      README.md now demonstrates the direct os.ReadFile violation and documents
+      members as literal target labels/import paths with patterns rejected.
+    status: aligned
+    files:
+      - README.md
+    notes: ""
+
+doc_code_alignment: []
+
+findings:
+  - id: F1
+    severity: suggestion
+    category: doc_divergence
+    file: go/internal/hostpolicy/hostpolicy.go
+    line: 30
+    title: Source comment still names removed membership patterns
+    details: |
+      CanonicalizePath's input list still includes "membership patterns" even
+      though Step 2 removed manifest pattern membership and all Go-side matching.
+      The remaining Starlark import_path_patterns mechanism belongs only to
+      infrastructure auto-attachment, so this phrase can mislead maintainers
+      about the Go hook's current callers. This is the same non-blocking residue
+      recorded by the final Task 3 review.
+    suggested_action: |
+      Replace "membership patterns" with "literal member import paths" or a
+      similarly current description when this comment is next touched.
+    source: built-in
+
+remediation_tasks: []
+
+ecosystem_reviews: []
