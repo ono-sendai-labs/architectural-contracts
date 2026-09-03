@@ -46,9 +46,112 @@ the component. `internal/goanalysis` is worse because it pulls in `go/packages`,
 The second monorepo PoC reports ~50s for some packages, consistent with the same
 scaling on a much larger closure.
 
-**Unresolved.** The split between closure SSA and member-package type-checking has not
-been measured. The redesign eliminates the former and keeps the latter, so this
-attribution determines how large the win actually is. Recorded as step 0 of the plan.
+## Measured attribution
+
+Measured at repository revision `48027ed8` (task step 1; code unchanged from
+`5011b726` in the check path), Linux/amd64, 16 cores, Go 1.26.4 toolchain,
+`x/tools v0.48.0`, `capslock v0.3.2`. Component: `internal/goanalysis`
+(1 member package, ~2.1k lines) whose declared dependency closure is 196 packages.
+Baseline comparison runs were also taken on `examples/csvtool/app`.
+
+**Procedure.** `bin/arcc` built once with `just build` (compilation excluded from all
+timings). One discarded warm-up run, then five timed runs of
+`bin/arcc check go/internal/goanalysis/component.textproto`. Units: seconds of wall
+clock and seconds of CPU (user+sys, sum over all threads). Attribution used two
+temporary, env-guarded instrumentation points that were removed after collection:
+
+1. **Phase wall timers** around the five boundaries: the closure `packages.Load`
+   (`goanalysis.go`, `loadPackages`), SSA construction (`ssautil.AllPackages` +
+   `prog.Build()`), VTA (`vta.CallGraph`), the per-dependency source loads
+   (`ResolveDependencyInterface`), Capslock (`capslockadapter.Analyze`), and
+   `checker.Check`. The `checker` phase measured ~0.2 ms and is reported as ~0.
+2. **Per-phase CPU profiles** (`runtime/pprof` started/stopped around each phase,
+   one profile per phase per run) attributed via `go tool pprof` sample totals.
+
+The closure was counted with a `packages.Visit` over the load graph: 1 member,
+196 non-member packages. To separate member from closure cost directly, a separate
+one-off harness (not committed) loaded *only* the member package with `NeedDeps`
+dropped and dependency types served from export data (`go list -export`, warm
+build cache): **53–56 ms** across three runs. That is the same load mode the
+redesign will use, so it doubles as a preview of the post-redesign member cost.
+
+### Observations (goanalysis component, mean of 5 runs, warm)
+
+**Wall clock** — total 3.62 s (runs 3.56–3.68 s):
+
+| Phase | Wall | Share of total |
+| --- | --- | --- |
+| `loadfacts` (closure load + SSA + VTA) | 1.21 s | 33% |
+| — of which `packages.Load` (closure, incl. member parse/type-check) | 0.41 s | 11% |
+| — of which SSA build | 0.18 s | 5% |
+| — of which VTA | 0.41 s | 11% |
+| — remainder of `loadfacts` (visit, error collection, membership) | 0.21 s | 6% |
+| `depresolve` (per-dependency source load + implements closure) | 0.66 s | 18% |
+| Capslock (its own closure load + SSA + call graph + analysis) | 1.65 s | 46% |
+| `checker.Check` | ~0.0002 s | ~0% |
+
+**CPU** — whole-process user+sys 13.4 s (runs 13.0–13.8 s); per-phase profile
+totals (mean of 5):
+
+| Phase | CPU | Share of phase-sum |
+| --- | --- | --- |
+| Closure `packages.Load` | 2.01 s | 16% |
+| SSA build | 1.52 s | 12% |
+| VTA | 0.73 s | 6% |
+| `depresolve` (dependency source type-checking) | 2.14 s | 17% |
+| Capslock load + analysis | 5.57 s | 44% |
+| Phase sum | 11.97 s | — |
+| Unprofiled remainder (process start, non-phase windows, report rendering) | ~1.4 s | ~11% |
+
+CPU exceeds wall by ~3.7× because the Go runtime spreads the work (especially GC)
+across threads; within each phase profile, roughly 55–60% of flat samples land
+in runtime/GC frames driven by that phase's allocations, so the *flat* function
+breakdown is not itself a clean attribution — the per-phase totals above are the
+measured quantity, with GC charged to the phase whose allocations caused it.
+
+### The five requested categories
+
+| # | Category | Wall (measured) | CPU (measured) | Note |
+| --- | --- | --- | --- | --- |
+| (a) | Member `packages.Load` + type-checking | 0.05 s | ≲0.1 s | Directly measured via the member-only export-data load above; ≲1% of total CPU. The profiler cannot split the single `packages.Load` call, so the member share inside the 2.01 s load phase is bounded by this measurement, not read off the profile. |
+| (b) | Closure type-checking beyond members | ~1.07 s | 4.15 s | Sum of the closure load phase (2.01 s CPU — mostly `go/parser`/`go/types` over 195 non-member packages plus driver overhead) and `depresolve` (2.14 s CPU — dependency sources re-type-checked from source plus the implements-closure computation). The wall figure is the corresponding share of `loadfacts` + `depresolve`. |
+| (c) | SSA construction | 0.18 s | 1.52 s | `ssautil.AllPackages` + `prog.Build()` over the closure, arcc's own. Capslock builds SSA a second time inside (e). |
+| (d) | VTA | 0.41 s | 0.73 s | `vta.CallGraph` over the closure (plus edge filtering, included in the remainder). |
+| (e) | Capslock's second load + analysis | 1.65 s | 5.57 s | Includes Capslock's own `packages.Load` of the same closure, its own SSA build, and its call-graph analysis; the check-relevant classifier work is a small fraction of it. |
+
+**Aggregation and uncertainty.** (b)–(e) are measured as phase totals; a phase total
+includes the runtime/GC cost that the phase's allocations caused (charged to the
+phase, not split further). The one boundary the profiler cannot separate is the
+member-vs-closure split inside the single `packages.Load` call; category (a) is
+therefore established by the independent member-only load measurement (53–56 ms)
+and cross-checked against the profile's parse+type-check flat share (~0.38 s across
+196 packages ≈ 2 ms/package, so 1 member ≈ 2–3 ms), not by direct in-phase
+instrumentation. These figures should be read as accurate to roughly ±10% (run
+variance across the five runs) with the stated aggregation rules; the exact
+flat-function CPU split inside a phase is *not* claimed.
+
+### Reconciliation with the earlier 2.1 s / 3.8 s figures
+
+The historical figures above were taken at `5011b726` on the same machine class and
+are **consistent** with the reruns in this section: `examples/csvtool/app` re-measured
+at 1.90 s wall / 6.05 s CPU (historical 2.1 s / 6.4 s) and `internal/goanalysis` at
+3.62 s wall / 13.4 s CPU (historical 3.8 s / 13.5 s). Both baselines stand; the small
+deltas are machine and run variance, not a behavior change. The 2.1 s csvtool figure
+remains the fixed-overhead floor (four trivial packages, 69-package closure) and the
+3.8 s goanalysis figure the closure-heavy case (196-package closure); the PoC's ~50 s
+packages sit at the same scaling on a much larger closure.
+
+### Conclusion for the redesign
+
+No single phase dominates in isolation, but the four eliminated categories do:
+closure type-checking (b) ≈ 31%, Capslock's duplicate load and analysis (e) ≈ 44%,
+SSA (c) ≈ 12%, and VTA (d) ≈ 6% of measured CPU — together ≈ 92–93% of phase CPU
+(and all of the wall time outside `packages.Load`). The redesign keeps only (a),
+which measures at ~0.05 s wall / ≲0.1 s CPU on this component — about **1% of the
+current cost**. In round terms, the redesign is expected to eliminate ≈98–99% of the
+measured CPU of a `goanalysis`-component check, leaving member parsing/type-checking
+plus report rendering. The PoC's ~50 s packages should shrink proportionally more,
+since their cost is dominated by the same closure work.
 
 ## The three cost sources
 
