@@ -2,7 +2,8 @@
 //
 // Component Contract (FR10):
 // - What it does: Generated API and structures for the surface manifest schema.
-//   This package is an implementation detail of the surface component.
+//   This package is an implementation detail of the manifest component, which
+//   owns all persisted archcontracts schemas.
 // - What it requires: Protobuf unmarshaler to populate the models.
 // - What it provides: Protoreflect-enabled struct types for parsing surface
 //   manifests that cross process and Bazel action boundaries.
@@ -16,7 +17,7 @@ package archcontracts.v1;
 import "archcontracts/v1/component.proto";
 import "archcontracts/v1/stdlibmap.proto";
 
-option go_package = "github.com/ono-sendai-labs/architectural-contracts/go/internal/archcontracts/gen;gen";
+option go_package = "github.com/ono-sendai-labs/architectural-contracts/go/internal/manifest/gen;gen";
 
 // SurfaceManifest describes a component's public surface and is consumed by
 // dependents in place of the dependency's sources (design R7, DR-15). The same

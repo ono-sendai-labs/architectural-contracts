@@ -2,8 +2,8 @@
 //
 // Component Contract (FR10):
 // - What it does: Generated API and structures for the standard-library authority
-//   map schema. This package is an implementation detail of the stdlibmap and
-//   surface components.
+//   map schema. This package is an implementation detail of the manifest component,
+//   which owns all persisted archcontracts schemas.
 // - What it requires: Protobuf unmarshaler to populate the models.
 // - What it provides: Protoreflect-enabled struct types for parsing stdlib maps
 //   and the SDK key that pins a map to one target SDK configuration.
@@ -733,7 +733,7 @@ const file_archcontracts_v1_stdlibmap_proto_rawDesc = "" +
 	"\x04SAFE\x10\x01\x12\x10\n" +
 	"\fCAPABILITIES\x10\x02\x12\x0e\n" +
 	"\n" +
-	"UNANALYZED\x10\x03BVZTgithub.com/ono-sendai-labs/architectural-contracts/go/internal/archcontracts/gen;genb\x06proto3"
+	"UNANALYZED\x10\x03BQZOgithub.com/ono-sendai-labs/architectural-contracts/go/internal/manifest/gen;genb\x06proto3"
 
 var (
 	file_archcontracts_v1_stdlibmap_proto_rawDescOnce sync.Once

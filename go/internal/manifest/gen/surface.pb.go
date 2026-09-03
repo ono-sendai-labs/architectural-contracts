@@ -2,7 +2,8 @@
 //
 // Component Contract (FR10):
 // - What it does: Generated API and structures for the surface manifest schema.
-//   This package is an implementation detail of the surface component.
+//   This package is an implementation detail of the manifest component, which
+//   owns all persisted archcontracts schemas.
 // - What it requires: Protobuf unmarshaler to populate the models.
 // - What it provides: Protoreflect-enabled struct types for parsing surface
 //   manifests that cross process and Bazel action boundaries.
@@ -19,7 +20,6 @@
 package gen
 
 import (
-	gen "github.com/ono-sendai-labs/architectural-contracts/go/internal/manifest/gen"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	reflect "reflect"
@@ -57,7 +57,7 @@ type SurfaceManifest struct {
 	// enum rather than duplicating interface-style semantics (task req 4):
 	// INTERFACE_STYLE_UNSPECIFIED means declared-interface; the declared
 	// INTERFACE_STYLE_PACKAGE_SURFACE means "everything exported by packages".
-	InterfaceStyle gen.InterfaceStyle `protobuf:"varint,3,opt,name=interface_style,json=interfaceStyle,proto3,enum=archcontracts.v1.InterfaceStyle" json:"interface_style,omitempty"`
+	InterfaceStyle InterfaceStyle `protobuf:"varint,3,opt,name=interface_style,json=interfaceStyle,proto3,enum=archcontracts.v1.InterfaceStyle" json:"interface_style,omitempty"`
 	// Structural authority of the component: DECLARED{set} or UNKNOWN (R10,
 	// R11). UNKNOWN must never be read as an empty declaration.
 	Authority *AuthorityDeclaration `protobuf:"bytes,4,opt,name=authority,proto3" json:"authority,omitempty"`
@@ -134,11 +134,11 @@ func (x *SurfaceManifest) GetComponent() string {
 	return ""
 }
 
-func (x *SurfaceManifest) GetInterfaceStyle() gen.InterfaceStyle {
+func (x *SurfaceManifest) GetInterfaceStyle() InterfaceStyle {
 	if x != nil {
 		return x.InterfaceStyle
 	}
-	return gen.InterfaceStyle(0)
+	return InterfaceStyle_INTERFACE_STYLE_UNSPECIFIED
 }
 
 func (x *SurfaceManifest) GetAuthority() *AuthorityDeclaration {
@@ -202,7 +202,7 @@ func (x *SurfaceManifest) GetDigest() string {
 type AuthorityDeclaration struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// DECLARED or UNKNOWN; the manifest's enum, shared by import.
-	Authority gen.Authority `protobuf:"varint,1,opt,name=authority,proto3,enum=archcontracts.v1.Authority" json:"authority,omitempty"`
+	Authority Authority `protobuf:"varint,1,opt,name=authority,proto3,enum=archcontracts.v1.Authority" json:"authority,omitempty"`
 	// Capability names, meaningful only when authority is DECLARED; must be
 	// empty when UNKNOWN. Sort key: lexicographic byte order.
 	DeclaredAuthority []string `protobuf:"bytes,2,rep,name=declared_authority,json=declaredAuthority,proto3" json:"declared_authority,omitempty"`
@@ -240,11 +240,11 @@ func (*AuthorityDeclaration) Descriptor() ([]byte, []int) {
 	return file_archcontracts_v1_surface_proto_rawDescGZIP(), []int{1}
 }
 
-func (x *AuthorityDeclaration) GetAuthority() gen.Authority {
+func (x *AuthorityDeclaration) GetAuthority() Authority {
 	if x != nil {
 		return x.Authority
 	}
-	return gen.Authority(0)
+	return Authority_DECLARED
 }
 
 func (x *AuthorityDeclaration) GetDeclaredAuthority() []string {
@@ -273,7 +273,7 @@ const file_archcontracts_v1_surface_proto_rawDesc = "" +
 	" \x01(\tR\x06digest\"\x80\x01\n" +
 	"\x14AuthorityDeclaration\x129\n" +
 	"\tauthority\x18\x01 \x01(\x0e2\x1b.archcontracts.v1.AuthorityR\tauthority\x12-\n" +
-	"\x12declared_authority\x18\x02 \x03(\tR\x11declaredAuthorityBVZTgithub.com/ono-sendai-labs/architectural-contracts/go/internal/archcontracts/gen;genb\x06proto3"
+	"\x12declared_authority\x18\x02 \x03(\tR\x11declaredAuthorityBQZOgithub.com/ono-sendai-labs/architectural-contracts/go/internal/manifest/gen;genb\x06proto3"
 
 var (
 	file_archcontracts_v1_surface_proto_rawDescOnce sync.Once
@@ -291,9 +291,9 @@ var file_archcontracts_v1_surface_proto_msgTypes = make([]protoimpl.MessageInfo,
 var file_archcontracts_v1_surface_proto_goTypes = []any{
 	(*SurfaceManifest)(nil),      // 0: archcontracts.v1.SurfaceManifest
 	(*AuthorityDeclaration)(nil), // 1: archcontracts.v1.AuthorityDeclaration
-	(gen.InterfaceStyle)(0),      // 2: archcontracts.v1.InterfaceStyle
+	(InterfaceStyle)(0),          // 2: archcontracts.v1.InterfaceStyle
 	(*SDKKey)(nil),               // 3: archcontracts.v1.SDKKey
-	(gen.Authority)(0),           // 4: archcontracts.v1.Authority
+	(Authority)(0),               // 4: archcontracts.v1.Authority
 }
 var file_archcontracts_v1_surface_proto_depIdxs = []int32{
 	2, // 0: archcontracts.v1.SurfaceManifest.interface_style:type_name -> archcontracts.v1.InterfaceStyle
@@ -312,6 +312,7 @@ func file_archcontracts_v1_surface_proto_init() {
 	if File_archcontracts_v1_surface_proto != nil {
 		return
 	}
+	file_archcontracts_v1_component_proto_init()
 	file_archcontracts_v1_stdlibmap_proto_init()
 	type x struct{}
 	out := protoimpl.TypeBuilder{

@@ -7,7 +7,6 @@ import (
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protoreflect"
 
-	archcontracts "github.com/ono-sendai-labs/architectural-contracts/go/internal/archcontracts/gen"
 	manifestgen "github.com/ono-sendai-labs/architectural-contracts/go/internal/manifest/gen"
 )
 
@@ -41,14 +40,14 @@ func assertNotMap(t *testing.T, md protoreflect.MessageDescriptor) {
 // TestSurface_FormatVersionIsFieldOne pins that format_version is the first
 // field of the top-level surface message (DR-15).
 func TestSurface_FormatVersionIsFieldOne(t *testing.T) {
-	md := (&archcontracts.SurfaceManifest{}).ProtoReflect().Descriptor()
+	md := (&manifestgen.SurfaceManifest{}).ProtoReflect().Descriptor()
 	fieldNumber(t, md, "format_version", 1, protoreflect.Int32Kind)
 }
 
 // TestSurface_FieldNumbersAndTypes pins the surface schema shape: design Data
 // Models §The surface manifest, task requirement 1.
 func TestSurface_FieldNumbersAndTypes(t *testing.T) {
-	md := (&archcontracts.SurfaceManifest{}).ProtoReflect().Descriptor()
+	md := (&manifestgen.SurfaceManifest{}).ProtoReflect().Descriptor()
 	assertNotMap(t, md)
 	fieldNumber(t, md, "component", 2, protoreflect.StringKind)
 	fieldNumber(t, md, "interface_style", 3, protoreflect.EnumKind)
@@ -73,7 +72,7 @@ func TestSurface_FieldNumbersAndTypes(t *testing.T) {
 // message carries the manifest Authority enum (R10, R11): UNKNOWN must not be
 // conflated with DECLARED{}.
 func TestSurface_AuthorityDistinguishesUnknownFromEmpty(t *testing.T) {
-	md := (&archcontracts.AuthorityDeclaration{}).ProtoReflect().Descriptor()
+	md := (&manifestgen.AuthorityDeclaration{}).ProtoReflect().Descriptor()
 	fieldNumber(t, md, "authority", 1, protoreflect.EnumKind)
 	fieldNumber(t, md, "declared_authority", 2, protoreflect.StringKind)
 
@@ -93,7 +92,7 @@ func TestSurface_AuthorityDistinguishesUnknownFromEmpty(t *testing.T) {
 // TestSurface_InterfaceStyleReusesComponentEnum pins the deliberate reuse of
 // the component enum rather than a duplicated definition (task req 4).
 func TestSurface_InterfaceStyleReusesComponentEnum(t *testing.T) {
-	md := (&archcontracts.SurfaceManifest{}).ProtoReflect().Descriptor()
+	md := (&manifestgen.SurfaceManifest{}).ProtoReflect().Descriptor()
 	enum := md.Fields().ByName("interface_style").Enum()
 	if got, want := string(enum.FullName()), "archcontracts.v1.InterfaceStyle"; got != want {
 		t.Errorf("interface_style enum = %q, want %q", got, want)
@@ -106,7 +105,7 @@ func TestSurface_InterfaceStyleReusesComponentEnum(t *testing.T) {
 // TestSurface_ImportsComponentAndStdlibMap pins the Go/proto import directions
 // (task req 4): surface reuses component enums and the shared SDKKey.
 func TestSurface_ImportsComponentAndStdlibMap(t *testing.T) {
-	fd := (&archcontracts.SurfaceManifest{}).ProtoReflect().Descriptor().ParentFile()
+	fd := (&manifestgen.SurfaceManifest{}).ProtoReflect().Descriptor().ParentFile()
 	deps := map[string]bool{}
 	for i := 0; i < fd.Imports().Len(); i++ {
 		deps[string(fd.Imports().Get(i).Path())] = true
@@ -125,8 +124,8 @@ func TestNoMapFields_AnySchema(t *testing.T) {
 	var fileDescriptors []protoreflect.FileDescriptor
 	for _, m := range []proto.Message{
 		&manifestgen.Component{},
-		&archcontracts.StdlibMap{},
-		&archcontracts.SurfaceManifest{},
+		&manifestgen.StdlibMap{},
+		&manifestgen.SurfaceManifest{},
 	} {
 		fileDescriptors = append(fileDescriptors, m.ProtoReflect().Descriptor().ParentFile())
 	}
@@ -146,7 +145,7 @@ func walkMessages(t *testing.T, msgs protoreflect.MessageDescriptors) {
 // TestSDKKey_FieldsComplete pins every DR-09 SDK identity component
 // (task requirement 2).
 func TestSDKKey_FieldsComplete(t *testing.T) {
-	md := (&archcontracts.SDKKey{}).ProtoReflect().Descriptor()
+	md := (&manifestgen.SDKKey{}).ProtoReflect().Descriptor()
 	assertNotMap(t, md)
 	fieldNumber(t, md, "toolchain_version", 1, protoreflect.StringKind)
 	fieldNumber(t, md, "goos", 2, protoreflect.StringKind)
@@ -164,14 +163,14 @@ func TestSDKKey_FieldsComplete(t *testing.T) {
 // TestStdlibMap_FormatVersionIsFieldOne pins format_version first on the map
 // (DR-15).
 func TestStdlibMap_FormatVersionIsFieldOne(t *testing.T) {
-	md := (&archcontracts.StdlibMap{}).ProtoReflect().Descriptor()
+	md := (&manifestgen.StdlibMap{}).ProtoReflect().Descriptor()
 	fieldNumber(t, md, "format_version", 1, protoreflect.Int32Kind)
 }
 
 // TestStdlibMap_FieldNumbersAndTypes pins the map's collection shape
 // (task requirements 2 and 3).
 func TestStdlibMap_FieldNumbersAndTypes(t *testing.T) {
-	md := (&archcontracts.StdlibMap{}).ProtoReflect().Descriptor()
+	md := (&manifestgen.StdlibMap{}).ProtoReflect().Descriptor()
 	assertNotMap(t, md)
 	fieldNumber(t, md, "key", 2, protoreflect.MessageKind)
 	for _, name := range []protoreflect.Name{"packages", "symbols", "inits", "evidence"} {
@@ -186,7 +185,7 @@ func TestStdlibMap_FieldNumbersAndTypes(t *testing.T) {
 // (task requirement 3): exactly SAFE, non-empty capabilities, or UNANALYZED,
 // with UNSPECIFIED guarding the zero value.
 func TestStdlibMap_ClassificationEnumValues(t *testing.T) {
-	md := (&archcontracts.SymbolRecord{}).ProtoReflect().Descriptor()
+	md := (&manifestgen.SymbolRecord{}).ProtoReflect().Descriptor()
 	enum := md.Fields().ByName("classification").Enum()
 	for _, want := range []struct {
 		name  string
@@ -203,7 +202,7 @@ func TestStdlibMap_ClassificationEnumValues(t *testing.T) {
 // it imports nothing, so component.proto → stdlibmap.proto → surface.proto is
 // an acyclic chain (task req 4).
 func TestStdlibMap_NoDependencies(t *testing.T) {
-	fd := (&archcontracts.StdlibMap{}).ProtoReflect().Descriptor().ParentFile()
+	fd := (&manifestgen.StdlibMap{}).ProtoReflect().Descriptor().ParentFile()
 	if got := fd.Imports().Len(); got != 0 {
 		t.Errorf("stdlibmap.proto dependencies = %d, want 0", got)
 	}
@@ -213,26 +212,26 @@ func TestStdlibMap_NoDependencies(t *testing.T) {
 // importability, symbol records carry curated provenance, and evidence frames
 // retain the function/file/line data the report needs later (DR-17, task req 3).
 func TestStdlibMap_RecordsCarryRequiredData(t *testing.T) {
-	pkgMD := (&archcontracts.PackageInventory{}).ProtoReflect().Descriptor()
+	pkgMD := (&manifestgen.PackageInventory{}).ProtoReflect().Descriptor()
 	fieldNumber(t, pkgMD, "path", 1, protoreflect.StringKind)
 	fieldNumber(t, pkgMD, "importable", 2, protoreflect.BoolKind)
 
-	symMD := (&archcontracts.SymbolRecord{}).ProtoReflect().Descriptor()
+	symMD := (&manifestgen.SymbolRecord{}).ProtoReflect().Descriptor()
 	fieldNumber(t, symMD, "package", 1, protoreflect.StringKind)
 	fieldNumber(t, symMD, "id", 2, protoreflect.StringKind)
 	fieldNumber(t, symMD, "classification", 3, protoreflect.EnumKind)
 	fieldNumber(t, symMD, "provenance", 5, protoreflect.StringKind)
 
-	frameMD := (&archcontracts.Frame{}).ProtoReflect().Descriptor()
+	frameMD := (&manifestgen.Frame{}).ProtoReflect().Descriptor()
 	fieldNumber(t, frameMD, "function", 1, protoreflect.StringKind)
 	fieldNumber(t, frameMD, "file", 2, protoreflect.StringKind)
 	fieldNumber(t, frameMD, "line", 3, protoreflect.Int32Kind)
 
-	initMD := (&archcontracts.InitRecord{}).ProtoReflect().Descriptor()
+	initMD := (&manifestgen.InitRecord{}).ProtoReflect().Descriptor()
 	fieldNumber(t, initMD, "package", 1, protoreflect.StringKind)
 	fieldNumber(t, initMD, "classification", 2, protoreflect.EnumKind)
 
-	evMD := (&archcontracts.Evidence{}).ProtoReflect().Descriptor()
+	evMD := (&manifestgen.Evidence{}).ProtoReflect().Descriptor()
 	fieldNumber(t, evMD, "symbol_id", 1, protoreflect.StringKind)
 	fieldNumber(t, evMD, "capability", 2, protoreflect.StringKind)
 }
@@ -240,7 +239,7 @@ func TestStdlibMap_RecordsCarryRequiredData(t *testing.T) {
 // TestStdlibMapAndSurface_RoundTrip exercises binary and protojson round trips
 // on representative surface and map messages (task requirement 8).
 func TestStdlibMapAndSurface_RoundTrip(t *testing.T) {
-	sdkKey := &archcontracts.SDKKey{
+	sdkKey := &manifestgen.SDKKey{
 		ToolchainVersion: "go1.26.4",
 		Goos:             "darwin",
 		Goarch:           "arm64",
@@ -250,44 +249,44 @@ func TestStdlibMapAndSurface_RoundTrip(t *testing.T) {
 		ClassifierHash:   "abc123",
 		MapFormatVersion: 1,
 	}
-	surface := &archcontracts.SurfaceManifest{
+	surface := &manifestgen.SurfaceManifest{
 		FormatVersion:   1,
 		Component:       "checker",
 		InterfaceStyle:  manifestgen.InterfaceStyle_INTERFACE_STYLE_PACKAGE_SURFACE,
-		Authority:       &archcontracts.AuthorityDeclaration{Authority: manifestgen.Authority_UNKNOWN},
+		Authority:       &manifestgen.AuthorityDeclaration{Authority: manifestgen.Authority_UNKNOWN},
 		Packages:        []string{"example.com/a", "example.com/b"},
 		Namespace:       "upstream",
 		SdkKey:          sdkKey,
 		ProducerVersion: "arcc-test",
 		Digest:          "deadbeef",
 	}
-	surfaceDeclared := &archcontracts.SurfaceManifest{
+	surfaceDeclared := &manifestgen.SurfaceManifest{
 		FormatVersion:  1,
 		Component:      "checker",
 		InterfaceStyle: manifestgen.InterfaceStyle_INTERFACE_STYLE_UNSPECIFIED,
-		Authority: &archcontracts.AuthorityDeclaration{
+		Authority: &manifestgen.AuthorityDeclaration{
 			Authority:         manifestgen.Authority_DECLARED,
 			DeclaredAuthority: []string{"FILES"},
 		},
 		Symbols: []string{"checker.Check", "(Checker).Verify"},
 	}
-	m := &archcontracts.StdlibMap{
+	m := &manifestgen.StdlibMap{
 		FormatVersion: 1,
 		Key:           sdkKey,
-		Packages: []*archcontracts.PackageInventory{
+		Packages: []*manifestgen.PackageInventory{
 			{Path: "internal/goarch", Importable: false},
 			{Path: "os", Importable: true},
 		},
-		Symbols: []*archcontracts.SymbolRecord{
-			{Package: "os", Id: "(os.File).Read", Classification: archcontracts.Classification_CAPABILITIES, Capabilities: []string{"FILES"}},
-			{Package: "strings", Id: "strings.Title", Classification: archcontracts.Classification_SAFE},
-			{Package: "unsafe", Id: "unsafe.Pointer", Classification: archcontracts.Classification_UNANALYZED},
+		Symbols: []*manifestgen.SymbolRecord{
+			{Package: "os", Id: "(os.File).Read", Classification: manifestgen.Classification_CAPABILITIES, Capabilities: []string{"FILES"}},
+			{Package: "strings", Id: "strings.Title", Classification: manifestgen.Classification_SAFE},
+			{Package: "unsafe", Id: "unsafe.Pointer", Classification: manifestgen.Classification_UNANALYZED},
 		},
-		Inits: []*archcontracts.InitRecord{
-			{Package: "net", Classification: archcontracts.Classification_CAPABILITIES, Capabilities: []string{"NETWORK"}},
+		Inits: []*manifestgen.InitRecord{
+			{Package: "net", Classification: manifestgen.Classification_CAPABILITIES, Capabilities: []string{"NETWORK"}},
 		},
-		Evidence: []*archcontracts.Evidence{
-			{SymbolId: "(os.File).Read", Capability: "FILES", Frames: []*archcontracts.Frame{
+		Evidence: []*manifestgen.Evidence{
+			{SymbolId: "(os.File).Read", Capability: "FILES", Frames: []*manifestgen.Frame{
 				{Function: "(os.File).Read", File: "os/file.go", Line: 42},
 			}},
 		},

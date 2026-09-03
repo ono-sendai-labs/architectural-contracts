@@ -2,7 +2,11 @@ load("@rules_go//go:def.bzl", "go_library")
 
 go_library(
     name = "gen",
-    srcs = ["component.pb.go"],
+    srcs = [
+        "component.pb.go",
+        "stdlibmap.pb.go",
+        "surface.pb.go",
+    ],
     importpath = "github.com/ono-sendai-labs/architectural-contracts/go/internal/manifest/gen",
     visibility = ["//visibility:public"],
     deps = [
