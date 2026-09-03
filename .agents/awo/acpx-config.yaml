@@ -1,0 +1,34 @@
+# awo-acpx role configuration — see agent-skills/awo/awo-acpx/SKILL.md §Role Configuration
+#
+# Precedence: explicit invocation parameter > this file > skill defaults.
+# The orchestrator records the resolved values in its work_log before the first turn,
+# and re-asserts model/effort before EVERY prompt (a session's config is lost when its
+# adapter is reaped at the idle TTL and respawned).
+
+roles:
+  # §2 — decomposes a plan step into code tasks.
+  # Worth a capable model: a bad decomposition poisons every task beneath it.
+  task_generator:
+    agent: codex
+    model: gpt-5.6-sol
+    effort: high
+
+  # §4.3/§4.5 — writes the code. Session spans one task and all its rework rounds.
+  implementer:
+    agent: opencode
+    model: opencode-go/glm-5.3-flash
+    effort: null          # null/omitted => do not issue `set reasoning_effort` at all
+
+  # §4.4 — reviews ONE task and its rework rounds. Scoped to a task, so it does not
+  # carry cross-task reasoning; that is step_reviewer's job.
+  reviewer:
+    agent: codex
+    model: gpt-5.6-luna
+    effort: max
+
+  # §5.2 — implementation-review at step scope, in a fresh session.
+  # Wide-scope and judgement-heavy; this is where capability is worth paying for.
+  step_reviewer:
+    agent: codex
+    model: gpt-5.6-sol
+    effort: high
