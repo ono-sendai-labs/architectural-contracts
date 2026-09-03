@@ -1,0 +1,85 @@
+result:
+  task_file: .agents/tasks/2026-08-04-compositional-component-analysis/step03/task-03-define-persisted-artifact-schemas.code-task.md
+  change_id: bc6c358c
+  status: completed
+  schema_version: 2
+  produced_at: 2026-09-03T13:40:00Z
+
+acceptance_criteria:
+  - text: "Surface contract is complete"
+    addressed: yes
+    evidence: |
+      proto/archcontracts/v1/surface.proto: SurfaceManifest has format_version at
+      field 1 (int32), component, interface_style (shared component enum),
+      AuthorityDeclaration, concrete package paths and symbol IDs as repeated
+      sortable string entries, namespace, sdk_key, producer_version, digest.
+      No provenance field exists. Verified by go/internal/archcontracts/schema_test.go
+      (TestSurface_FormatVersionIsFieldOne, TestSurface_FieldNumbersAndTypes,
+      TestSurface_AuthorityDistinguishesUnknownFromEmpty,
+      TestSurface_InterfaceStyleReusesComponentEnum) — all pass natively and
+      under Bazel (//go/internal/archcontracts:archcontracts_schema_test).
+  - text: "SDK identity is target-complete"
+    addressed: yes
+    evidence: |
+      proto/archcontracts/v1/stdlibmap.proto: SDKKey carries toolchain_version,
+      goos, goarch, cgo_enabled, sorted build_tags, goexperiment, classifier_hash,
+      map_format_version (fields 1-8), with target-vs-host semantics documented on
+      each field (DR-09). Verified by TestSDKKey_FieldsComplete in
+      go/internal/archcontracts/schema_test.go — passes.
+  - text: "Map totality and classifications are representable"
+    addressed: yes
+    evidence: |
+      stdlibmap.proto: total PackageInventory (importable flag for internal/
+      packages), SymbolRecord with Classification SAFE=1/CAPABILITIES=2/
+      UNANALYZED=3 plus CLASSIFICATION_UNSPECIFIED=0 guarding the zero value,
+      non-empty capabilities list, InitRecord per package, Evidence keyed
+      (symbol, capability) with Frame function/file/line. Verified by
+      TestStdlibMap_ClassificationEnumValues, TestStdlibMap_RecordsCarryRequiredData,
+      TestStdlibMapAndSurface_RoundTrip — all pass.
+  - text: "Schema supports canonical ordering"
+    addressed: yes
+    evidence: |
+      TestNoMapFields_AnySchema walks every message in component, stdlibmap and
+      surface schemas and asserts zero proto map fields — passes. Every keyed
+      repeated field carries a documented canonical sort key ("Sort key:" comments
+      across surface.proto and stdlibmap.proto, e.g. StdlibMap.symbols:
+      "(package, id), lexicographic byte order").
+  - text: "Generation is comprehensive and repeatable"
+    addressed: yes
+    evidence: |
+      justfile gen compiles all three schemas in one protoc invocation, with
+      surface/stdlibmap now emitted into go/internal/manifest/gen;
+      gen-is-clean uses glob:go/internal/**/gen/*.pb.go, covering every checked-in
+      pb.go output while excluding handwritten BUILD files. work.log records a
+      second `just gen` producing no pb.go diff and `just gen-is-clean` passing
+      (CLEAN_OK) against committed outputs.
+  - text: "Native and Bazel builds remain green"
+    addressed: yes
+    evidence: |
+      `just ci` (ci-go + selfcheck + bazel-test) passed after the rework: go
+      vet/gofmt/build/test clean, self-hosting checks pass, bazel build //... and
+      test //... pass with 77 tests (now including
+      //go/internal/archcontracts:archcontracts_schema_test), 0 failures.
+
+artifacts:
+  scratchpad_dir: .agents/scratchpad/2026-08-04-compositional-component-analysis/step03/task-03-define-persisted-artifact-schemas/
+  files:
+    - context.md
+    - plan.md
+    - progress.md
+    - work.log
+    - result.yaml
+
+notes: |
+  Rework round 1 addressed the reviewer's single important finding (generated
+  schema package lacked component ownership; schema tests lacked a Bazel
+  target). Rather than inventing a new component — which would have required
+  component dependencies on manifest for the generated enum imports, creating
+  either member-overlap or undeclared-interface exposure of the protobuf
+  runtime — both schemas now generate into go/internal/manifest/gen, the
+  package already owned by the checked manifest component, keeping the Go
+  import graph trivially acyclic per task requirement 4. A Bazel go_test
+  (//go/internal/archcontracts:archcontracts_schema_test) now enforces the
+  descriptor and round-trip tests under bazel test //.... Full `just ci` is
+  green with 77 Bazel tests. Round-1 changes were mvzpmomu (schemas) and
+  pvysxzts (tests); this round's fresh child change is bc6c358c.

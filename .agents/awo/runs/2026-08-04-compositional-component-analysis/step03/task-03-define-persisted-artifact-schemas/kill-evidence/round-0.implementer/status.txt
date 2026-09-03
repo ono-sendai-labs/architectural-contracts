@@ -1,0 +1,8 @@
+session: ses_f9723822fffeEUoQqkVYeV0DYJ
+agent: opencode "acp"
+pid: -
+status: idle
+model: opencode-go/glm-5.3-flash
+mode: -
+uptime: -
+lastPromptTime: 2026-09-03T20:01:22.189Z

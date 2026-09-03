@@ -1,0 +1,4 @@
+The working copy has no changes.
+Working copy  (@) : mpvsulpl 796c0215 (empty) (no description set)
+Parent commit (@-): pvysxzts c1fc2eb4 test(archcontracts): add descriptor-level schema tests for surface and stdlib map
+0 files changed, 0 insertions(+), 0 deletions(-)

@@ -1,0 +1,6 @@
+mpvsulplnwprozwkqywtmnymxkqzwnpt 796c02155660ef0ae824049cbe78fc20920ad6a2  | 
+pvysxztskmkkkzpzovrrmsnzwytxwzrs c1fc2eb4959cbd092750a0f3a08a5aec80373f03  | test(archcontracts): add descriptor-level schema tests for surface and stdlib map
+mvzpmomuwypumvxkqxpoyksutnooxrvr b1f0ee6b41072a519a7e9d8357c94e368e64684b  | feat(proto): add surface and stdlib-map persisted artifact schemas
+tkykompnzyuvxxvxnkmlwzxyvosrsrnt 822fd86f187d5b9dbff2e05de96eba804e040c81  | chore(awo): record bookkeeping for step03 task 02
+srwvxuvyrotqlrpuprpvlvqmuqtqsntz 7e189df4452bb31eed1688b531b71b58bd96b164 pr/2026-08-04-compositional-component-analysis/step03/task-02-add-authority-declaration-lattice.code-task | build(manifest): add authority sources to Bazel BUILD files
+wqonwuqwrkpyqswxrltoplvoxoxppwrz 07c2553e8158cd83315dffa8d1000221459d709e  | feat(manifestparity): compare the authority declaration between manifests

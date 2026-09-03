@@ -1,0 +1,81 @@
+result:
+  task_file: .agents/tasks/2026-08-04-compositional-component-analysis/step03/task-03-define-persisted-artifact-schemas.code-task.md
+  change_id: pvysxzts
+  status: completed
+  schema_version: 2
+  produced_at: 2026-09-03T13:15:00Z
+
+acceptance_criteria:
+  - text: "Surface contract is complete"
+    addressed: yes
+    evidence: |
+      proto/archcontracts/v1/surface.proto: SurfaceManifest has format_version at
+      field 1 (int32), component, interface_style (shared component enum),
+      AuthorityDeclaration, concrete package paths and symbol IDs as repeated
+      sortable string entries, namespace, sdk_key, producer_version, digest.
+      No provenance field exists. Verified by go/internal/archcontracts/schema_test.go
+      (TestSurface_FormatVersionIsFieldOne, TestSurface_FieldNumbersAndTypes,
+      TestSurface_AuthorityDistinguishesUnknownFromEmpty,
+      TestSurface_InterfaceStyleReusesComponentEnum) — all pass.
+  - text: "SDK identity is target-complete"
+    addressed: yes
+    evidence: |
+      proto/archcontracts/v1/stdlibmap.proto: SDKKey carries toolchain_version,
+      goos, goarch, cgo_enabled, sorted build_tags, goexperiment, classifier_hash,
+      map_format_version (fields 1-8), with target-vs-host semantics documented on
+      each field (DR-09). Verified by TestSDKKey_FieldsComplete in
+      go/internal/archcontracts/schema_test.go — passes.
+  - text: "Map totality and classifications are representable"
+    addressed: yes
+    evidence: |
+      stdlibmap.proto: total PackageInventory (importable flag for internal/
+      packages), SymbolRecord with Classification SAFE=1/CAPABILITIES=2/
+      UNANALYZED=3 plus CLASSIFICATION_UNSPECIFIED=0 guarding the zero value,
+      non-empty capabilities list, InitRecord per package, Evidence keyed
+      (symbol, capability) with Frame function/file/line. Verified by
+      TestStdlibMap_ClassificationEnumValues, TestStdlibMap_RecordsCarryRequiredData,
+      TestStdlibMapAndSurface_RoundTrip — all pass.
+  - text: "Schema supports canonical ordering"
+    addressed: yes
+    evidence: |
+      TestNoMapFields_AnySchema walks every message in component, stdlibmap and
+      surface schemas and asserts zero proto map fields — passes. Every keyed
+      repeated field carries a documented canonical sort key: 14 "Sort key:"
+      comments across surface.proto and stdlibmap.proto (e.g. StdlibMap.symbols:
+      "(package, id), lexicographic byte order"; SurfaceManifest.packages:
+      "lexicographic byte order").
+  - text: "Generation is comprehensive and repeatable"
+    addressed: yes
+    evidence: |
+      justfile gen now compiles all three schemas in one protoc invocation;
+      gen-is-clean uses glob:go/internal/**/gen/*.pb.go, covering manifest/gen
+      and the new archcontracts/gen outputs while excluding handwritten BUILD
+      files. work.log records: second `just gen` produced no pb.go diff and
+      `just gen-is-clean` passed (CLEAN_OK) against committed outputs.
+  - text: "Native and Bazel builds remain green"
+    addressed: yes
+    evidence: |
+      `just ci` (ci-go + selfcheck + bazel-test) passed: go vet/gofmt/build/test
+      clean, self-hosting checks pass, bazel build //... and test //... pass
+      (76 tests, 0 failures). work.log records the CI output tail.
+
+artifacts:
+  scratchpad_dir: .agents/scratchpad/2026-08-04-compositional-component-analysis/step03/task-03-define-persisted-artifact-schemas/
+  files:
+    - context.md
+    - plan.md
+    - progress.md
+    - work.log
+    - result.yaml
+
+notes: |
+  Implemented both persisted-artifact schemas plus generation wiring in two
+  incremental commits: mvzpmomu (surface.proto, stdlibmap.proto, regenerated
+  go/internal/archcontracts/gen, BUILD.bazel, justfile gen/gen-is-clean) and
+  pvysxzts (descriptor-level schema tests). SDKKey was placed in stdlibmap.proto
+  per the task requirement, with surface.proto importing it and component.proto,
+  keeping the schema chain acyclic; no proto map fields and no surface provenance
+  flag anywhere. Descriptor/round-trip tests went RED (missing gen package) before
+  generation and are green after; `just gen` twice is byte-stable and the full
+  `just ci` passes. No producers, readers, caches, CLI or Bazel analysis actions
+  were added, per the task boundary.

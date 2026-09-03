@@ -1,0 +1,130 @@
+review:
+  task_file: .agents/tasks/2026-08-04-compositional-component-analysis/step03/task-03-define-persisted-artifact-schemas.code-task.md
+  change_id: mpvsulplnwprozwkqywtmnymxkqzwnpt
+  reviewed_at: 2026-09-03T21:37:22Z
+  verdict: approved
+  schema_version: 2
+  lsp_coverage: partial
+
+merge_request:
+  title: "feat(proto): define persisted artifact schemas [Compositional Schemas: Step 03/Task 03]"
+  body: |
+    Reviews the complete ordered series from the supplied base through the
+    current change. mvzpmomuwypumvxkqxpoyksutnooxrvr adds the surface and
+    stdlib-map schemas, generated bindings, generation wiring, and initial
+    Bazel metadata; pvysxztskmkkkzpzovrrmsnzwytxwzrs adds descriptor and
+    binary/protojson round-trip tests; mpvsulplnwprozwkqywtmnymxkqzwnpt
+    relocates the generated schemas into the manifest-owned package and adds
+    the Bazel schema-test target. The prior review's important finding is
+    resolved; no test deletion or weakening was introduced.
+
+summary: |
+  The prior important ownership finding is resolved: the rework puts all three
+  generated protobuf outputs in the existing manifest component's declared
+  gen member and adds a Bazel target for the schema tests. All six acceptance
+  criteria remain satisfied, current native Go tests/vet/formatting and the
+  recorded full CI gate pass, and no security or behavioral regression was
+  found. One non-blocking stale comment in justfile still names the removed
+  archcontracts/gen directory.
+
+acceptance_criteria:
+  - text: |
+      1. **Surface contract is complete**
+         - Given `surface.proto`
+         - When its top-level message is inspected
+         - Then field 1 is `format_version`, all design-specified surface data is representable, packages and symbols are repeated sortable entries, authority distinguishes unknown from known-empty, and no provenance claim is stored in the file.
+    status: pass
+    evidence: |
+      `proto/archcontracts/v1/surface.proto:34-81` defines SurfaceManifest with
+      format_version at field 1, component/interface style/authority, concrete
+      packages and symbols, namespace, SDK key, producer version, and digest;
+      the no-provenance rule is documented at :22-27. The authority wrapper and
+      shared enum are defined at :84-99. Descriptor and round-trip coverage is
+      present at `go/internal/archcontracts/schema_test.go:40-103` and
+      `:252-272`.
+  - text: |
+      2. **SDK identity is target-complete**
+         - Given the shared SDK key schema
+         - When its fields are inspected
+         - Then toolchain version, target OS/architecture, cgo setting, build tags, GOEXPERIMENT, classifier hash, and map format version are all represented without conflating host and target configuration.
+    status: pass
+    evidence: |
+      `proto/archcontracts/v1/stdlibmap.proto:67-100` defines all eight SDKKey
+      fields and explicitly states that every field describes the target rather
+      than the host. `go/internal/archcontracts/schema_test.go:145-161` checks
+      their field numbers and kinds, including the repeated build_tags field.
+  - text: |
+      3. **Map totality and classifications are representable**
+         - Given `stdlibmap.proto`
+         - When representative safe, capability-bearing, unanalyzed, non-importable, init, and evidence records are constructed
+         - Then each state is explicit and unambiguous, capability classification cannot rely on an absent symbol meaning safe, and package inventory records importability.
+    status: pass
+    evidence: |
+      `proto/archcontracts/v1/stdlibmap.proto:19-64` defines total package,
+      symbol, init, and (symbol, capability) evidence collections;
+      :103-133 defines importability and the explicit UNSPECIFIED/SAFE/
+      CAPABILITIES/UNANALYZED terminal enum; :136-199 defines capabilities and
+      function/file/line frames. Descriptor checks are at
+      `go/internal/archcontracts/schema_test.go:163-237`, and representative
+      records for all requested states are round-tripped at `:273-292`.
+  - text: |
+      4. **Schema supports canonical ordering**
+         - Given every collection in both artifact schemas
+         - When descriptors and comments are inspected
+         - Then no proto map field exists and every repeated keyed entry has a defined deterministic sort key for Task 5.
+    status: pass
+    evidence: |
+      The schema comments document sort keys for the keyed repeated fields at
+      `proto/archcontracts/v1/surface.proto:52-62,97-99` and
+      `proto/archcontracts/v1/stdlibmap.proto:43-64,86-88,150-186` (ordered
+      evidence frames are not keyed). `TestNoMapFields_AnySchema` recursively
+      checks all messages in the three schema files at
+      `go/internal/archcontracts/schema_test.go:121-142`.
+  - text: |
+      5. **Generation is comprehensive and repeatable**
+         - Given all component, surface, and map schemas
+         - When `just gen` is run twice and `just gen-is-clean` is evaluated
+         - Then all checked-in `.pb.go` files are reproduced identically and cleanliness covers every protoc output.
+    status: pass
+    evidence: |
+      `justfile:25-31` invokes protoc for component.proto, surface.proto, and
+      stdlibmap.proto and scopes gen-is-clean to checked-in generated `*.pb.go`
+      outputs while excluding BUILD files. The rework's clean regeneration is
+      recorded at
+      `.agents/scratchpad/2026-08-04-compositional-component-analysis/step03/task-03-define-persisted-artifact-schemas/work.log:242-247`,
+      following the initial generation evidence at :90-111.
+  - text: |
+      6. **Native and Bazel builds remain green**
+         - Given the new generated packages and metadata
+         - When `just ci` runs
+         - Then all checks pass without an artifact producer, consumer, or analysis-path change.
+    status: pass
+    evidence: |
+      The rework runs the schema suite natively and through the new Bazel target
+      `//go/internal/archcontracts:archcontracts_schema_test`, with the passing
+      results recorded at
+      `.agents/scratchpad/2026-08-04-compositional-component-analysis/step03/task-03-define-persisted-artifact-schemas/work.log:232-241`.
+      The full post-rework `just ci` gate reports 77 passing Bazel tests and no
+      later producer/consumer/action changes at :248-256. The generated package
+      is now owned by the existing manifest component at
+      `go/internal/manifest/component.textproto:1-4` and
+      `go/internal/manifest/BUILD.bazel:56-60`.
+
+findings:
+  - severity: suggestion
+    category: style
+    file: justfile
+    line: 28
+    title: gen-is-clean comment names removed directory
+    details: |
+      The rework removes `go/internal/archcontracts/gen` and relocates the
+      generated files into `go/internal/manifest/gen`, but `justfile:28-29`
+      still says that both the manifest and archcontracts gen directories hold
+      handwritten BUILD files. The recipe itself is correct; this stale comment
+      can mislead maintainers about the generated-package layout.
+    suggested_action: |
+      Update the comment to describe the current manifest/gen directory (or use
+      a directory-neutral description) while retaining the `.pb.go`-only glob.
+    source: built-in
+
+ecosystem_reviews: []

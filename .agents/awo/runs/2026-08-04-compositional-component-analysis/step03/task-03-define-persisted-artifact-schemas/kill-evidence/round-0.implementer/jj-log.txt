@@ -1,0 +1,6 @@
+mvzpmomuwypumvxkqxpoyksutnooxrvr 80794604331160c61af87a24a493577c796dbf33  | 
+tkykompnzyuvxxvxnkmlwzxyvosrsrnt 822fd86f187d5b9dbff2e05de96eba804e040c81  | chore(awo): record bookkeeping for step03 task 02
+srwvxuvyrotqlrpuprpvlvqmuqtqsntz 7e189df4452bb31eed1688b531b71b58bd96b164 pr/2026-08-04-compositional-component-analysis/step03/task-02-add-authority-declaration-lattice.code-task | build(manifest): add authority sources to Bazel BUILD files
+wqonwuqwrkpyqswxrltoplvoxoxppwrz 07c2553e8158cd83315dffa8d1000221459d709e  | feat(manifestparity): compare the authority declaration between manifests
+pzwznmuxwuoktvxztmxvyxsrlmrzwlss da1058895be0171ddb6dcb333f4daca17848b30c  | feat(manifest): parse the persisted authority axis into the native model
+xsurzmspqwuupoykvrkpnzqkspkvkpuv 1e3c5a7f0e218902ecf85c2ac060989736b27e8e  | feat(manifest): add AuthorityDeclaration lattice with total join
