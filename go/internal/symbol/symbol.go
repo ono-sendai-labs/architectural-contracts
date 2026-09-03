@@ -117,9 +117,6 @@ func Parse(text string) (SymbolID, error) {
 	if strings.ContainsAny(pkg, "*[]()") || strings.ContainsAny(name, "*[]()") {
 		return "", fmt.Errorf("invalid symbol %q: pointer markers and type arguments are not part of the v1 grammar", text)
 	}
-	if strings.ContainsAny(pkg, "*[]()") {
-		return "", fmt.Errorf("invalid symbol %q: pointer markers and type arguments are not part of the v1 grammar", text)
-	}
 	if !validPackagePath(pkg) {
 		return "", fmt.Errorf("invalid symbol %q: %q is not a valid package import path", text, pkg)
 	}

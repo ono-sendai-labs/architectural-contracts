@@ -123,8 +123,7 @@ func (t T) M() {}
 	}
 	info := &types.Info{Defs: map[*ast.Ident]types.Object{}, Types: map[ast.Expr]types.TypeAndValue{}}
 	conf := types.Config{}
-	pkg, err := conf.Check("raw", fset, []*ast.File{file}, info)
-	if err != nil {
+	if _, err := conf.Check("raw", fset, []*ast.File{file}, info); err != nil {
 		t.Fatalf("check: %v", err)
 	}
 	var method types.Object
@@ -160,5 +159,4 @@ func (t T) M() {}
 			}
 		})
 	}
-	_ = pkg
 }
