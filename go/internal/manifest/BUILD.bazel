@@ -18,7 +18,10 @@ exports_files([
 
 go_library(
     name = "manifest",
-    srcs = ["manifest.go"],
+    srcs = [
+        "authority.go",
+        "manifest.go",
+    ],
     importpath = "github.com/ono-sendai-labs/architectural-contracts/go/internal/manifest",
     visibility = ["//go:__subpackages__"],
     deps = [
@@ -30,7 +33,11 @@ go_library(
 go_test(
     name = "manifest_test",
     size = "small",
-    srcs = ["manifest_test.go"],
+    srcs = [
+        "authority_test.go",
+        "manifest_test.go",
+        "schema_test.go",
+    ],
     # keep: TestSelfHostingManifests walks the checked-in source tree by
     # relative path (sibling manifests, their interface files and imports), so
     # it needs the working copy rather than a runfiles tree. It runs under
