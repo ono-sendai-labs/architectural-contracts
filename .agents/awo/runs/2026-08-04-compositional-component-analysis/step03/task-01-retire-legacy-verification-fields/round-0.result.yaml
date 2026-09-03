@@ -1,0 +1,83 @@
+result:
+  task_file: .agents/tasks/2026-08-04-compositional-component-analysis/step03/task-01-retire-legacy-verification-fields.code-task.md
+  change_id: lllokpuvpnxkulltozuxktnvrkuzprun
+  status: completed
+  schema_version: 2
+  produced_at: 2026-09-03T04:35:00Z
+
+acceptance_criteria:
+  - text: "Persisted identifiers are retired safely — field numbers 8 and 9 and names `own_check_runs` and `certification_reference` are reserved, neither field exists, and the prior field-4 reservations remain intact."
+    addressed: yes
+    evidence: |
+      proto/archcontracts/v1/component.proto:27-36 reserves 4 and "absorbed_dependencies",
+      8 and 9, and "own_check_runs"/"certification_reference". Behavioral coverage:
+      go/internal/manifest/schema_test.go TestComponentSchema_RetiredVerificationFieldsReserved
+      asserts via descriptor that 4/8/9 are reserved ranges, all three names are reserved
+      names, and no field exists at numbers 8/9 or either name. Passes.
+
+  - text: "Stale verification declarations fail loudly — parsing a textproto naming either retired field returns an actionable removed-field error naming that field; comment/quoted occurrences do not trigger the check."
+    addressed: yes
+    evidence: |
+      go/internal/manifest/manifest.go:64-90 removedFields patterns for both spellings plus
+      removedFieldHints giving each an actionable message; checkRemovedFields scrubs comments
+      and strings first (scrubCommentsAndStrings behavior preserved). Tests:
+      manifest_test.go TestParse_RejectsStaleVerificationFields (four cases, both spellings,
+      ':' and '{}' forms, RemovedFieldError.Field asserted) and
+      TestParse_RemovedFieldMentionsOutsideFieldPositions (comment and quoted-value mentions
+      parse fine; absorbed_dependencies rejection also retained at :84). Passes.
+
+  - text: "Self-declared verification state is absent — no verification state derived from `own_check_runs` or `certification_reference` in native manifest, dependency facts, report DTOs, checker, resolver, CLI path; no replacement author-asserted certification flag."
+    addressed: yes
+    evidence: |
+      Fields deleted from Manifest (manifest.go), DependencyInterface (facts.go),
+      DependencyBoundary JSON (report.go — json now emits only "component"), checker.go
+      mapping, goanalysis.go resolver (both sites), manifestparity.go comparison; no
+      replacement flag introduced. Verified by full-suite compilation and passing tests
+      (go test ./..., -tags=integration) plus repo grep: retired spellings occur only in
+      proto reservations, parser compat checks/tests, and generated descriptor bytes.
+
+  - text: "Bazel and repository inputs expose no obsolete API — go_component and helpers neither accept nor emit the retired fields; ordinary `manual` tagging remains valid."
+    addressed: yes
+    evidence: |
+      bazel_rules/go/private/component.bzl: own_check_runs attr, _manifest_content emission,
+      and call-site wiring removed; defs.bzl:126 and tests/testing.bzl:109 manual-tag
+      defaulting lines removed (manual tags untouched otherwise). Goldens refreshed
+      (api_component.report.json/.report.txt, reportboundary_consumer.report.txt,
+      *.component.textproto) and tests/BUILD.bazel grep assertion dropped. bazel build //...
+      and bazel test //... pass 76/76, including manual-tagged fixtures.
+
+  - text: "Existing analysis semantics remain intact — call-graph analysis, boundary pruning, findings, and verdicts unchanged apart from removal of obsolete verification annotations."
+    addressed: yes
+    evidence: |
+      No analysis logic changed; only field plumbing and report display metadata removed.
+      All checker, goanalysis (dep_resolve), facts, report, app, and CLI integration tests
+      pass unchanged apart from the retired annotations in expectations.
+
+  - text: "Generation and integration remain green — `just gen-is-clean` and `just ci` pass, and non-planning searches find the retired names only in compatibility reservations and rejection tests."
+    addressed: yes
+    evidence: |
+      just gen-is-clean passes post-commit; protoc determinism pre-verified by double-run
+      md5 (772739b541e31363a3fd87319cd3e652). CI legs run individually: go vet + gofmt clean,
+      go build, go test ./..., go test -tags=integration ./..., just selfcheck, bazel build
+      //..., bazel test //... (76/76), and the two validation shell scripts. Grep confirms
+      retired names only in proto reservations, manifest.go compat map/patterns, schema and
+      parser tests, and gen descriptor bytes. work.log records a temporary gen-is-clean
+      working-copy false positive (diff vs parent includes the intended pb.go change), which
+      clears once committed.
+
+artifacts:
+  scratchpad_dir: .agents/scratchpad/2026-08-04-compositional-component-analysis/step03/task-01-retire-legacy-verification-fields/
+  files:
+    - context.md
+    - plan.md
+    - progress.md
+    - work.log
+    - result.yaml
+
+notes: |
+  Retired the self-declared verification fields end to end: proto reservation, parse-time
+  rejection with actionable per-field errors, full Go DTO/checker/resolver/report removal,
+  Starlark attribute and emission removal, and fixture/golden/doc cleanup. TDD evidence in
+  work.log covers RED/GREEN for the schema and parser criteria; all CI legs pass, including
+  Bazel 76/76. Committed as jj change lllokpuvpnxkulltozuxktnvrkuzprun (f15e5c44) with an
+  empty working copy at yszrupsy.

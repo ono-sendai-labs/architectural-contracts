@@ -1,0 +1,147 @@
+review:
+  task_file: .agents/tasks/2026-08-04-compositional-component-analysis/step03/task-01-retire-legacy-verification-fields.code-task.md
+  change_id: yszrupsytsuyynpkqrqrqkwvuoqvwklq
+  reviewed_at: 2026-09-03T10:59:30Z
+  verdict: approved
+  schema_version: 2
+  lsp_coverage: unavailable
+
+merge_request:
+  title: "feat(schema): retire legacy verification fields [Compositional Analysis: Step 03/Task 01]"
+  body: |
+    Reviews the complete two-change series from the Step 3 task base through
+    the initial schema/Go/Starlark/report cleanup and the rework change
+    yszrupsytsuyynpkqrqrqkwvuoqvwklq. The rework removes the remaining README
+    references and renames the stale asserted-boundary test cases. Go,
+    integration, generation, and recorded Bazel validation are green; one
+    non-blocking annotation word remains in a test comment.
+
+summary: |
+  The prior important README finding and partial AC6 are resolved in the fresh
+  rework: the README now matches the name-only dependency report, contains no
+  retired spellings, and the current non-planning search finds those spellings
+  only in compatibility reservations/checks and rejection tests. The initial
+  schema, parser, DTO, Bazel, fixture, and golden changes remain intact, and
+  current fast/integration Go tests plus vet, formatting, and generation checks
+  pass; the work log records 76/76 Bazel tests. One stale test-comment phrase
+  still mentions an annotation, so a non-blocking style suggestion remains;
+  LSP diagnostics were unavailable.
+
+acceptance_criteria:
+  - text: |
+      1. **Persisted identifiers are retired safely**
+         - Given the regenerated component schema
+         - When its descriptor is inspected
+         - Then field numbers 8 and 9 and names `own_check_runs` and `certification_reference` are reserved, neither field exists, and the prior field-4 reservations remain intact.
+    status: pass
+    evidence: |
+      `proto/archcontracts/v1/component.proto:27-36` reserves field 4 and
+      `absorbed_dependencies`, fields 8 and 9, and both retired names.
+      `go/internal/manifest/schema_test.go:70-109`
+      (`TestComponentSchema_RetiredVerificationFieldsReserved`) inspects the
+      generated descriptor for reserved numbers 4/8/9, all three reserved
+      names, and the absence of fields at numbers 8/9 and either name.
+      `just gen-is-clean` passed.
+
+  - text: |
+      2. **Stale verification declarations fail loudly**
+         - Given a textproto naming either retired field
+         - When `manifest.Parse` reads it
+         - Then parsing returns an actionable removed-field error naming that field rather than silently ignoring it; occurrences in comments and quoted values do not trigger the check.
+    status: pass
+    evidence: |
+      `go/internal/manifest/manifest.go:55-103` adds per-field hints and
+      checks both retired spellings after `scrubCommentsAndStrings` and before
+      `prototext.Unmarshal`, while retaining the absorbed-dependencies rule.
+      `go/internal/manifest/manifest_test.go:102-174` covers comments and
+      quoted values, both spellings, scalar false/true forms, and brace form;
+      it asserts `RemovedFieldError.Field` and the field name in the message.
+
+  - text: |
+      3. **Self-declared verification state is absent**
+         - Given the native manifest, dependency facts, report DTOs, checker, resolver, and CLI path
+         - When their public fields and emitted JSON/text are inspected
+         - Then no verification state is derived from `own_check_runs` or `certification_reference`, and no replacement author-asserted certification flag was introduced.
+    status: pass
+    evidence: |
+      `go/internal/manifest/manifest.go:188-195`,
+      `go/internal/facts/facts.go:82-90`, and
+      `go/internal/report/report.go:52-55` contain no retired or replacement
+      verification fields. The checker mapping at
+      `go/internal/checker/checker.go:304-308` and both resolver return paths
+      at `go/internal/goanalysis/goanalysis.go:1574-1579` and `:1736-1741`
+      now carry only structural dependency data. `report.go:130-132` emits
+      only the dependency component name; report tests and goldens assert the
+      corresponding JSON/text shape.
+
+  - text: |
+      4. **Bazel and repository inputs expose no obsolete API**
+         - Given `go_component`, its implementation and testing helpers, checked-in manifests, fixtures, and goldens
+         - When they are searched and built
+         - Then they neither accept nor emit the retired fields, while ordinary `manual` tagging remains valid Bazel behavior.
+    status: pass
+    evidence: |
+      `bazel_rules/go/private/component.bzl:67-102` and `:373-405` remove the
+      emitter argument, output, and private attribute; `defs.bzl:123-126` and
+      `tests/testing.bzl:106-114` remove manual-tag-derived field plumbing while
+      retaining ordinary tag propagation at `defs.bzl:133-147` and
+      `testing.bzl:114-120`. Checked-in component/report goldens and manifests
+      no longer contain the fields. The captured validation evidence in
+      `work.log` records Bazel build/test success with 76/76 tests.
+
+  - text: |
+      5. **Existing analysis semantics remain intact**
+         - Given conforming and violating components that do not use the retired fields
+         - When their checks run
+         - Then call-graph analysis, boundary pruning, findings, and verdicts are unchanged apart from removal of obsolete verification annotations.
+    status: pass
+    evidence: |
+      The production changes in `go/internal/checker/checker.go:304-319` and
+      `go/internal/goanalysis/goanalysis.go:1574-1579,1736-1741` remove only
+      annotation plumbing; the dependency, pruning, and call-graph logic is
+      otherwise unchanged. Checker, dependency-resolution, report, app, and
+      CLI integration tests pass with only the obsolete output annotations
+      removed from expectations. The Go fast, integration, and self-check legs
+      completed successfully in the review run.
+
+  - text: |
+      6. **Generation and integration remain green**
+         - Given all cleanup and regenerated bindings
+         - When `just gen-is-clean` and `just ci` run
+         - Then both pass, and non-planning searches find the retired names only in compatibility reservations and rejection tests.
+    status: pass
+    evidence: |
+      The prior round's partial AC6 and README finding are addressed by the
+      rework commit `yszrupsytsuyynpkqrqrqkwvuoqvwklq`: `README.md:279-290`
+      now documents the name-only dependency listing, the retired-field
+      paragraph is gone at `README.md:415`, and the auto-attached section at
+      `README.md:448-458` no longer mentions the removed annotation. A current
+      non-planning search finds the retired names only in the proto/generated
+      reservations and manifest compatibility checks/tests. `just
+      gen-is-clean`, current fast and integration Go tests, vet, and formatting
+      pass; `work.log` records the complete CI/Bazel validation with 76/76
+      Bazel tests for the series.
+
+findings:
+  - severity: suggestion
+    category: style
+    file: go/cmd/arcc/cli_integration_test.go
+    line: 1041
+    title: "Remove the last obsolete annotation wording"
+    details: |
+      The rework renamed the old asserted-boundary cases and fixture names in
+      `go/cmd/arcc/cli_integration_test.go:1039-1123` and
+      `go/cmd/arcc/app/app_test.go:1256-1339`, resolving the prior terminology
+      suggestion. However, `cli_integration_test.go:1041` still says the test
+      retains the "success line + annotation", while its expected output at
+      `:1098-1102` contains only the name-only dependency listing. The manual
+      Bazel fixture comment at
+      `bazel_rules/go/tests/testdata/reportboundary/manual/BUILD.bazel:11-12`
+      likewise still calls the removed output an asserted annotation.
+    suggested_action: |
+      Replace the comment's annotation wording with "dependency listing" and
+      update the manual fixture comment to describe ordinary manual tagging
+      without referring to the removed report annotation.
+    source: built-in
+
+ecosystem_reviews: []
