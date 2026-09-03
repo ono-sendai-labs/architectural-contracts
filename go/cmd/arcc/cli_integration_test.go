@@ -765,7 +765,7 @@ func TestIntegration_App_Success_JSON(t *testing.T) {
 		t.Errorf("report has findings: violations=%v, warnings=%v", rep.Violations, rep.Warnings)
 	}
 	if len(rep.Dependencies) != 2 || rep.Dependencies[0].Component != "csvfile" || rep.Dependencies[1].Component != "toprow" {
-		t.Errorf("rep.Dependencies = %+v, want csvfile and toprow certified boundaries", rep.Dependencies)
+		t.Errorf("rep.Dependencies = %+v, want csvfile and toprow dependency boundaries", rep.Dependencies)
 	}
 }
 
@@ -1036,19 +1036,19 @@ declared_authority: "FILES"
 	}
 }
 
-func TestIntegration_AssertedBoundary_Exit0(t *testing.T) {
-	// Verifies AC4: a component whose dependencies are all asserted and has no violations
+func TestIntegration_DependencyBoundary_Exit0(t *testing.T) {
+	// Verifies AC4: a component with a pruned dependency boundary and no violations
 	// or warnings returns exit code 0, emits no findings, and retains the success line + annotation.
 	depManifest := `
-name: "asserted-dep-cli"
+name: "declared-dep-cli"
 interface_files: "api.go"
 `
 	depFiles := map[string]string{
-		"api.go": `package asserteddep
+		"api.go": `package declareddep
 func Fetch() {}
 `,
 	}
-	depDir, depManifestPath := createTempComponent(t, "asserted-dep-cli", depManifest, depFiles)
+	depDir, depManifestPath := createTempComponent(t, "declared-dep-cli", depManifest, depFiles)
 
 	absModuleRoot, err := filepath.Abs("../..")
 	if err != nil {
@@ -1069,17 +1069,17 @@ func Hello() {
 `, depImportPath),
 	}
 
-	callerDir, callerManifestPath := createTempComponent(t, "asserted-caller-cli", "", callerFiles)
+	callerDir, callerManifestPath := createTempComponent(t, "declared-caller-cli", "", callerFiles)
 	relDepManifest, err := filepath.Rel(callerDir, depManifestPath)
 	if err != nil {
 		t.Fatalf("failed to compute relative path: %v", err)
 	}
 
 	actualManifest := fmt.Sprintf(`
-name: "asserted-caller-cli"
+name: "declared-caller-cli"
 interface_files: "main.go"
 component_dependencies {
-	name: "asserted-dep-cli"
+	name: "declared-dep-cli"
 	manifest: "%s"
 }
 `, filepath.ToSlash(relDepManifest))
@@ -1095,10 +1095,10 @@ component_dependencies {
 	if stderr != "" {
 		t.Errorf("expected empty stderr, got %q", stderr)
 	}
-	wantText := `Component "asserted-caller-cli" conforms; does not exceed declared authority
+	wantText := `Component "declared-caller-cli" conforms; does not exceed declared authority
 
 Dependencies:
-- asserted-dep-cli
+- declared-dep-cli
 `
 	if stdout != wantText {
 		t.Errorf("stdout =\n%q\nwant:\n%q", stdout, wantText)
@@ -1119,7 +1119,7 @@ Dependencies:
 	if len(rep.Violations) != 0 || len(rep.Warnings) != 0 {
 		t.Errorf("expected 0 violations and 0 warnings, got violations=%v, warnings=%v", rep.Violations, rep.Warnings)
 	}
-	if len(rep.Dependencies) != 1 || rep.Dependencies[0].Component != "asserted-dep-cli" {
-		t.Errorf("rep.Dependencies = %+v, want asserted-dep-cli boundary", rep.Dependencies)
+	if len(rep.Dependencies) != 1 || rep.Dependencies[0].Component != "declared-dep-cli" {
+		t.Errorf("rep.Dependencies = %+v, want declared-dep-cli boundary", rep.Dependencies)
 	}
 }

@@ -316,7 +316,7 @@ func TestResolveDependencyInterface_PackageSurface(t *testing.T) {
 	}
 }
 
-func TestResolveDependencyInterface_PackageSurface_NoCert(t *testing.T) {
+func TestResolveDependencyInterface_PackageSurface_NoCertification(t *testing.T) {
 	declaringRoot, err := filepath.Abs("testdata/dep_resolve/declaring")
 	if err != nil {
 		t.Fatalf("failed to get absolute path to declaring: %v", err)

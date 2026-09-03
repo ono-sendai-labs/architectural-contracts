@@ -276,18 +276,16 @@ cd go
 ```
 
 For all four commands, you will see a conforming output and an exit code of `0`.
-A component with dependencies also lists each pruned boundary, annotated
-`certified` when the dependency declares that its own check runs and `asserted`
-when it does not:
+A component with dependencies also lists each pruned boundary:
 ```
 Component "app" conforms; does not exceed declared authority
 
 Dependencies:
-- csvfile: certified
-- toprow: certified
+- csvfile
+- toprow
 ```
 
-The annotation is not a finding: the depending component did nothing wrong by
+The listing is not a finding: the depending component did nothing wrong by
 pruning at a boundary. It exists so that what is being trusted is visible in
 every report that rests on it.
 
@@ -414,8 +412,6 @@ The manifest structure is defined by the following fields:
 - **`declared_authority`** (repeated string): Capabilities from Capslock's classified set that this component is permitted to exercise. Leaving this empty makes the component ambient-authority-free.
   - Known Capabilities: `FILES`, `NETWORK`, `READ_SYSTEM_STATE`, `MODIFY_SYSTEM_STATE`, `OPERATING_SYSTEM`, `SYSTEM_CALLS`, `EXEC`, `RUNTIME`, `ARBITRARY_EXECUTION`, `CGO`, `UNSAFE_POINTER`, `REFLECT`, `UNANALYZED`.
 
-The retired fields `own_check_runs` and `certification_reference` (author self-declarations about verification) were removed from the schema; their field numbers and names are reserved and stale manifests naming them are rejected at parse time.
-
 ### Wrapping a library that has no interface: `PACKAGE_SURFACE`
 
 Some code was never written to have an architectural interface — a
@@ -455,7 +451,7 @@ A `component_dependency` marked `auto_attached: true` was injected by an emitter
 (a build-system toolchain that puts a runtime into every target's closure), not
 written by an author. It is exempt from `UNUSED_DEPENDENCY`, because an author
 who never asked for the edge should not be told to remove it. Everything else
-about the boundary is normal, including the certified/asserted annotation.
+about the boundary is normal.
 
 The edge appears in the emitted manifest even when the emitter attaches it
 unconditionally: the whole argument for a flag over a hidden allowlist is that a

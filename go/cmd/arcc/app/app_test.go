@@ -1253,47 +1253,47 @@ component_dependencies: {
 	}
 }
 
-func TestRunner_Check_AssertedOnlyBoundary_Success(t *testing.T) {
+func TestRunner_Check_DependencyBoundary_Success(t *testing.T) {
 	parentDir := t.TempDir()
 
-	depDir := filepath.Join(parentDir, "asserted-dep")
+	depDir := filepath.Join(parentDir, "declared-dep")
 	if err := os.MkdirAll(depDir, 0755); err != nil {
 		t.Fatalf("failed to create dep dir: %v", err)
 	}
 	depManifest := `
-name: "asserted-dep"
+name: "declared-dep"
 interface_files: "api.go"
 `
-	if err := os.WriteFile(filepath.Join(depDir, "go.mod"), []byte("module example.com/temp/asserted-dep\n\ngo 1.21\n"), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(depDir, "go.mod"), []byte("module example.com/temp/declared-dep\n\ngo 1.21\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(depDir, "component.textproto"), []byte(depManifest), 0644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(depDir, "api.go"), []byte("package asserteddep\n\nfunc Fetch() {}\n"), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(depDir, "api.go"), []byte("package declareddep\n\nfunc Fetch() {}\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
 
-	analyzedDir := filepath.Join(parentDir, "asserted-comp")
+	analyzedDir := filepath.Join(parentDir, "declared-comp")
 	if err := os.MkdirAll(analyzedDir, 0755); err != nil {
 		t.Fatalf("failed to create analyzed dir: %v", err)
 	}
 	manifestContent := `
-name: "asserted-comp"
+name: "declared-comp"
 interface_files: "api.go"
 component_dependencies: {
-  name: "asserted-dep"
-  manifest: "../asserted-dep/component.textproto"
+  name: "declared-dep"
+  manifest: "../declared-dep/component.textproto"
 }
 `
-	if err := os.WriteFile(filepath.Join(analyzedDir, "go.mod"), []byte("module example.com/temp/asserted-comp\n\ngo 1.21\n\nrequire example.com/temp/asserted-dep v0.0.0\nreplace example.com/temp/asserted-dep => ../asserted-dep\n"), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(analyzedDir, "go.mod"), []byte("module example.com/temp/declared-comp\n\ngo 1.21\n\nrequire example.com/temp/declared-dep v0.0.0\nreplace example.com/temp/declared-dep => ../declared-dep\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
 	manifestPath := filepath.Join(analyzedDir, "component.textproto")
 	if err := os.WriteFile(manifestPath, []byte(manifestContent), 0644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(analyzedDir, "api.go"), []byte("package main\n\nimport \"example.com/temp/asserted-dep\"\n\nfunc Hello() {\n\tasserteddep.Fetch()\n}\n"), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(analyzedDir, "api.go"), []byte("package main\n\nimport \"example.com/temp/declared-dep\"\n\nfunc Hello() {\n\tdeclareddep.Fetch()\n}\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -1312,10 +1312,10 @@ component_dependencies: {
 		t.Errorf("stderr = %q, want empty", stderr.String())
 	}
 	gotText := stdout.String()
-	wantText := `Component "asserted-comp" conforms; does not exceed declared authority
+	wantText := `Component "declared-comp" conforms; does not exceed declared authority
 
 Dependencies:
-- asserted-dep
+- declared-dep
 `
 	if gotText != wantText {
 		t.Errorf("stdout =\n%q\nwant:\n%q", gotText, wantText)
@@ -1335,7 +1335,7 @@ Dependencies:
 	if len(rep.Violations) != 0 || len(rep.Warnings) != 0 {
 		t.Errorf("report has findings: violations=%v, warnings=%v", rep.Violations, rep.Warnings)
 	}
-	if len(rep.Dependencies) != 1 || rep.Dependencies[0].Component != "asserted-dep" {
-		t.Errorf("report.Dependencies = %+v, want asserted-dep boundary", rep.Dependencies)
+	if len(rep.Dependencies) != 1 || rep.Dependencies[0].Component != "declared-dep" {
+		t.Errorf("report.Dependencies = %+v, want declared-dep boundary", rep.Dependencies)
 	}
 }
