@@ -156,3 +156,19 @@ func equalStrings(a, b []string) bool {
 	}
 	return true
 }
+
+// TestNativeLoaderLoadsHostPackages exercises the native loader seam against
+// the host toolchain (hermetic only under the integration tag).
+func TestNativeLoaderLoadsHostPackages(t *testing.T) {
+	loader := &stdlibmap.NativeLoader{}
+	loaded, err := loader.Load([]string{"os", "strings"})
+	if err != nil {
+		t.Fatalf("NativeLoader.Load: %v", err)
+	}
+	if loaded["os"] == nil || loaded["os"].Scope().Lookup("Open") == nil {
+		t.Fatalf("NativeLoader did not load package os with its declarations")
+	}
+	if _, err := loader.Load([]string{"os/nonexistent"}); err == nil {
+		t.Fatalf("NativeLoader.Load(os/nonexistent): want error, got nil")
+	}
+}

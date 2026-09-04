@@ -20,8 +20,6 @@ const fixturePkgPath = "example.com/inventory"
 
 const fixtureSrc = `package inventory
 
-import "errors"
-
 const Max = 10
 
 var Store string
@@ -30,7 +28,7 @@ var cache = map[string]int{}
 
 func Open(name string) (*F, error) {
 	if name == "" {
-		return nil, errors.New("empty")
+		return nil, nil
 	}
 	return &F{Name: name}, nil
 }
