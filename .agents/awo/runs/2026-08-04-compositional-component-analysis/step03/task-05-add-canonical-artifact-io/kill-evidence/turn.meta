@@ -1,0 +1,9 @@
+session=awo-rev-2026-08-04-compositional-component-analysis-step03-task05
+agent=codex
+repo=/home/xtof/git/ono-sendai-labs/architectural-contracts
+prompt=.agents/runs-acpx/20260903-202702-step03-task-05-add-canonical-artifact-io/round-0.reviewer/prompt.md
+turn_pid=177082
+wrapper_pid=177066
+wrapper_ppid=176989
+start_epoch=1788494017
+start_utc=2026-09-04T03:53:37Z

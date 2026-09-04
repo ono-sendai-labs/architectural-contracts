@@ -1,0 +1,3 @@
+The working copy has no changes.
+Working copy  (@) : sszqzuyu 95d4d3c4 (empty) (no description set)
+Parent commit (@-): tomnpmyw 0fb62691 build(artifactio): register the artifactio component

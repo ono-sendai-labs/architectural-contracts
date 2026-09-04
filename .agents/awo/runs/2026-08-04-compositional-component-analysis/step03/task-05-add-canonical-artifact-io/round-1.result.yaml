@@ -1,0 +1,114 @@
+result:
+  task_file: .agents/tasks/2026-08-04-compositional-component-analysis/step03/task-05-add-canonical-artifact-io.code-task.md
+  change_id: sszqzuyuvoulqywypkuomokvyuwokksl
+  status: completed
+  schema_version: 2
+  produced_at: 2026-09-04T06:20:00Z
+
+acceptance_criteria:
+  - text: |
+      1. Canonical bytes ignore caller ordering — Given two semantically identical
+      surface or map messages whose repeated entries and nested capabilities/frames are
+      ordered differently, when each is marshaled, then the resulting bytes are
+      identical, format_version is first, formatting is stable, and neither input message
+      was mutated.
+    addressed: yes
+    evidence: |
+      Behavioral. artifactio_test.go TestMarshalSurfaceCanonicalBytes /
+      TestMarshalSurfaceInputImmutable / TestMarshalMapCanonicalBytes, plus the rework
+      round's rework_test.go TestMapCanonicalizesEveryRepeatedField (reordered build tags,
+      symbols, packages, inits, evidence, and frames — byte-identical, map input
+      unmutated via proto.Equal snapshot) and TestSurfaceCanonicalizesSDKBuildTags
+      (reordered SDK build tags — byte-identical). normalizeSurface now clones+sorts
+      SDKKey.BuildTags (surface.go), normalizeMap sorts inits/evidence/frames
+      (stdlibmap.go).
+  - text: |
+      2. Digest follows canonical semantics — Given equivalent artifacts encoded with
+      different source whitespace or entry order, when decoded and hashed, then they
+      produce the same lowercase SHA-256 digest; a semantic field change produces a
+      different digest.
+    addressed: yes
+    evidence: |
+      Behavioral. decode_test.go TestDigestCanonicalEquivalence,
+      TestDigestOnDecodedArtifact, TestMapDigestEquivalence, plus rework_test.go
+      TestSurfaceCanonicalizesSDKBuildTags asserting equal digests for tag-reordered
+      equivalents (the round-1 gap). Digests hash the fully normalized clone, so build
+      tags no longer leak ordering into the digest.
+  - text: |
+      3. Readers are forward-compatible but fail closed — Given an artifact with an
+      unknown JSON field, an unsupported major version, malformed content, a duplicate
+      key, an invalid symbol ID, contradictory authority, or a non-terminal map
+      classification, when decoded, then the unknown field alone is ignored, while every
+      unsupported or semantically unsafe condition returns a specific error.
+    addressed: yes
+    evidence: |
+      Behavioral. Prior decode_test.go tables plus the rework round's new rejections:
+      TestMapRejectsNonImportableAndMismatchedRecords (symbols/inits under
+      non-importable packages; symbol package/ID grammar disagreement),
+      TestMapEvidenceValidation (malformed evidence ID, evidence against a
+      non-CAPABILITIES record, capability absent from the record, foreign-package
+      evidence), TestSurfaceRejectsNonCanonicalShape (unknown interface_style,
+      PACKAGE_SURFACE with symbols, wildcard and empty-element package paths, duplicate
+      SDK build tags), TestMarshalRejectsNilRepeatedEntries (nil repeated-message
+      elements error instead of panic). Recorded RED→GREEN in work.log.
+  - text: |
+      4. Size caps are enforced before runaway reads — Given surface inputs around 16 MiB
+      and map inputs around 64 MiB, when decoded from a reader, then inputs at or below
+      the documented limit are processed normally and inputs above it fail with an
+      actionable size error without reading or allocating the unbounded remainder.
+    addressed: yes
+    evidence: |
+      Behavioral. decode_test.go TestDecodeSizeCaps — exact-limit surface (16777216) and
+      map (67108864) inputs decode; limit+1 fails with the actionable size error, via
+      boundedRead's io.LimitReader(max+1). Unchanged this round; reviewer marked pass.
+  - text: |
+      5. Atomic writes preserve the previous file — Given an existing valid target and a
+      simulated failure while creating, writing, syncing, closing, or renaming its
+      replacement, when atomic write returns, then the previous target bytes remain
+      intact and temporary residue is cleaned up; only a successful rename makes the new
+      bytes visible.
+    addressed: yes
+    evidence: |
+      Behavioral. write_test.go TestAtomicWriteFailuresPreserveTarget (per-stage failure)
+      and TestAtomicWriteSuccess; rework round adds TestAtomicWriteSurfacesCleanupFailure
+      (failing removal surfaced via errors.Join together with the original error, target
+      still intact) and TestWriteFileAtomicAppliesRequestedMode (requested permission bits
+      applied to both new and existing targets — the round-1 mode gap). write.go now
+      chmods the temp sibling before rename and checks the removal result.
+  - text: |
+      6. Layering and integration remain green — Given the new protobuf/filesystem
+      package, when component self-checks, Bazel tests, and just ci run, then pure core
+      packages have gained no protobuf or filesystem dependency and all checks pass
+      without cache/CLI/action behavior from later steps.
+    addressed: yes
+    evidence: |
+      Non-behavioral. `just ci` green after the rework commit (go build/vet/fmt, native
+      self-check with artifactio conforming within declared authority, bazel build/test
+      //... including a forced --cache_test_results=no rerun of
+      artifactio_component.check, plus the bazel_rules membership/shape scripts). The
+      Bazel go_component members now mirror component.textproto exactly — including
+      //go/internal/artifactio, //go/internal/manifest, and //go/internal/symbol
+      (round-1 gap). No pure-core package imports artifactio/protojson; no cache/CLI/
+      action code added.
+
+artifacts:
+  scratchpad_dir: .agents/scratchpad/2026-08-04-compositional-component-analysis/step03/task-05-add-canonical-artifact-io/
+  files:
+    - context.md
+    - plan.md
+    - progress.md
+    - work.log
+    - result.yaml
+    - review.yaml
+
+notes: |
+  Rework round 1: every critical/important finding addressed in a fresh child
+  change sszqzuyu (no amend/squash of the prior series). Surface normalization
+  now covers SDK build tags and interface-style/package-grammar shape; map
+  validation rejects nil entries, non-importable records, package/ID
+  disagreements, and unvalidated evidence; WriteFileAtomic honors the requested
+  file mode, exposes a Remove seam, and joins cleanup failures with the
+  original error; the Bazel component member list now matches the checked-in
+  contract; the stray tmpvis.bzl was removed. work.log carries an auditable
+  RED run for the new scenarios plus an explicit note about the round-1
+  R2-R4 RED-evidence gap and how it was re-established.

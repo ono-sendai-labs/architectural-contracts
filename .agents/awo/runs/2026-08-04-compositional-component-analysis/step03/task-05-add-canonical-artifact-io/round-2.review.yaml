@@ -1,0 +1,107 @@
+review:
+  task_file: .agents/tasks/2026-08-04-compositional-component-analysis/step03/task-05-add-canonical-artifact-io.code-task.md
+  change_id: xkzwovtqztoqzyykzqwlquyoqxovowlz
+  reviewed_at: "2026-09-04T05:35:04Z"
+  verdict: approved
+  schema_version: 2
+  lsp_coverage: unavailable
+
+merge_request:
+  title: "feat(artifactio): add canonical artifact I/O [Compositional Analysis: Step 03/Task 05]"
+  body: |
+    Reviews the complete ordered series from the base through both rework
+    rounds. The initial osyvqoun change adds canonical surface/map encoding,
+    bounded decoding, semantic validation, and digests; plzvnlto adds atomic
+    sibling-temp replacement with failure seams; tomnpmyw adds the initial
+    component wiring; sszqzuyu adds the validation, normalization, mode/cleanup,
+    and test rework; and xkzwovtq restores the lost Bazel test and component
+    member wiring. The final series satisfies all acceptance criteria.
+
+summary: |
+  Round 2 resolves both prior important integration findings: xkzwovtq adds rework_test.go to the Bazel test target and makes the go_component members match component.textproto, including the required visibility changes. The earlier validation, canonicalization, atomic-write, style, and test-coverage findings remain addressed, with no test deletion or regression found across the complete range. Recorded Bazel and CI runs pass; LSP and independent local Go/Bazel diagnostics were unavailable in this environment.
+
+acceptance_criteria:
+  - text: |
+      1. **Canonical bytes ignore caller ordering**
+         - Given two semantically identical surface or map messages whose repeated entries and nested capabilities/frames are ordered differently
+         - When each is marshaled
+         - Then the resulting bytes are identical, `format_version` is first, formatting is stable, and neither input message was mutated.
+    status: pass
+    evidence: |
+      `go/internal/artifactio/artifactio_test.go:51-123` covers canonical surface
+      and map ordering, formatVersion placement, stable output, and surface input
+      immutability. `rework_test.go:40-80` covers map build tags, symbols,
+      packages, inits, evidence, frames, and map input immutability; `:84-112`
+      covers surface SDK build-tag ordering. The clone/sort implementations are
+      `surface.go:65-84` and `stdlibmap.go:63-96`.
+  - text: |
+      2. **Digest follows canonical semantics**
+         - Given equivalent artifacts encoded with different source whitespace or entry order
+         - When decoded and hashed
+         - Then they produce the same lowercase SHA-256 digest; a semantic field change produces a different digest.
+    status: pass
+    evidence: |
+      `go/internal/artifactio/decode_test.go:214-300` covers lowercase SHA-256
+      output, semantic sensitivity, source whitespace/order re-canonicalization,
+      and reordered map digests. `rework_test.go:84-112` adds surface digest
+      equivalence for reordered SDK build tags. `surface.go:50-62` and
+      `stdlibmap.go:48-60` hash normalized representations.
+  - text: |
+      3. **Readers are forward-compatible but fail closed**
+         - Given an artifact with an unknown JSON field, an unsupported major version, malformed content, a duplicate key, an invalid symbol ID, contradictory authority, or a non-terminal map classification
+         - When decoded
+         - Then the unknown field alone is ignored, while every unsupported or semantically unsafe condition returns a specific error.
+    status: pass
+    evidence: |
+      `go/internal/artifactio/decode_test.go:16-134` covers unknown fields,
+      unsupported versions, malformed content, duplicate entries, authority, and
+      terminal classification errors. `rework_test.go:117-247` adds rejection
+      coverage for nil entries, non-importable and mismatched records, evidence
+      IDs and relationships, interface style, concrete package paths, and
+      duplicate SDK tags. The validators are `surface.go:87-150` and
+      `stdlibmap.go:152-268`; decoding uses `DiscardUnknown` at
+      `surface.go:166-172`.
+  - text: |
+      4. **Size caps are enforced before runaway reads**
+         - Given surface inputs around 16 MiB and map inputs around 64 MiB
+         - When decoded from a reader
+         - Then inputs at or below the documented limit are processed normally and inputs above it fail with an actionable size error without reading or allocating the unbounded remainder.
+    status: pass
+    evidence: |
+      `go/internal/artifactio/decode_test.go:138-208` exercises exact-limit and
+      limit-plus-one surface/map inputs. `surface.go:153-163` applies an
+      `io.LimitReader` with one sentinel byte before `io.ReadAll`; the recorded
+      GREEN run is at `work.log:197-210`.
+  - text: |
+      5. **Atomic writes preserve the previous file**
+         - Given an existing valid target and a simulated failure while creating, writing, syncing, closing, or renaming its replacement
+         - When atomic write returns
+         - Then the previous target bytes remain intact and temporary residue is cleaned up; only a successful rename makes the new bytes visible.
+    status: pass
+    evidence: |
+      `go/internal/artifactio/write_test.go:27-118` covers success and each
+      create/write/sync/close/rename failure while preserving the old target.
+      `rework_test.go:249-277` verifies requested modes and `:279-301` verifies
+      cleanup errors are surfaced with the primary failure. `write.go:54-94`
+      applies mode before rename and joins removal errors.
+  - text: |
+      6. **Layering and integration remain green**
+         - Given the new protobuf/filesystem package
+         - When component self-checks, Bazel tests, and `just ci` run
+         - Then pure core packages have gained no protobuf or filesystem dependency and all checks pass without cache/CLI/action behavior from later steps.
+    status: pass
+    evidence: |
+      The shell boundary and FR10 contract are documented at
+      `go/internal/artifactio/artifactio.go:1-24`; `justfile:53-63` invokes the
+      self-check. The round-2 change `xkzwovtq` adds `rework_test.go` to the Bazel
+      test sources at `go/internal/artifactio/BUILD.bazel:32-37`, adds the full
+      component member set at `:62-97`, and extends artifactio/manifest library
+      visibility at `BUILD.bazel:14-19` and `go/internal/manifest/BUILD.bazel:26-31`.
+      These now mirror `component.textproto:7-40`. The recorded uncached Bazel
+      targets pass at `work.log:482-489`, followed by the CI checks at `:490-495`;
+      no pure-core package imports artifactio/protojson and no later cache/CLI/action
+      policy was added.
+
+findings: []
+
+ecosystem_reviews: []

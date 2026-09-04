@@ -1,0 +1,115 @@
+result:
+  task_file: .agents/tasks/2026-08-04-compositional-component-analysis/step03/task-05-add-canonical-artifact-io.code-task.md
+  change_id: tomnpmywzummylqurqlqpxortutuxnsu
+  status: completed
+  schema_version: 2
+  produced_at: 2026-09-04T03:52:51Z
+
+acceptance_criteria:
+  - text: |
+      1. Canonical bytes ignore caller ordering — Given two semantically identical
+      surface or map messages whose repeated entries and nested capabilities/frames are
+      ordered differently, when each is marshaled, then the resulting bytes are
+      identical, format_version is first, formatting is stable, and neither input message
+      was mutated.
+    addressed: yes
+    evidence: |
+      Behavioral. go/internal/artifactio/artifactio_test.go:38 TestMarshalSurfaceCanonicalBytes
+      and :99 TestMarshalMapCanonicalBytes assert byte-identical output for reordered
+      inputs, "formatVersion" first, repeated-marshal stability, and trailing-newline
+      format; TestMarshalSurfaceInputImmutable (artifactio_test.go:81) asserts the input
+      is not mutated (defensive proto.Clone in surface.go normalizeSurface). Evidence
+      frames are sorted by (function, file, line) in stdlibmap.go compareFrames.
+  - text: |
+      2. Digest follows canonical semantics — Given equivalent artifacts encoded with
+      different source whitespace or entry order, when decoded and hashed, then they
+      produce the same lowercase SHA-256 digest; a semantic field change produces a
+      different digest.
+    addressed: yes
+    evidence: |
+      Behavioral. go/internal/artifactio/decode_test.go:213 TestDigestCanonicalEquivalence
+      (same digest for reordered equivalents, 64-char lowercase hex, semantic change flips
+      the digest), :249 TestDigestOnDecodedArtifact (non-canonical source whitespace/order
+      digests identically to the canonical fixture; cross-checked against crypto/sha256),
+      :296 TestMapDigestEquivalence. Implementation: digest.go + SurfaceDigest/MapDigest
+      (surface.go, stdlibmap.go) re-canonicalize before hashing.
+  - text: |
+      3. Readers are forward-compatible but fail closed — Given an artifact with an
+      unknown JSON field, an unsupported major version, malformed content, a duplicate
+      key, an invalid symbol ID, contradictory authority, or a non-terminal map
+      classification, when decoded, then the unknown field alone is ignored, while every
+      unsupported or semantically unsafe condition returns a specific error.
+    addressed: yes
+    evidence: |
+      Behavioral. decode_test.go:20 TestDecodeIgnoresUnknownFields; :40
+      TestDecodeRejectsVersionAndMalformed (ErrUnsupportedVersion for format_version 2/99,
+      malformed JSON); :60 TestDecodeRejectsSemanticErrors table covering duplicate keys,
+      UNKNOWN-with-capabilities, invalid symbol IDs, unknown capabilities,
+      CLASSIFICATION_UNSPECIFIED, CAPABILITIES-with-empty-caps, duplicate map entries,
+      symbols outside the total inventory, and SDK-key/format_version disagreement.
+      Implementation: surface.go/stdlibmap.go validate*, protojson DiscardUnknown in
+      decodeInto.
+  - text: |
+      4. Size caps are enforced before runaway reads — Given surface inputs around 16 MiB
+      and map inputs around 64 MiB, when decoded from a reader, then inputs at or below
+      the documented limit are processed normally and inputs above it fail with an
+      actionable size error without reading or allocating the unbounded remainder.
+    addressed: yes
+    evidence: |
+      Behavioral. decode_test.go:119 TestDecodeSizeCaps: a semantically valid surface
+      padded to exactly 16777216 bytes decodes, cap+1 fails with a "limit" error; same for
+      a map at exactly 67108864 bytes. Implementation: boundedRead (surface.go) wraps the
+      reader in io.LimitReader(max+1) so reads stop before the unbounded remainder.
+  - text: |
+      5. Atomic writes preserve the previous file — Given an existing valid target and a
+      simulated failure while creating, writing, syncing, closing, or renaming its
+      replacement, when atomic write returns, then the previous target bytes remain
+      intact and temporary residue is cleaned up; only a successful rename makes the new
+      bytes visible.
+    addressed: yes
+    evidence: |
+      Behavioral. write_test.go:50 TestAtomicWriteFailuresPreserveTarget injects a failure
+      at each of create/write/sync/close/rename and asserts per stage that the error wraps
+      the sentinel, the previous target bytes are intact, and no temp residue remains;
+      write_test.go:36 TestAtomicWriteSuccess asserts replacement and zero residue.
+      Implementation: write.go WriteFileAtomic + exported WriteSeams (task req 7's narrow
+      test seam). GREEN caught a shadowed-err bug letting a sync failure slip through;
+      fixed before commit.
+  - text: |
+      6. Layering and integration remain green — Given the new protobuf/filesystem
+      package, when component self-checks, Bazel tests, and just ci run, then pure core
+      packages have gained no protobuf or filesystem dependency and all checks pass
+      without cache/CLI/action behavior from later steps.
+    addressed: yes
+    evidence: |
+      Non-behavioral, verified by inspection + gates. `just ci` green (go build/vet/fmt,
+      native self-check now including internal/artifactio — "Component artifactio
+      conforms; does not exceed declared authority", bazel build/test //... with 81 tests
+      passing incl. artifactio_test and artifactio_component.check, plus members-label and
+      component-shape validation scripts). grep shows no pure-core package
+      (checker/facts/report/capanalyzer/manifest/symbol/hostpolicy) imports or BUILD-depends
+      on artifactio or protojson; manifest.go's pre-existing io.ReadAll takes an
+      io.Reader, not the filesystem. No cache/CLI/action code added (work.log inspection).
+
+artifacts:
+  scratchpad_dir: .agents/scratchpad/2026-08-04-compositional-component-analysis/step03/task-05-add-canonical-artifact-io/
+  files:
+    - context.md
+    - plan.md
+    - progress.md
+    - work.log
+    - result.yaml
+
+notes: |
+  Implemented the shell-side artifact I/O package go/internal/artifactio with
+  canonical protojson+encoding/json encoding, sorted/validated normalization
+  (duplicates and contradictory states rejected, not repaired), bounded
+  fail-closed decoders (16 MiB / 64 MiB caps), lowercase SHA-256 digests over
+  re-canonicalized bytes, and atomic sibling-temp writes with five-stage
+  failure-injection seams. Committed as three coherent jj changes
+  (osyvqoun, plzvnlto, tomnpmyw); the reported change_id is the wiring commit
+  at @-, with just ci green on top of all three. One deliberate reading: task
+  req 2 lists evidence frames among collections to sort, so frames are
+  canonically ordered by (function, file, line), which AC1's byte-equality
+  requirement needs; the design's "ordered frames" is thereby realized as a
+  deterministic canonical order.

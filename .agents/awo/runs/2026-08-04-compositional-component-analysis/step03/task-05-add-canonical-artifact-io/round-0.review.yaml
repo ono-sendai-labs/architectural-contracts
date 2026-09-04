@@ -1,0 +1,316 @@
+review:
+  task_file: .agents/tasks/2026-08-04-compositional-component-analysis/step03/task-05-add-canonical-artifact-io.code-task.md
+  change_id: tomnpmywzummylqurqlqpxortutuxnsu
+  reviewed_at: "2026-09-04T05:06:32Z"
+  verdict: changes_requested
+  schema_version: 2
+  lsp_coverage: unavailable
+
+merge_request:
+  title: "feat(artifactio): add canonical artifact I/O [Compositional Analysis: Step 03/Task 05]"
+  body: |
+    Reviews the complete ordered task series from the supplied base through the
+    current change. The initial osyvqoun change adds canonical surface/map
+    encoding, bounded decoding, semantic validation, and digests; plzvnlto adds
+    atomic sibling-temp replacement with failure seams; tomnpmyw adds the
+    component BUILD/textproto wiring, self-check entry, and formatting cleanup.
+
+summary: |
+  The series supplies the main canonical JSON, bounded-reader, digest, and atomic-write paths, with recorded tests covering the primary success and failure cases. Important fail-closed gaps remain: surface SDK build tags and shape/package invariants are not fully normalized or validated, map records and evidence are not fully cross-checked, and malformed repeated message pointers can panic. The Bazel component definition omits its own package and other declared members, atomic mode/cleanup handling is incomplete, and the R2-R4 work log lacks concrete RED evidence; the current environment did not provide Go, Bazel, or an LSP for independent reruns.
+
+acceptance_criteria:
+  - text: |
+      1. **Canonical bytes ignore caller ordering**
+         - Given two semantically identical surface or map messages whose repeated entries and nested capabilities/frames are ordered differently
+         - When each is marshaled
+         - Then the resulting bytes are identical, `format_version` is first, formatting is stable, and neither input message was mutated.
+    status: partial
+    evidence: |
+      `go/internal/artifactio/artifactio_test.go:51-82` covers surface package/symbol
+      reordering, formatVersion placement, repeated output, and newline formatting;
+      `artifactio_test.go:100-123` covers map package/symbol and nested capability
+      reordering. `surface.go:64-78` and `stdlibmap.go:64-95` defensively clone and
+      sort several collections. However, `surface.go:71-77` never sorts the nested
+      `SDKKey.BuildTags`, and the tests do not exercise evidence frames or map input
+      immutability, so the criterion is not complete.
+  - text: |
+      2. **Digest follows canonical semantics**
+         - Given equivalent artifacts encoded with different source whitespace or entry order
+         - When decoded and hashed
+         - Then they produce the same lowercase SHA-256 digest; a semantic field change produces a different digest.
+    status: partial
+    evidence: |
+      `go/internal/artifactio/decode_test.go:214-247` verifies equivalent surface
+      digests, lowercase SHA-256 spelling, and semantic sensitivity; `:252-279`
+      verifies re-canonicalization after non-canonical source whitespace/order; and
+      `:282-300` covers reordered map digests. `surface.go:48-60` and
+      `stdlibmap.go:48-61` hash normalized bytes. Surface `SDKKey.BuildTags` remain
+      order-sensitive because they are not normalized at `surface.go:71-77`, so an
+      equivalent surface can still receive a different digest.
+  - text: |
+      3. **Readers are forward-compatible but fail closed**
+         - Given an artifact with an unknown JSON field, an unsupported major version, malformed content, a duplicate key, an invalid symbol ID, contradictory authority, or a non-terminal map classification
+         - When decoded
+         - Then the unknown field alone is ignored, while every unsupported or semantically unsafe condition returns a specific error.
+    status: partial
+    evidence: |
+      `go/internal/artifactio/decode_test.go:16-53` covers unknown fields, versions,
+      and malformed content; `:55-134` covers duplicate entries, authority and
+      classification errors; and `surface.go:147-153` uses DiscardUnknown. The
+      primary validators are at `surface.go:83-131` and `stdlibmap.go:131-227`.
+      They do not validate surface interface-style shape or concrete package paths,
+      do not reject records under non-importable packages or package/ID disagreement,
+      and do not parse or relate evidence symbol IDs (`stdlibmap.go:190-200`). Those
+      semantically unsafe forms are therefore accepted.
+  - text: |
+      4. **Size caps are enforced before runaway reads**
+         - Given surface inputs around 16 MiB and map inputs around 64 MiB
+         - When decoded from a reader
+         - Then inputs at or below the documented limit are processed normally and inputs above it fail with an actionable size error without reading or allocating the unbounded remainder.
+    status: pass
+    evidence: |
+      `go/internal/artifactio/decode_test.go:138-208` exercises exact-limit and
+      limit-plus-one surface/map inputs. `surface.go:134-144` applies an
+      `io.LimitReader` with one sentinel byte before `io.ReadAll`, and the recorded
+      GREEN run is in `work.log:197-210`.
+  - text: |
+      5. **Atomic writes preserve the previous file**
+         - Given an existing valid target and a simulated failure while creating, writing, syncing, closing, or renaming its replacement
+         - When atomic write returns
+         - Then the previous target bytes remain intact and temporary residue is cleaned up; only a successful rename makes the new bytes visible.
+    status: partial
+    evidence: |
+      `go/internal/artifactio/write_test.go:27-51` covers successful replacement and
+      no residue; `:53-118` injects create, write, sync, close, and rename failures
+      and checks the old bytes and directory contents. `write.go:55-74` implements
+      the temp/write/sync/close/rename sequence, but ignores the cleanup error from
+      `os.Remove` at `write.go:70-72`, so residue cleanup is not guaranteed when
+      removal fails.
+  - text: |
+      6. **Layering and integration remain green**
+         - Given the new protobuf/filesystem package
+         - When component self-checks, Bazel tests, and `just ci` run
+         - Then pure core packages have gained no protobuf or filesystem dependency and all checks pass without cache/CLI/action behavior from later steps.
+    status: partial
+    evidence: |
+      `go/internal/artifactio/artifactio.go:1-24` documents the shell boundary and
+      the package has the required contract; `justfile:53-63` invokes its checked-in
+      self-check. The recorded `just ci` output is in `work.log:308-314`, and the
+      new artifactio code is outside the listed pure-core packages. However,
+      `go/internal/artifactio/BUILD.bazel:56-88` omits the artifactio package itself
+      as well as the manifest and symbol libraries that
+      `component.textproto:7-11` declares as members. The Bazel component therefore
+      does not mirror the checked-in ownership boundary and can pass without
+      checking the package it claims to register.
+
+findings:
+  - severity: important
+    category: tests
+    file: .agents/scratchpad/2026-08-04-compositional-component-analysis/step03/task-05-add-canonical-artifact-io/work.log
+    line: 172
+    title: "R2-R4 lack recorded RED evidence"
+    details: |
+      The `R2/R3/R4 decode+digest: RED-GREEN` section at `work.log:172-210`
+      contains only passing test output. The earlier RED entry at `work.log:79-87`
+      is for the initial marshal tests and only shows undefined MarshalSurface/
+      MarshalMap symbols; it does not demonstrate a failing decoder, size-cap, or
+      digest scenario before implementation. The task's TDD evidence is therefore
+      incomplete for three requirements.
+    suggested_action: |
+      Add an auditable RED entry for the decoder, size-cap, and digest scenarios
+      before their implementation (or otherwise document the actual failing test
+      run and its transition to the recorded GREEN run).
+    source: built-in
+  - severity: important
+    category: acceptance_criteria
+    file: go/internal/artifactio/BUILD.bazel
+    line: 56
+    title: "Bazel component omits its own and declared members"
+    details: |
+      The `go_component` member list at `BUILD.bazel:56-88` contains hostpolicy,
+      manifest/gen, and protobuf runtime targets, but not
+      `//go/internal/artifactio`, `//go/internal/manifest`, or
+      `//go/internal/symbol`. The checked-in contract explicitly declares all of
+      those at `component.textproto:7-11`. The component rule takes its roots from
+      `ctx.attr.members`, so the generated PACKAGE_SURFACE component does not own
+      the artifactio package or the other declared libraries; the new symbol
+      visibility change cannot compensate for a missing member label. The recorded
+      self-check only exercises the checked-in textproto and does not reconcile this
+      BUILD mismatch.
+    suggested_action: |
+      Make the BUILD `members` list match the intended component boundary, including
+      the artifactio library itself, manifest, and symbol (and keep the protobuf
+      closure in sync), then verify that the generated component actually analyzes
+      artifactio rather than an unrelated dependency-only root set.
+    source: built-in
+  - severity: important
+    category: tests
+    file: go/internal/artifactio/artifactio_test.go
+    line: 100
+    title: "Canonicalization tests omit frames and map immutability"
+    details: |
+      `artifactio_test.go:100-123` reorders only package and symbol records plus a
+      nested symbol capability list. Its fixture has no evidence frames, does not
+      reorder inits or SDK build tags, and never snapshots the map before
+      `MarshalMap`. Thus the required evidence-frame equivalence and the map half of
+      the defensive input-immutability contract are not protected by tests, even
+      though `stdlibmap.go` has separate normalization code for those collections.
+    suggested_action: |
+      Extend the map fixture with build tags, inits, evidence, and multiple frames;
+      compare output for reordered variants and use `proto.Equal` before/after both
+      marshal calls to assert that nested inputs remain unchanged.
+    source: built-in
+  - severity: important
+    category: acceptance_criteria
+    file: go/internal/artifactio/stdlibmap.go
+    line: 145
+    title: "Map validation permits records for non-importable packages"
+    details: |
+      The schema says an `importable: false` package must never appear in symbols
+      or inits (`proto/archcontracts/v1/stdlibmap.proto:103-112`), but
+      `stdlibmap.go:145-186` only checks that a record's package is present in
+      `seen`; it never consults `PackageInventory.Importable`. It also parses a
+      symbol ID without checking that its declaring package matches
+      `SymbolRecord.Package`. A map containing a valid `internal/secret` inventory
+      entry and a SAFE symbol/init for that non-importable package, or a record with
+      `Package: "bytes", Id: "os.Exit"`, is accepted instead of rejected.
+    suggested_action: |
+      Retain the inventory's importability while validating records, reject symbols
+      and inits for non-importable packages, validate package paths, and compare the
+      parsed symbol's declaring package with `SymbolRecord.Package`; add regression
+      cases for both contradictions.
+    source: built-in
+  - severity: important
+    category: security
+    file: go/internal/artifactio/stdlibmap.go
+    line: 148
+    title: "Malformed repeated map entries can panic"
+    details: |
+      `validateMap` dereferences package, symbol, init, and evidence pointers at
+      `stdlibmap.go:148-200` without checking for nil, and `normalizeMap` later
+      dereferences evidence frames through `compareFrames` at `:80-82` and
+      `:118-126`. A caller can pass a protobuf message with a nil repeated-message
+      element to the exported `MarshalMap`, which panics rather than returning the
+      specific malformed/semantic error promised by the reader and marshal APIs.
+      This is especially undesirable at an artifact trust boundary because a bad
+      record can terminate the process instead of failing closed.
+    suggested_action: |
+      Validate every repeated message pointer, including every evidence frame,
+      before field access and return a contextual error for nil entries; add direct
+      marshal tests for nil package, record, evidence, and frame elements.
+    source: built-in
+  - severity: important
+    category: acceptance_criteria
+    file: go/internal/artifactio/stdlibmap.go
+    line: 190
+    title: "Evidence symbol IDs are not validated"
+    details: |
+      The evidence loop at `stdlibmap.go:190-200` checks duplicate `(symbol_id,
+      capability)` pairs and known capability names, but never parses
+      `Evidence.SymbolId` with the shared SymbolID grammar or verifies that the
+      evidence pair belongs to a CAPABILITIES symbol record. Consequently a map
+      with a valid key and an evidence entry such as `symbolId: "not a symbol"`,
+      `capability: "FILES"` is accepted. This leaves the invalid-symbol and
+      non-canonical-evidence cases open on a persisted artifact path.
+    suggested_action: |
+      Parse and validate every evidence symbol ID, require its package/inventory
+      relationship, and require the referenced symbol to be classified with the
+      evidence capability; add decode tests for malformed IDs and mismatched pairs.
+    source: built-in
+  - severity: important
+    category: acceptance_criteria
+    file: go/internal/artifactio/surface.go
+    line: 71
+    title: "Surface SDK build tags are not canonicalized"
+    details: |
+      `normalizeSurface` sorts packages, symbols, and authority capabilities at
+      `surface.go:71-77`, but never sorts or duplicate-checks
+      `c.SDKKey.BuildTags`. Since `SDKKey.BuildTags` is a repeated field in the
+      surface schema (`proto/archcontracts/v1/surface.proto:70-73` and
+      `stdlibmap.proto:86-88`), two semantically equivalent surfaces with tags in
+      opposite orders are emitted with different bytes and receive different
+      digests.
+    suggested_action: |
+      Validate duplicate build tags and clone/sort `SDKKey.BuildTags` in surface
+      normalization, then add canonical-byte and digest cases with reordered tags.
+    source: built-in
+  - severity: important
+    category: acceptance_criteria
+    file: go/internal/artifactio/surface.go
+    line: 83
+    title: "Surface validation accepts non-canonical shapes"
+    details: |
+      `validateSurface` at `surface.go:83-103` does not inspect
+      `InterfaceStyle`, so unknown enum values and a PACKAGE_SURFACE surface with
+      non-empty `Symbols` are accepted even though the schema reserves symbols for
+      declared-interface style (`proto/archcontracts/v1/surface.proto:42-46,
+      58-60`). Its `validPackagePath` helper at `:174-180` rejects only an empty
+      string, allowing wildcard and malformed paths such as `*` or `a//b` despite
+      the concrete-package contract. These values can cross the reader boundary as
+      apparently valid surfaces.
+    suggested_action: |
+      Validate the interface-style enum and its symbols/package relationship, and
+      enforce the concrete import-path grammar (including rejecting wildcards,
+      empty path elements, and other invalid path syntax) for every surface package.
+      Add decode and marshal rejection cases.
+    source: built-in
+  - severity: important
+    category: other
+    file: go/internal/artifactio/write.go
+    line: 25
+    title: "Atomic writer ignores the requested file mode"
+    details: |
+      `WriteFileAtomic` accepts a `mode` argument at `write.go:25` but never uses
+      it. The default `os.CreateTemp` at `:55` creates the sibling with mode 0600,
+      so a successful replacement silently changes an existing target's mode and a
+      new target ignores the caller's requested permissions. This makes the
+      exported API's file-mode contract ineffective.
+    suggested_action: |
+      Apply the requested mode to the temporary file before it becomes visible (and
+      define the behavior for invalid modes), with a test covering both new and
+      existing targets.
+    source: built-in
+  - severity: important
+    category: acceptance_criteria
+    file: go/internal/artifactio/write.go
+    line: 70
+    title: "Atomic cleanup failures are silently discarded"
+    details: |
+      On any write/sync/close/rename failure, `write.go:70-72` calls `os.Remove` but
+      ignores its error and returns only the primary failure. If cleanup fails (for
+      example while a close failure leaves a descriptor open on a platform that
+      disallows removal of open files), the function reports failure while leaving
+      temporary residue, contrary to the atomic-write contract.
+    suggested_action: |
+      Ensure the temporary descriptor is closed during failure cleanup, check the
+      removal result, and preserve the original error while surfacing cleanup
+      failure when it cannot be completed; test the cleanup-failure path through a
+      narrow seam or deterministic platform-independent simulation.
+    source: built-in
+  - severity: suggestion
+    category: style
+    file: go/internal/artifactio/artifactio.go
+    line: 30
+    title: "Separate standard and third-party import groups"
+    details: |
+      The repository's coding-style reference requires standard-library imports and
+      third-party/internal imports to be separated by a blank line. `artifactio.go:26-32`
+      places the protobuf imports directly after `fmt` in the same group.
+    suggested_action: |
+      Insert the standard import-group separator before the protobuf imports.
+    source: built-in
+  - severity: suggestion
+    category: style
+    file: go/internal/artifactio/tmpvis.bzl
+    line: null
+    title: "Remove the unexplained empty tmpvis file"
+    details: |
+      `tmpvis.bzl` is an empty file added by the task series and is not referenced
+      by `BUILD.bazel` or any other touched metadata. It appears to be temporary
+      scaffolding rather than a component artifact.
+    suggested_action: |
+      Remove the empty file, or document and reference a real purpose for it if it
+      is required by the build setup.
+    source: built-in
+
+ecosystem_reviews: []

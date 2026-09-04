@@ -1,0 +1,25 @@
+@  sszqzuyu xtof@xtof.org 2026-09-03 20:51:39 default@ 95d4d3c4
+│  (empty) (no description set)
+○  tomnpmyw xtof@xtof.org 2026-09-03 20:51:39 0fb62691
+│  build(artifactio): register the artifactio component
+○  plzvnlto xtof@xtof.org 2026-09-03 20:40:56 e9064f22
+│  feat(artifactio): add atomic file replacement with failure-injection seams
+○  osyvqoun xtof@xtof.org 2026-09-03 20:39:00 3d7a7602
+│  feat(artifactio): add canonical artifact encoding, decoding, and digests
+○  uqtpnwpv xtof@xtof.org 2026-09-03 20:26:18 pr/awo-record-2026-08-04-compositional-component-analysis-step03-task-04 78bc6c75
+│  chore(awo): record bookkeeping for step03 task 04
+○  rqmylkmz xtof@xtof.org 2026-09-03 20:25:10 pr/2026-08-04-compositional-component-analysis/step03/task-04-implement-symbol-id-grammar.code-task 706537ba
+│  fix(symbol): complete the Capslock type grammar and harden admission
+○  rznrnvmp xtof@xtof.org 2026-09-03 20:25:10 38abcbb8
+│  fix(symbol): disambiguate dotful Capslock spellings and complete the type grammar
+○  wntkwnln xtof@xtof.org 2026-09-03 20:25:10 94f76f7d
+│  fix(symbol): make Capslock admission an explicit grammar, not heuristics
+○  xqvosyps xtof@xtof.org 2026-09-03 20:25:10 7b616498
+│  fix(symbol): complete round-1 rework of the SymbolID grammar review
+○  nukpzvow xtof@xtof.org 2026-09-03 20:25:10 8bcb8f6d
+│  wip(symbol): interrupted round-1 rework of the SymbolID grammar review findings
+○  zlvvtrov xtof@xtof.org 2026-09-03 20:25:10 c6b4043e
+│  build(symbol): register the symbol component
+○  yplpntuw xtof@xtof.org 2026-09-03 20:25:10 7018b21a
+│  feat(symbol): add exact declared-surface extractor for SymbolID
+~
