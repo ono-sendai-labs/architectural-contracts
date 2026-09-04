@@ -60,7 +60,8 @@ func MapDigest(m *gen.StdlibMap) (string, error) {
 	return digest(data), nil
 }
 
-// normalizeMap validates m and returns a canonically sorted clone.
+// normalizeMap validates m and returns a canonically sorted clone. Validation
+// rejects nil repeated entries first, so every pointer access below is safe.
 func normalizeMap(m *gen.StdlibMap) (*gen.StdlibMap, error) {
 	if m == nil {
 		return nil, fmt.Errorf("stdlib map is nil")
@@ -125,9 +126,33 @@ func compareFrames(a, b *gen.Frame) int {
 	return int(a.Line) - int(b.Line)
 }
 
+// symPackage returns the package path embedded in a SymbolID's text, using the
+// same split the grammar uses: "(pkg.T).M" names package pkg through receiver
+// pkg.T; every other form splits at the last dot.
+func symPackage(id string) (string, bool) {
+	if strings.HasPrefix(id, "(") {
+		end := strings.Index(id, ")")
+		if end < 0 {
+			return "", false
+		}
+		recv := id[1:end]
+		dot := strings.LastIndexByte(recv, '.')
+		if dot < 0 {
+			return "", false
+		}
+		return recv[:dot], true
+	}
+	dot := strings.LastIndexByte(id, '.')
+	if dot < 0 {
+		return "", false
+	}
+	return id[:dot], true
+}
+
 // validateMap enforces the stdlib map's semantic invariants: total-inventory
-// consistency, terminal classifications, and SDK-key agreement. It mutates
-// nothing.
+// consistency, terminal classifications, SDK-key agreement, and the evidence
+// relationship. It mutates nothing and rejects nil repeated entries so
+// normalization's pointer accesses are safe.
 func validateMap(m *gen.StdlibMap) error {
 	if m.FormatVersion != MapFormatVersion {
 		return fmt.Errorf("stdlib map %w: got %d, supported: %d", ErrUnsupportedVersion, m.FormatVersion, MapFormatVersion)
@@ -142,53 +167,77 @@ func validateMap(m *gen.StdlibMap) error {
 		return err
 	}
 
-	// Package inventory: sorted keys with no duplicates; non-importable
-	// packages must not appear in the symbol or init inventories.
+	// Package inventory: nil-free, sorted keys with no duplicates, concrete
+	// paths; non-importable packages must not appear in the symbol or init
+	// inventories.
+	importable := make(map[string]bool, len(m.Packages))
 	seen := make(map[string]bool, len(m.Packages))
 	for _, p := range m.Packages {
+		if p == nil {
+			return fmt.Errorf("nil package inventory entry")
+		}
 		if seen[p.Path] {
 			return fmt.Errorf("duplicate package inventory entry: %q", p.Path)
 		}
-		if p.Path == "" {
-			return fmt.Errorf("package inventory entry with empty path")
+		if err := validPackagePath(p.Path); err != nil {
+			return fmt.Errorf("package inventory path %q: %w", p.Path, err)
 		}
 		seen[p.Path] = true
+		importable[p.Path] = p.Importable
 	}
 
-	symSeen := make(map[string]bool, len(m.Symbols))
+	symRecords := make(map[string]*gen.SymbolRecord, len(m.Symbols))
 	for _, s := range m.Symbols {
+		if s == nil {
+			return fmt.Errorf("nil symbol record")
+		}
 		key := s.Package + "\x00" + s.Id
-		if symSeen[key] {
+		if _, dup := symRecords[key]; dup {
 			return fmt.Errorf("duplicate symbol inventory entry: %s in %s (or a contradictory reclassification)", s.Id, s.Package)
 		}
-		symSeen[key] = true
+		symRecords[key] = s
+		if !importable[s.Package] {
+			return fmt.Errorf("symbol %s references non-importable or unlisted package %q", s.Id, s.Package)
+		}
 		if err := validateRecordClassification(s.Classification, s.Capabilities, fmt.Sprintf("symbol %s in %s", s.Id, s.Package)); err != nil {
 			return err
 		}
-		if _, err := symbol.Parse(s.Id); err != nil {
+		parsed, err := symbol.Parse(s.Id)
+		if err != nil {
 			return fmt.Errorf("symbol %s in %s: %w", s.Id, s.Package, err)
 		}
-		if !seen[s.Package] {
-			return fmt.Errorf("symbol %s references package %q outside the total package inventory", s.Id, s.Package)
+		if pkg, ok := symPackage(parsed.Format()); !ok || pkg != s.Package {
+			return fmt.Errorf("symbol %q declares package %q but its grammar names package %q", s.Id, s.Package, pkg)
 		}
 	}
 
 	initSeen := make(map[string]bool, len(m.Inits))
 	for _, i := range m.Inits {
+		if i == nil {
+			return fmt.Errorf("nil init record")
+		}
 		if initSeen[i.Package] {
 			return fmt.Errorf("duplicate init inventory entry: %q (or a contradictory reclassification)", i.Package)
 		}
 		initSeen[i.Package] = true
+		if !importable[i.Package] {
+			return fmt.Errorf("init references non-importable or unlisted package %q", i.Package)
+		}
 		if err := validateRecordClassification(i.Classification, i.Capabilities, fmt.Sprintf("init of %s", i.Package)); err != nil {
 			return err
-		}
-		if !seen[i.Package] {
-			return fmt.Errorf("init references package %q outside the total package inventory", i.Package)
 		}
 	}
 
 	evSeen := make(map[string]bool, len(m.Evidence))
 	for _, e := range m.Evidence {
+		if e == nil {
+			return fmt.Errorf("nil evidence entry")
+		}
+		for _, f := range e.Frames {
+			if f == nil {
+				return fmt.Errorf("nil frame in evidence for (%s, %s)", e.SymbolId, e.Capability)
+			}
+		}
 		key := e.SymbolId + "\x00" + e.Capability
 		if evSeen[key] {
 			return fmt.Errorf("duplicate evidence entry for (%s, %s)", e.SymbolId, e.Capability)
@@ -196,6 +245,23 @@ func validateMap(m *gen.StdlibMap) error {
 		evSeen[key] = true
 		if !manifest.KnownCapabilities[e.Capability] {
 			return fmt.Errorf("evidence capability %q is not a known capability", e.Capability)
+		}
+		if _, err := symbol.Parse(e.SymbolId); err != nil {
+			return fmt.Errorf("evidence symbol %q: %w", e.SymbolId, err)
+		}
+		pkg, ok := symPackage(e.SymbolId)
+		if !ok {
+			return fmt.Errorf("evidence symbol %q has no declaring package", e.SymbolId)
+		}
+		record := symRecords[pkg+"\x00"+e.SymbolId]
+		if record == nil {
+			return fmt.Errorf("evidence references symbol %q, which is absent from the inventory of %q", e.SymbolId, pkg)
+		}
+		if record.Classification != gen.Classification_CAPABILITIES {
+			return fmt.Errorf("evidence for %q references a %s record; evidence exists only for CAPABILITIES symbols", e.SymbolId, record.Classification)
+		}
+		if !slices.Contains(record.Capabilities, e.Capability) {
+			return fmt.Errorf("evidence capability %q is not among the capabilities of %q", e.Capability, e.SymbolId)
 		}
 	}
 	return nil

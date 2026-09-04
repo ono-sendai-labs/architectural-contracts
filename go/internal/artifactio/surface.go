@@ -1,9 +1,11 @@
 package artifactio
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"slices"
+	"strings"
 
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
@@ -39,7 +41,7 @@ func DecodeSurface(r io.Reader) (*gen.SurfaceManifest, error) {
 	if err := decodeInto(data, &m); err != nil {
 		return nil, err
 	}
-	if err := validateSurface(m.FormatVersion, m.Packages, m.Symbols, m.Authority); err != nil {
+	if err := validateSurface(&m); err != nil {
 		return nil, err
 	}
 	return &m, nil
@@ -65,7 +67,7 @@ func normalizeSurface(m *gen.SurfaceManifest) (*gen.SurfaceManifest, error) {
 	if m == nil {
 		return nil, fmt.Errorf("surface manifest is nil")
 	}
-	if err := validateSurface(m.FormatVersion, m.Packages, m.Symbols, m.Authority); err != nil {
+	if err := validateSurface(m); err != nil {
 		return nil, err
 	}
 	c := proto.Clone(m).(*gen.SurfaceManifest)
@@ -75,32 +77,49 @@ func normalizeSurface(m *gen.SurfaceManifest) (*gen.SurfaceManifest, error) {
 		c.Authority.DeclaredAuthority = slices.Clone(c.Authority.DeclaredAuthority)
 		sortStrings(c.Authority.DeclaredAuthority)
 	}
+	if c.SdkKey != nil {
+		c.SdkKey.BuildTags = slices.Clone(c.SdkKey.BuildTags)
+		slices.Sort(c.SdkKey.BuildTags)
+	}
 	return c, nil
 }
 
 // validateSurface enforces the surface's semantic invariants. It reads only
 // the caller's values and mutates nothing.
-func validateSurface(formatVersion int32, packages, symbols []string, authority *gen.AuthorityDeclaration) error {
-	if formatVersion != SurfaceFormatVersion {
-		return fmt.Errorf("surface %w: got %d, supported: %d", ErrUnsupportedVersion, formatVersion, SurfaceFormatVersion)
+func validateSurface(m *gen.SurfaceManifest) error {
+	switch m.InterfaceStyle {
+	case gen.InterfaceStyle_INTERFACE_STYLE_UNSPECIFIED, gen.InterfaceStyle_INTERFACE_STYLE_PACKAGE_SURFACE:
+	default:
+		return fmt.Errorf("unknown surface interface_style: %d", int32(m.InterfaceStyle))
 	}
-	if err := rejectDuplicates("surface package", packages); err != nil {
+	if m.InterfaceStyle == gen.InterfaceStyle_INTERFACE_STYLE_PACKAGE_SURFACE && len(m.Symbols) > 0 {
+		return fmt.Errorf("PACKAGE_SURFACE surface must not declare symbols (schema reserves symbols for declared-interface style)")
+	}
+	if m.FormatVersion != SurfaceFormatVersion {
+		return fmt.Errorf("surface %w: got %d, supported: %d", ErrUnsupportedVersion, m.FormatVersion, SurfaceFormatVersion)
+	}
+	if err := rejectDuplicates("surface package", m.Packages); err != nil {
 		return err
 	}
-	for _, pkg := range packages {
+	for _, pkg := range m.Packages {
 		if err := validPackagePath(pkg); err != nil {
 			return fmt.Errorf("surface package %q: %w", pkg, err)
 		}
 	}
-	if err := rejectDuplicates("surface symbol", symbols); err != nil {
+	if err := rejectDuplicates("surface symbol", m.Symbols); err != nil {
 		return err
 	}
-	for _, sym := range symbols {
+	for _, sym := range m.Symbols {
 		if _, err := symbol.Parse(sym); err != nil {
 			return fmt.Errorf("surface symbol %q: %w", sym, err)
 		}
 	}
-	return validateAuthority(authority)
+	if m.SdkKey != nil {
+		if err := rejectDuplicates("SDK key build tag", m.SdkKey.BuildTags); err != nil {
+			return err
+		}
+	}
+	return validateAuthority(m.Authority)
 }
 
 // validateAuthority rejects the forbidden empty-set spelling of UNKNOWN and
@@ -171,11 +190,33 @@ func rejectDuplicates(kind string, values []string) error {
 	return nil
 }
 
-// validPackagePath rejects empty package paths; the SymbolID grammar performs
-// the authoritative per-symbol check.
+// validPackagePath enforces the concrete import-path grammar for surface
+// packages: non-empty slash-separated elements of Go identifier characters,
+// '-', and '.', with no wildcards or patterns — surfaces never carry patterns
+// (DR-16). The grammar mirrors symbol's package-path check so that package
+// entries and the packages embedded in symbol IDs agree.
 func validPackagePath(pkg string) error {
 	if pkg == "" {
-		return fmt.Errorf("package path must not be empty")
+		return errors.New("package path must not be empty")
+	}
+	if strings.HasPrefix(pkg, "/") || strings.HasSuffix(pkg, "/") || strings.Contains(pkg, "//") {
+		return errors.New("not a concrete import path: empty path element")
+	}
+	for _, elem := range strings.Split(pkg, "/") {
+		if elem == "." || elem == ".." {
+			return fmt.Errorf("path element %q is not a package element", elem)
+		}
+		for _, part := range strings.Split(elem, ".") {
+			if part == "" {
+				return fmt.Errorf("empty dot-separated part in %q", elem)
+			}
+			for _, r := range part {
+				if r == '_' || r == '-' || (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') {
+					continue
+				}
+				return fmt.Errorf("character %q is not allowed in a concrete import path", r)
+			}
+		}
 	}
 	return nil
 }

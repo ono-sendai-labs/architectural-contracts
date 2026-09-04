@@ -87,7 +87,7 @@ func TestDecodeRejectsSemanticErrors(t *testing.T) {
 		},
 		{
 			name: "map unspecified classification",
-			json: `{"formatVersion":1,"key":{"toolchainVersion":"go1.26.4","goos":"linux","goarch":"amd64","mapFormatVersion":1},"symbols":[{"package":"os","id":"os.Exit"}]}`,
+			json: `{"formatVersion":1,"key":{"toolchainVersion":"go1.26.4","goos":"linux","goarch":"amd64","mapFormatVersion":1},"packages":[{"path":"os","importable":true}],"symbols":[{"package":"os","id":"os.Exit"}]}`,
 			kind: "map",
 			want: "CLASSIFICATION_UNSPECIFIED",
 		},
@@ -107,7 +107,7 @@ func TestDecodeRejectsSemanticErrors(t *testing.T) {
 			name: "map symbol outside inventory",
 			json: `{"formatVersion":1,"key":{"toolchainVersion":"go1.26.4","goos":"linux","goarch":"amd64","mapFormatVersion":1},"packages":[{"path":"bytes"}],"symbols":[{"package":"os","id":"os.Exit","classification":"SAFE"}]}`,
 			kind: "map",
-			want: "outside the total package inventory",
+			want: "non-importable or unlisted",
 		},
 		{
 			name: "map key format version mismatch",

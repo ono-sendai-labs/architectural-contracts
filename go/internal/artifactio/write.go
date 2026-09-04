@@ -1,6 +1,7 @@
 package artifactio
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -14,14 +15,17 @@ type WriteSeams struct {
 	Write      func(f *os.File, data []byte) error
 	Sync       func(f *os.File) error
 	Close      func(f *os.File) error
+	Chmod      func(path string, mode os.FileMode) error
 	Rename     func(oldPath, newPath string) error
+	Remove     func(path string) error
 }
 
-// WriteFileAtomically replaces path with data atomically: the data is written
-// to a uniquely named temporary file in path's directory, synced, closed, and
-// renamed over path, so an interrupted write leaves the previous contents
-// intact. On any failure the temporary file is closed and removed and the
-// previous target is untouched.
+// WriteFileAtomic replaces path with data atomically: the data is written
+// to a uniquely named temporary file in path's directory, synced, closed,
+// given the requested permission mode, and renamed over path, so an
+// interrupted write leaves the previous contents intact. On any failure the
+// temporary file is closed and removed — a removal failure is surfaced
+// together with the original error — and the previous target is untouched.
 func WriteFileAtomic(path string, data []byte, mode os.FileMode, seams *WriteSeams) error {
 	if seams == nil {
 		seams = &WriteSeams{}
@@ -47,9 +51,17 @@ func WriteFileAtomic(path string, data []byte, mode os.FileMode, seams *WriteSea
 	if close == nil {
 		close = func(f *os.File) error { return f.Close() }
 	}
+	chmod := seams.Chmod
+	if chmod == nil {
+		chmod = os.Chmod
+	}
 	rename := seams.Rename
 	if rename == nil {
 		rename = os.Rename
+	}
+	remove := seams.Remove
+	if remove == nil {
+		remove = os.Remove
 	}
 
 	tmp, err := create(dir, "."+filepath.Base(path)+".tmp-*")
@@ -61,14 +73,22 @@ func WriteFileAtomic(path string, data []byte, mode os.FileMode, seams *WriteSea
 	} else if serr := sync(tmp); serr != nil {
 		err = serr
 	}
-	if closeErr := close(tmp); err == nil {
-		err = closeErr
+	if cerr := close(tmp); err == nil {
+		err = cerr
+	}
+	if err == nil {
+		err = chmod(tmp.Name(), mode)
 	}
 	if err == nil {
 		err = rename(tmp.Name(), path)
 	}
 	if err != nil {
-		os.Remove(tmp.Name())
+		// Failure cleanup: the descriptor is already closed above; drop the
+		// temporary sibling and surface a removal failure alongside the
+		// original error rather than discarding it.
+		if rerr := remove(tmp.Name()); rerr != nil {
+			err = errors.Join(err, fmt.Errorf("remove temporary sibling %s: %w", tmp.Name(), rerr))
+		}
 		return fmt.Errorf("atomic write of %s: %w", path, err)
 	}
 	return nil
