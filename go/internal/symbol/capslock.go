@@ -249,7 +249,10 @@ func stripReceiverBrackets(recv string) (string, error) {
 // stripTrailingBrackets removes one trailing balanced bracket group from s
 // and validates the group's contents as Capslock type arguments. It fails
 // when s contains brackets that are not exactly one trailing balanced group,
-// or when the group's contents are not valid type arguments.
+// or when the group's contents are not valid type arguments. The scan is
+// token-aware: string and rune literals (the struct-field tags the formatter
+// emits) and their escapes are skipped, so a bracket inside a tag is field
+// data, not syntax.
 func stripTrailingBrackets(s string) (string, error) {
 	if !strings.ContainsAny(s, "[]") {
 		return s, nil
@@ -258,28 +261,68 @@ func stripTrailingBrackets(s string) (string, error) {
 		return "", fmt.Errorf("misplaced or unbalanced type-argument brackets")
 	}
 	depth := 0
-	for i := len(s) - 1; i >= 0; i-- {
+	open, closeIdx := -1, -1
+	for i := 0; i < len(s); i++ {
 		switch s[i] {
-		case ']':
-			depth++
+		case '"', '\'', '`':
+			end := skipString(s, i)
+			if end < 0 {
+				return "", fmt.Errorf("unterminated string literal")
+			}
+			i = end - 1
 		case '[':
-			depth--
-			if depth == 0 {
-				if err := validateTypeArguments(s[i+1 : len(s)-1]); err != nil {
-					return "", err
-				}
-				prefix := s[:i]
-				// The prefix must be bracket-free in its raw text: a second
-				// top-level group ("Load[T][U]") or a misplaced bracket is
-				// not a Capslock spelling.
-				if strings.ContainsAny(prefix, "[]") {
+			depth++
+			if depth == 1 {
+				if open >= 0 {
 					return "", fmt.Errorf("misplaced or repeated type-argument brackets")
 				}
-				return prefix, nil
+				open = i
+			}
+		case ']':
+			depth--
+			if depth < 0 {
+				return "", fmt.Errorf("misplaced or unbalanced type-argument brackets")
+			}
+			if depth == 0 {
+				closeIdx = i
 			}
 		}
 	}
-	return "", fmt.Errorf("unbalanced type-argument brackets")
+	if depth != 0 {
+		return "", fmt.Errorf("unbalanced type-argument brackets")
+	}
+	if closeIdx != len(s)-1 {
+		return "", fmt.Errorf("misplaced or unbalanced type-argument brackets")
+	}
+	if err := validateTypeArguments(s[open+1 : closeIdx]); err != nil {
+		return "", err
+	}
+	// The prefix must be bracket-free in its raw text: a second top-level
+	// group ("Load[T][U]") or a misplaced bracket is not a Capslock
+	// spelling. (Brackets inside string literals were skipped above.)
+	return s[:open], nil
+}
+
+// skipString returns the index just past the string or rune literal starting
+// at s[i] — which must be '"', '\” or '`' — or -1 when the literal never
+// closes. Backslash escapes are consumed (in raw strings they are literal
+// data), so an escaped quote cannot end the literal early.
+func skipString(s string, i int) int {
+	quote := s[i]
+	i++
+	for i < len(s) {
+		switch c := s[i]; c {
+		case '\\':
+			if quote != '`' {
+				i += 2
+				continue
+			}
+		case quote:
+			return i + 1
+		}
+		i++
+	}
+	return -1
 }
 
 // validateTypeArguments reports whether inner — the text between a Capslock
@@ -325,13 +368,22 @@ func validateTypeArguments(inner string) error {
 
 // splitTypeArgumentList splits inner at top-level commas (commas not nested
 // in (), [] or {}) and rejects empty elements, so ",,", a trailing comma or
-// an empty bracket group fails with an actionable error.
+// an empty bracket group fails with an actionable error. The scan is
+// token-aware: string and rune literals (the struct-field tags the formatter
+// emits) and their escapes are skipped, so a delimiter inside a tag is field
+// data, not a separator.
 func splitTypeArgumentList(inner string) ([]string, error) {
 	depth := 0
 	var args []string
 	start := 0
 	for i := 0; i < len(inner); i++ {
 		switch inner[i] {
+		case '"', '\'', '`':
+			end := skipString(inner, i)
+			if end < 0 {
+				return nil, fmt.Errorf("unterminated string literal")
+			}
+			i = end - 1
 		case '(', '[', '{':
 			depth++
 		case ')', ']', '}':
