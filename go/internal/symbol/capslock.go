@@ -2,7 +2,7 @@ package symbol
 
 import (
 	"fmt"
-	"go/parser"
+	"go/scanner"
 	"go/token"
 	"strings"
 
@@ -269,12 +269,11 @@ func stripTrailingBrackets(s string) (string, error) {
 //     (validPackagePath — the same authority SymbolID.Parse applies), so
 //     there is no second, stricter path grammar.
 //  2. checkSingleType validates each translated element as exactly one type
-//     by parsing a synthetic "type _a <element>" declaration with the
-//     standard go/parser. A parenthesized group in a type position must
-//     contain a single type, so tuples ("(int, string)") and named lists
-//     ("(x int)") that are only legal in function signatures are rejected,
-//     while real formatter output — qualified unnamed and named variadic
-//     parameters, qualified embedded struct fields, interface-method
+//     with a recursive-descent grammar over real Go tokens (go/scanner). A
+//     parenthesized group in a type position must contain a single type, so
+//     tuples ("(int, string)") and named lists ("(x int)") that are only
+//     legal in function signatures are rejected, while real formatter
+//     output — qualified unnamed and named variadic parameters, qualified embedded struct fields, interface-method
 //     parameters, and constant-expression array lengths including &^ — is
 //     accepted by Go's own grammar.
 func validateTypeArguments(inner string) error {
@@ -413,15 +412,511 @@ func validGoIdent(s string) bool {
 	return true
 }
 
-// checkSingleType validates that arg is exactly one Go type by parsing a
-// synthetic type declaration with the standard go/parser. In a type
-// position a parenthesized group must contain a single type, so a tuple
-// ("(int, string)") or a named list ("(x int)") — both legal only in
-// function signatures — is rejected with the parser's actionable error.
+// checkSingleType validates that arg is exactly one Go type, using a
+// recursive-descent grammar over real Go tokens (go/scanner). Tokenizing
+// with the standard scanner (rather than a character-level grammar) keeps
+// the type check grounded in Go's own lexical rules — "&^" is one AND_NOT
+// operator, "..." one variadic marker, "2x.T" two tokens — while
+// package-qualified names arrive pre-translated by translateImportPaths.
+//
+// go/parser itself cannot be used here: every parser entry point statically
+// reaches os.ReadFile through readSource, which the guaranteed-pure symbol
+// component's self-check (correctly) rejects as undeclared ambient FILES
+// authority, even though the probe never passes a filename. The grammar
+// below covers exactly the single-type-position semantics the probe needs:
+// in a type position a parenthesized group must contain a single type, so a
+// tuple ("(int, string)") or a named list ("(x int)") — both legal only in
+// function signatures — is rejected with an actionable error, and the whole
+// argument must be consumed, so trailing tokens or statements cannot hide
+// behind an accepted prefix.
 func checkSingleType(arg string) error {
-	src := "package _capslock\n\ntype _a " + arg + "\n"
-	if _, err := parser.ParseFile(token.NewFileSet(), "_capslock.go", src, 0); err != nil {
-		return fmt.Errorf("%s: %w", strings.TrimSpace(err.Error()), err)
+	var p typeParser
+	if err := p.init(strings.TrimSpace(arg)); err != nil {
+		return err
+	}
+	if err := p.typ(); err != nil {
+		return err
+	}
+	if !p.atEnd() {
+		return p.errorf("unexpected %s after type", p.tok)
 	}
 	return nil
+}
+
+// typeParser is a recursive-descent parser over go/scanner tokens that
+// validates exactly one Go type. Only syntax is checked; package-qualified
+// names have already been translated and their paths validated.
+type typeParser struct {
+	src  string
+	fset *token.FileSet
+	file *token.File
+	scan scanner.Scanner
+	pos  token.Pos
+	tok  token.Token
+	lit  string
+}
+
+func (p *typeParser) init(s string) error {
+	if s == "" {
+		return fmt.Errorf("empty type argument")
+	}
+	p.src = s
+	p.fset = token.NewFileSet()
+	p.file = p.fset.AddFile("", p.fset.Base(), len(s))
+	p.scan.Init(p.file, []byte(s), nil, 0)
+	p.next()
+	return nil
+}
+
+func (p *typeParser) next() {
+	p.pos, p.tok, p.lit = p.scan.Scan()
+}
+
+// atEnd reports whether the current token terminates the input. The scanner
+// inserts an automatic semicolon (lit "\n") at end of input after a token
+// that can end a line; single-line arguments only ever see it there, so it
+// is treated as end-of-input.
+func (p *typeParser) atEnd() bool {
+	return p.tok == token.EOF || (p.tok == token.SEMICOLON && p.lit == "\n")
+}
+
+func (p *typeParser) errorf(format string, args ...any) error {
+	return fmt.Errorf("%s: %s", p.fset.Position(p.pos), fmt.Sprintf(format, args...))
+}
+
+func (p *typeParser) expect(tok token.Token, what string) error {
+	if p.tok != tok {
+		return p.errorf("expected %q (%s), found %q", tok, what, p.lit)
+	}
+	p.next()
+	return nil
+}
+
+// peekIsQualified reports whether the IDENT at the current position is
+// followed by a selector dot, making it the start of a qualified type
+// ("pkg.T") rather than another name in an identifier run. go/scanner has no
+// pushback, so the lookahead re-scans the remaining input on a throwaway
+// scanner (a pure, in-memory operation).
+func (p *typeParser) peekIsQualified() bool {
+	off := p.file.Offset(p.pos) + len(p.lit)
+	fset := token.NewFileSet()
+	file := fset.AddFile("", 1, len(p.src)-off)
+	var s scanner.Scanner
+	s.Init(file, []byte(p.src[off:]), nil, 0)
+	_, t, _ := s.Scan()
+	return t == token.PERIOD
+}
+
+// startsType reports whether the current token can begin a type.
+func (p *typeParser) startsType() bool {
+	switch p.tok {
+	case token.MUL, token.LBRACK, token.LPAREN, token.CHAN, token.FUNC,
+		token.MAP, token.STRUCT, token.INTERFACE, token.ARROW, token.IDENT:
+		return true
+	}
+	return false
+}
+
+// typ parses one type.
+func (p *typeParser) typ() error {
+	switch p.tok {
+	case token.MUL:
+		p.next()
+		return p.typ()
+	case token.LBRACK:
+		p.next()
+		if p.tok == token.RBRACK {
+			p.next()
+			return p.typ()
+		}
+		if err := p.expr(); err != nil {
+			return err
+		}
+		if err := p.expect(token.RBRACK, "to close the array length"); err != nil {
+			return err
+		}
+		return p.typ()
+	case token.MAP:
+		p.next()
+		if err := p.expect(token.LBRACK, "after map"); err != nil {
+			return err
+		}
+		if err := p.typ(); err != nil {
+			return err
+		}
+		if err := p.expect(token.RBRACK, "to close the map key type"); err != nil {
+			return err
+		}
+		return p.typ()
+	case token.CHAN:
+		p.next()
+		if p.tok == token.ARROW {
+			p.next()
+		}
+		return p.typ()
+	case token.ARROW:
+		p.next()
+		if err := p.expect(token.CHAN, "after receive direction"); err != nil {
+			return err
+		}
+		return p.typ()
+	case token.FUNC:
+		p.next()
+		return p.signature()
+	case token.STRUCT:
+		p.next()
+		return p.structBody()
+	case token.INTERFACE:
+		p.next()
+		return p.ifaceBody()
+	case token.LPAREN:
+		// A parenthesized type group: exactly one type inside.
+		p.next()
+		if err := p.typ(); err != nil {
+			return err
+		}
+		return p.expect(token.RPAREN, "to close the parenthesized type")
+	case token.IDENT:
+		return p.namedType()
+	default:
+		return p.errorf("unexpected %q: want a type", p.lit)
+	}
+}
+
+// namedType parses a bare or package-qualified type name, optionally
+// instantiated ("_p.T[int]").
+func (p *typeParser) namedType() error {
+	if p.tok != token.IDENT {
+		return p.errorf("want a type name, found %q", p.lit)
+	}
+	p.next()
+	if p.tok == token.PERIOD {
+		p.next()
+		if err := p.expect(token.IDENT, "after the package qualifier"); err != nil {
+			return err
+		}
+	}
+	if p.tok == token.LBRACK {
+		p.next()
+		if err := p.typ(); err != nil {
+			return err
+		}
+		for p.tok == token.COMMA {
+			p.next()
+			if err := p.typ(); err != nil {
+				return err
+			}
+		}
+		if err := p.expect(token.RBRACK, "to close the type arguments"); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// signature parses a function type "(params)" with optional results.
+func (p *typeParser) signature() error {
+	if err := p.expect(token.LPAREN, "after func"); err != nil {
+		return err
+	}
+	if err := p.paramList(); err != nil {
+		return err
+	}
+	switch {
+	case p.tok == token.LPAREN:
+		p.next()
+		return p.paramList()
+	case p.startsType():
+		return p.typ()
+	}
+	return nil
+}
+
+// identRun parses a comma-separated run of plain identifiers (parameter,
+// result or field names) and returns their count.
+func (p *typeParser) identRun() (int, error) {
+	n := 0
+	for {
+		if p.tok != token.IDENT {
+			return n, p.errorf("want an identifier, found %q", p.lit)
+		}
+		n++
+		p.next()
+		if p.tok == token.COMMA {
+			p.next()
+			continue
+		}
+		return n, nil
+	}
+}
+
+// paramList parses "( ... )" parameter or result declarations. Each
+// declaration is either a comma-separated identifier list naming a following
+// type ("x, y int"), an unnamed type ("int", "*T", "pkg.T"), or a variadic
+// parameter ("...T", "x ...T") which must be last. Mixing named and unnamed
+// declarations is invalid Go and rejected.
+func (p *typeParser) paramList() error {
+	if p.atEnd() {
+		return p.errorf("unexpected end: want %q", token.RPAREN)
+	}
+	if p.tok == token.RPAREN {
+		p.next()
+		return nil
+	}
+	named, unnamed := 0, 0
+	for {
+		switch {
+		case p.tok == token.ELLIPSIS:
+			p.next()
+			if err := p.typ(); err != nil {
+				return err
+			}
+			unnamed++
+			// A variadic parameter must be the last one.
+			if err := p.closeParamList(); err != nil {
+				return err
+			}
+			if named > 0 && unnamed > 0 {
+				return p.errorf("named and unnamed parameters cannot be mixed")
+			}
+			return nil
+		case p.startsTypeKeyword():
+			if err := p.typ(); err != nil {
+				return err
+			}
+			unnamed++
+		case p.tok == token.IDENT && p.peekIsQualified():
+			// An unambiguous qualified type start ("pkg.T").
+			if err := p.namedType(); err != nil {
+				return err
+			}
+			unnamed++
+		default:
+			count, err := p.identRun()
+			if err != nil {
+				return err
+			}
+			if p.tok == token.ELLIPSIS {
+				p.next()
+				if err := p.typ(); err != nil {
+					return err
+				}
+				named++
+				if err := p.closeParamList(); err != nil {
+					return err
+				}
+				if named > 0 && unnamed > 0 {
+					return p.errorf("named and unnamed parameters cannot be mixed")
+				}
+				return nil
+			}
+			if p.startsType() {
+				if err := p.typ(); err != nil {
+					return err
+				}
+				named += count
+			} else {
+				unnamed += count
+			}
+		}
+		if p.tok == token.COMMA {
+			p.next()
+			continue
+		}
+		if err := p.closeParamList(); err != nil {
+			return err
+		}
+		if named > 0 && unnamed > 0 {
+			return p.errorf("named and unnamed parameters cannot be mixed")
+		}
+		return nil
+	}
+}
+
+// closeParamList consumes the ')' closing a parameter list. A variadic
+// parameter must be last, so its caller closes directly; all other callers
+// must not have a comma pending (handled above).
+func (p *typeParser) closeParamList() error {
+	return p.expect(token.RPAREN, "to close the parameter list")
+}
+
+// startsTypeKeyword reports whether the current token is an unambiguous
+// type keyword or operator (pointer, slice/array, paren, channel direction,
+// func, map, struct, interface).
+func (p *typeParser) startsTypeKeyword() bool {
+	switch p.tok {
+	case token.MUL, token.LBRACK, token.LPAREN, token.CHAN, token.FUNC,
+		token.MAP, token.STRUCT, token.INTERFACE, token.ARROW:
+		return true
+	}
+	return false
+}
+
+// structBody parses a struct literal type argument: "struct{ field-list }",
+// where a field is a comma-separated identifier list followed by a type, or
+// a single embedded type (qualified embedded fields included). Fields are
+// separated by ';' with an optional trailing ';'.
+func (p *typeParser) structBody() error {
+	if err := p.expect(token.LBRACE, "after struct"); err != nil {
+		return err
+	}
+	if p.tok == token.RBRACE {
+		p.next()
+		return nil
+	}
+	for {
+		if p.tok == token.IDENT && p.peekIsQualified() {
+			// A qualified embedded field.
+			if err := p.namedType(); err != nil {
+				return err
+			}
+		} else {
+			count, err := p.identRun()
+			if err != nil {
+				return err
+			}
+			if p.startsType() {
+				if err := p.typ(); err != nil {
+					return err
+				}
+			} else if count != 1 {
+				return p.errorf("struct field %q must be a single embedded type or name a field", p.lit)
+			}
+		}
+		if p.tok == token.SEMICOLON {
+			p.next()
+			if p.tok == token.RBRACE {
+				p.next()
+				return nil
+			}
+			continue
+		}
+		break
+	}
+	return p.expect(token.RBRACE, "to close the struct body")
+}
+
+// ifaceBody parses an interface literal type argument: "interface{ method-set
+// }", where a spec is a method declaration ("M(params) results") or a single
+// embedded type. Specs are separated by ';' with an optional trailing ';'.
+func (p *typeParser) ifaceBody() error {
+	if err := p.expect(token.LBRACE, "after interface"); err != nil {
+		return err
+	}
+	if p.tok == token.RBRACE {
+		p.next()
+		return nil
+	}
+	for {
+		if p.tok == token.IDENT && p.peekIsQualified() {
+			// A qualified embedded type.
+			if err := p.typ(); err != nil {
+				return err
+			}
+		} else {
+			count, err := p.identRun()
+			if err != nil {
+				return err
+			}
+			switch {
+			case p.tok == token.LPAREN:
+				// A method declaration: Name(params) results.
+				if err := p.methodParamsResults(); err != nil {
+					return err
+				}
+			case count == 1:
+				// A bare embedded type name.
+			default:
+				return p.errorf("interface spec must be a method declaration or a single embedded type")
+			}
+		}
+		if p.tok == token.SEMICOLON {
+			p.next()
+			if p.tok == token.RBRACE {
+				p.next()
+				return nil
+			}
+			continue
+		}
+		break
+	}
+	return p.expect(token.RBRACE, "to close the interface body")
+}
+
+// methodParamsResults parses "(params) results" after an interface method
+// name consumed by identRun.
+func (p *typeParser) methodParamsResults() error {
+	if err := p.expect(token.LPAREN, "after the interface method name"); err != nil {
+		return err
+	}
+	if err := p.paramList(); err != nil {
+		return err
+	}
+	switch {
+	case p.tok == token.LPAREN:
+		p.next()
+		return p.paramList()
+	case p.startsType():
+		return p.typ()
+	}
+	return nil
+}
+
+// expr parses a constant-expression array length: unary ops (+ - ^ !), then
+// atoms (numbers, dotted identifiers, parenthesized expressions) joined by
+// binary operators — the full set the formatter can emit, including &^.
+func (p *typeParser) expr() error {
+	if err := p.unary(); err != nil {
+		return err
+	}
+	for {
+		switch p.tok {
+		case token.ADD, token.SUB, token.MUL, token.QUO, token.REM,
+			token.AND, token.OR, token.XOR, token.SHL, token.SHR, token.AND_NOT,
+			token.LAND, token.LOR, token.EQL, token.NEQ, token.LSS, token.LEQ,
+			token.GTR, token.GEQ:
+			p.next()
+			if err := p.unary(); err != nil {
+				return err
+			}
+		default:
+			return nil
+		}
+	}
+}
+
+func (p *typeParser) unary() error {
+	switch p.tok {
+	case token.ADD, token.SUB, token.XOR, token.NOT:
+		p.next()
+		return p.unary()
+	}
+	return p.atom()
+}
+
+func (p *typeParser) atom() error {
+	switch p.tok {
+	case token.INT, token.FLOAT, token.IMAG:
+		p.next()
+		return nil
+	case token.LPAREN:
+		p.next()
+		if err := p.expr(); err != nil {
+			return err
+		}
+		return p.expect(token.RPAREN, "to close the parenthesized expression")
+	case token.IDENT:
+		// A dotted identifier (e.g. "pkg.Const"); no slashes — in an array
+		// length a slash is the division operator and a hyphen subtraction.
+		p.next()
+		for p.tok == token.PERIOD {
+			p.next()
+			if err := p.expect(token.IDENT, "after '.' in an array length"); err != nil {
+				return err
+			}
+		}
+		return nil
+	default:
+		return p.errorf("unexpected %q in array length", p.lit)
+	}
 }

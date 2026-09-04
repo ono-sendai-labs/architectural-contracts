@@ -128,6 +128,8 @@ func TestParseCapslock_Rejected(t *testing.T) {
 		{"variadic parameter not final in func type argument", "store.Load[func(x ...int, string)]"},
 		{"package path without type name", "store.Load[example.com/x]"},
 		{"bare digit-leading identifier", "store.Load[2x.T]"},
+		{"trailing statement after type", "store.Load[int; var y int]"},
+		{"two top-level types", "store.Load[int string]"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
