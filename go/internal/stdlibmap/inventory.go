@@ -111,6 +111,22 @@ func BuildInventory(packages []PackageEntry, loader Loader) (*Inventory, error) 
 	}, nil
 }
 
+// objectID keys one exported package-scope object under the declaring-object
+// rule. unsafe's exported builtins (*types.Builtin) are compiler intrinsics
+// with no *types.Func identity; they are externally referencable exported
+// objects and belong in the total inventory (design DR-05, spike finding 5),
+// keyed by the canonical top-level ID.
+func objectID(pkg *types.Package, obj types.Object) (symbol.SymbolID, error) {
+	if _, ok := obj.(*types.Builtin); ok {
+		id, err := symbol.Parse(pkg.Path() + "." + obj.Name())
+		if err != nil {
+			return "", fmt.Errorf("inventorying builtin %q in package %q: %w", obj.Name(), pkg.Path(), err)
+		}
+		return id, nil
+	}
+	return symbol.FromObject(obj)
+}
+
 // packageSymbols walks one loaded package's scope and returns its observed
 // declarations (task reqs 4–5): every exported package-scope object, the
 // same-package named-type targets of exported aliases, and every exported
@@ -125,7 +141,7 @@ func packageSymbols(pkg *types.Package) ([]observed, error) {
 		if !obj.Exported() {
 			continue
 		}
-		id, err := symbol.FromObject(obj)
+		id, err := objectID(pkg, obj)
 		if err != nil {
 			return nil, fmt.Errorf("inventorying package %q: %w", pkg.Path(), err)
 		}
