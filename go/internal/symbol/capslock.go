@@ -39,7 +39,68 @@ import (
 // no object-kind information. ParseCapslock rejects them; callers that know
 // the package inventory use ParseCapslockWithPackages to disambiguate.
 func ParseCapslock(name string) (SymbolID, error) {
-	return parseCapslock(name, nil)
+	return parseCapslock(name, nil, nil, nil)
+}
+
+// CapslockFunction mirrors the structured identity Capslock keeps for a
+// function — the Name display string and the Package import path of
+// proto.Function — so callers can supply the fields the text alone cannot
+// carry instead of recovering all identity from one ambiguous display string.
+type CapslockFunction struct {
+	// Name is the Capslock display spelling (proto.Function.Name).
+	Name string
+	// Package is the structured package field (proto.Function.Package):
+	// the import path of the package declaring the function. Empty when
+	// unknown; it participates in known-package confirmation but the
+	// inventory remains the declaration authority.
+	Package string
+}
+
+// CapslockInventory is the independently inventoried declaration and package
+// context (the typed declaration inventory used by the map/surface
+// producers) against which structured Capslock normalization is confirmed.
+type CapslockInventory interface {
+	// KnownPackage reports whether importPath names a package in the
+	// caller's world.
+	KnownPackage(importPath string) bool
+	// Declares reports whether pkg declares the top-level symbol or
+	// receiver type name. Normalization fails closed unless the inventory
+	// confirms exactly the one canonical declaration the name maps to.
+	Declares(pkg, name string) bool
+}
+
+// ParseCapslockFunction normalizes a Capslock function given its structured
+// identity and the caller's declaration inventory. It is the inventory-backed
+// form of ParseCapslock (task req 1): the structured package field and the
+// inventory together confirm the one canonical declaration the display
+// spelling maps to, and normalization fails closed — with an actionable
+// error and no SymbolID — whenever either is missing, malformed or does not
+// confirm the declaration. A nil inventory is always rejected.
+func ParseCapslockFunction(fn CapslockFunction, inv CapslockInventory) (SymbolID, error) {
+	if inv == nil {
+		return "", fmt.Errorf("capslock name %q: normalization is inventory-backed; supply the declaration inventory", fn.Name)
+	}
+	if fn.Package != "" && !validPackagePath(fn.Package) {
+		return "", fmt.Errorf("capslock name %q: structured package %q is not a valid import path", fn.Name, fn.Package)
+	}
+	knownPackage := func(pkg string) bool {
+		return (fn.Package != "" && pkg == fn.Package) || inv.KnownPackage(pkg)
+	}
+	// resolve maps the package prefix recovered from the display text to its
+	// canonical import path using the structured field: the text prefix is
+	// either the full path or a trailing shorthand of it ("store" for
+	// "example.com/store"); anything else contradicts the structured field
+	// and fails closed.
+	resolve := func(pkg string) (string, bool) {
+		if fn.Package == "" || pkg == fn.Package {
+			return pkg, true
+		}
+		if strings.HasSuffix(fn.Package, "/"+pkg) {
+			return fn.Package, true
+		}
+		return "", false
+	}
+	return parseCapslock(fn.Name, knownPackage, inv, resolve)
 }
 
 // ParseCapslockWithPackages is ParseCapslock with one piece of structured
@@ -54,10 +115,10 @@ func ParseCapslockWithPackages(name string, knownPackage func(importPath string)
 	if knownPackage == nil {
 		return "", fmt.Errorf("capslock name %q: disambiguating a dotful unparenthesized spelling requires a known-package resolver", name)
 	}
-	return parseCapslock(name, knownPackage)
+	return parseCapslock(name, knownPackage, nil, nil)
 }
 
-func parseCapslock(name string, knownPackage func(string) bool) (SymbolID, error) {
+func parseCapslock(name string, knownPackage func(string) bool, inv CapslockInventory, resolve func(string) (string, bool)) (SymbolID, error) {
 	if recv, method, ok := splitMethod(name); ok {
 		recv, err := stripReceiverBrackets(recv)
 		if err != nil {
@@ -76,7 +137,18 @@ func parseCapslock(name string, knownPackage func(string) bool) (SymbolID, error
 		if dot < 0 {
 			return "", fmt.Errorf("capslock name %q: receiver %q is not \"pkg.Type\"", name, recv)
 		}
-		return Parse("(" + hostpolicy.CanonicalizePath(recv[:dot]) + "." + recv[dot+1:] + ")." + method)
+		pkg := recv[:dot]
+		if resolve != nil {
+			canonical, ok := resolve(pkg)
+			if !ok {
+				return "", fmt.Errorf("capslock name %q: structured package field does not confirm receiver package %q", name, pkg)
+			}
+			pkg = canonical
+		}
+		if err := confirmDeclaration(inv, name, pkg, recv[dot+1:]); err != nil {
+			return "", err
+		}
+		return Parse("(" + hostpolicy.CanonicalizePath(pkg) + "." + recv[dot+1:] + ")." + method)
 	}
 	// Top-level spelling: type-argument brackets are allowed only as a
 	// trailing group (store.Load[example.com/x.T]); anywhere else they would
@@ -91,7 +163,18 @@ func parseCapslock(name string, knownPackage func(string) bool) (SymbolID, error
 		return "", fmt.Errorf("capslock name %q: %q is not a Capslock spelling of a declared top-level symbol", name, rest)
 	}
 	pkg := rest[:dot]
-	if strings.Contains(pkg, ".") {
+	structured := false
+	if resolve != nil {
+		canonical, ok := resolve(pkg)
+		if !ok {
+			return "", fmt.Errorf("capslock name %q: structured package field does not confirm package %q", name, pkg)
+		}
+		if canonical != pkg {
+			structured = true
+		}
+		pkg = canonical
+	}
+	if strings.Contains(pkg, ".") && !structured {
 		// A dot in the package path makes the spelling ambiguous: the same
 		// text could be a dotted method spelling ("pkg.Type.Method"), which
 		// Capslock never prints unparenthesized, or a top-level symbol in a
@@ -104,7 +187,24 @@ func parseCapslock(name string, knownPackage func(string) bool) (SymbolID, error
 			return "", fmt.Errorf("capslock name %q: package %q is not known, so %q cannot be mapped safely to a top-level symbol", name, pkg, rest)
 		}
 	}
+	if err := confirmDeclaration(inv, name, pkg, rest[dot+1:]); err != nil {
+		return "", err
+	}
 	return Parse(hostpolicy.CanonicalizePath(pkg) + "." + rest[dot+1:])
+}
+
+// confirmDeclaration enforces the inventory-backed contract: when an
+// inventory is supplied, it must confirm exactly the one canonical
+// declaration the spelling maps to (top-level name or receiver type);
+// text-only callers pass a nil inventory.
+func confirmDeclaration(inv CapslockInventory, name, pkg, decl string) error {
+	if inv == nil {
+		return nil
+	}
+	if !inv.Declares(pkg, decl) {
+		return fmt.Errorf("capslock name %q: inventory does not confirm a declaration of %q in %q", name, decl, pkg)
+	}
+	return nil
 }
 
 // stripReceiverBrackets removes the single trailing type-argument bracket
