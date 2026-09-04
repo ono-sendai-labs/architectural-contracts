@@ -1,4 +1,6 @@
 name: "symbol"
 interface_files: "symbol.go"
+interface_files: "typesconv.go"
+interface_files: "extract.go"
 members: "github.com/ono-sendai-labs/architectural-contracts/go/internal/symbol"
 members: "github.com/ono-sendai-labs/architectural-contracts/go/internal/hostpolicy"

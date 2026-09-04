@@ -1,0 +1,35 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+# stdlibmap is deliberately not declared as a go_component under Bazel: like
+# capslockadapter, its closure (golang.org/x/tools/go/packages) pulls in
+# cgo-built packages, and component.bzl fails closed on cgo closures. Its
+# manifest retains native coverage via the FR10 contract above; when the map
+# generator lands (step04 task 3) the Bazel arcc_stdlib_map rule consumes its
+# artifacts rather than running this component inside a checked action.
+go_library(
+    name = "stdlibmap",
+    srcs = [
+        "inventory.go",
+        "nativeloader.go",
+        "sdkkey.go",
+        "stdlibmap.go",
+    ],
+    importpath = "github.com/ono-sendai-labs/architectural-contracts/go/internal/stdlibmap",
+    visibility = ["//go:__subpackages__"],
+    deps = [
+        "//go/internal/stdlibauthority",
+        "//go/internal/symbol",
+        "@org_golang_x_tools//go/packages",
+    ],
+)
+
+go_test(
+    name = "stdlibmap_test",
+    size = "small",
+    srcs = [
+        "inventory_test.go",
+        "sdkkey_test.go",
+        "stdlibmap_test.go",
+    ],
+    embed = [":stdlibmap"],
+)
