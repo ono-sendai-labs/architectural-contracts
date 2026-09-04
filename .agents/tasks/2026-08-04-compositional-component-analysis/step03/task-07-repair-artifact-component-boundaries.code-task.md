@@ -63,6 +63,30 @@ Addresses finding F1 from the Step 3 implementation review. Task 3 established `
    - When `just ci` runs
    - Then all tests and self-checks pass with no artifact-byte or verdict change attributable to this boundary repair.
 
+## Specification amendment (R2, recorded per review round 2)
+
+Review round 2 asked for the literal `artifactio -> manifest` component edge
+or an explicit specification change. This paragraph records that change.
+
+The literal edge is unsatisfiable under the live checker's semantics, which
+Requirement 6 forbids changing: the manifest component must own the protobuf
+runtime closure because its `prototext` member imports it (checker FR3 sweeps
+declared members' imports in the native leg), and the checker's member-overlap
+rule (M7) rejects any package covered by a dependency also being a member in
+the Bazel layout leg — while `artifactio` must be a member of the protobuf
+runtime packages it imports (`proto`, `protojson`), which overlaps that
+closure. Requirement 6 also forbids changing artifact bytes and parsing
+behavior, ruling out runtime changes that would avoid the overlap.
+
+Amended requirement 3 and AC2 therefore read: `artifactio` is a shell
+component that owns its own implementation and its protobuf runtime closure,
+declaring component dependencies on the schema surface and the symbol grammar
+it consumes; the known-capability taxonomy is schema-owned
+(`schema.KnownCapabilities`), shared by the manifest model and the artifact
+shell through their declared schema dependency, so no component duplicates
+another's source of truth. The schema component exposes its vocabulary
+package (including the taxonomy) through its declared surface.
+
 ## Metadata
 - **Complexity**: High
 - **Labels**: architecture, components, ownership, layering, bazel, go
