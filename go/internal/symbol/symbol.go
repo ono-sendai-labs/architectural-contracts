@@ -12,7 +12,9 @@
 //     types.Info; extraction canonicalizes package paths through
 //     hostpolicy.CanonicalizePath.
 //   - What it provides: Parse, Format, Compare, ParseCapslock,
-//     ParseCapslockWithPackages, FromObject, FromSelection and ExtractSurface.
+//     ParseCapslockWithPackages, ParseCapslockFunction (with
+//     CapslockFunction/CapslockInventory), FromObject, FromSelection and
+//     ExtractSurface.
 //     All pure and deterministic; results are sorted and duplicate-free.
 //     Nothing here alters the live call-graph check path (capanalyzer.
 //     InterfaceSymbol stays until the Step 6 cutover).
