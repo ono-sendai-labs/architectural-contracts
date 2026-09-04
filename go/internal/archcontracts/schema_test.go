@@ -7,7 +7,7 @@ import (
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protoreflect"
 
-	manifestgen "github.com/ono-sendai-labs/architectural-contracts/go/internal/manifest/gen"
+	manifestgen "github.com/ono-sendai-labs/architectural-contracts/go/internal/schema/gen"
 )
 
 // fieldNumber asserts the field named name has the expected number and kind.

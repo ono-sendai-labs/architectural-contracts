@@ -30,7 +30,7 @@ go_library(
         "//go:__subpackages__",
     ],
     deps = [
-        "//go/internal/manifest/gen",
+        "//go/internal/schema/gen",
         "@org_golang_google_protobuf//encoding/prototext",
     ],
 )
@@ -51,17 +51,16 @@ go_test(
     deps = [":manifest"],
 )
 
-# Mirrors the checked-in manifest/component.textproto. Under the declared-membership
-# model, the generated protobuf package gen is a declared member rather than an
-# interface file because manifest.go is the sole interface library while gen is a
-# separate internal Go package.
+# Mirrors the checked-in manifest/component.textproto. The generated schema
+# package is owned by the schema component and consumed through a declared
+# component dependency.
 # The protobuf runtime packages are declared members: third-party libraries
 # become ordinary (checked) member code whose authority is charged to this
 # component's declared_authority.
 go_component(
     name = "manifest_component",
+    component_deps = ["//go/internal/schema:schema_component"],
     members = [
-        "//go/internal/manifest/gen",
         "@org_golang_google_protobuf//encoding/prototext:prototext",
         "@org_golang_google_protobuf//encoding/protowire:protowire",
         "@org_golang_google_protobuf//internal/descfmt:descfmt",

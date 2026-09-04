@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/manifest"
-	"github.com/ono-sendai-labs/architectural-contracts/go/internal/manifest/gen"
+	"github.com/ono-sendai-labs/architectural-contracts/go/internal/schema/gen"
 )
 
 func unknownPersisted() gen.Authority  { return gen.Authority_UNKNOWN }

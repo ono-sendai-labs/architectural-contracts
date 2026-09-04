@@ -43,6 +43,10 @@ run *args:
 # arcc rule fails closed on cgo closures, and cli (cmd/arcc) imports
 # capslockadapter. Native mode handles cgo via go/packages preprocessing.
 #
+# schema has no standalone selfcheck entry: it is a dependency-only component
+# whose manifest is parsed and whose interface files are validated every time
+# manifest or artifactio resolve it as a component dependency.
+#
 # Keeping both legs is deliberate: native FR1 membership and Bazel declared
 # membership checking the same components cross-checks the whole membership model.
 selfcheck:

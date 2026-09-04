@@ -273,7 +273,7 @@ const file_archcontracts_v1_surface_proto_rawDesc = "" +
 	" \x01(\tR\x06digest\"\x80\x01\n" +
 	"\x14AuthorityDeclaration\x129\n" +
 	"\tauthority\x18\x01 \x01(\x0e2\x1b.archcontracts.v1.AuthorityR\tauthority\x12-\n" +
-	"\x12declared_authority\x18\x02 \x03(\tR\x11declaredAuthorityBQZOgithub.com/ono-sendai-labs/architectural-contracts/go/internal/manifest/gen;genb\x06proto3"
+	"\x12declared_authority\x18\x02 \x03(\tR\x11declaredAuthorityBOZMgithub.com/ono-sendai-labs/architectural-contracts/go/internal/schema/gen;genb\x06proto3"
 
 var (
 	file_archcontracts_v1_surface_proto_rawDescOnce sync.Once

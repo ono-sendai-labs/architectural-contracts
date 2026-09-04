@@ -9,7 +9,7 @@ syntax = "proto3";
 
 package archcontracts.v1;
 
-option go_package = "github.com/ono-sendai-labs/architectural-contracts/go/internal/manifest/gen;gen";
+option go_package = "github.com/ono-sendai-labs/architectural-contracts/go/internal/schema/gen;gen";
 
 // A component's manifest, stored as component.textproto at the COMPONENT ROOT.
 // When members is empty, the component consists of all Go packages under the

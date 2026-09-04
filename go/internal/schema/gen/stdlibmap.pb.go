@@ -733,7 +733,7 @@ const file_archcontracts_v1_stdlibmap_proto_rawDesc = "" +
 	"\x04SAFE\x10\x01\x12\x10\n" +
 	"\fCAPABILITIES\x10\x02\x12\x0e\n" +
 	"\n" +
-	"UNANALYZED\x10\x03BQZOgithub.com/ono-sendai-labs/architectural-contracts/go/internal/manifest/gen;genb\x06proto3"
+	"UNANALYZED\x10\x03BOZMgithub.com/ono-sendai-labs/architectural-contracts/go/internal/schema/gen;genb\x06proto3"
 
 var (
 	file_archcontracts_v1_stdlibmap_proto_rawDescOnce sync.Once

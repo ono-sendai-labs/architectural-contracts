@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ono-sendai-labs/architectural-contracts/go/internal/manifest/gen"
+	"github.com/ono-sendai-labs/architectural-contracts/go/internal/schema/gen"
 )
 
 // TestDecodeIgnoresUnknownFields pins AC3's forward-compatibility half: an

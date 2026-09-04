@@ -11,7 +11,7 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/manifest"
-	"github.com/ono-sendai-labs/architectural-contracts/go/internal/manifest/gen"
+	"github.com/ono-sendai-labs/architectural-contracts/go/internal/schema/gen"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/symbol"
 )
 

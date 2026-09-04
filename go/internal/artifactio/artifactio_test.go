@@ -7,7 +7,7 @@ import (
 
 	"google.golang.org/protobuf/proto"
 
-	"github.com/ono-sendai-labs/architectural-contracts/go/internal/manifest/gen"
+	"github.com/ono-sendai-labs/architectural-contracts/go/internal/schema/gen"
 )
 
 // validSurface returns a canonical-quality surface manifest fixture.

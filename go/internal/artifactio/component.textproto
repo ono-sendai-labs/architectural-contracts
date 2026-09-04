@@ -1,13 +1,13 @@
 name: "artifactio"
-# The generated schema types and protobuf plumbing are members (as in the
-# manifest component): the calls into them are protobuf reflection plumbing,
-# not cross-boundary interface calls. No component_dependencies: manifest,
-# symbol and hostpolicy are members here.
+# Shell component: owns its own implementation and the protobuf runtime
+# closure it drives directly. The manifest model, generated schema types, and
+# symbol grammar are consumed inward through declared component dependencies;
+# their single owners are the manifest and symbol components.
 interface_style: INTERFACE_STYLE_PACKAGE_SURFACE
 members: "github.com/ono-sendai-labs/architectural-contracts/go/internal/artifactio"
 members: "github.com/ono-sendai-labs/architectural-contracts/go/internal/hostpolicy"
 members: "github.com/ono-sendai-labs/architectural-contracts/go/internal/manifest"
-members: "github.com/ono-sendai-labs/architectural-contracts/go/internal/manifest/gen"
+members: "github.com/ono-sendai-labs/architectural-contracts/go/internal/schema/gen"
 members: "github.com/ono-sendai-labs/architectural-contracts/go/internal/symbol"
 members: "google.golang.org/protobuf/encoding/protojson"
 members: "google.golang.org/protobuf/encoding/prototext"

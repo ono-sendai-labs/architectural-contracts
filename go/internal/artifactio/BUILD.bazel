@@ -19,7 +19,7 @@ go_library(
     ],
     deps = [
         "//go/internal/manifest",
-        "//go/internal/manifest/gen",
+        "//go/internal/schema/gen",
         "//go/internal/symbol",
         "@org_golang_google_protobuf//encoding/protojson",
         "@org_golang_google_protobuf//proto",
@@ -38,15 +38,17 @@ go_test(
     embed = [":artifactio"],
     deps = [
         "//go/internal/manifest",
-        "//go/internal/manifest/gen",
+        "//go/internal/schema/gen",
         "//go/internal/symbol",
         "@org_golang_google_protobuf//encoding/protojson",
         "@org_golang_google_protobuf//proto",
     ],
 )
 
-# Mirrors the checked-in artifactio/component.textproto: the generated schema
-# types and protobuf plumbing are members (as in the manifest component).
+# Mirrors the checked-in artifactio/component.textproto: shell component with
+# the protobuf runtime it drives directly as members; the manifest, schema, and
+# symbol packages are consumed through declared component dependencies on their
+# single-owner components.
 go_component(
     name = "artifactio_component",
     interface_style = "PACKAGE_SURFACE",
@@ -63,7 +65,7 @@ go_component(
         "//go/internal/artifactio",
         "//go/internal/hostpolicy",
         "//go/internal/manifest",
-        "//go/internal/manifest/gen",
+        "//go/internal/schema/gen",
         "//go/internal/symbol",
         "@org_golang_google_protobuf//encoding/protojson:protojson",
         "@org_golang_google_protobuf//encoding/prototext:prototext",

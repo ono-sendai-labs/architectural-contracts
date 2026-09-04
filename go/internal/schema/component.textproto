@@ -1,0 +1,10 @@
+name: "schema"
+# The generated persisted-artifact schema (component, surface, stdlib map).
+# Declared-style component whose interface is the generated protobuf source:
+# the component's surface is exactly the generated message and enum API, so
+# consumers (manifest, artifactio) use every generated symbol through this
+# declared component dependency instead of claiming the package as a member.
+interface_files: "gen/component.pb.go"
+interface_files: "gen/surface.pb.go"
+interface_files: "gen/stdlibmap.pb.go"
+members: "github.com/ono-sendai-labs/architectural-contracts/go/internal/schema/gen"

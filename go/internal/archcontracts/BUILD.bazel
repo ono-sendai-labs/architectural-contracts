@@ -3,13 +3,13 @@ load("@rules_go//go:def.bzl", "go_test")
 # Schema tests for the persisted archcontracts artifact schemas. Test-only Go
 # package: it holds no non-test sources, so it is deliberately not a component
 # member; the generated schema types it inspects are owned by the manifest
-# component as members of //go/internal/manifest/gen.
+# component as members of //go/internal/schema/gen.
 go_test(
     name = "archcontracts_schema_test",
     size = "small",
     srcs = ["schema_test.go"],
     deps = [
-        "//go/internal/manifest/gen",
+        "//go/internal/schema/gen",
         "@org_golang_google_protobuf//encoding/protojson",
         "@org_golang_google_protobuf//proto",
         "@org_golang_google_protobuf//reflect/protoreflect",

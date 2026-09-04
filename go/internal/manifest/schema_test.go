@@ -4,7 +4,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/ono-sendai-labs/architectural-contracts/go/internal/manifest/gen"
+	"github.com/ono-sendai-labs/architectural-contracts/go/internal/schema/gen"
 	"google.golang.org/protobuf/encoding/prototext"
 	"google.golang.org/protobuf/reflect/protoreflect"
 )

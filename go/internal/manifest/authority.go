@@ -6,7 +6,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/ono-sendai-labs/architectural-contracts/go/internal/manifest/gen"
+	"github.com/ono-sendai-labs/architectural-contracts/go/internal/schema/gen"
 )
 
 // Capability names a Capslock ambient-authority capability, e.g. FILES.

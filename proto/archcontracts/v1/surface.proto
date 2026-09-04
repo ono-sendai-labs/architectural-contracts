@@ -17,7 +17,7 @@ package archcontracts.v1;
 import "archcontracts/v1/component.proto";
 import "archcontracts/v1/stdlibmap.proto";
 
-option go_package = "github.com/ono-sendai-labs/architectural-contracts/go/internal/manifest/gen;gen";
+option go_package = "github.com/ono-sendai-labs/architectural-contracts/go/internal/schema/gen;gen";
 
 // SurfaceManifest describes a component's public surface and is consumed by
 // dependents in place of the dependency's sources (design R7, DR-15). The same

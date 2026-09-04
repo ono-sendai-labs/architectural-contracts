@@ -340,7 +340,7 @@ const file_archcontracts_v1_component_proto_rawDesc = "" +
 	"\aUNKNOWN\x10\x01*V\n" +
 	"\x0eInterfaceStyle\x12\x1f\n" +
 	"\x1bINTERFACE_STYLE_UNSPECIFIED\x10\x00\x12#\n" +
-	"\x1fINTERFACE_STYLE_PACKAGE_SURFACE\x10\x01BQZOgithub.com/ono-sendai-labs/architectural-contracts/go/internal/manifest/gen;genb\x06proto3"
+	"\x1fINTERFACE_STYLE_PACKAGE_SURFACE\x10\x01BOZMgithub.com/ono-sendai-labs/architectural-contracts/go/internal/schema/gen;genb\x06proto3"
 
 var (
 	file_archcontracts_v1_component_proto_rawDescOnce sync.Once

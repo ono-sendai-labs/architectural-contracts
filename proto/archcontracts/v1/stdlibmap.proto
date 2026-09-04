@@ -14,7 +14,7 @@ syntax = "proto3";
 
 package archcontracts.v1;
 
-option go_package = "github.com/ono-sendai-labs/architectural-contracts/go/internal/manifest/gen;gen";
+option go_package = "github.com/ono-sendai-labs/architectural-contracts/go/internal/schema/gen;gen";
 
 // StdlibMap is the precomputed standard-library authority map for one target
 // SDK configuration (design R5–R6, DR-05). It is the definition of what

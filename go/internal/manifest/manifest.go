@@ -14,7 +14,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/ono-sendai-labs/architectural-contracts/go/internal/manifest/gen"
+	"github.com/ono-sendai-labs/architectural-contracts/go/internal/schema/gen"
 	"google.golang.org/protobuf/encoding/prototext"
 )
 
