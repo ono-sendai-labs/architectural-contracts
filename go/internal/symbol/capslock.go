@@ -25,9 +25,12 @@ import (
 // package path of the result is canonicalized through the host-policy hook,
 // exactly as the go/types conversion does, so both producers produce
 // identical IDs in any host namespace. Type arguments are validated against
-// standard Go syntax (go/parser) after a documented translation of full
-// import paths through the canonical package grammar (see
-// validateTypeArguments), so acceptance tracks actual formatter output.
+// Go token syntax with a scanner-based single-type grammar (go/scanner; the
+// parser package is unusable here because its entry points statically reach
+// os.ReadFile, which the component's guaranteed-pure self-check rejects)
+// after a documented translation of full import paths through the canonical
+// package grammar (see validateTypeArguments), so acceptance tracks actual
+// formatter output over the supported subset.
 // Names that cannot be mapped safely to a declared symbol — unbalanced,
 // misplaced, empty or non-type bracket contents, dotted method spellings,
 // compiler-synthesized names — are rejected with an error instead of
@@ -67,6 +70,11 @@ type CapslockInventory interface {
 	// receiver type name. Normalization fails closed unless the inventory
 	// confirms exactly the one canonical declaration the name maps to.
 	Declares(pkg, name string) bool
+	// DeclaresMethod reports whether the inventory contains exactly the
+	// canonical method declaration (pkg.TypeName).Method. The receiver type
+	// alone is not sufficient: an inventoried receiver does not vouch for
+	// arbitrary methods spelled against it.
+	DeclaresMethod(pkg, typeName, method string) bool
 }
 
 // ParseCapslockFunction normalizes a Capslock function given its structured
@@ -84,7 +92,7 @@ func ParseCapslockFunction(fn CapslockFunction, inv CapslockInventory) (SymbolID
 		return "", fmt.Errorf("capslock name %q: structured package %q is not a valid import path", fn.Name, fn.Package)
 	}
 	knownPackage := func(pkg string) bool {
-		return (fn.Package != "" && pkg == fn.Package) || inv.KnownPackage(pkg)
+		return (fn.Package != "" && pkg == fn.Package) || inv.KnownPackage(hostpolicy.CanonicalizePath(pkg))
 	}
 	// resolve maps the package prefix recovered from the display text to its
 	// canonical import path using the structured field: the text prefix is
@@ -145,10 +153,15 @@ func parseCapslock(name string, knownPackage func(string) bool, inv CapslockInve
 			}
 			pkg = canonical
 		}
-		if err := confirmDeclaration(inv, name, pkg, recv[dot+1:]); err != nil {
+		// One canonicalization: confirm and emit the canonical package.
+		canon := hostpolicy.CanonicalizePath(pkg)
+		if err := confirmDeclaration(inv, name, canon, recv[dot+1:]); err != nil {
 			return "", err
 		}
-		return Parse("(" + hostpolicy.CanonicalizePath(pkg) + "." + recv[dot+1:] + ")." + method)
+		if inv != nil && !inv.DeclaresMethod(canon, recv[dot+1:], method) {
+			return "", fmt.Errorf("capslock name %q: inventory does not confirm a declaration of %q in %q", name, "("+recv[dot+1:]+")."+method, canon)
+		}
+		return Parse("(" + canon + "." + recv[dot+1:] + ")." + method)
 	}
 	// Top-level spelling: type-argument brackets are allowed only as a
 	// trailing group (store.Load[example.com/x.T]); anywhere else they would
@@ -187,16 +200,17 @@ func parseCapslock(name string, knownPackage func(string) bool, inv CapslockInve
 			return "", fmt.Errorf("capslock name %q: package %q is not known, so %q cannot be mapped safely to a top-level symbol", name, pkg, rest)
 		}
 	}
-	if err := confirmDeclaration(inv, name, pkg, rest[dot+1:]); err != nil {
+	canon := hostpolicy.CanonicalizePath(pkg)
+	if err := confirmDeclaration(inv, name, canon, rest[dot+1:]); err != nil {
 		return "", err
 	}
-	return Parse(hostpolicy.CanonicalizePath(pkg) + "." + rest[dot+1:])
+	return Parse(canon + "." + rest[dot+1:])
 }
 
 // confirmDeclaration enforces the inventory-backed contract: when an
 // inventory is supplied, it must confirm exactly the one canonical
-// declaration the spelling maps to (top-level name or receiver type);
-// text-only callers pass a nil inventory.
+// declaration the spelling maps to (top-level name or receiver type) in the
+// canonical namespace; text-only callers pass a nil inventory.
 func confirmDeclaration(inv CapslockInventory, name, pkg, decl string) error {
 	if inv == nil {
 		return nil
@@ -474,10 +488,15 @@ func (p *typeParser) next() {
 
 // atEnd reports whether the current token terminates the input. The scanner
 // inserts an automatic semicolon (lit "\n") at end of input after a token
-// that can end a line; single-line arguments only ever see it there, so it
-// is treated as end-of-input.
+// that can end a line, but it also inserts one at every real newline, so the
+// position must be confirmed to be the end of the argument before an
+// inserted semicolon is treated as end-of-input; anywhere else it is a
+// trailing token and rejected.
 func (p *typeParser) atEnd() bool {
-	return p.tok == token.EOF || (p.tok == token.SEMICOLON && p.lit == "\n")
+	if p.tok == token.EOF {
+		return true
+	}
+	return p.tok == token.SEMICOLON && p.lit == "\n" && p.file.Offset(p.pos) >= len(p.src)
 }
 
 func (p *typeParser) errorf(format string, args ...any) error {
@@ -619,13 +638,13 @@ func (p *typeParser) signature() error {
 	if err := p.expect(token.LPAREN, "after func"); err != nil {
 		return err
 	}
-	if err := p.paramList(); err != nil {
+	if err := p.paramList(true); err != nil {
 		return err
 	}
 	switch {
 	case p.tok == token.LPAREN:
 		p.next()
-		return p.paramList()
+		return p.paramList(false)
 	case p.startsType():
 		return p.typ()
 	}
@@ -652,10 +671,11 @@ func (p *typeParser) identRun() (int, error) {
 
 // paramList parses "( ... )" parameter or result declarations. Each
 // declaration is either a comma-separated identifier list naming a following
-// type ("x, y int"), an unnamed type ("int", "*T", "pkg.T"), or a variadic
-// parameter ("...T", "x ...T") which must be last. Mixing named and unnamed
-// declarations is invalid Go and rejected.
-func (p *typeParser) paramList() error {
+// type ("x, y int"), an unnamed type ("int", "*T", "pkg.T"), or — in a
+// parameter list only — a variadic parameter ("...T", "x ...T") which must
+// be last and carry exactly one name, as Go requires. Mixing named and
+// unnamed declarations is invalid Go and rejected.
+func (p *typeParser) paramList(allowVariadic bool) error {
 	if p.atEnd() {
 		return p.errorf("unexpected end: want %q", token.RPAREN)
 	}
@@ -667,6 +687,9 @@ func (p *typeParser) paramList() error {
 	for {
 		switch {
 		case p.tok == token.ELLIPSIS:
+			if !allowVariadic {
+				return p.errorf("variadic results are not valid Go")
+			}
 			p.next()
 			if err := p.typ(); err != nil {
 				return err
@@ -697,6 +720,12 @@ func (p *typeParser) paramList() error {
 				return err
 			}
 			if p.tok == token.ELLIPSIS {
+				if !allowVariadic {
+					return p.errorf("variadic results are not valid Go")
+				}
+				if count != 1 {
+					return p.errorf("variadic parameter must have exactly one name")
+				}
 				p.next()
 				if err := p.typ(); err != nil {
 					return err
@@ -753,9 +782,10 @@ func (p *typeParser) startsTypeKeyword() bool {
 }
 
 // structBody parses a struct literal type argument: "struct{ field-list }",
-// where a field is a comma-separated identifier list followed by a type, or
-// a single embedded type (qualified embedded fields included). Fields are
-// separated by ';' with an optional trailing ';'.
+// where a field is a comma-separated identifier list followed by a type, an
+// optional string tag, or a single embedded type (qualified and non-identifier
+// embedded types such as pointers included). Fields are separated by ';' with
+// an optional trailing ';'.
 func (p *typeParser) structBody() error {
 	if err := p.expect(token.LBRACE, "after struct"); err != nil {
 		return err
@@ -765,23 +795,24 @@ func (p *typeParser) structBody() error {
 		return nil
 	}
 	for {
-		if p.tok == token.IDENT && p.peekIsQualified() {
-			// A qualified embedded field.
-			if err := p.namedType(); err != nil {
+		if !p.startsTypeKeyword() && !(p.tok == token.IDENT && p.peekIsQualified()) {
+			// A named field: a comma-separated identifier list plus its type.
+			if _, err := p.identRun(); err != nil {
 				return err
 			}
-		} else {
-			count, err := p.identRun()
-			if err != nil {
-				return err
-			}
-			if p.startsType() {
-				if err := p.typ(); err != nil {
-					return err
-				}
-			} else if count != 1 {
+			if !p.startsType() {
 				return p.errorf("struct field %q must be a single embedded type or name a field", p.lit)
 			}
+			if err := p.typ(); err != nil {
+				return err
+			}
+			if p.tok == token.STRING {
+				// A field tag, part of the formatter's Go output.
+				p.next()
+			}
+		} else if err := p.typ(); err != nil {
+			// A single embedded type (qualified, pointer or other).
+			return err
 		}
 		if p.tok == token.SEMICOLON {
 			p.next()
@@ -849,13 +880,13 @@ func (p *typeParser) methodParamsResults() error {
 	if err := p.expect(token.LPAREN, "after the interface method name"); err != nil {
 		return err
 	}
-	if err := p.paramList(); err != nil {
+	if err := p.paramList(true); err != nil {
 		return err
 	}
 	switch {
 	case p.tok == token.LPAREN:
 		p.next()
-		return p.paramList()
+		return p.paramList(false)
 	case p.startsType():
 		return p.typ()
 	}

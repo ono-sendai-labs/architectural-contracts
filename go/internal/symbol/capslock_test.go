@@ -47,6 +47,8 @@ func TestParseCapslock_Convergence(t *testing.T) {
 		{"qualified unnamed parameter type argument", "store.Load[func(example.com/x.T)]", "store.Load"},
 		{"named variadic parameter type argument", "store.Load[func(x ...int)]", "store.Load"},
 		{"qualified embedded struct field type argument", "store.Load[struct{example.com/x.T}]", "store.Load"},
+		{"qualified pointer embedded struct field type argument", "store.Load[struct{*example.com/x.T}]", "store.Load"},
+		{"tagged struct field type argument", `store.Load[struct{A int "json:\"a\""}]`, "store.Load"},
 		{"qualified interface method parameter type argument", "store.Load[interface{M(example.com/x.T) string}]", "store.Load"},
 		{"and-not constant-expression length type argument", "store.Load[[N &^ 3]byte]", "store.Load"},
 		{"parenthesized single type argument", "store.Load[(int)]", "store.Load"},
@@ -130,6 +132,9 @@ func TestParseCapslock_Rejected(t *testing.T) {
 		{"bare digit-leading identifier", "store.Load[2x.T]"},
 		{"trailing statement after type", "store.Load[int; var y int]"},
 		{"two top-level types", "store.Load[int string]"},
+		{"variadic result", "store.Load[func() (...int)]"},
+		{"grouped variadic parameters", "store.Load[func(x, y ...int)]"},
+		{"trailing tokens after newline", "store.Load[int\nvar y int]"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
