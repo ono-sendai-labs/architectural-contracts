@@ -1,0 +1,127 @@
+{
+  "task_file": ".agents/tasks/2026-08-04-compositional-component-analysis/step03/task-08-preserve-and-validate-stdlib-map-semantics.code-task.md",
+  "planning_slug": "2026-08-04-compositional-component-analysis",
+  "step": 3,
+  "task": 8,
+  "implementer_session": "awo-impl-2026-08-04-compositional-component-analysis-step03-task08",
+  "reviewer_session": "awo-rev-2026-08-04-compositional-component-analysis-step03-task08",
+  "base": {
+    "change_id": "vymxvusyzrtpuqukqnwuptyvttmvvqnp",
+    "bookmark": "pr/2026-08-04-compositional-component-analysis-spec-fix-step03-task07"
+  },
+  "produced_changes": [
+    "lqzqrrtyxxxmylsrvqsrtvlmsurukosk",
+    "xpnmwqpmstslumltlwwwroplvkkyooxv"
+  ],
+  "rounds": [
+    {
+      "round": 0,
+      "role": "implementer",
+      "prompt": ".agents/runs-acpx/20260904-121137-step03-task-08-preserve-and-validate-stdlib-map-semantics/round-0.implementer/prompt.md",
+      "out": ".agents/runs-acpx/20260904-121137-step03-task-08-preserve-and-validate-stdlib-map-semantics/round-0.implementer",
+      "status": "completed",
+      "change_id": "lqzqrrtyxxxmylsrvqsrtvlmsurukosk",
+      "wall_seconds": 583,
+      "tool_calls": 198,
+      "compaction": false,
+      "tokens": {
+        "inputTokens": 222,
+        "outputTokens": 247,
+        "totalTokens": 59093,
+        "cachedReadTokens": 58624
+      },
+      "diff_summary": [
+        "M go/internal/artifactio/artifactio_test.go",
+        "M go/internal/artifactio/rework_test.go",
+        "M go/internal/artifactio/stdlibmap.go",
+        "A go/internal/artifactio/stdlibmap_test.go"
+      ],
+      "orchestrator_notes": "Diff matches claims. Gate-coverage check: new stdlibmap_test.go IS executed by the native `go test ./...` leg of `just ci`, but is NOT in go_test(artifactio_test) srcs in go/internal/artifactio/BUILD.bazel (explicit srcs list), so the Bazel leg does not compile it. Recorded, not disclosed to the reviewer."
+    },
+    {
+      "round": 0,
+      "role": "reviewer",
+      "prompt": ".agents/runs-acpx/20260904-121137-step03-task-08-preserve-and-validate-stdlib-map-semantics/round-0.reviewer/prompt.md",
+      "out": ".agents/runs-acpx/20260904-121137-step03-task-08-preserve-and-validate-stdlib-map-semantics/round-0.reviewer",
+      "verdict": "changes_requested",
+      "acceptance_criteria": "5/5 pass",
+      "findings": [
+        {
+          "severity": "important",
+          "file": "go/internal/artifactio/BUILD.bazel",
+          "title": "Bazel artifactio test omits the new stdlib-map tests"
+        },
+        {
+          "severity": "suggestion",
+          "file": "go/internal/artifactio/stdlibmap_test.go",
+          "title": "Missing-evidence marshal case currently creates a duplicate"
+        }
+      ],
+      "wall_seconds": 558,
+      "tool_calls": 202,
+      "compaction": false,
+      "tokens": {
+        "inputTokens": 1081,
+        "outputTokens": 258,
+        "totalTokens": 156731,
+        "cachedReadTokens": 155392
+      },
+      "context_pct_of_window": 18.4,
+      "orchestrator_notes": "Reviewer independently found the BUILD.bazel gap the orchestrator had recorded and withheld, verifying it with `bazel query --output=build` and a focused `bazel test`. Repository unchanged pre/post review (topology diff clean, jj st clean)."
+    },
+    {
+      "round": 1,
+      "role": "implementer",
+      "prompt": ".agents/runs-acpx/20260904-121137-step03-task-08-preserve-and-validate-stdlib-map-semantics/round-1.implementer/prompt.md",
+      "out": ".agents/runs-acpx/20260904-121137-step03-task-08-preserve-and-validate-stdlib-map-semantics/round-1.implementer",
+      "status": "completed",
+      "change_id": "xpnmwqpmstslumltlwwwroplvkkyooxv",
+      "wall_seconds": 140,
+      "tool_calls": 57,
+      "compaction": false,
+      "tokens": {
+        "inputTokens": 221,
+        "outputTokens": 229,
+        "totalTokens": 65986,
+        "cachedReadTokens": 65536
+      },
+      "diff_summary": [
+        "M go/internal/artifactio/BUILD.bazel",
+        "M go/internal/artifactio/stdlibmap_test.go"
+      ],
+      "orchestrator_notes": "Diff covers exactly the two findings' files. Fresh child change; lqzqrrty still present and an ancestor. Rework 4.2x faster than round 0 (140s vs 583s) with inputTokens=221 against cachedReadTokens=65536 - warm-session signature."
+    },
+    {
+      "round": 1,
+      "role": "reviewer",
+      "prompt": ".agents/runs-acpx/20260904-121137-step03-task-08-preserve-and-validate-stdlib-map-semantics/round-1.reviewer/prompt.md",
+      "out": ".agents/runs-acpx/20260904-121137-step03-task-08-preserve-and-validate-stdlib-map-semantics/round-1.reviewer",
+      "verdict": "approved",
+      "acceptance_criteria": "5/5 pass",
+      "findings": [],
+      "wall_seconds": 273,
+      "tool_calls": 135,
+      "compaction": false,
+      "tokens": {
+        "inputTokens": 768,
+        "outputTokens": 151,
+        "totalTokens": 238231,
+        "cachedReadTokens": 237312
+      },
+      "context_pct_of_window": 28.0,
+      "orchestrator_notes": "Approval cites file:line per resolved finding (BUILD.bazel:36, stdlibmap_test.go:99) and ran a no-cache focused Bazel test - a real approval by the Troubleshooting test. Repository unchanged pre/post review."
+    }
+  ],
+  "outcome": {
+    "status": "approved",
+    "rounds": 2,
+    "produced_changes": [
+      "lqzqrrtyxxxmylsrvqsrtvlmsurukosk",
+      "xpnmwqpmstslumltlwwwroplvkkyooxv"
+    ],
+    "bookmark": "pr/2026-08-04-compositional-component-analysis/step03/task-08-preserve-and-validate-stdlib-map-semantics.code-task",
+    "acceptance_criteria": "5/5 pass",
+    "open_findings": [],
+    "merge_request_corrections": "Reviewer's merge_request.title carried an invented project tag '[Stdlib Map: Step 03/Task 08]'; corrected to the plan convention '[Compositional Analysis: Step 03/Task 08]'. Body rewritten from reviewer voice into the change's voice, preserving every substantive claim."
+  }
+}

@@ -1,0 +1,136 @@
+review:
+  task_file: .agents/tasks/2026-08-04-compositional-component-analysis/step03/task-08-preserve-and-validate-stdlib-map-semantics.code-task.md
+  change_id: lqzqrrtyxxxmylsrvqsrtvlmsurukosk
+  reviewed_at: 2026-09-04T19:29:59Z
+  verdict: changes_requested
+  schema_version: 2
+  lsp_coverage: unavailable
+
+merge_request:
+  title: "fix(artifactio): preserve evidence order and validate inventories [Stdlib Map: Step 03/Task 08]"
+  body: |
+    Reviews the complete base-to-current series from vymxvusyzrtpuqukqnwuptyvttmvvqnp
+    through lqzqrrtyxxxmylsrvqsrtvlmsurukosk. The single produced change removes
+    evidence-frame sorting, enforces total init and evidence inventories, updates
+    fixtures and comments, and adds regression tests; no subsequent rework change
+    is present in the supplied series.
+
+summary: |
+  The implementation preserves ordered evidence frames and enforces complete init/evidence inventories while retaining keyed canonicalization and the existing validation checks. The native artifactio tests and the recorded full `just ci` run cover the acceptance criteria, and the jj range contains one implementation change with no test deletion. Changes are requested because the new stdlib-map regression test file is absent from the explicit Bazel artifactio test source list, so the hermetic Bazel leg does not compile those tests. One non-blocking suggestion identifies a misleading missing-evidence test case; LSP diagnostics were unavailable because gopls could not load the Go workspace without `go` on PATH.
+
+acceptance_criteria:
+  - text: |
+      1. **Evidence path order is preserved**
+         - Given an evidence path with frames in caller-to-capability order
+         - When it is marshaled, decoded, and marshaled again
+         - Then the frame sequence is unchanged, while reversing the input frames produces different canonical bytes and a different digest.
+    status: pass
+    evidence: |
+      normalizeMap clones and sorts only keyed collections; it leaves Evidence.frames
+      untouched at go/internal/artifactio/stdlibmap.go:72-82. The round-trip,
+      byte-sensitivity, and digest-sensitivity assertions are in
+      go/internal/artifactio/stdlibmap_test.go:15-69. The RED/GREEN evidence for
+      this behavior is recorded in the task work log at
+      .agents/scratchpad/2026-08-04-compositional-component-analysis/step03/task-08-preserve-and-validate-stdlib-map-semantics/work.log:34-54.
+
+  - text: |
+      2. **Init inventory is complete**
+         - Given a map package inventory
+         - When an importable package lacks its single terminal init record, a package has duplicate init records, or a non-importable package has an init record
+         - Then marshal and decode fail with an actionable inventory error.
+    status: pass
+    evidence: |
+      validateMap rejects duplicate or non-importable init records while scanning
+      at go/internal/artifactio/stdlibmap.go:201-216 and then rejects every missing
+      init for an importable package at :218-225. Marshal missing-init and
+      non-importable-init cases plus DecodeMap missing-init are exercised at
+      go/internal/artifactio/stdlibmap_test.go:75-91; the existing duplicate-init
+      assertion remains at go/internal/artifactio/artifactio_test.go:153-166.
+
+  - text: |
+      3. **Evidence inventory is complete**
+         - Given a capability-bearing symbol
+         - When any listed capability lacks exactly one non-empty evidence path, or evidence names an absent/non-capability symbol or capability
+         - Then marshal and decode fail closed with an actionable evidence error.
+    status: pass
+    evidence: |
+      validateMap rejects nil frames, duplicate/unmatched evidence, empty paths,
+      and missing evidence for each CAPABILITIES symbol at
+      go/internal/artifactio/stdlibmap.go:227-279. Empty-path and DecodeMap
+      missing-evidence cases are exercised at
+      go/internal/artifactio/stdlibmap_test.go:94-113, while absent symbols,
+      non-CAPABILITIES symbols, and unsupported capabilities remain covered at
+      go/internal/artifactio/rework_test.go:212-238. The task work log records the
+      corresponding failing and passing runs at
+      .agents/scratchpad/2026-08-04-compositional-component-analysis/step03/task-08-preserve-and-validate-stdlib-map-semantics/work.log:34-54.
+
+  - text: |
+      4. **Keyed collections remain deterministic**
+         - Given semantically equivalent maps with keyed collections and capability sets in different orders
+         - When marshaled
+         - Then their bytes remain identical without treating ordered frame paths as sets.
+    status: pass
+    evidence: |
+      Keyed package, symbol, init, evidence-entry, build-tag, and capability
+      collections are cloned and sorted at go/internal/artifactio/stdlibmap.go:73-94,
+      while the adjacent comment explicitly preserves frame order at :81-82.
+      Reordered keyed inputs with identical ordered frame paths are compared in
+      go/internal/artifactio/rework_test.go:52-89 and
+      go/internal/artifactio/artifactio_test.go:115-141.
+
+  - text: |
+      5. **Integration remains green**
+         - Given the strengthened validator and corrected canonicalizer
+         - When `just ci` runs
+         - Then all tests and self-checks pass and no Step 4 producer/cache/lookup behavior has been introduced.
+    status: pass
+    evidence: |
+      The task work log records a successful `just ci`, including go vet, gofmt,
+      native tests, integration tests, self-checks, Bazel build, and 81 Bazel test
+      targets, at
+      .agents/scratchpad/2026-08-04-compositional-component-analysis/step03/task-08-preserve-and-validate-stdlib-map-semantics/work.log:60-283.
+      The complete jj diff contains only the artifactio implementation and test
+      files, so no Step 4 producer/cache/CLI/lookup code was introduced.
+
+findings:
+  - severity: important
+    category: tests
+    file: go/internal/artifactio/BUILD.bazel
+    line: 33
+    title: "Bazel artifactio test omits the new stdlib-map tests"
+    details: |
+      The go_test target uses an explicit srcs list at
+      go/internal/artifactio/BUILD.bazel:32-37 containing artifactio_test.go,
+      decode_test.go, rework_test.go, and write_test.go, but not the newly added
+      go/internal/artifactio/stdlibmap_test.go:1-114. `bazel query --output=build
+      //go/internal/artifactio:artifactio_test` confirmed that source list, and
+      `bazel test //go/internal/artifactio:artifactio_test` passed without
+      compiling the new file. The native `go test ./...` leg does include it, but
+      the independent Bazel leg described by justfile:69-75 has a coverage hole
+      for the new frame-order and inventory regressions.
+    suggested_action: |
+      Add "stdlibmap_test.go" to the srcs list of the artifactio_test go_test
+      target, then rerun the focused Bazel target and `just ci`.
+    source: built-in
+
+  - severity: suggestion
+    category: tests
+    file: go/internal/artifactio/stdlibmap_test.go
+    line: 99
+    title: "Missing-evidence marshal case currently creates a duplicate"
+    details: |
+      mapWithFullInventory already contains an evidence entry for
+      (os.File).Read/READ_SYSTEM_STATE. The case at
+      go/internal/artifactio/stdlibmap_test.go:98-101 appends another entry with
+      the same key, so it exercises the pre-existing duplicate branch at
+      go/internal/artifactio/stdlibmap.go:237-240 rather than MarshalMap's new
+      missing-evidence check. The DecodeMap case at :110-112 does cover a truly
+      missing entry, so this is a test-quality gap rather than an implementation
+      failure.
+    suggested_action: |
+      Remove one existing evidence entry (or construct a fixture with only one
+      of the two required capabilities) before calling MarshalMap, and assert
+      the resulting missing-capability evidence error.
+    source: built-in
+
+ecosystem_reviews: []

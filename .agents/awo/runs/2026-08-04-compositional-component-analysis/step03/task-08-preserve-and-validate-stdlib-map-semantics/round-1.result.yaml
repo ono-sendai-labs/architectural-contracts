@@ -1,0 +1,61 @@
+result:
+  task_file: .agents/tasks/2026-08-04-compositional-component-analysis/step03/task-08-preserve-and-validate-stdlib-map-semantics.code-task.md
+  change_id: xpnmwqpm
+  status: completed
+  schema_version: 2
+  produced_at: 2026-09-04T19:55:00Z
+
+acceptance_criteria:
+  - text: "Evidence path order is preserved"
+    addressed: yes
+    evidence: |
+      normalizeMap leaves Evidence.frames untouched (go/internal/artifactio/stdlibmap.go);
+      TestMapPreservesEvidenceFrameOrder in go/internal/artifactio/stdlibmap_test.go
+      asserts round-trip order preservation plus different bytes/digest for reversed
+      frames. The file is now also compiled by the Bazel leg (BUILD.bazel srcs).
+  - text: "Init inventory is complete"
+    addressed: yes
+    evidence: |
+      validateMap requires exactly one init per importable package and none for
+      non-importable packages; covered by TestMapRequiresCompleteInitInventory and
+      TestMarshalRejectsDuplicateKeys. Included in both the native and Bazel test legs.
+  - text: "Evidence inventory is complete"
+    addressed: yes
+    evidence: |
+      validateMap requires one non-empty evidence path per capability of every
+      CAPABILITIES symbol and rejects unmatched evidence. TestMapRequiresCompleteEvidenceInventory
+      now exercises the missing-evidence completeness check by dropping one required
+      entry (rework finding fixed); empty-path, foreign-symbol, and capability-mismatch
+      cases remain covered by TestMapEvidenceValidation.
+  - text: "Keyed collections remain deterministic"
+    addressed: yes
+    evidence: |
+      Keyed sorts unchanged at go/internal/artifactio/stdlibmap.go;
+      TestMapCanonicalizesEveryRepeatedField and TestMarshalMapCanonicalBytes pin
+      byte-identical output for reordered keyed collections with ordered frame paths.
+  - text: "Integration remains green"
+    addressed: yes
+    evidence: |
+      just ci exits 0 after the rework change, including the focused
+      //go/internal/artifactio:artifactio_test Bazel target now compiling
+      stdlibmap_test.go (verified with bazel query --output=build, recorded in
+      work.log). No Step 4 producer/cache/CLI/lookup code introduced; the rework
+      change (xpnmwqpm) touches only BUILD.bazel and stdlibmap_test.go.
+
+artifacts:
+  scratchpad_dir: .agents/scratchpad/2026-08-04-compositional-component-analysis/step03/task-08-preserve-and-validate-stdlib-map-semantics/
+  files:
+    - context.md
+    - plan.md
+    - progress.md
+    - review.yaml
+    - work.log
+    - result.yaml
+
+notes: |
+  Rework round 1: added stdlibmap_test.go to the artifactio_test Bazel srcs so the
+  hermetic leg compiles the new regressions, and fixed the marshal-side
+  missing-evidence case to drop a required evidence entry instead of appending a
+  duplicate. Focused Bazel target, native tests, go vet/gofmt, and full just ci all
+  pass. Fresh child change xpnmwqpm; the original implementation change lqzqrrty is
+  untouched.

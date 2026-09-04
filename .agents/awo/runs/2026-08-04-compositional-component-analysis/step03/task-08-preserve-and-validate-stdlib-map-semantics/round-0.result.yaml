@@ -1,0 +1,61 @@
+result:
+  task_file: .agents/tasks/2026-08-04-compositional-component-analysis/step03/task-08-preserve-and-validate-stdlib-map-semantics.code-task.md
+  change_id: lqzqrrty
+  status: completed
+  schema_version: 2
+  produced_at: 2026-09-04T12:20:00Z
+
+acceptance_criteria:
+  - text: "Evidence path order is preserved"
+    addressed: yes
+    evidence: |
+      normalizeMap no longer sorts Evidence.frames (go/internal/artifactio/stdlibmap.go,
+      compareFrames deleted). TestMapPreservesEvidenceFrameOrder
+      (go/internal/artifactio/stdlibmap_test.go) round-trips marshal→decode→marshal
+      and asserts the frame sequence is unchanged; reversing the input frames yields
+      different canonical bytes and a different MapDigest (all asserted in the test).
+  - text: "Init inventory is complete"
+    addressed: yes
+    evidence: |
+      validateMap requires every importable package to have exactly one terminal init
+      and rejects inits for non-importable packages (stdlibmap.go). TestMapRequiresCompleteInitInventory
+      covers missing-init marshal/decode and non-importable init; duplicate init
+      rejection remains covered by TestMarshalRejectsDuplicateKeys.
+  - text: "Evidence inventory is complete"
+    addressed: yes
+    evidence: |
+      validateMap requires each capability of every CAPABILITIES symbol to have exactly
+      one evidence entry with a non-empty path and rejects unmatched evidence.
+      TestMapRequiresCompleteEvidenceInventory covers missing evidence (marshal+decode)
+      and empty paths; unmatched/foreign/capability-mismatch evidence remains covered by
+      TestMapEvidenceValidation and TestMarshalRejectsNilRepeatedEntries.
+  - text: "Keyed collections remain deterministic"
+    addressed: yes
+    evidence: |
+      TestMapCanonicalizesEveryRepeatedField (rework_test.go) still asserts
+      byte-identical output for reordered packages/symbols/inits/build tags/capabilities
+      while keeping frame sequences identical, and TestMarshalMapCanonicalBytes /
+      TestMapDigestEquivalence pin keyed determinism and digest equivalence.
+  - text: "Integration remains green"
+    addressed: yes
+    evidence: |
+      just ci exits 0: all 81 Bazel targets pass (including artifactio_test and
+      artifactio_component.check), go vet and gofmt clean, generation cleanliness
+      (pb.go diff) clean. No Step 4 producer/cache/CLI/lookup code was touched — the
+      commit (lqzqrrty) modifies only go/internal/artifactio/stdlibmap.go and its tests.
+
+artifacts:
+  scratchpad_dir: .agents/scratchpad/2026-08-04-compositional-component-analysis/step03/task-08-preserve-and-validate-stdlib-map-semantics/
+  files:
+    - context.md
+    - plan.md
+    - progress.md
+    - work.log
+    - result.yaml
+
+notes: |
+  Implemented F2 remediation: evidence frame order is now semantic (never sorted,
+  digest-significant) and validateMap enforces total init and evidence inventories.
+  TDD followed RED→GREEN with three new tests and fixture/comment updates replacing
+  the frame-reorder equivalence assumption. Full CI passes; committed as lqzqrrty
+  with an empty working copy.
