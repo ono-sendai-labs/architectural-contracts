@@ -119,7 +119,10 @@ func TestStdlibMapReaderLookups(t *testing.T) {
 		})
 	}
 	t.Run("absent init", func(t *testing.T) {
-		_, err := reader.PackageInitAuthority("example.com/x")
+		got, err := reader.PackageInitAuthority("example.com/x")
+		if got.Validate() == nil {
+			t.Errorf("PackageInitAuthority(example.com/x) gap classification %+v must be invalid (never SAFE)", got)
+		}
 		if !errors.Is(err, stdlibauthority.ErrInventoryGap) {
 			t.Fatalf("err = %v, want ErrInventoryGap", err)
 		}
@@ -128,6 +131,47 @@ func TestStdlibMapReaderLookups(t *testing.T) {
 			t.Errorf("gap error = %v, want Package=example.com/x", err)
 		}
 	})
+}
+
+// TestStdlibMapReaderCanonicalizesCapabilities pins review finding
+// "reader does not enforce sorted capability sets": a valid in-memory record
+// whose capability list is unsorted is indexed canonically — lookups return
+// the sorted set — and the classification passes the core terminal
+// validation.
+func TestStdlibMapReaderCanonicalizesCapabilities(t *testing.T) {
+	m := mapWithFullInventory()
+	m.Symbols[1].Capabilities = []string{"READ_SYSTEM_STATE", "FILES"}
+	reader, err := NewStdlibMapReader(m, expectedKeyPtr())
+	if err != nil {
+		t.Fatalf("NewStdlibMapReader: %v", err)
+	}
+	got, err := reader.SymbolAuthority(symbol.SymbolID("(os.File).Read"))
+	if err != nil {
+		t.Fatalf("SymbolAuthority: %v", err)
+	}
+	if err := got.Validate(); err != nil {
+		t.Errorf("returned classification not canonical: %v", err)
+	}
+	if strings.Join(got.Capabilities, ",") != "FILES,READ_SYSTEM_STATE" {
+		t.Errorf("capabilities = %v, want sorted [FILES READ_SYSTEM_STATE]", got.Capabilities)
+	}
+}
+
+// TestStdlibMapReaderKeyIsDefensiveCopy pins review finding "Key exposes
+// mutable build-tag storage": mutating a returned key's tags must not change
+// subsequent Key() observations.
+func TestStdlibMapReaderKeyIsDefensiveCopy(t *testing.T) {
+	reader, err := NewStdlibMapReader(mapWithFullInventory(), expectedKeyPtr())
+	if err != nil {
+		t.Fatalf("NewStdlibMapReader: %v", err)
+	}
+	key := reader.Key()
+	key.BuildTags[0] = "mutated"
+	key.BuildTags = append(key.BuildTags, "extra")
+	again := reader.Key()
+	if strings.Join(again.BuildTags, ",") != "a,b" {
+		t.Errorf("mutated returned key leaked into adapter state: %v", again.BuildTags)
+	}
 }
 
 // TestStdlibMapReaderEvidenceOrderAndCopies pins AC4's evidence half: frame
@@ -274,9 +318,17 @@ func TestStdlibMapReaderKeyMismatch(t *testing.T) {
 	})
 }
 
-// mustSymErr returns the error from SymbolAuthority for one symbol text.
+// mustSymErr returns the error from SymbolAuthority for one symbol text,
+// after asserting the returned classification is the invalid zero value —
+// never SAFE (AC2's fail-closed property).
 func mustSymErr(t *testing.T, r stdlibauthority.StdlibAuthority, text string) error {
 	t.Helper()
-	_, err := r.SymbolAuthority(symbol.SymbolID(text))
+	got, err := r.SymbolAuthority(symbol.SymbolID(text))
+	if err == nil && got.Validate() == nil {
+		t.Errorf("SymbolAuthority(%s) returned terminal classification %+v alongside no error; a gap must never read as SAFE", text, got)
+	}
+	if got.Validate() == nil {
+		t.Errorf("SymbolAuthority(%s) gap classification %+v must be invalid (never SAFE)", text, got)
+	}
 	return err
 }

@@ -109,7 +109,12 @@ func classificationFromProto(class gen.Classification, capabilities []string) st
 	case gen.Classification_SAFE:
 		return stdlibauthority.Classification{Safe: true}
 	case gen.Classification_CAPABILITIES:
-		return stdlibauthority.Classification{Capabilities: slices.Clone(capabilities)}
+		// The persisted record passed validateMap, which rejects empty,
+		// duplicate, and unknown capability names; canonicalize the clone to
+		// the sorted form the core terminal model requires.
+		caps := slices.Clone(capabilities)
+		slices.Sort(caps)
+		return stdlibauthority.Classification{Capabilities: caps}
 	case gen.Classification_UNANALYZED:
 		return stdlibauthority.Classification{Unanalyzed: true}
 	default:
@@ -168,8 +173,12 @@ func (r *stdlibMapReader) Evidence(id symbol.SymbolID, cap stdlibauthority.Capab
 }
 
 // Key implements the port: the target SDK configuration the map describes.
+// The build-tag slice is a defensive copy, so callers cannot mutate the
+// reader's key state.
 func (r *stdlibMapReader) Key() stdlibauthority.SDKKey {
-	return r.key
+	key := r.key
+	key.BuildTags = slices.Clone(key.BuildTags)
+	return key
 }
 
 // symbolKey builds the reader's symbol index key from a SymbolID and its

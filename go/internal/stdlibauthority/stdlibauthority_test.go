@@ -1,9 +1,11 @@
-package stdlibauthority
+package stdlibauthority_test
 
 import (
 	"errors"
 	"strings"
 	"testing"
+
+	"github.com/ono-sendai-labs/architectural-contracts/go/internal/stdlibauthority"
 )
 
 // TestValidateClassification pins the terminal-classification contract (DR-05):
@@ -12,18 +14,20 @@ import (
 func TestValidateClassification(t *testing.T) {
 	for _, tc := range []struct {
 		name    string
-		class   Classification
+		class   stdlibauthority.Classification
 		wantErr string
 	}{
-		{"safe", Classification{Safe: true}, ""},
-		{"capabilities", Classification{Capabilities: []Capability{"FILES"}}, ""},
-		{"unanalyzed", Classification{Unanalyzed: true}, ""},
-		{"empty zero value", Classification{}, "no terminal state"},
-		{"safe and capabilities", Classification{Safe: true, Capabilities: []Capability{"FILES"}}, "exactly one"},
-		{"safe and unanalyzed", Classification{Safe: true, Unanalyzed: true}, "exactly one"},
-		{"capabilities and unanalyzed", Classification{Unanalyzed: true, Capabilities: []Capability{"FILES"}}, "exactly one"},
-		{"empty capability set", Classification{Capabilities: []Capability{}}, "no terminal state"},
-		{"all three", Classification{Safe: true, Unanalyzed: true, Capabilities: []Capability{"FILES"}}, "exactly one"},
+		{"safe", stdlibauthority.Classification{Safe: true}, ""},
+		{"capabilities", stdlibauthority.Classification{Capabilities: []stdlibauthority.Capability{"FILES"}}, ""},
+		{"unanalyzed", stdlibauthority.Classification{Unanalyzed: true}, ""},
+		{"empty zero value", stdlibauthority.Classification{}, "no terminal state"},
+		{"safe and capabilities", stdlibauthority.Classification{Safe: true, Capabilities: []stdlibauthority.Capability{"FILES"}}, "exactly one"},
+		{"safe and unanalyzed", stdlibauthority.Classification{Safe: true, Unanalyzed: true}, "exactly one"},
+		{"capabilities and unanalyzed", stdlibauthority.Classification{Unanalyzed: true, Capabilities: []stdlibauthority.Capability{"FILES"}}, "exactly one"},
+		{"empty capability set", stdlibauthority.Classification{Capabilities: []stdlibauthority.Capability{}}, "no terminal state"},
+		{"unsorted capabilities", stdlibauthority.Classification{Capabilities: []stdlibauthority.Capability{"READ_SYSTEM_STATE", "FILES"}}, "sorted"},
+		{"duplicate capabilities", stdlibauthority.Classification{Capabilities: []stdlibauthority.Capability{"FILES", "FILES"}}, "duplicate-free"},
+		{"all three", stdlibauthority.Classification{Safe: true, Unanalyzed: true, Capabilities: []stdlibauthority.Capability{"FILES"}}, "exactly one"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			err := tc.class.Validate()
@@ -44,7 +48,7 @@ func TestValidateClassification(t *testing.T) {
 // EqualKeys lists exactly the mismatched fields, equal keys list nothing, and
 // String is deterministic over sorted build tags.
 func TestSDKKeyEqualKeysAndString(t *testing.T) {
-	base := SDKKey{
+	base := stdlibauthority.SDKKey{
 		ToolchainVersion: "go1.26.4",
 		GOOS:             "linux",
 		GOARCH:           "amd64",
@@ -54,32 +58,32 @@ func TestSDKKeyEqualKeysAndString(t *testing.T) {
 		ClassifierHash:   "abc123",
 		MapFormatVersion: 1,
 	}
-	if fields := EqualKeys(base, base); len(fields) != 0 {
-		t.Errorf("EqualKeys(base, base) = %v, want empty", fields)
+	if fields := stdlibauthority.EqualKeys(base, base); len(fields) != 0 {
+		t.Errorf("stdlibauthority.EqualKeys(base, base) = %v, want empty", fields)
 	}
 
 	for _, tc := range []struct {
 		name  string
-		mut   func(*SDKKey)
+		mut   func(*stdlibauthority.SDKKey)
 		field string
 	}{
-		{"toolchain", func(k *SDKKey) { k.ToolchainVersion = "go1.26.5" }, "toolchain_version"},
-		{"goos", func(k *SDKKey) { k.GOOS = "darwin" }, "goos"},
-		{"goarch", func(k *SDKKey) { k.GOARCH = "arm64" }, "goarch"},
-		{"cgo", func(k *SDKKey) { k.CgoEnabled = false }, "cgo_enabled"},
-		{"build tags", func(k *SDKKey) { k.BuildTags = []string{"a", "c"} }, "build_tags"},
-		{"goexperiment", func(k *SDKKey) { k.GOEXPERIMENT = "greenteagc" }, "goexperiment"},
-		{"classifier hash", func(k *SDKKey) { k.ClassifierHash = "def456" }, "classifier_hash"},
-		{"map format", func(k *SDKKey) { k.MapFormatVersion = 2 }, "map_format_version"},
+		{"toolchain", func(k *stdlibauthority.SDKKey) { k.ToolchainVersion = "go1.26.5" }, "toolchain_version"},
+		{"goos", func(k *stdlibauthority.SDKKey) { k.GOOS = "darwin" }, "goos"},
+		{"goarch", func(k *stdlibauthority.SDKKey) { k.GOARCH = "arm64" }, "goarch"},
+		{"cgo", func(k *stdlibauthority.SDKKey) { k.CgoEnabled = false }, "cgo_enabled"},
+		{"build tags", func(k *stdlibauthority.SDKKey) { k.BuildTags = []string{"a", "c"} }, "build_tags"},
+		{"goexperiment", func(k *stdlibauthority.SDKKey) { k.GOEXPERIMENT = "greenteagc" }, "goexperiment"},
+		{"classifier hash", func(k *stdlibauthority.SDKKey) { k.ClassifierHash = "def456" }, "classifier_hash"},
+		{"map format", func(k *stdlibauthority.SDKKey) { k.MapFormatVersion = 2 }, "map_format_version"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			other := base
 			tc.mut(&other)
-			fields := EqualKeys(base, other)
+			fields := stdlibauthority.EqualKeys(base, other)
 			if len(fields) != 1 || fields[0] != tc.field {
 				t.Errorf("EqualKeys = %v, want [%s]", fields, tc.field)
 			}
-			if !errors.Is(&KeyMismatchError{Fields: fields}, ErrKeyMismatch) {
+			if !errors.Is(&stdlibauthority.KeyMismatchError{Fields: fields}, stdlibauthority.ErrKeyMismatch) {
 				t.Errorf("fields %v do not report as ErrKeyMismatch", fields)
 			}
 		})

@@ -66,8 +66,9 @@ type Classification struct {
 
 // Validate reports whether c is exactly one terminal state. An empty value,
 // any combination of states, or a capability set alongside Safe/Unanalyzed is
-// rejected; empty and non-empty capability sets are distinguished so the
-// zero value can never read as an (empty) SAFE.
+// rejected; a capability set must additionally be sorted and duplicate-free
+// (the persisted canonical form), so the zero value can never read as an
+// (empty) SAFE.
 func (c Classification) Validate() error {
 	states := 0
 	if c.Safe {
@@ -84,6 +85,14 @@ func (c Classification) Validate() error {
 	}
 	if states != 1 {
 		return fmt.Errorf("classification must name exactly one terminal state (SAFE, capabilities, or UNANALYZED); got %d", states)
+	}
+	for i, cap := range c.Capabilities {
+		if i > 0 && cap <= c.Capabilities[i-1] {
+			if cap == c.Capabilities[i-1] {
+				return fmt.Errorf("classification capabilities must be duplicate-free; %q appears twice", cap)
+			}
+			return fmt.Errorf("classification capabilities must be sorted: %q after %q", cap, c.Capabilities[i-1])
+		}
 	}
 	return nil
 }

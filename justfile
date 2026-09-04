@@ -36,7 +36,8 @@ run *args:
 # Self-check leg relationship:
 # The Bazel `.check` targets run by `bazel test //...` (in //go/internal/...)
 # correspond one-to-one with the pure components checked here:
-#   capanalyzer, symbol, facts, report, checker, manifest, goanalysis.
+#   capanalyzer, symbol, stdlibauthority, facts, report, checker, manifest,
+#   goanalysis, artifactio.
 #
 # The other two components — capslockadapter and cli — are native-only because
 # capslock's closure contains golang.org/x/sys/unix built with cgo. The Bazel
