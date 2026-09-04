@@ -1,0 +1,27 @@
+load("@rules_arcc//bazel_rules/go:defs.bzl", "go_component")
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "stdlibauthority",
+    srcs = ["stdlibauthority.go"],
+    importpath = "github.com/ono-sendai-labs/architectural-contracts/go/internal/stdlibauthority",
+    visibility = ["//go:__subpackages__"],
+    deps = ["//go/internal/symbol"],
+)
+
+go_test(
+    name = "stdlibauthority_test",
+    size = "small",
+    srcs = ["stdlibauthority_test.go"],
+    embed = [":stdlibauthority"],
+)
+
+# Mirrors the checked-in stdlibauthority/component.textproto.
+go_component(
+    name = "stdlibauthority_component",
+    interface = ":stdlibauthority",
+    component_deps = ["//go/internal/symbol:symbol_component"],
+    visibility = ["//go:__subpackages__"],
+)
+
+exports_files(["component.textproto"])

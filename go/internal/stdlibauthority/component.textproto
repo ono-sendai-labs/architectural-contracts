@@ -1,0 +1,7 @@
+name: "stdlibauthority"
+interface_files: "stdlibauthority.go"
+members: "github.com/ono-sendai-labs/architectural-contracts/go/internal/stdlibauthority"
+component_dependencies {
+  name: "symbol"
+  manifest: "../symbol/component.textproto"
+}
