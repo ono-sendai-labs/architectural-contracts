@@ -23,6 +23,8 @@ go_test(
     name = "symbol_test",
     size = "small",
     srcs = [
+        "capslock_corpus_test.go",
+        "capslock_inventory_test.go",
         "capslock_test.go",
         "extract_test.go",
         "symbol_test.go",
