@@ -41,6 +41,25 @@ func validMap() *gen.StdlibMap {
 		},
 		Inits: []*gen.InitRecord{
 			{Package: "bytes", Classification: gen.Classification_SAFE},
+			{Package: "os", Classification: gen.Classification_SAFE},
+		},
+		Evidence: []*gen.Evidence{
+			{
+				SymbolId:   "(os.File).Read",
+				Capability: "FILES",
+				Frames: []*gen.Frame{
+					{Function: "(os.File).Read", File: "file_io.go", Line: 1},
+					{Function: "os.Open", File: "file.go", Line: 2},
+				},
+			},
+			{
+				SymbolId:   "(os.File).Read",
+				Capability: "READ_SYSTEM_STATE",
+				Frames: []*gen.Frame{
+					{Function: "(os.File).Read", File: "file_io.go", Line: 1},
+					{Function: "os.Getenv", File: "env.go", Line: 3},
+				},
+			},
 		},
 	}
 }

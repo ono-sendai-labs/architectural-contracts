@@ -78,9 +78,8 @@ func normalizeMap(m *gen.StdlibMap) (*gen.StdlibMap, error) {
 		return strings.Compare(a.Package, b.Package)
 	})
 	slices.SortFunc(c.Evidence, compareEvidence)
-	for _, e := range c.Evidence {
-		slices.SortFunc(e.Frames, compareFrames)
-	}
+	// Evidence.frames is an ordered caller-to-capability path (DR-17), not a
+	// keyed set: frame order is semantic and must not be sorted.
 	if c.Key != nil {
 		c.Key.BuildTags = slices.Clone(c.Key.BuildTags)
 		slices.Sort(c.Key.BuildTags)
@@ -112,18 +111,6 @@ func compareEvidence(a, b *gen.Evidence) int {
 		return c
 	}
 	return strings.Compare(a.Capability, b.Capability)
-}
-
-// compareFrames orders evidence frames by (function, file, line) so evidence
-// paths canonicalize regardless of the order the generator recorded them in.
-func compareFrames(a, b *gen.Frame) int {
-	if c := strings.Compare(a.Function, b.Function); c != 0 {
-		return c
-	}
-	if c := strings.Compare(a.File, b.File); c != 0 {
-		return c
-	}
-	return int(a.Line) - int(b.Line)
 }
 
 // symPackage returns the package path embedded in a SymbolID's text, using the
@@ -228,6 +215,15 @@ func validateMap(m *gen.StdlibMap) error {
 		}
 	}
 
+	// The init inventory is total (I3): every importable package was required
+	// to have exactly one init above, and non-importable packages were
+	// rejected, so only the missing-init direction remains.
+	for path, imp := range importable {
+		if imp && !initSeen[path] {
+			return fmt.Errorf("importable package %q has no init record; the init inventory must be total", path)
+		}
+	}
+
 	evSeen := make(map[string]bool, len(m.Evidence))
 	for _, e := range m.Evidence {
 		if e == nil {
@@ -246,6 +242,9 @@ func validateMap(m *gen.StdlibMap) error {
 		if !schema.KnownCapabilities[e.Capability] {
 			return fmt.Errorf("evidence capability %q is not a known capability", e.Capability)
 		}
+		if len(e.Frames) == 0 {
+			return fmt.Errorf("evidence for (%s, %s) has an empty path; a persisted evidence entry needs at least one frame", e.SymbolId, e.Capability)
+		}
 		if _, err := symbol.Parse(e.SymbolId); err != nil {
 			return fmt.Errorf("evidence symbol %q: %w", e.SymbolId, err)
 		}
@@ -262,6 +261,20 @@ func validateMap(m *gen.StdlibMap) error {
 		}
 		if !slices.Contains(record.Capabilities, e.Capability) {
 			return fmt.Errorf("evidence capability %q is not among the capabilities of %q", e.Capability, e.SymbolId)
+		}
+	}
+
+	// The evidence inventory is total (DR-17): every capability of every
+	// CAPABILITIES symbol has exactly one evidence entry; duplicates were
+	// rejected above, so only the missing direction remains.
+	for _, s := range m.Symbols {
+		if s.Classification != gen.Classification_CAPABILITIES {
+			continue
+		}
+		for _, c := range s.Capabilities {
+			if !evSeen[s.Id+"\x00"+c] {
+				return fmt.Errorf("capability %q of symbol %q has no evidence entry; the evidence inventory must cover every capability", c, s.Id)
+			}
 		}
 	}
 	return nil

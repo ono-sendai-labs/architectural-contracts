@@ -30,13 +30,25 @@ func mapWithFullInventory() *gen.StdlibMap {
 				{Function: "g", File: "b.go", Line: 2},
 			},
 		},
+		{
+			SymbolId:   "(os.File).Read",
+			Capability: "READ_SYSTEM_STATE",
+			Frames: []*gen.Frame{
+				{Function: "h", File: "c.go", Line: 3},
+				{Function: "f", File: "a.go", Line: 1},
+				{Function: "g", File: "b.go", Line: 2},
+			},
+		},
 	}
 	return m
 }
 
 // TestMapCanonicalizesEveryRepeatedField pins rework finding "tests omit
-// frames and map immutability": reordered inits, build tags, evidence, and
-// frames canonicalize to identical bytes, and the input map is not mutated.
+// frames and map immutability": reordered inits, build tags, evidence entries,
+// and capabilities canonicalize to identical bytes (frame paths are ordered
+// sequences, not keyed sets, so entry order within one evidence list is
+// preserved — see TestMapPreservesEvidenceFrameOrder), and the input map is
+// not mutated.
 func TestMapCanonicalizesEveryRepeatedField(t *testing.T) {
 	a := mapWithFullInventory()
 	b := mapWithFullInventory()
@@ -53,11 +65,20 @@ func TestMapCanonicalizesEveryRepeatedField(t *testing.T) {
 	b.Evidence = []*gen.Evidence{
 		{
 			SymbolId:   "(os.File).Read",
+			Capability: "READ_SYSTEM_STATE",
+			Frames: []*gen.Frame{
+				{Function: "h", File: "c.go", Line: 3},
+				{Function: "f", File: "a.go", Line: 1},
+				{Function: "g", File: "b.go", Line: 2},
+			},
+		},
+		{
+			SymbolId:   "(os.File).Read",
 			Capability: "FILES",
 			Frames: []*gen.Frame{
-				{Function: "g", File: "b.go", Line: 2},
-				{Function: "f", File: "a.go", Line: 1},
 				{Function: "h", File: "c.go", Line: 3},
+				{Function: "f", File: "a.go", Line: 1},
+				{Function: "g", File: "b.go", Line: 2},
 			},
 		},
 	}
@@ -182,30 +203,36 @@ func TestMapRejectsNonImportableAndMismatchedRecords(t *testing.T) {
 	}
 }
 
+// evidenceFrame returns one concrete frame so evidence fixtures carry a
+// non-empty path, as required of persisted evidence.
+func evidenceFrame() *gen.Frame {
+	return &gen.Frame{Function: "f", File: "a.go", Line: 1}
+}
+
 // TestMapEvidenceValidation pins rework finding "evidence symbol IDs are not
 // validated": evidence IDs must parse, name the recorded package, and attach
 // to a CAPABILITIES record listing the evidence capability.
 func TestMapEvidenceValidation(t *testing.T) {
 	m := validMap()
-	m.Evidence = []*gen.Evidence{{SymbolId: "not a symbol", Capability: "FILES"}}
+	m.Evidence = []*gen.Evidence{{SymbolId: "not a symbol", Capability: "FILES", Frames: []*gen.Frame{evidenceFrame()}}}
 	if _, err := MarshalMap(m); err == nil || !strings.Contains(err.Error(), "symbol") {
 		t.Errorf("malformed evidence symbol ID: err = %v, want symbol error", err)
 	}
 
 	m = validMap()
-	m.Evidence = []*gen.Evidence{{SymbolId: "bytes.Buffer", Capability: "FILES"}}
+	m.Evidence = []*gen.Evidence{{SymbolId: "bytes.Buffer", Capability: "FILES", Frames: []*gen.Frame{evidenceFrame()}}}
 	if _, err := MarshalMap(m); err == nil || !strings.Contains(err.Error(), "CAPABILITIES") {
 		t.Errorf("evidence against a non-CAPABILITIES symbol: err = %v, want CAPABILITIES rejection", err)
 	}
 
 	m = validMap()
-	m.Evidence = []*gen.Evidence{{SymbolId: "(os.File).Read", Capability: "EXEC"}}
+	m.Evidence = []*gen.Evidence{{SymbolId: "(os.File).Read", Capability: "EXEC", Frames: []*gen.Frame{evidenceFrame()}}}
 	if _, err := MarshalMap(m); err == nil || !strings.Contains(err.Error(), "capability") {
 		t.Errorf("evidence capability absent from the record: err = %v, want capability rejection", err)
 	}
 
 	m = validMap()
-	m.Evidence = []*gen.Evidence{{SymbolId: "(bytes.Buffer).Read", Capability: "FILES"}}
+	m.Evidence = []*gen.Evidence{{SymbolId: "(bytes.Buffer).Read", Capability: "FILES", Frames: []*gen.Frame{evidenceFrame()}}}
 	if _, err := MarshalMap(m); err == nil || !strings.Contains(err.Error(), "absent from the inventory") {
 		t.Errorf("evidence symbol from a foreign package: err = %v, want package rejection", err)
 	}
