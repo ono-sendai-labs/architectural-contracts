@@ -1,3 +1,6 @@
+// Stdlib map reader: converts the persisted stdlib authority map (DR-05) into
+// the core-side stdlibauthority.StdlibAuthority port. Decoding stays in this
+// shell (the package's FR10 contract applies); the port itself is pure core.
 package artifactio
 
 import (
