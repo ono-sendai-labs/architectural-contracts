@@ -43,6 +43,13 @@ func TestParseCapslock_Convergence(t *testing.T) {
 		{"struct literal type argument", "example.com/store.Load[struct{A int; B string}]", "example.com/store.Load"},
 		{"interface literal type argument", "example.com/store.Load[interface{M(); N(x int) string}]", "example.com/store.Load"},
 		{"pointer receiver with map type argument", "(*example.com/store.Box[map[string]int]).Get", "(example.com/store.Box).Get"},
+		{"digit-leading path element type argument", "store.Load[example.com/2x.T]", "store.Load"},
+		{"qualified unnamed parameter type argument", "store.Load[func(example.com/x.T)]", "store.Load"},
+		{"named variadic parameter type argument", "store.Load[func(x ...int)]", "store.Load"},
+		{"qualified embedded struct field type argument", "store.Load[struct{example.com/x.T}]", "store.Load"},
+		{"qualified interface method parameter type argument", "store.Load[interface{M(example.com/x.T) string}]", "store.Load"},
+		{"and-not constant-expression length type argument", "store.Load[[N &^ 3]byte]", "store.Load"},
+		{"parenthesized single type argument", "store.Load[(int)]", "store.Load"},
 		{"stdlib method on generic alias", "(sync/atomic.Pointer[example.com/x.T]).Load", ""},
 		{"init", "os.init", "os.init"},
 	}
@@ -116,7 +123,11 @@ func TestParseCapslock_Rejected(t *testing.T) {
 		{"variadic parameter not last", "store.Load[func(...int, string)]"},
 		{"repeated trailing bracket groups", "store.Load[example.com/x.T][int]"},
 		{"bracketed receiver type glued to name", "(example.com/store.A[example.com/x.T]B).Get"},
-		{"digit-leading path element type argument", "store.Load[example.com/2x.T]"},
+		{"tuple type argument", "store.Load[(int, string)]"},
+		{"named-list type argument", "store.Load[(x int)]"},
+		{"variadic parameter not final in func type argument", "store.Load[func(x ...int, string)]"},
+		{"package path without type name", "store.Load[example.com/x]"},
+		{"bare digit-leading identifier", "store.Load[2x.T]"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
