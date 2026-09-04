@@ -1,0 +1,99 @@
+review:
+  task_file: .agents/tasks/2026-08-04-compositional-component-analysis/step03/task-06-add-canonical-namespace-policy.code-task.md
+  change_id: ywxyyvvzlnyykrtszokknpuzxokkspyp
+  reviewed_at: 2026-09-04T05:51:50Z
+  verdict: approved
+  schema_version: 2
+  lsp_coverage: unavailable
+
+merge_request:
+  title: "feat(hostpolicy): add canonical namespace policy [Compositional Analysis: Step 03/Task 06]"
+  body: |
+    Reviews the complete ordered jj range from base change
+    sknxmukpyqymuwkonlkptvwzunttpxnn through the initial implementation
+    ywxyyvvzlnyykrtszokknpuzxokkspyp. The implementation adds the NamespaceID
+    and IsCanonicalPath seams, canonical-path and stdlib invariant validators,
+    their contract documentation and tests, and the BUILD target wiring.
+    There are no subsequent rework changes in the supplied series; the recorded
+    focused tests, go vet, and full just ci gate pass.
+
+summary: |
+  The single produced jj change implements the namespace seams and validation helpers with BUILD-registered, non-parallel tests covering all six acceptance criteria. No tests were deleted or weakened; work.log records the RED-to-GREEN cycle and a passing full just ci gate, and static style and security review found no issues. LSP diagnostics were unavailable in this environment.
+
+acceptance_criteria:
+  - text: |
+      1. **Upstream defaults are stable**
+         - Given an unmodified host policy
+         - When namespace and canonical-path hooks are queried
+         - Then `NamespaceID` is `"upstream"`, canonicalization is identity, and every identity-fixed path is reported canonical.
+    status: pass
+    evidence: |
+      `go/internal/hostpolicy/hostpolicy.go:47` retains identity CanonicalizePath,
+      `:60` sets NamespaceID to "upstream", and `:80` supplies the default
+      predicate. `go/internal/hostpolicy/namespace_test.go:10-51` checks the
+      namespace, identity behavior, and canonical status across representative
+      paths.
+  - text: |
+      2. **Host rewrites are expressibly idempotent**
+         - Given a test host override that maps external spellings into one canonical prefix
+         - When raw and canonical spellings are evaluated
+         - Then raw paths are not canonical, canonical paths are fixed points, and applying the canonicalizer twice yields the same value as once.
+    status: pass
+    evidence: |
+      `go/internal/hostpolicy/namespace_test.go:53-77` installs an orig/ to
+      canon/ rewrite, verifies the raw spelling is non-canonical and the
+      canonical spelling is a fixed point, and asserts double application equals
+      single application. The contract is documented at
+      `go/internal/hostpolicy/hostpolicy.go:62-80`.
+  - text: |
+      3. **Hook disagreement fails explicitly**
+         - Given a host predicate and canonicalizer that disagree for a candidate loader path
+         - When the validation helper checks it
+         - Then it returns a contextual error rather than accepting or rewriting the path silently.
+    status: pass
+    evidence: |
+      `go/internal/hostpolicy/hostpolicy.go:82-96` checks both the canonicalizer
+      fixed point and the predicate without rewriting the input, returning a
+      contextual error. The table in
+      `go/internal/hostpolicy/namespace_test.go:90-150` covers canonical,
+      rewrite, and predicate/canonicalizer-disagreement cases.
+  - text: |
+      4. **Standard-library paths remain namespace-free**
+         - Given caller-supplied stdlib map package paths
+         - When the invariant helper validates them under identity and rewriting host policies
+         - Then unchanged canonical paths pass and any path the host would rewrite fails clearly; the helper performs no heuristic stdlib discovery.
+    status: pass
+    evidence: |
+      `go/internal/hostpolicy/hostpolicy.go:99-115` validates only the supplied
+      slice, requires identity canonicalization and a true predicate, and does no
+      classification or discovery. `go/internal/hostpolicy/namespace_test.go:152-183`
+      covers identity acceptance, an empty list, and a rewriting policy that
+      names the offending stdlib path in its error.
+  - text: |
+      5. **Mutable seams are test-isolated**
+         - Given tests override `NamespaceID`, `CanonicalizePath`, or `IsCanonicalPath`
+         - When each test completes
+         - Then `t.Cleanup` restores the prior values and subsequent tests observe upstream defaults.
+    status: pass
+    evidence: |
+      `go/internal/hostpolicy/namespace_test.go:27-37` registers cleanup for all
+      three mutable seams. The overriding tests at `:53-88`, `:90-150`, and
+      `:152-183` are non-parallel; `:10-24` provides the upstream-default check
+      used before override tests.
+  - text: |
+      6. **Current check path is unchanged**
+         - Given existing standard-library and host-canonicalization fixtures
+         - When `just ci` runs
+         - Then they retain current behavior, `IsStdlibPath` still exists, and no surface namespace comparison has been wired prematurely.
+    status: pass
+    evidence: |
+      `go/internal/hostpolicy/hostpolicy.go:117-136` retains the existing
+      IsStdlibPath implementation, and the range touches only hostpolicy source,
+      its BUILD file, and tests, with no surface consumer wiring. The recorded
+      full gate passes in
+      `.agents/scratchpad/2026-08-04-compositional-component-analysis/step03/task-06-add-canonical-namespace-policy/work.log:108-346`,
+      while the no-out-of-package-reference inspection is recorded at `:347-365`.
+
+findings: []
+
+ecosystem_reviews: []
