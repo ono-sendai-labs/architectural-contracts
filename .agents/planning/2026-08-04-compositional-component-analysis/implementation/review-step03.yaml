@@ -2,22 +2,23 @@ review:
   project: 2026-08-04-compositional-component-analysis
   plan_path: .agents/planning/2026-08-04-compositional-component-analysis/implementation/plan.md
   design_path: .agents/planning/2026-08-04-compositional-component-analysis/design/detailed-design.md
-  reviewed_at: 2026-09-04T06:02:54Z
+  reviewed_at: 2026-09-04T22:03:48Z
   schema_version: 1
   steps_in_scope: [3]
-  commits_in_scope: 26
-  remediation_step: .agents/tasks/2026-08-04-compositional-component-analysis/step03/
-  verdict: remediation_recommended
+  commits_in_scope: 44
+  remediation_step: null
+  verdict: clean
 
 summary: |
-  Step 3 delivers the persisted schemas, authority lattice, SymbolID model,
-  canonical artifact I/O, and namespace seams, with seven of ten major
-  architectural elements aligned. Remediation is recommended for four
-  important findings: the two explicitly deferred Capslock grammar defects,
-  duplicated component ownership around artifactio, and stdlib-map I/O that
-  destroys ordered evidence while admitting incomplete init/evidence records.
-  No critical finding was identified, and three remediation tasks were appended
-  to the existing Step 3 task directory.
+  The confirmation review finds all four findings from the initial Step 3
+  review discharged. The ratified schema-owned capability taxonomy restores
+  the intended artifactio-to-core dependency direction, ordered stdlib-map
+  evidence and total record validation now match the schema, and the
+  inventory-backed Capslock normalizer closes both deferred grammar findings.
+  The remediation introduced no new cross-task architectural drift; the
+  duplicated protobuf-runtime membership is the documented Step 5-6 migration
+  state whose durable repair belongs to plan Step 7. No further remediation
+  tasks are required for Step 3.
 
 architecture:
   - element: Retired manifest verification fields
@@ -26,8 +27,8 @@ architecture:
       certification_reference; stale authored fields are rejected before
       lenient textproto parsing and no self-declared verification state remains.
     actual: |
-      The schema reservations, RemovedFieldError checks, native/report/Bazel
-      cleanup, and compatibility tests are present.
+      The reservations, RemovedFieldError checks, native/report/Bazel cleanup,
+      and compatibility tests remain present after remediation.
     status: aligned
     files:
       - proto/archcontracts/v1/component.proto
@@ -41,15 +42,13 @@ architecture:
       forms fail.
     actual: |
       The native Known/Set model, constructors, Join, persisted conversions,
-      manifest parsing, schema enum, and tests implement the lattice additively.
+      manifest parsing, schema enum, and tests implement the required lattice.
     status: aligned
     files:
       - proto/archcontracts/v1/component.proto
       - go/internal/manifest/authority.go
       - go/internal/manifest/manifest.go
-    notes: |
-      The final task review left only a non-blocking test-quality suggestion;
-      it does not change the lattice implementation's alignment.
+    notes: ""
 
   - element: Surface artifact schema
     expected: |
@@ -58,7 +57,7 @@ architecture:
       and digest, without a persisted provenance claim or proto maps.
     actual: |
       surface.proto represents each required field, shares component enums and
-      SDKKey, documents canonical keys, and has descriptor/round-trip coverage.
+      SDKKey, documents canonical keys, and has descriptor and round-trip tests.
     status: aligned
     files:
       - proto/archcontracts/v1/surface.proto
@@ -67,12 +66,13 @@ architecture:
 
   - element: Standard-library map schema
     expected: |
-      A total package/symbol/init inventory keyed by a target-complete SDKKey,
-      explicit terminal classifications, and ordered evidence paths, using no
-      proto map fields.
+      A total package, symbol, and init inventory keyed by a target-complete
+      SDKKey, explicit terminal classifications, and ordered evidence paths,
+      using no proto map fields.
     actual: |
-      stdlibmap.proto represents the complete model and documents keyed sort
-      order separately from the ordered Evidence.frames sequence.
+      stdlibmap.proto represents the complete model, documents keyed collection
+      ordering separately from the ordered Evidence.frames sequence, and is
+      covered by descriptor and round-trip tests.
     status: aligned
     files:
       - proto/archcontracts/v1/stdlibmap.proto
@@ -85,8 +85,8 @@ architecture:
       package init, with go/types conversion covering aliases, promotions,
       generic origins, fields, and interface method specifications.
     actual: |
-      SymbolID parsing/formatting, FromObject, FromSelection, alias handling,
-      promotion handling, generic origins, and grammar-table fixtures are
+      SymbolID parsing and formatting, FromObject, FromSelection, alias and
+      promotion handling, generic origins, and the grammar-table fixtures are
       implemented without changing the live checker.
     status: aligned
     files:
@@ -96,29 +96,32 @@ architecture:
 
   - element: Capslock-to-SymbolID normalization
     expected: |
-      Pointer/value and instantiated spellings converge on a canonical
-      declaring SymbolID, while malformed or unmappable classifier text fails
-      closed for every type spelling Capslock can emit.
+      Structured package and declaration inventory data disambiguate Capslock
+      names; pointer/value and instantiated spellings converge, valid Go/SSA
+      type spellings are accepted, and malformed or unresolved names fail closed.
     actual: |
-      Receiver and generic normalization exist, but the handwritten type parser
-      accepts an invalid tuple argument and rejects multiple valid Go/SSA type
-      spellings. Task 4 ended DEFERRED with these findings open.
-    status: partial
+      ParseCapslockFunction requires an inventory, validates package identity
+      through the canonical SymbolID path grammar, resolves exact method owners,
+      and checks type arguments with Go scanner tokens plus a typed corpus. The
+      original tuple and valid-spelling cases, quote-aware splitting, declaring
+      interface ownership, and lexical-error rejection are all pinned by tests.
+    status: aligned
     files:
       - go/internal/symbol/capslock.go
+      - go/internal/symbol/capslock_inventory_test.go
+      - go/internal/symbol/capslock_corpus_test.go
       - go/internal/symbol/capslock_test.go
     notes: |
-      Four rework rounds patched the text grammar without reaching approval.
-      A structured, inventory-backed normalizer is a more stable direction than
-      another isolated grammar exception.
+      This discharges original findings F3 and F4 and the important residue from
+      deferred Task 4 through the approved Task 9 implementation.
 
   - element: Exact declared-surface extraction
     expected: |
       Typed interface declarations produce sorted, duplicate-free SymbolIDs,
       expand only same-package alias targets, and inject no implements closure.
     actual: |
-      ExtractSurface implements the expected traversal, alias bound, sorting,
-      deduplication, namespace canonicalization, and init handling.
+      ExtractSurface implements the expected traversal, bounded alias expansion,
+      sorting, deduplication, namespace canonicalization, and init handling.
     status: aligned
     files:
       - go/internal/symbol/extract.go
@@ -131,18 +134,20 @@ architecture:
       validates required semantic invariants, bounds reads, hashes canonical
       bytes, and atomically replaces files.
     actual: |
-      Bounded decoding, canonical keyed sorting, digesting, unknown-field
-      tolerance, version checks, and atomic replacement are present. Map
-      normalization also sorts Evidence.frames, which changes path meaning,
-      and validation does not require complete init/evidence records.
-    status: partial
+      Map normalization preserves Evidence.frames while sorting only keyed
+      collections. Validation requires one init for every importable package,
+      forbids inits for non-importable packages, and requires exactly one
+      non-empty evidence path for every symbol-capability pair. Existing version,
+      terminal-classification, bounded-read, digest, and atomic-write checks remain.
+    status: aligned
     files:
       - go/internal/artifactio/stdlibmap.go
       - go/internal/artifactio/surface.go
       - go/internal/artifactio/write.go
+      - go/internal/artifactio/stdlibmap_test.go
     notes: |
-      The ordered-path mismatch is cross-task drift between the schema task and
-      the I/O task; current tests encode the drift instead of detecting it.
+      This discharges original finding F2. Reversing evidence frames now changes
+      canonical bytes and the digest, while keyed collection reordering does not.
 
   - element: Canonical namespace policy
     expected: |
@@ -151,161 +156,43 @@ architecture:
       stdlib paths namespace-free.
     actual: |
       The seams, fixed-point validator, stdlib invariant validator, defaults,
-      and isolated override tests are present while IsStdlibPath remains for the
-      later cutover.
+      and isolated override tests remain present while IsStdlibPath stays for
+      the later authority-map cutover.
     status: aligned
     files:
       - go/internal/hostpolicy/hostpolicy.go
       - go/internal/hostpolicy/namespace_test.go
     notes: ""
 
-  - element: Pure-core and shell component boundaries
+  - element: Schema, manifest, symbol, and artifact-I/O component boundaries
     expected: |
-      Artifact I/O is a shell component depending inward on the manifest,
-      schema, and symbol core surfaces; project packages have unambiguous
-      architectural ownership.
+      The schema component singly owns generated persisted types and the shared
+      capability taxonomy; manifest and artifactio consume schema explicitly,
+      artifactio also consumes symbol explicitly, and pure packages do not
+      depend on the artifact-I/O shell.
     actual: |
-      artifactio declares manifest, manifest/gen, symbol, and hostpolicy as its
-      own members even though manifest and symbol already own those packages,
-      hiding dependencies and duplicating ownership.
-    status: drifted
+      schema owns internal/schema and internal/schema/gen as a package surface;
+      artifactio owns only its implementation among the reviewed project
+      packages and declares schema and symbol dependencies; manifest declares
+      schema; ownership, import direction, and native/Bazel parity are guarded
+      by manifestparity tests.
+    status: aligned
     files:
+      - go/internal/schema/component.textproto
       - go/internal/artifactio/component.textproto
-      - go/internal/artifactio/BUILD.bazel
       - go/internal/manifest/component.textproto
       - go/internal/symbol/component.textproto
+      - go/internal/manifestparity/ownership_test.go
     notes: |
-      This may have been a tactical way to satisfy current interface checking,
-      but it conflicts with the design's inward dependency rule and will become
-      observable when later steps consume component surfaces and reject direct
-      dependency package overlap.
+      This discharges original finding F1 under the user-ratified architecture.
+      Protobuf-runtime packages remain repeated members of self-hosting consumers
+      only for the documented source-resolver transition; plan Step 7 explicitly
+      owns their migration to one protobuf-runtime package-surface component.
 
-doc_code_alignment:
-  - artifact: .agents/planning/2026-08-04-compositional-component-analysis/design/detailed-design.md
-    section: Adherence to Established Conventions / Pure core, dependencies point inward
-    issue: |
-      The design requires shell-to-core dependency edges, while artifactio owns
-      the manifest and symbol packages it consumes, duplicating their existing
-      component ownership.
-    suggested_action: update_code
-    related_finding: F1
+doc_code_alignment: []
 
-  - artifact: .agents/planning/2026-08-04-compositional-component-analysis/design/detailed-design.md
-    section: The stdlib authority map / Findings and evidence
-    issue: |
-      Evidence is designed as an ordered path and the map model requires one
-      init per importable package plus evidence keyed by each symbol/capability
-      pair. Current canonical I/O sorts path frames and accepts missing records.
-    suggested_action: update_code
-    related_finding: F2
+findings: []
 
-  - artifact: .agents/planning/2026-08-04-compositional-component-analysis/design/detailed-design.md
-    section: Reference semantics and the symbol grammar
-    issue: |
-      Capslock normalization is only partial: malformed tuple syntax is accepted
-      and valid formatter spellings are rejected, so the shared grammar cannot
-      yet cover the standard-library generator safely.
-    suggested_action: update_code
-    related_finding: F3
-
-findings:
-  - id: F1
-    severity: important
-    category: architecture
-    file: go/internal/artifactio/component.textproto
-    line: 4
-    title: Artifact I/O duplicates ownership of core project packages
-    details: |
-      artifactio explicitly has no component_dependencies and instead lists
-      hostpolicy, manifest, manifest/gen, and symbol as members at lines 8-11.
-      Manifest and symbol already own their respective packages, so this hides
-      the real shell-to-core imports and gives the same project packages more
-      than one architectural owner. The arrangement is especially risky for
-      later Steps 5-7: emitted surfaces will claim overlapping package sets and
-      direct dependency overlap is required to fail closed.
-    suggested_action: |
-      Introduce an explicit single-owner schema surface and represent
-      artifactio's manifest/symbol/schema uses as component dependencies,
-      keeping artifactio shell-side and its native/Bazel declarations in parity.
-    source: built-in
-    addressed_by: .agents/tasks/2026-08-04-compositional-component-analysis/step03/task-07-repair-artifact-component-boundaries.code-task.md
-
-  - id: F2
-    severity: important
-    category: architecture
-    file: go/internal/artifactio/stdlibmap.go
-    line: 81
-    title: Canonical map I/O changes evidence paths and accepts incomplete records
-    details: |
-      Evidence.frames is an ordered call path by
-      proto/archcontracts/v1/stdlibmap.proto:185, but normalizeMap sorts frames
-      at lines 81-83 and the regression test asserts reordered paths are
-      equivalent. This destroys caller-to-capability order. In addition,
-      validateMap builds init/evidence seen sets but never verifies that every
-      importable package has one init or that every capability-bearing symbol
-      has one non-empty evidence record per capability; the package's own
-      validMap fixture omits os's init and all evidence while passing.
-    suggested_action: |
-      Preserve frame order, make it digest-significant, and strengthen map
-      validation to enforce complete init and symbol/capability evidence keys
-      while retaining the existing fail-closed classification checks.
-    source: built-in
-    addressed_by: .agents/tasks/2026-08-04-compositional-component-analysis/step03/task-08-preserve-and-validate-stdlib-map-semantics.code-task.md
-
-  - id: F3
-    severity: important
-    category: unresolved_review_findings
-    file: go/internal/symbol/capslock.go
-    line: 299
-    title: Parenthesized parsing accepts an invalid tuple type argument
-    details: |
-      Deferred Task 4's final review found that typ routes any parenthesized
-      form through paramList, so `store.Load[(int, string)]` is accepted and
-      normalized to store.Load even though a tuple is not one Go type argument.
-      The task ended with verdict changes_requested and max_rework_rounds
-      exhausted; task-record.json explicitly carries this finding into the
-      step-scoped review.
-    suggested_action: |
-      Replace the context-free type subset with structured package/inventory
-      resolution and standard Go syntax validation so a parenthesized group in
-      a type position contains exactly one valid type.
-    source: code-task-review
-    addressed_by: .agents/tasks/2026-08-04-compositional-component-analysis/step03/task-09-replace-fragile-capslock-type-text-parser.code-task.md
-
-  - id: F4
-    severity: important
-    category: unresolved_review_findings
-    file: go/internal/symbol/capslock.go
-    line: 632
-    title: Capslock type grammar rejects valid Go and SSA spellings
-    details: |
-      Deferred Task 4's final review found that validatePathTail rejects valid
-      digit-leading import-path elements accepted by SymbolID, while paramList
-      misreads qualified unnamed types and named variadic parameters. Qualified
-      embedded/interface parameters and the &^ constant operator expose the
-      same incomplete handwritten grammar. These false negatives prevent valid
-      generic Capslock observations from converging on the inventoried symbol.
-    suggested_action: |
-      Ground normalization in Capslock's structured package field, canonical
-      package validation, typed declaration inventory, and standard Go syntax;
-      pin the reported positive forms with real parsed/type-checked fixtures.
-    source: code-task-review
-    addressed_by: .agents/tasks/2026-08-04-compositional-component-analysis/step03/task-09-replace-fragile-capslock-type-text-parser.code-task.md
-
-remediation_tasks:
-  - path: .agents/tasks/2026-08-04-compositional-component-analysis/step03/task-07-repair-artifact-component-boundaries.code-task.md
-    title: Repair Artifact Component Boundaries
-    addresses_findings: [F1]
-    sequence: 1
-
-  - path: .agents/tasks/2026-08-04-compositional-component-analysis/step03/task-08-preserve-and-validate-stdlib-map-semantics.code-task.md
-    title: Preserve and Validate Stdlib Map Semantics
-    addresses_findings: [F2]
-    sequence: 2
-
-  - path: .agents/tasks/2026-08-04-compositional-component-analysis/step03/task-09-replace-fragile-capslock-type-text-parser.code-task.md
-    title: Replace Fragile Capslock Type-Text Parser
-    addresses_findings: [F3, F4]
-    sequence: 3
+remediation_tasks: []
 
 ecosystem_reviews: []
