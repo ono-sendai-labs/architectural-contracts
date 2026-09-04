@@ -71,11 +71,11 @@ func TestAtomicWriteFailuresPreserveTarget(t *testing.T) {
 			}},
 		},
 		{
-			name: "sync fails",
+			name:  "sync fails",
 			seams: &WriteSeams{Sync: func(*os.File) error { return errSeam }},
 		},
 		{
-			name: "close fails",
+			name:  "close fails",
 			seams: &WriteSeams{Close: func(*os.File) error { return errSeam }},
 		},
 		{

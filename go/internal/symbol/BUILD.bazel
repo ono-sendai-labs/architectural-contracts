@@ -10,7 +10,12 @@ go_library(
         "typesconv.go",
     ],
     importpath = "github.com/ono-sendai-labs/architectural-contracts/go/internal/symbol",
-    visibility = ["//go:__subpackages__"],
+    # Like hostpolicy: the go_component rule resolves member labels from the
+    # //bazel_rules rule packages, so visibility must include those too.
+    visibility = [
+        "//bazel_rules:__subpackages__",
+        "//go:__subpackages__",
+    ],
     deps = ["//go/internal/hostpolicy"],
 )
 

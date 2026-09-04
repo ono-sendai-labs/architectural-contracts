@@ -55,6 +55,7 @@ selfcheck:
 	cd {{go_dir}} && ../bin/arcc check internal/report/component.textproto
 	cd {{go_dir}} && ../bin/arcc check internal/capanalyzer/component.textproto
 	cd {{go_dir}} && ../bin/arcc check internal/symbol/component.textproto
+	cd {{go_dir}} && ../bin/arcc check internal/artifactio/component.textproto
 	@echo "=== Running self-hosting checks (remaining components) ==="
 	cd {{go_dir}} && ../bin/arcc check internal/manifest/component.textproto
 	cd {{go_dir}} && ../bin/arcc check internal/goanalysis/component.textproto

@@ -1,0 +1,92 @@
+load("@rules_arcc//bazel_rules/go:defs.bzl", "go_component")
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "artifactio",
+    srcs = [
+        "artifactio.go",
+        "digest.go",
+        "stdlibmap.go",
+        "surface.go",
+        "write.go",
+    ],
+    importpath = "github.com/ono-sendai-labs/architectural-contracts/go/internal/artifactio",
+    visibility = ["//go:__subpackages__"],
+    deps = [
+        "//go/internal/manifest",
+        "//go/internal/manifest/gen",
+        "//go/internal/symbol",
+        "@org_golang_google_protobuf//encoding/protojson",
+        "@org_golang_google_protobuf//proto",
+    ],
+)
+
+go_test(
+    name = "artifactio_test",
+    size = "small",
+    srcs = [
+        "artifactio_test.go",
+        "decode_test.go",
+        "write_test.go",
+    ],
+    embed = [":artifactio"],
+    deps = [
+        "//go/internal/manifest",
+        "//go/internal/manifest/gen",
+        "//go/internal/symbol",
+        "@org_golang_google_protobuf//encoding/protojson",
+        "@org_golang_google_protobuf//proto",
+    ],
+)
+
+# Mirrors the checked-in artifactio/component.textproto: the generated schema
+# types and protobuf plumbing are members (as in the manifest component).
+go_component(
+    name = "artifactio_component",
+    interface_style = "PACKAGE_SURFACE",
+    declared_authority = [
+        "FILES",
+        "MODIFY_SYSTEM_STATE",
+        "READ_SYSTEM_STATE",
+        "REFLECT",
+        "RUNTIME",
+        "SYSTEM_CALLS",
+        "UNSAFE_POINTER",
+    ],
+    members = [
+        "//go/internal/hostpolicy",
+        "//go/internal/manifest/gen",
+        "@org_golang_google_protobuf//encoding/protojson:protojson",
+        "@org_golang_google_protobuf//encoding/prototext:prototext",
+        "@org_golang_google_protobuf//encoding/protowire:protowire",
+        "@org_golang_google_protobuf//internal/descfmt:descfmt",
+        "@org_golang_google_protobuf//internal/descopts:descopts",
+        "@org_golang_google_protobuf//internal/detrand:detrand",
+        "@org_golang_google_protobuf//internal/editiondefaults:editiondefaults",
+        "@org_golang_google_protobuf//internal/encoding/defval:defval",
+        "@org_golang_google_protobuf//internal/encoding/json:json",
+        "@org_golang_google_protobuf//internal/encoding/messageset:messageset",
+        "@org_golang_google_protobuf//internal/encoding/tag:tag",
+        "@org_golang_google_protobuf//internal/encoding/text:text",
+        "@org_golang_google_protobuf//internal/errors:errors",
+        "@org_golang_google_protobuf//internal/filedesc:filedesc",
+        "@org_golang_google_protobuf//internal/filetype:filetype",
+        "@org_golang_google_protobuf//internal/flags:flags",
+        "@org_golang_google_protobuf//internal/genid:genid",
+        "@org_golang_google_protobuf//internal/impl:impl",
+        "@org_golang_google_protobuf//internal/order:order",
+        "@org_golang_google_protobuf//internal/pragma:pragma",
+        "@org_golang_google_protobuf//internal/protolazy:protolazy",
+        "@org_golang_google_protobuf//internal/set:set",
+        "@org_golang_google_protobuf//internal/strs:strs",
+        "@org_golang_google_protobuf//internal/version:version",
+        "@org_golang_google_protobuf//proto:proto",
+        "@org_golang_google_protobuf//reflect/protoreflect:protoreflect",
+        "@org_golang_google_protobuf//reflect/protoregistry:protoregistry",
+        "@org_golang_google_protobuf//runtime/protoiface:protoiface",
+        "@org_golang_google_protobuf//runtime/protoimpl:protoimpl",
+    ],
+    visibility = ["//go:__subpackages__"],
+)
+
+exports_files(["component.textproto"])
