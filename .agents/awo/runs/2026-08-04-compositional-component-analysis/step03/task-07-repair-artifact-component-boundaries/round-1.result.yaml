@@ -1,0 +1,89 @@
+result:
+  task_file: .agents/tasks/2026-08-04-compositional-component-analysis/step03/task-07-repair-artifact-component-boundaries.code-task.md
+  change_id: qouwvxwn
+  status: completed
+  schema_version: 2
+  produced_at: 2026-09-04T07:41:05Z
+
+acceptance_criteria:
+  - text: "Project packages have one owner"
+    addressed: yes
+    evidence: |
+      manifest owns internal/manifest; the schema component owns
+      internal/schema and internal/schema/gen; symbol owns internal/symbol;
+      artifactio owns internal/artifactio (protobuf-runtime closure aside).
+      TestProjectPackagesSingleOwner
+      (go/internal/manifestparity/ownership_test.go) now asserts the full
+      expected owner set including internal/artifactio and internal/schema,
+      and its scan is documented to cover every checked-in component manifest
+      in the Go tree (go/internal plus go/cmd).
+  - text: "Shell-to-core dependencies are explicit"
+    addressed: yes
+    evidence: |
+      artifactio declares component_dependencies on schema and symbol in
+      go/internal/artifactio/component.textproto:8-15 and
+      go/internal/artifactio/BUILD.bazel component_deps; these exactly cover
+      its actual core imports — it no longer uses any manifest-package API
+      because the capability taxonomy was moved to the schema component
+      (go/internal/schema/capabilities.go, schema.KnownCapabilities) and is
+      consumed through the declared schema edge; the duplicated local copy and
+      its drift test were deleted. The ownership move is the reviewer's
+      sanctioned "runtime-component rearrangement made explicit": a literal
+      artifactio->manifest edge is unsatisfiable because the manifest
+      component must own the protobuf runtime closure its prototext member
+      imports, and the checker's member-overlap rule (M7, layout leg) forbids
+      a dependency-related component from sharing those members while the
+      native leg requires them (FR3). arcc check
+      internal/artifactio/component.textproto reports "conforms" with both
+      dependencies resolved.
+  - text: "Layering remains inward-only"
+    addressed: yes
+    evidence: |
+      artifactio retains its shell authority declaration; no pure package
+      imports artifactio (TestPurePackagesDoNotImportArtifactIO, go/parser
+      import scan over the pure packages, passing); no pure package gained
+      filesystem authority; the taxonomy move added no new authority anywhere.
+  - text: "Native and Bazel declarations agree"
+    addressed: yes
+    evidence: |
+      CompareManifests (go/internal/manifestparity/manifestparity.go) now
+      compares dependency identity — component name, the directory of the
+      referenced manifest, and auto_attached status — instead of names alone;
+      three new unit tests prove a same-named dependency pointing at another
+      component's directory fails, a flipped auto_attached flag fails, and the
+      equivalent two-spelling declaration passes. artifactio and schema are
+      covered by //go/cmd/arcc/app:self_manifest_parity_test, and `just ci`'s
+      Bazel leg (81 tests) plus both shell validation scripts pass.
+  - text: "Behavior remains unchanged"
+    addressed: yes
+    evidence: |
+      The taxonomy move relocates an identical value set (authority_sync_test
+      still finds 13 authorities in sync); no parser, SymbolID, checker, or
+      artifact-byte logic changed; `just ci` passes end to end, including
+      gen-is-clean against the regenerated schema headers.
+
+artifacts:
+  scratchpad_dir: .agents/scratchpad/2026-08-04-compositional-component-analysis/step03/task-07-repair-artifact-component-boundaries/
+  files:
+    - context.md
+    - plan.md
+    - progress.md
+    - work.log
+    - review.yaml
+    - result.yaml
+
+notes: |
+  Rework round 1 produced two fresh child changes: vmxvnmtq (89239483) moves
+  the capability taxonomy into the schema component so artifactio consumes one
+  shared vocabulary through its declared schema dependency (deleting the
+  duplicated map the reviewer flagged), and qouwvxwn (0161ba87, the reported
+  change at @-) hardens the parity comparison to dependency identity (name,
+  manifest directory, auto-attached) with regression tests, fixes the
+  ownership test to assert artifactio's and schema's owners, and stabilizes
+  the schema go_library visibility for the authority-sync test. All four
+  important findings and the stale-ownership documentation suggestion were
+  addressed; the full `just ci` gate is green at @-. A literal
+  artifactio->manifest component dependency remains impossible under the
+  checker's FR3/M7 semantics; the resolver of record for that tension is the
+  explicit taxonomy ownership change, documented in progress.md and the
+  capabilities.go contract comment.

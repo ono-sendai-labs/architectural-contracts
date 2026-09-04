@@ -1,0 +1,77 @@
+result:
+  task_file: .agents/tasks/2026-08-04-compositional-component-analysis/step03/task-07-repair-artifact-component-boundaries.code-task.md
+  change_id: nwunpzwl
+  status: completed
+  schema_version: 2
+  produced_at: 2026-09-04T00:05:00Z
+
+acceptance_criteria:
+  - text: "Project packages have one owner"
+    addressed: yes
+    evidence: |
+      manifest owns internal/manifest; the new schema component owns
+      internal/schema/gen (moved out of go/internal/manifest/gen, proto
+      go_package options updated, `just gen` regen is clean); symbol owns
+      internal/symbol; artifactio's members are itself plus its protobuf
+      runtime closure only. Behavioral regression coverage:
+      go/internal/manifestparity/ownership_test.go TestProjectPackagesSingleOwner
+      (RED before the repair: failed on manifest, manifest/gen, symbol,
+      hostpolicy duplicated into artifactio; GREEN after).
+  - text: "Shell-to-core dependencies are explicit"
+    addressed: yes
+    evidence: |
+      go/internal/artifactio/component.textproto declares component_dependencies
+      {name: "schema", manifest: "../schema/component.textproto"} and {name:
+      "symbol", ...} (lines 6-13), mirrored by component_deps in
+      go/internal/artifactio/BUILD.bazel:57-60. Guarded by
+      TestArtifactioDeclaresCoreComponentDependencies; `arcc check
+      internal/artifactio/component.textproto` resolves both deps and reports
+      "Component artifactio conforms" with no undeclared-dependency or
+      undeclared-interface violations.
+  - text: "Layering remains inward-only"
+    addressed: yes
+    evidence: |
+      artifactio stays shell-side (FILES/MODIFY_SYSTEM_STATE/... declared
+      authority unchanged); no pure package imports artifactio — enforced by
+      TestPurePackagesDoNotImportArtifactIO (go/parser import scan over
+      checker, facts, report, capanalyzer, manifest, schema/gen, symbol,
+      hostpolicy non-test files); no pure package gained filesystem authority.
+  - text: "Native and Bazel declarations agree"
+    addressed: yes
+    evidence: |
+      artifactio and schema were added to //go/cmd/arcc/app:self_manifest_parity_test
+      (go/cmd/arcc/app/BUILD.bazel args/data); the Bazel-driven
+      manifestparity.Run compares generated vs checked-in manifests for name,
+      members, interface style, authority, and dependency names and passes,
+      as does `just ci`'s full bazel build/test leg (81 tests).
+  - text: "Behavior remains unchanged"
+    addressed: yes
+    evidence: |
+      No parsing, SymbolID, artifact-byte, or checker-behavior changes; the
+      only code delta is artifactio reading a byte-identical local capability
+      set (capabilities.go) guarded by TestKnownCapabilitiesMatchesManifestTaxonomy.
+      `just ci` passes end to end: gen-is-clean, gofmt/vet, build, go test,
+      integration tests, arcc self-checks, bazel build + test (81 passing).
+
+artifacts:
+  scratchpad_dir: .agents/scratchpad/2026-08-04-compositional-component-analysis/step03/task-07-repair-artifact-component-boundaries/
+  files:
+    - context.md
+    - plan.md
+    - progress.md
+    - work.log
+    - result.yaml
+
+notes: |
+  Two described jj changes were produced. vkxqyqps (78374f72) moves the
+  generated protobuf package to go/internal/schema/gen and establishes the
+  single-owner schema component (declared-style, generated source as its
+  interface) that manifest consumes through a declared dependency. nwunpzwl
+  (cf67109d, the reported task change at @-) repairs artifactio's boundaries:
+  duplicated project membership replaced with component_dependencies on
+  schema and symbol, a drift-guarded local capability set replacing the
+  manifest.KnownCapabilities import, new ownership/layering regression tests,
+  and artifactio+schema parity coverage. The design space was heavily
+  constrained by the checker's FR3/FR5/M7 and root-overlap semantics; the
+  chosen arrangement is the one that satisfies every constraint in both the
+  native and Bazel self-check legs, and the full `just ci` gate is green.

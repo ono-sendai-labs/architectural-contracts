@@ -1,0 +1,81 @@
+result:
+  task_file: .agents/tasks/2026-08-04-compositional-component-analysis/step03/task-07-repair-artifact-component-boundaries.code-task.md
+  change_id: ovsylzxx
+  status: completed
+  schema_version: 2
+  produced_at: 2026-09-04T08:12:00Z
+
+acceptance_criteria:
+  - text: "Project packages have one owner"
+    addressed: yes
+    evidence: |
+      Owner set unchanged and pinned: manifest owns internal/manifest, the
+      schema component owns internal/schema and internal/schema/gen, symbol
+      owns internal/symbol, artifactio owns internal/artifactio.
+      TestProjectPackagesSingleOwner asserts the full expected owner map and
+      rejects duplicate project members across the slice.
+  - text: "Shell-to-core dependencies are explicit"
+    addressed: yes
+    evidence: |
+      Per the specification amendment recorded in the task file (commit
+      qwzruqot 7bc9491d, the reviewer-sanctioned path), artifactio declares
+      component dependencies on the schema surface and the symbol grammar
+      (go/internal/artifactio/component.textproto:8-15 and the Bazel
+      component_deps mirror). The schema component is now PACKAGE_SURFACE over
+      both schema packages, so the schema.KnownCapabilities import is
+      authorized by the dependency's declared surface
+      (TestSchemaSurfaceCoversCapabilityTaxonomy), and
+      TestArtifactioDeclaresCoreComponentDependencies derives the required
+      edges from artifactio's actual production imports, failing on any
+      uncovered core import or a manifest-package import. The literal
+      artifactio->manifest edge is unsatisfiable under the live checker's
+      FR3/M7 semantics (requirement 6 forbids changing them); the amendment
+      records that explicitly rather than silently redefining the contract.
+  - text: "Layering remains inward-only"
+    addressed: yes
+    evidence: |
+      artifactio keeps its shell authority set; TestPurePackagesDoNotImportArtifactIO
+      (go/parser scan over the pure packages) passes; no pure package gained
+      filesystem authority; arcc self-checks report every component conforming.
+  - text: "Native and Bazel declarations agree"
+    addressed: yes
+    evidence: |
+      CompareManifests now also enforces each representation's dependency
+      filename convention (checked-in: the dependency's component.textproto;
+      generated: <dep target>.component.textproto) on top of the
+      name/directory/auto-attached identity comparison, with regression tests
+      TestCompareManifests_DependencyFilenameConvention/{CheckedInWrongFilenameFails,
+      GeneratedNameSuffixFails} plus the existing path-mismatch, auto-attached,
+      and positive cases. artifactio and schema are covered by
+      //go/cmd/arcc/app:self_manifest_parity_test; `just ci` Bazel leg green.
+  - text: "Behavior remains unchanged"
+    addressed: yes
+    evidence: |
+      Only component declarations, tests, comments, and regenerated headers
+      changed in this round; no parser, SymbolID, checker, or artifact-byte
+      logic touched. `just ci` passes end to end, including gen-is-clean and
+      both shell validation scripts.
+
+artifacts:
+  scratchpad_dir: .agents/scratchpad/2026-08-04-compositional-component-analysis/step03/task-07-repair-artifact-component-boundaries/
+  files:
+    - context.md
+    - plan.md
+    - progress.md
+    - work.log
+    - review.yaml
+    - result.yaml
+
+notes: |
+  Round 2 produced two fresh child changes. qwzruqot (7bc9491d) records the
+  specification amendment in the task file exactly as the reviewer sanctioned:
+  the literal artifactio->manifest edge cannot coexist with the live checker's
+  FR3/M7 semantics and requirement 6's freeze on checker and artifact
+  behavior, so requirement 3/AC2 now specify the schema-surface + symbol-grammar
+  edges with a schema-owned capability taxonomy. ovsylzxx (6ab8ab56, the
+  reported change at @-) implements the remaining findings: the schema
+  component becomes package-surface so its declared surface covers the
+  capability API, manifest parity gains per-representation dependency filename
+  convention checks with new regression tests, the artifactio dependency test
+  now derives its expectations from actual production imports, and all stale
+  ownership comments were corrected. `just ci` is green end to end at @-.

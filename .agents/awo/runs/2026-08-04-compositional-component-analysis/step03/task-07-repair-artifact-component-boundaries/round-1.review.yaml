@@ -1,0 +1,202 @@
+review:
+  task_file: .agents/tasks/2026-08-04-compositional-component-analysis/step03/task-07-repair-artifact-component-boundaries.code-task.md
+  change_id: qouwvxwnmuzwspywxmpswmyvunyxyvkq
+  reviewed_at: "2026-09-04T07:51:57Z"
+  verdict: changes_requested
+  schema_version: 2
+  lsp_coverage: covered
+
+merge_request:
+  title: "fix(components): complete artifact boundary rework [Compositional Analysis: Step 03/Task 07]"
+  body: |
+    The initial implementation spans 78374f72 (vkxqyqpstoqtprmqxrytslvrrovpmstq), which
+    moved the generated protobuf package to a dedicated schema owner, and cf67109d
+    (nwunpzwlwuttwwmvtonrkorqmszykywv), which removed artifactio's duplicated project
+    members and added schema/symbol dependency wiring. Rework 89239483
+    (vmxvnmtqltvxlozowpwlszrrustwqnru) moved the shared capability taxonomy into the
+    schema package, removed artifactio's duplicate copy, and added dependency-parity
+    coverage. Rework 0161ba87 (qouwvxwnmuzwspywxmpswmyvunyxyvkq) normalized dependency
+    identity by component directory and auto-attached status; the series still lacks the
+    literal manifest edge required by the task and does not expose the new taxonomy in the
+    schema component's declared interface.
+
+summary: |
+  Round 1 resolves the prior duplicate taxonomy, artifactio-owner assertion, and dependency-directory parity findings: KnownCapabilities now has one schema source, the owner map includes artifactio, and parity compares normalized dependency identity plus auto-attachment. The literal manifest component dependency remains absent, and the replacement schema component lists schema.KnownCapabilities as a member without exposing capabilities.go through its declared surface, so AC2 remains incomplete. The parity rework also discards the dependency manifest filename, leaving a same-directory path mismatch undetected. No tests were deleted wholesale and the work log reports the full CI gate green; all touched Go files have clean LSP diagnostics and formatting. Stale ownership comments in the remaining schema artifacts are non-blocking documentation drift.
+
+acceptance_criteria:
+  - text: |
+      1. **Project packages have one owner**
+         - Given all checked-in component manifests and Bazel component declarations
+         - When ownership of `internal/manifest`, `internal/manifest/gen`, `internal/symbol`, and `internal/artifactio` is enumerated
+         - Then each package has one intentional owner and `artifactio` does not duplicate the manifest or symbol components' members.
+    status: pass
+    evidence: |
+      The generated package is now explicitly owned at `internal/schema/gen`, the permitted
+      single-owner schema arrangement (`go/internal/schema/component.textproto:7-11`). The
+      rework added the previously missing artifactio assertion to
+      `go/internal/manifestparity/ownership_test.go:88-94`; the test enumerates the repair slice
+      and rejects duplicate project members at lines 68-84. Native and Bazel ownership mirrors
+      are present for artifactio (`go/internal/artifactio/component.textproto:16-45`,
+      `go/internal/artifactio/BUILD.bazel:67-98`), schema, and manifest.
+  - text: |
+      2. **Shell-to-core dependencies are explicit**
+         - Given the `artifactio` component
+         - When its component graph is inspected
+         - Then its uses of schema, manifest, and symbol APIs are represented as component dependencies with surfaces sufficient for the actual imports.
+    status: partial
+    evidence: |
+      The rework removed the duplicated artifactio capability map and moved the shared set to
+      `go/internal/schema/capabilities.go:16-38`; artifactio now imports that package and the
+      generated schema package (`go/internal/artifactio/stdlibmap.go:11-13,246-247` and
+      `surface.go:13-15,143-144`). Schema and symbol are declared as dependencies in
+      `go/internal/artifactio/component.textproto:8-15` and
+      `go/internal/artifactio/BUILD.bazel:54-57`. However the required manifest dependency is
+      still absent from both declarations, and the schema dependency's interface lists only
+      generated files (`go/internal/schema/component.textproto:7-9`) while the actual
+      `KnownCapabilities` API is in the non-interface member `capabilities.go`. The prior
+      duplicate-source problem is fixed, but the final component graph still does not provide
+      all required core edges and surfaces.
+  - text: |
+      3. **Layering remains inward-only**
+         - Given the repaired component graph
+         - When Go imports and declared authority are inspected
+         - Then artifactio remains shell-side, pure packages do not import it, and no pure package acquires filesystem authority.
+    status: pass
+    evidence: |
+      `go/internal/artifactio/component.textproto:16-52` retains artifactio as the project
+      member and declares FILES plus the shell/runtime authority set. The production-import
+      guard in `go/internal/manifestparity/ownership_test.go:138-180` rejects imports of
+      artifactio from the listed pure packages, and the rework self-check reports artifactio
+      conforming (`work.log:257-269`). No changed production file introduces a reverse shell
+      import.
+  - text: |
+      4. **Native and Bazel declarations agree**
+         - Given the checked-in textproto manifests and BUILD targets
+         - When manifest parity and component-shape checks run
+         - Then ownership, dependencies, members, and authority declarations match in both representations.
+    status: pass
+    evidence: |
+      The final parity helper compares dependency component name, referenced component
+      directory, and auto-attached status at `go/internal/manifestparity/manifestparity.go:143-149`
+      and `:218-234`; the new mismatch and positive cases are covered by
+      `go/internal/manifestparity/manifestparity_test.go:294-380`. The self-parity Bazel target
+      includes artifactio and schema in `go/cmd/arcc/app/BUILD.bazel:46-78`, while the current
+      native/Bazel member, style, authority, and dependency declarations are mirrored in the
+      artifactio, manifest, and schema BUILD/textproto files. The work log records the final
+      parity and shape checks passing (`work.log:270-273`).
+  - text: |
+      5. **Behavior remains unchanged**
+         - Given existing artifact, symbol, manifest, and checker fixtures
+         - When `just ci` runs
+         - Then all tests and self-checks pass with no artifact-byte or verdict change attributable to this boundary repair.
+    status: pass
+    evidence: |
+      The work log records the initial Go tests, vet, and Bazel suite passing
+      (`work.log:107-135`) and the rework's full CI gate passing after regeneration
+      (`work.log:270-273`). The changed production logic only relocates the capability
+      taxonomy and updates imports; protobuf fields, artifact encoding/decoding behavior,
+      SymbolID code, and checker code are unchanged. Existing artifact fixtures remain in
+      `go/internal/artifactio/artifactio_test.go:38-222` and `decode_test.go:14-300`.
+
+findings:
+  - severity: important
+    category: acceptance_criteria
+    file: go/internal/artifactio/component.textproto
+    line: 8
+    title: "Required manifest component edge is still absent"
+    details: |
+      Technical Requirement 3 and AC2 require artifactio to declare dependencies on the
+      manifest model, schema surface, and symbol grammar. The final native manifest still has
+      only schema and symbol dependencies at `go/internal/artifactio/component.textproto:8-15`,
+      mirrored by `go/internal/artifactio/BUILD.bazel:54-57`. The rework relocates
+      KnownCapabilities out of manifest, so artifactio no longer imports the manifest package;
+      that removes the duplicate source of truth but changes the task's explicitly required
+      graph. The unchanged plan also says the dependency test must assert manifest plus symbol
+      (`.agents/scratchpad/2026-08-04-compositional-component-analysis/step03/task-07-repair-artifact-component-boundaries/plan.md:8-14`).
+    suggested_action: |
+      Add the manifest component edge and solve any protobuf-runtime overlap through an
+      explicit component/runtime ownership arrangement; restore the task's required edge in
+      both native and Bazel declarations. If moving the taxonomy to schema is intended to
+      replace the manifest requirement, record that specification change explicitly rather
+      than silently redefining the acceptance test.
+    source: built-in
+  - severity: important
+    category: tests
+    file: go/internal/manifestparity/manifestparity.go
+    line: 218
+    title: "Dependency parity discards manifest filename identity"
+    details: |
+      The final rework's `depIdentities` at `go/internal/manifestparity/manifestparity.go:218-234`
+      compares only the normalized dependency name, the parent directory, and
+      `auto_attached`; it no longer retains or validates the manifest basename. Consequently,
+      `../schema/schema_component.component.textproto` and a wrong same-directory file such as
+      `../schema/other.component.textproto` compare equal when the dependency name is schema.
+      The new path test at `go/internal/manifestparity/manifestparity_test.go:294-325` changes
+      the directory, so it does not catch this regression. This leaves the manifest-path part
+      of Technical Requirement 5 only partially guarded.
+    suggested_action: |
+      Validate the source-specific generated and checked-in manifest filename conventions, or
+      compare resolved manifest identity without dropping the basename. Add a same-directory
+      wrong-filename regression case and a generated-name-suffix case.
+    source: built-in
+  - severity: important
+    category: tests
+    file: go/internal/manifestparity/ownership_test.go
+    line: 118
+    title: "Dependency regression test still blesses the missing manifest edge"
+    details: |
+      The prior RED run showed this test expected a manifest dependency and failed when it was
+      absent (`work.log:33-35`). The final test's `want` map at
+      `go/internal/manifestparity/ownership_test.go:118-121` still contains only schema and
+      symbol, and the unexpected-dependency check at lines 131-134 rejects manifest. The
+      schema relocation removed the duplicate map, but it did not provide an equivalent
+      assertion for the task's manifest-model edge; this is a test-contract narrowing carried
+      through the rework.
+    suggested_action: |
+      Restore manifest to the expected dependency set and assert all required dependency names
+      and paths. Make the implementation satisfy that test, or obtain an explicit task/spec
+      correction before changing the expected graph.
+    source: built-in
+  - severity: important
+    category: acceptance_criteria
+    file: go/internal/schema/component.textproto
+    line: 7
+    title: "Schema surface omits the capability API it now owns"
+    details: |
+      The rework makes `schema.KnownCapabilities` the shared API used by both manifest and
+      artifactio (`go/internal/schema/capabilities.go:24-38`,
+      `go/internal/manifest/authority.go:9-10,43-44`, and
+      `go/internal/artifactio/stdlibmap.go:11-13,246-247`). Nevertheless, the schema
+      component's declared interface consists only of the three generated files at
+      `go/internal/schema/component.textproto:7-9`, and the Bazel target still selects the
+      generated package as its sole interface at `go/internal/schema/BUILD.bazel:34-39`.
+      `capabilities.go` is merely a member, not a declared interface file or a package-surface
+      component. The legacy resolver's package-path allowlist can mask this because it loads
+      all packages under the dependency root, but a declared surface cannot authorize the
+      package-level `KnownCapabilities` reference. Thus the schema dependency is not
+      sufficient for the actual imports required by AC2.
+    suggested_action: |
+      Expose the capability package through the schema surface: for example, make schema a
+      PACKAGE_SURFACE component with matching native/Bazel declarations, or create a declared
+      interface arrangement that includes capabilities.go in both representations. Add a
+      regression test that resolves the schema dependency and verifies the actual
+      KnownCapabilities import is represented by its surface.
+    source: built-in
+  - severity: suggestion
+    category: style
+    file: go/internal/artifactio/component.textproto
+    line: 5
+    title: "Artifactio comments still describe the deleted local copy"
+    details: |
+      The component comment at `go/internal/artifactio/component.textproto:2-6` still says the
+      capability taxonomy is a local spelling of the manifest component's set. The local map
+      was deleted and the canonical set moved to schema in the rework. Related stale ownership
+      prose remains in `proto/archcontracts/v1/stdlibmap.proto:1-12`,
+      `surface.proto:1-12`, and `go/internal/archcontracts/BUILD.bazel:5-6`; only the component
+      schema comment and generated component header were updated.
+    suggested_action: |
+      Update the artifactio, schema, and generated-schema ownership comments to describe the
+      actual schema component and regenerate any derived protobuf headers.
+    source: built-in
+
+ecosystem_reviews: []

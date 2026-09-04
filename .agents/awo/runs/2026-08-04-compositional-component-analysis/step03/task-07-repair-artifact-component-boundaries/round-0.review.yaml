@@ -1,0 +1,201 @@
+review:
+  task_file: .agents/tasks/2026-08-04-compositional-component-analysis/step03/task-07-repair-artifact-component-boundaries.code-task.md
+  change_id: nwunpzwlwuttwwmvtonrkorqmszykywv
+  reviewed_at: "2026-09-04T07:14:42Z"
+  verdict: changes_requested
+  schema_version: 2
+  lsp_coverage: covered
+
+merge_request:
+  title: "fix(components): repair artifactio ownership boundaries [Compositional Analysis: Step 03/Task 07]"
+  body: |
+    The initial change 78374f72 (vkxqyqpstoqtprmqxrytslvrrovpmstq) moved the generated
+    protobuf package to a dedicated schema owner and rewired the manifest, artifactio,
+    tests, BUILD files, and generated outputs. The follow-up change cf67109d
+    (nwunpzwlwuttwwmvtonrkorqmszykywv) removed artifactio's duplicated project members,
+    added schema/symbol component edges, added a local capability-set guard, and wired
+    artifactio and schema into Bazel parity coverage. The series still omits the
+    required manifest dependency and leaves gaps in ownership and dependency-parity
+    regression coverage.
+
+summary: |
+  The two produced changes establish a single schema owner and remove artifactio's duplicate
+  manifest, schema, symbol, and host-policy membership; the work log records RED-to-GREEN
+  evidence and a full CI/Bazel pass. However, artifactio still omits the required manifest
+  component dependency and replaces its manifest API use with a duplicated capability map,
+  leaving the shell-to-core criterion only partially satisfied. The new regression tests also
+  omit artifactio's own owner assertion and dependency path/label parity, while LSP diagnostics
+  and the security pass are clean.
+
+acceptance_criteria:
+  - text: |
+      1. **Project packages have one owner**
+         - Given all checked-in component manifests and Bazel component declarations
+         - When ownership of `internal/manifest`, `internal/manifest/gen`, `internal/symbol`, and `internal/artifactio` is enumerated
+         - Then each package has one intentional owner and `artifactio` does not duplicate the manifest or symbol components' members.
+    status: partial
+    evidence: |
+      The generated package is moved to `internal/schema/gen`, with that package owned by
+      `schema` (`go/internal/schema/component.textproto:7-10`); the native artifactio manifest
+      now lists only its own project package (`go/internal/artifactio/component.textproto:16-19`),
+      while manifest and symbol retain their own project members. The Bazel component mirrors
+      are present in `go/internal/artifactio/BUILD.bazel:69-104` and
+      `go/internal/schema/BUILD.bazel:12-17`. `TestProjectPackagesSingleOwner` enumerates the
+      selected slice at `go/internal/manifestparity/ownership_test.go:65-82`, but its expected
+      owner map at lines 85-89 omits `internal/artifactio`, so a missing or misowned artifactio
+      package would pass the regression test.
+  - text: |
+      2. **Shell-to-core dependencies are explicit**
+         - Given the `artifactio` component
+         - When its component graph is inspected
+         - Then its uses of schema, manifest, and symbol APIs are represented as component dependencies with surfaces sufficient for the actual imports.
+    status: partial
+    evidence: |
+      The schema and symbol edges are explicit in `go/internal/artifactio/component.textproto:8-15`
+      and mirrored by `go/internal/artifactio/BUILD.bazel:56-59`; the schema interface files
+      expose the generated API at `go/internal/schema/component.textproto:7-9`, and symbol's
+      declared interface is `symbol.go` (`go/internal/symbol/component.textproto:2`). There is
+      no manifest dependency in either declaration. Instead, the implementation adds a second
+      capability taxonomy in `go/internal/artifactio/capabilities.go:3-21` and uses it from
+      `go/internal/artifactio/stdlibmap.go:245-246,285-286` and `surface.go:142-144`, bypassing
+      the manifest API required by Technical Requirement 3.
+  - text: |
+      3. **Layering remains inward-only**
+         - Given the repaired component graph
+         - When Go imports and declared authority are inspected
+         - Then artifactio remains shell-side, pure packages do not import it, and no pure package acquires filesystem authority.
+    status: pass
+    evidence: |
+      `go/internal/artifactio/component.textproto:16-52` retains artifactio as the project
+      member and declares FILES plus the shell/runtime authority set. The production-import
+      scan in `go/internal/manifestparity/ownership_test.go:129-171` checks the listed pure
+      packages for imports of artifactio and passes according to the work log's full CI run
+      (`work.log:183-189`).
+  - text: |
+      4. **Native and Bazel declarations agree**
+         - Given the checked-in textproto manifests and BUILD targets
+         - When manifest parity and component-shape checks run
+         - Then ownership, dependencies, members, and authority declarations match in both representations.
+    status: pass
+    evidence: |
+      The artifactio native dependency/member/authority declaration at
+      `go/internal/artifactio/component.textproto:8-52` is mirrored by the Bazel target at
+      `go/internal/artifactio/BUILD.bazel:53-104`. The corresponding schema and manifest
+      declarations are mirrored at `go/internal/schema/component.textproto:7-10`,
+      `go/internal/schema/BUILD.bazel:12-17`, `go/internal/manifest/component.textproto:3-39`,
+      and `go/internal/manifest/BUILD.bazel:60-101`. The Bazel self-parity target receives
+      both new components in `go/cmd/arcc/app/BUILD.bazel:46-78`, and the work log records the
+      parity leg passing (`work.log:183-192`). The parity helper's incomplete dependency-path
+      comparison is recorded separately as a regression-coverage finding.
+  - text: |
+      5. **Behavior remains unchanged**
+         - Given existing artifact, symbol, manifest, and checker fixtures
+         - When `just ci` runs
+         - Then all tests and self-checks pass with no artifact-byte or verdict change attributable to this boundary repair.
+    status: pass
+    evidence: |
+      The work log records the first change's Go tests, vet, and Bazel tests passing
+      (`work.log:107-135`) and the complete `just ci` gate, including both extra shell
+      validation legs, passing for the final change (`work.log:183-189`). The ordered diff
+      changes generated protobuf package paths/imports and component wiring; it does not
+      alter protobuf fields, artifactio encoding/decoding logic, SymbolID logic, or checker
+      code. Existing artifact and schema fixtures remain in the touched test files, including
+      `go/internal/artifactio/artifactio_test.go:38-222` and `decode_test.go:14-300`.
+
+findings:
+  - severity: important
+    category: acceptance_criteria
+    file: go/internal/artifactio/component.textproto
+    line: 8
+    title: "artifactio omits the required manifest dependency"
+    details: |
+      Technical Requirement 3 and AC2 require artifactio to declare component dependencies
+      on the manifest model, symbol grammar, and schema surface it consumes. The current
+      native manifest has only `schema` and `symbol` dependencies at
+      `go/internal/artifactio/component.textproto:8-15`, and the Bazel target mirrors only
+      those two at `go/internal/artifactio/BUILD.bazel:56-59`. The former manifest API use was
+      avoided by duplicating `manifest.KnownCapabilities` in `capabilities.go:3-21` and
+      switching the validators to that copy (`stdlibmap.go:245-246,285-286` and
+      `surface.go:142-144`). The package contract still says manifest is a required input at
+      `go/internal/artifactio/artifactio.go:13-15`, so the implementation and declared graph
+      are inconsistent with the task's required shell-to-core edge.
+    suggested_action: |
+      Restore an explicit manifest component dependency and consume a manifest-owned API or
+      surface for the capability taxonomy; update the native and Bazel declarations and their
+      parity tests together. If the current closure-overlap rule requires a runtime-component
+      rearrangement, make that ownership change explicit rather than replacing the dependency
+      with a second source of truth.
+    source: built-in
+  - severity: important
+    category: tests
+    file: go/internal/manifestparity/manifestparity.go
+    line: 143
+    title: "Manifest parity ignores dependency paths and labels"
+    details: |
+      Technical Requirement 5 calls for parity of dependency names and manifest paths/labels.
+      `CompareManifests` reduces both dependency lists to names at
+      `go/internal/manifestparity/manifestparity.go:143-146` and `depNames` at lines 215-221;
+      it discards each `ComponentDependency.Manifest` path and `AutoAttached` value. The new
+      ownership test only checks the checked-in native paths at
+      `go/internal/manifestparity/ownership_test.go:109-126`. A Bazel component label or native
+      manifest path can therefore point at the wrong same-named component while this parity
+      coverage still passes, leaving the requested divergence guard incomplete.
+    suggested_action: |
+      Compare dependency identity using a normalized component root/output path that accounts
+      for Bazel's generated manifest filename, and compare auto-attached status as well. Add a
+      regression case with equal dependency names but a mismatched path/label so the test proves
+      the check is load-bearing.
+    source: built-in
+  - severity: important
+    category: tests
+    file: go/internal/manifestparity/ownership_test.go
+    line: 85
+    title: "Ownership test does not assert artifactio's owner"
+    details: |
+      AC1 covers four project packages, but `wantOwner` at
+      `go/internal/manifestparity/ownership_test.go:85-89` asserts only manifest,
+      schema/gen, and symbol. Although the preceding loop collects artifactio members, a
+      component with no `internal/artifactio` member (or one with a different sole owner)
+      would not fail this test. The scanner also limits its manifest roots to internal and cmd
+      at lines 22-23 despite the criterion saying all checked-in component manifests.
+    suggested_action: |
+      Assert `modulePrefix + "internal/artifactio": "artifactio"` and validate the complete
+      expected owner set. Walk all checked-in component manifests (including other Go-tree
+      roots) or document and test the exact scope explicitly.
+    source: built-in
+  - severity: important
+    category: tests
+    file: go/internal/manifestparity/ownership_test.go
+    line: 109
+    title: "Dependency regression test was narrowed to omit manifest"
+    details: |
+      The RED evidence shows the new dependency test originally expected a manifest edge and
+      failed for the missing `manifest` dependency (`work.log:33-35`). In the final test,
+      `want` at `go/internal/manifestparity/ownership_test.go:109-112` contains only schema and
+      symbol, and line 124 rejects any other dependency. This removes coverage for the exact
+      required edge rather than providing an equivalent assertion; the local capability-set
+      drift test cannot verify component graph ownership or surface resolution.
+    suggested_action: |
+      Restore the manifest dependency to the expected set and keep the test asserting all three
+      required edges and their paths. Fix the component graph so the restored test passes instead
+      of changing the expected contract to match the workaround.
+    source: built-in
+  - severity: suggestion
+    category: style
+    file: proto/archcontracts/v1/component.proto
+    line: 4
+    title: "Schema ownership comments still name manifest as owner"
+    details: |
+      The generated-package contract in `proto/archcontracts/v1/component.proto:1-7` says the
+      package is an implementation detail of the manifest component. The same stale ownership
+      claim appears in `stdlibmap.proto:1-12`, `surface.proto:1-12`, the generated `.pb.go`
+      headers, and `go/internal/archcontracts/BUILD.bazel:5-6`, while the change introduces
+      `schema` as the explicit owner. This is non-blocking documentation drift but makes the
+      new component boundary misleading to readers and future generated output.
+    suggested_action: |
+      Update the three proto package contracts and the archcontracts BUILD comment to describe
+      the schema component, then regenerate the checked-in protobuf files so their package
+      comments agree with the source.
+    source: built-in
+
+ecosystem_reviews: []

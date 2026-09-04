@@ -1,0 +1,138 @@
+review:
+  task_file: .agents/tasks/2026-08-04-compositional-component-analysis/step03/task-07-repair-artifact-component-boundaries.code-task.md
+  change_id: ovsylzxxwmpuqosmtqysutoyttlkvyxx
+  reviewed_at: "2026-09-04T08:18:18Z"
+  verdict: approved
+  schema_version: 2
+  lsp_coverage: covered
+
+merge_request:
+  title: "fix(components): complete artifact boundary rework [Compositional Analysis: Step 03/Task 07]"
+  body: |
+    The initial implementation spans 78374f72 (vkxqyqpstoqtprmqxrytslvrrovpmstq), which
+    moved the generated protobuf package to a dedicated schema owner, and cf67109d
+    (nwunpzwlwuttwwmvtonrkorqmszykywv), which removed artifactio's duplicated project
+    members and added schema/symbol dependency wiring. Rework 89239483
+    (vmxvnmtqltvxlozowpwlszrrustwqnru) moved the shared capability taxonomy into the
+    schema package and added initial parity coverage; 0161ba87
+    (qouwvxwnmuzwspywxmpswmyvunyxyvkq) stabilized dependency identity and schema visibility.
+    Rework 7bc9491d (qwzruqotmwqoztumtzvkntqlmvmqqozn) recorded the explicit specification
+    amendment, and 6ab8ab56 (ovsylzxxwmpuqosmtqysutoyttlkvyxx) made schema a package-surface
+    component, completed filename-parity checks, updated ownership tests, and regenerated
+    the affected headers.
+
+summary: |
+  All prior important findings are resolved: the task amendment records the satisfiable schema-owned taxonomy graph, schema now exposes both member packages as a package surface, dependency filename conventions are checked, and ownership tests cover artifactio. The final range preserves the artifact and checker behavior, with targeted tests and the full CI gate reported green; the removed local-map test is justified by removing that duplicate source. Only two non-blocking documentation inconsistencies remain in the scratchpad plan and justfile comments.
+
+acceptance_criteria:
+  - text: |
+      1. **Project packages have one owner**
+         - Given all checked-in component manifests and Bazel component declarations
+         - When ownership of `internal/manifest`, `internal/manifest/gen`, `internal/symbol`, and `internal/artifactio` is enumerated
+         - Then each package has one intentional owner and `artifactio` does not duplicate the manifest or symbol components' members.
+    status: pass
+    evidence: |
+      The generated package is explicitly owned at `internal/schema/gen`, while the new
+      schema vocabulary package is owned by schema (`go/internal/schema/component.textproto:8-10`).
+      The owner map now asserts artifactio, manifest, schema, schema/gen, and symbol at
+      `go/internal/manifestparity/ownership_test.go:88-94`, and the preceding loop rejects
+      duplicate project members at lines 68-84. Native and Bazel members agree in
+      `go/internal/artifactio/component.textproto:17-46`, `go/internal/artifactio/BUILD.bazel:67-98`,
+      `go/internal/schema/component.textproto:8-10`, and `go/internal/schema/BUILD.bazel:33-39`.
+      This resolves the prior missing-artifactio-owner finding.
+  - text: |
+      2. **Shell-to-core dependencies are explicit**
+         - Given the `artifactio` component
+         - When its component graph is inspected
+         - Then its uses of schema, manifest, and symbol APIs are represented as component dependencies with surfaces sufficient for the actual imports.
+    status: pass
+    evidence: |
+      The task's explicit R2 amendment changes this criterion to the satisfiable graph in
+      `.agents/tasks/2026-08-04-compositional-component-analysis/step03/task-07-repair-artifact-component-boundaries.code-task.md:66-88`:
+      artifactio consumes schema and symbol, with the capability taxonomy owned by schema.
+      The final artifactio declarations contain exactly those dependencies at
+      `go/internal/artifactio/component.textproto:9-16` and
+      `go/internal/artifactio/BUILD.bazel:51-57`. Schema is now package-surface over both
+      `schema` and `schema/gen` (`go/internal/schema/component.textproto:2-10`,
+      `go/internal/schema/BUILD.bazel:25-39`), so its surface covers generated types and
+      `KnownCapabilities`. `TestArtifactioDeclaresCoreComponentDependencies` checks actual
+      production imports at `go/internal/manifestparity/ownership_test.go:138-161`, while
+      `TestSchemaSurfaceCoversCapabilityTaxonomy` checks the surface and both consumers at
+      lines 200-248.
+  - text: |
+      3. **Layering remains inward-only**
+         - Given the repaired component graph
+         - When Go imports and declared authority are inspected
+         - Then artifactio remains shell-side, pure packages do not import it, and no pure package acquires filesystem authority.
+    status: pass
+    evidence: |
+      Artifactio remains the sole project member in its shell manifest and retains FILES plus
+      its runtime authority declaration (`go/internal/artifactio/component.textproto:17-53`).
+      The production-import guard scans the listed pure packages and rejects reverse imports
+      at `go/internal/manifestparity/ownership_test.go:251-294`; the final self-check reports
+      artifactio and manifest conforming (`work.log:335-345`). No changed production file adds
+      a reverse shell import or filesystem authority to a core package.
+  - text: |
+      4. **Native and Bazel declarations agree**
+         - Given the checked-in textproto manifests and BUILD targets
+         - When manifest parity and component-shape checks run
+         - Then ownership, dependencies, members, and authority declarations match in both representations.
+    status: pass
+    evidence: |
+      `CompareManifests` now validates checked-in and generated dependency filename conventions,
+      normalized component-directory identity, and auto-attached status at
+      `go/internal/manifestparity/manifestparity.go:143-163,232-248`. Regression coverage for
+      wrong checked-in filenames and missing generated target suffixes is at
+      `go/internal/manifestparity/manifestparity_test.go:383-445`, and the positive generated
+      suffix case is at lines 355-381. The self-parity Bazel target includes artifactio and
+      schema (`go/cmd/arcc/app/BUILD.bazel:46-78`), and the work log records the final parity
+      and component-shape legs passing (`work.log:346-349`).
+  - text: |
+      5. **Behavior remains unchanged**
+         - Given existing artifact, symbol, manifest, and checker fixtures
+         - When `just ci` runs
+         - Then all tests and self-checks pass with no artifact-byte or verdict change attributable to this boundary repair.
+    status: pass
+    evidence: |
+      The work log records the initial Go tests, vet, and Bazel suite passing
+      (`work.log:107-135`), the rework's targeted ownership/parity tests passing
+      (`work.log:320-334`), and the final full CI gate passing (`work.log:346-349`). The
+      implementation changes only component ownership, dependency declarations, capability
+      taxonomy location, and generated Go package metadata; protobuf fields, artifact
+      encoding/decoding, SymbolID logic, and checker code are unchanged. Existing artifact
+      fixtures remain in `go/internal/artifactio/artifactio_test.go:38-222` and
+      `go/internal/artifactio/decode_test.go:14-300`.
+
+findings:
+  - severity: suggestion
+    category: style
+    file: .agents/scratchpad/2026-08-04-compositional-component-analysis/step03/task-07-repair-artifact-component-boundaries/plan.md
+    line: 8
+    title: "Scratchpad plan still names the superseded manifest edge"
+    details: |
+      The task now records an explicit amendment at
+      `.agents/tasks/2026-08-04-compositional-component-analysis/step03/task-07-repair-artifact-component-boundaries.code-task.md:66-88`,
+      but the scratchpad plan still says the dependency test and implementation must add a
+      manifest edge at `plan.md:8-14`. The implementation and tests correctly follow the
+      amended task, so this is workflow documentation drift rather than a code defect.
+    suggested_action: |
+      Annotate or update the plan and context snapshots to record the accepted schema-owned
+      taxonomy graph and artifactio dependency set of schema plus symbol.
+    source: built-in
+  - severity: suggestion
+    category: style
+    file: justfile
+    line: 46
+    title: "Selfcheck comment still refers to schema interface files"
+    details: |
+      The schema component is now package-surface and deliberately has no interface files
+      (`go/internal/schema/component.textproto:8-10` and `go/internal/schema/BUILD.bazel:33-39`),
+      but the selfcheck comment at `justfile:46-48` still says consumers validate its interface
+      files. The recipe's behavior is unchanged and the dependency manifest is still resolved;
+      only the explanatory comment is stale after the final boundary change.
+    suggested_action: |
+      Update the comment to say that consumers resolve and validate the schema component's
+      package-surface members rather than its interface files.
+    source: built-in
+
+ecosystem_reviews: []
