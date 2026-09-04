@@ -11,7 +11,12 @@ go_library(
         "write.go",
     ],
     importpath = "github.com/ono-sendai-labs/architectural-contracts/go/internal/artifactio",
-    visibility = ["//go:__subpackages__"],
+    # Like hostpolicy: the go_component rule resolves member labels from the
+    # //bazel_rules rule packages, so visibility must include those too.
+    visibility = [
+        "//bazel_rules:__subpackages__",
+        "//go:__subpackages__",
+    ],
     deps = [
         "//go/internal/manifest",
         "//go/internal/manifest/gen",
@@ -27,6 +32,7 @@ go_test(
     srcs = [
         "artifactio_test.go",
         "decode_test.go",
+        "rework_test.go",
         "write_test.go",
     ],
     embed = [":artifactio"],
@@ -54,8 +60,11 @@ go_component(
         "UNSAFE_POINTER",
     ],
     members = [
+        "//go/internal/artifactio",
         "//go/internal/hostpolicy",
+        "//go/internal/manifest",
         "//go/internal/manifest/gen",
+        "//go/internal/symbol",
         "@org_golang_google_protobuf//encoding/protojson:protojson",
         "@org_golang_google_protobuf//encoding/prototext:prototext",
         "@org_golang_google_protobuf//encoding/protowire:protowire",
