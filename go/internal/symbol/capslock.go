@@ -522,6 +522,16 @@ func checkSingleType(arg string) error {
 	if !p.atEnd() {
 		return p.errorf("unexpected %s after type", p.tok)
 	}
+	// The scan must be lexically clean (fail-closed): the scanner's
+	// best-effort recovery after a lexical error — an invalid string
+	// escape in a tag, a malformed numeric literal in an array length —
+	// must not let malformed Go syntax through. The main scan is
+	// sequential over the whole argument (checkSingleType requires the
+	// input to be consumed), so every byte is scanned and no lexical
+	// error can be hidden by the throwaway lookahead scanner.
+	if p.scanErrs > 0 {
+		return fmt.Errorf("invalid syntax: %s", p.scanFirst)
+	}
 	return nil
 }
 
@@ -536,6 +546,13 @@ type typeParser struct {
 	pos  token.Pos
 	tok  token.Token
 	lit  string
+	// scanErrs counts the lexical errors the scanner reported and
+	// scanFirst holds the first one's actionable description. The scanner
+	// deliberately returns a best-effort token stream after a lexical
+	// error, so the count must be enforced explicitly or malformed
+	// literals (an invalid string escape, "1_") would validate.
+	scanErrs  int
+	scanFirst string
 }
 
 func (p *typeParser) init(s string) error {
@@ -545,7 +562,12 @@ func (p *typeParser) init(s string) error {
 	p.src = s
 	p.fset = token.NewFileSet()
 	p.file = p.fset.AddFile("", p.fset.Base(), len(s))
-	p.scan.Init(p.file, []byte(s), nil, 0)
+	p.scan.Init(p.file, []byte(s), func(pos token.Position, msg string) {
+		if p.scanFirst == "" {
+			p.scanFirst = fmt.Sprintf("%s: %s", pos, msg)
+		}
+		p.scanErrs++
+	}, 0)
 	p.next()
 	return nil
 }

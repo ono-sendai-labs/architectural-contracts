@@ -140,6 +140,8 @@ func TestParseCapslock_Rejected(t *testing.T) {
 		{"variadic result", "store.Load[func() (...int)]"},
 		{"grouped variadic parameters", "store.Load[func(x, y ...int)]"},
 		{"trailing tokens after newline", "store.Load[int\nvar y int]"},
+		{"invalid string escape in tag", `store.Load[struct{A int "json:\q"}]`},
+		{"malformed numeric literal in array length", `store.Load[[1_]byte]`},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
