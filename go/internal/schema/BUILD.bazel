@@ -1,7 +1,10 @@
 load("@rules_arcc//bazel_rules/go:defs.bzl", "go_component")
 load("@rules_go//go:def.bzl", "go_library")
 
-exports_files(["component.textproto"])
+exports_files([
+    "capabilities.go",
+    "component.textproto",
+])
 
 # The schema vocabulary package: the known Capslock capability taxonomy that
 # the manifest model and the artifact-I/O shell consume through the schema
@@ -12,7 +15,13 @@ go_library(
     name = "schema",
     srcs = ["capabilities.go"],
     importpath = "github.com/ono-sendai-labs/architectural-contracts/go/internal/schema",
-    visibility = ["//go:__subpackages__"],
+    # Like hostpolicy: the go_component rule resolves member labels from the
+    # //bazel_rules rule packages, and the authority-sync shell test reads the
+    # taxonomy source, so visibility must include //bazel_rules as well.
+    visibility = [
+        "//bazel_rules:__subpackages__",
+        "//go:__subpackages__",
+    ],
 )
 
 # Mirrors the checked-in schema/component.textproto: the generated protobuf

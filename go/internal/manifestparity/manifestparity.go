@@ -215,22 +215,20 @@ func basenames(paths []string) []string {
 	return out
 }
 
-// depIdentities maps dependencies onto comparable identity strings — component
-// name, the referenced manifest's component directory and basename (with the
-// Bazel-generated `_component` filename suffix normalized away), and
-// auto-attached status — sorted for deterministic comparison. Both generated
-// and checked-in manifests reference each dependency's manifest inside that
-// component's own directory, so the directory name is part of the identity and
-// a same-named dependency pointing at another component's directory fails.
+// depIdentities maps dependencies onto comparable identity strings — the
+// component name and the directory of the referenced manifest, sorted for
+// deterministic comparison. Generated and checked-in manifests spell the
+// dependency's file differently (the Bazel-generated
+// "<dep>_component.component.textproto" versus the checked-in
+// "component.textproto"), but both must live inside the dependency component's
+// own directory; a same-named dependency pointing at another component's
+// directory therefore fails parity.
 func depIdentities(deps []manifest.ComponentDependency) []string {
 	out := make([]string, len(deps))
 	for i, d := range deps {
-		slash := filepath.ToSlash(d.Manifest)
-		base := filepath.Base(slash)
-		dir := filepath.Base(filepath.Dir(slash))
-		base = strings.TrimSuffix(base, "_component.component.textproto")
-		base = strings.TrimSuffix(base, ".component.textproto")
-		out[i] = fmt.Sprintf("%s(%s/%s.component.textproto, auto_attached=%t)", d.Name, dir, base, d.AutoAttached)
+		dir := filepath.Base(filepath.Dir(filepath.ToSlash(d.Manifest)))
+		name := strings.TrimSuffix(d.Name, "_component")
+		out[i] = fmt.Sprintf("%s->%s, auto_attached=%t", name, dir, d.AutoAttached)
 	}
 	sort.Strings(out)
 	return out

@@ -318,7 +318,7 @@ func TestCompareManifests_DependencyPathMismatchFails(t *testing.T) {
 		t.Fatalf("expected parity error for dependency manifest path mismatch, got none")
 	}
 	joined := strings.Join(spy.errors, "\n")
-	for _, want := range []string{"component-dependency identities", "dep.component.textproto"} {
+	for _, want := range []string{"component-dependency identities", "dep->other"} {
 		if !strings.Contains(joined, want) {
 			t.Errorf("expected error containing %q, got %v", want, spy.errors)
 		}
