@@ -1,0 +1,25 @@
+@  rqmylkmz xtof@xtof.org 2026-09-03 17:12:40 default@ 2b2c3622
+│  (empty) (no description set)
+○  rznrnvmp xtof@xtof.org 2026-09-03 17:12:40 17c326ff
+│  fix(symbol): disambiguate dotful Capslock spellings and complete the type grammar
+○  wntkwnln xtof@xtof.org 2026-09-03 16:53:30 5c1d95e2
+│  fix(symbol): make Capslock admission an explicit grammar, not heuristics
+○  xqvosyps xtof@xtof.org 2026-09-03 16:33:49 c1204a40
+│  fix(symbol): complete round-1 rework of the SymbolID grammar review
+○  nukpzvow xtof@xtof.org 2026-09-03 16:12:25 ffa0e2f7
+│  wip(symbol): interrupted round-1 rework of the SymbolID grammar review findings
+○  zlvvtrov xtof@xtof.org 2026-09-03 15:46:24 9269bca3
+│  build(symbol): register the symbol component
+○  yplpntuw xtof@xtof.org 2026-09-03 15:42:23 b3f3ef65
+│  feat(symbol): add exact declared-surface extractor for SymbolID
+○  qktupxyt xtof@xtof.org 2026-09-03 15:41:00 47b9b5af
+│  feat(symbol): convert go/types objects to SymbolID under the declaring-object rule
+○  onzrzvrk xtof@xtof.org 2026-09-03 15:37:59 278d2660
+│  feat(symbol): normalize Capslock spellings onto the v1 grammar
+○  mumrltmt xtof@xtof.org 2026-09-03 15:36:36 1518fcd7
+│  feat(symbol): add SymbolID value with strict v1 textual grammar
+○  qzumvyml xtof@xtof.org 2026-09-03 15:12:58 27ef396d
+│  chore(awo-config): remove misleading comment from acpx-config
+○  tvmnmlxs xtof@xtof.org 2026-09-03 14:39:11 c7eac25a
+│  chore(awo): record bookkeeping for step03 task 03
+~

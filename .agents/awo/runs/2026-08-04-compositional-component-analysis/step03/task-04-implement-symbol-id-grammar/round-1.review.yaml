@@ -1,0 +1,166 @@
+review:
+  task_file: .agents/tasks/2026-08-04-compositional-component-analysis/step03/task-04-implement-symbol-id-grammar.code-task.md
+  change_id: xqvosypslrypmtnylouqnptyqommulqo
+  reviewed_at: 2026-09-03T23:42:22Z
+  verdict: changes_requested
+  schema_version: 2
+  lsp_coverage: partial
+
+merge_request:
+  title: "fix(symbol): complete SymbolID grammar rework [Compositional Symbols: Step 03/Task 04]"
+  body: |
+    Reviews the complete seven-change series from the supplied base through
+    the current change. The initial mumrltmt change adds the strict SymbolID v1
+    grammar and tests; onzrzvr adds Capslock normalization; qktupx adds
+    go/types declaring-object conversion; yplpnt adds the deterministic exact
+    surface extractor; and zlvvt adds BUILD/component registration and
+    self-check wiring. The orchestrator-preserved nukpzvow change contains the
+    interrupted round-1 fixes, and xqvosyps verifies those fixes and adds the
+    cleanup/tests that complete the rework. The live call-graph path remains
+    untouched; Go, integration, vet, formatting, and the recorded 79/79 CI
+    gate pass, but the Capslock grammar rework has fixable compatibility gaps.
+
+summary: |
+  Three of the prior four important findings are resolved in nukpzvow and
+  verified by xqvosyps: host-path canonicalization, `init` path handling, and
+  nil-package `error.Error` handling; the prior work-log suggestion is also
+  corrected. The two exact malformed Capslock examples from the prior finding
+  now reject, but the new text-only heuristic rejects valid `gopkg.in/yaml.v2`
+  paths and the type-argument whitelist rejects valid Go type expressions while
+  accepting some malformed ones, so AC2 remains partial. Full Go and
+  integration tests and the recorded 79/79 CI gate pass, but these regressions
+  require another fix round.
+
+acceptance_criteria:
+  - text: |
+      1. **Text encoding is canonical and versioned**
+         - Given valid IDs for every supported top-level, method, and init form
+         - When each is formatted, parsed, and formatted again
+         - Then the bytes are identical, contain the supported version, omit pointer markers/type arguments, and unsupported versions or malformed bodies fail clearly.
+    status: pass
+    evidence: |
+      `go/internal/symbol/symbol.go:29-123` defines GrammarVersion=1, the
+      documented bare v1 grammar, strict parsing, and byte-stable Format;
+      `go/internal/symbol/symbol_test.go:13-120` covers top-level, method, init,
+      malformed, and unsupported-version cases. The prior init-path finding is
+      resolved by removing the reservation from `symbol.go:135-151`, with
+      round-trip cases for `example.com/init` and `example.com/sub.init` at
+      `symbol_test.go:28-29`.
+  - text: |
+      2. **Capslock variants converge**
+         - Given pointer/value and instantiated/uninstantiated spellings of the same declared method
+         - When normalized from Capslock form
+         - Then all produce one identical `(pkg.Type).Method` `SymbolID`; invalid classifier text cannot enter an artifact as an ID.
+    status: partial
+    evidence: |
+      Pointer/value and generic convergence remain covered by
+      `go/internal/symbol/capslock_test.go:18-67`, and the prior namespace finding
+      is addressed by `capslock.go:46-64` plus
+      `capslock_test.go:101-162`, which compares Capslock and go/types IDs under
+      a rewritten namespace. The prior lowercase dotted-method and free-text
+      bracket examples now reject at `capslock_test.go:87-89`. However the new
+      path-shape heuristic rejects valid dotted subpaths such as
+      `gopkg.in/yaml.v2`, and its custom type-argument character whitelist does
+      not implement the full Go type grammar; the unresolved/reintroduced cases
+      are described in the two Capslock findings below.
+  - text: |
+      3. **Declaring-object rule covers every object kind**
+         - Given typed references to funcs, methods, types, fields, interface methods, vars, consts, aliases, and promoted members
+         - When converted to IDs
+         - Then each maps to the top-level declaration specified by the design table, with generic methods using their origin and promotions using the actual declaring member/type.
+    status: pass
+    evidence: |
+      `go/internal/symbol/typesconv.go:23-153` implements package-level objects,
+      methods, fields, interfaces, aliases, promotions, and init; the grammar
+      table fixtures at `typesconv_test.go:164-308` cover the named and generic
+      cases. The prior nil-package panic is fixed by `pkgPathOf` and guarded
+      constructors at `typesconv.go:156-190`, with
+      `TestFromSelection_PredeclaredInterfaceError` at
+      `typesconv_test.go:365-402`; the prior init-path issue is also covered by
+      the new package-path cases cited for AC1.
+  - text: |
+      4. **Alias extraction is complete but bounded**
+         - Given an exported alias to a same-package named type and an alias to a cross-package type
+         - When exact surface symbols are extracted
+         - Then the alias key is always emitted, the same-package target key is additionally emitted where required for member resolution, and no foreign target is falsely claimed.
+    status: pass
+    evidence: |
+      `go/internal/symbol/extract.go:78-83,113-130` emits an alias key and
+      expands only to a same-package named target. The exact same-package and
+      cross-package cases are asserted by
+      `go/internal/symbol/extract_test.go:40-127`, unchanged by round-1 rework.
+  - text: |
+      5. **Extraction is deterministic**
+         - Given repeated files or observations that describe the same declaration in differing traversal orders
+         - When extraction runs
+         - Then the result is sorted, duplicate-free, and byte-for-byte stable after schema encoding.
+    status: pass
+    evidence: |
+      `go/internal/symbol/extract.go:29-35,90-95` deduplicates through a seen
+      set and sorts with SymbolID.Compare. Repeated extraction, reversed file
+      order, duplicate init observations, and expected sorted output are
+      covered by `go/internal/symbol/extract_test.go:129-166`; the new init-path
+      extractor cases are at `extract_test.go:185-204`.
+  - text: |
+      6. **Live check behavior is unchanged**
+         - Given existing call-graph, pruning, and dependency-interface fixtures
+         - When `just ci` runs after the new grammar is added
+         - Then their verdicts remain unchanged and the current `InterfaceSymbol`/SSA path is still present for the Step 6 cutover.
+    status: pass
+    evidence: |
+      The complete range still changes only the new `go/internal/symbol` files
+      and the symbol self-check line/comment in `justfile`; no capanalyzer,
+      goanalysis, facts, or CLI production file is modified. The existing path
+      remains at `go/internal/goanalysis/goanalysis.go:311-312,1342-1350,
+      1352-1359`. `work.log:376-590` records the corrected grammar test and a
+      full `just ci` run with 79/79 Bazel tests passing; this review independently
+      passed the focused/full Go and integration suites, vet, formatting, and
+      native self-checks.
+
+findings:
+  - severity: important
+    category: acceptance_criteria
+    file: go/internal/symbol/capslock.go
+    line: 75
+    title: Capslock heuristic rejects valid dotted import paths
+    details: |
+      The round-1 fix rejects any dot in a slash-separated package element after
+      the first at `go/internal/symbol/capslock.go:75-92`. Consequently a valid
+      Capslock top-level spelling such as
+      `gopkg.in/yaml.v2.Unmarshal` is rejected because its package path is
+      `gopkg.in/yaml.v2`; dotted package elements after a slash are valid Go
+      import paths. The same heuristic is also not complete: a possible
+      unparenthesized method spelling such as `example.com.private.Read` has no
+      slash and passes the lowercase checks, so the prior fail-closed guarantee
+      remains ambiguous for that shape. This is a regression introduced in the
+      attempted fix for the prior important Capslock finding and leaves AC2
+      partial.
+    suggested_action: |
+      Do not infer package-versus-method identity from capitalization or dot
+      placement. Preserve structured classifier object information or resolve
+      the package/type against typed declarations; otherwise define a genuinely
+      explicit supported subset. Add regression coverage for
+      `gopkg.in/yaml.v2` and an ambiguous no-slash spelling.
+    source: built-in
+  - severity: important
+    category: security
+    file: go/internal/symbol/capslock.go
+    line: 193
+    title: Type-argument whitelist is neither complete nor strict
+    details: |
+      `validTypeArgumentText` at `go/internal/symbol/capslock.go:190-203`
+      accepts only letters, digits, and a small punctuation set. It rejects
+      valid Go type arguments such as `chan int`, `func(int) string`,
+      `[N+1]byte`, and types whose import path contains a hyphen. It also accepts
+      malformed bodies made only from allowed punctuation, such as `[,,]` or
+      `[.]`. Thus the rework fixes the two tested free-text cases but regresses
+      legitimate generic instantiations and still does not guarantee that an
+      invalid classifier spelling cannot enter an artifact.
+    suggested_action: |
+      Validate type arguments with Go's syntax/typing machinery or carry the
+      classifier's structured type information; avoid a partial character
+      whitelist. Add table cases for channel, function, array-constant, and
+      hyphenated-package arguments as well as malformed punctuation-only bodies.
+    source: built-in
+
+ecosystem_reviews: []

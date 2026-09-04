@@ -1,0 +1,102 @@
+result:
+  task_file: .agents/tasks/2026-08-04-compositional-component-analysis/step03/task-04-implement-symbol-id-grammar.code-task.md
+  change_id: rznrnvmpyvzmwrrolqsylztswlrxwywy
+  status: completed
+  schema_version: 2
+  produced_at: 2026-09-04T01:05:00Z
+  acceptance_criteria:
+    - text: |
+        1. Text encoding is canonical and versioned — format→parse→format byte-stable,
+        v1 grammar, pointer markers/type arguments rejected, malformed bodies fail clearly.
+      addressed: yes
+      evidence: |
+        go/internal/symbol/symbol.go:29-123 (GrammarVersion, Parse/Format/Compare);
+        round-trip cases for example.com/init.F and example.com/sub.init.F and
+        malformed/unsupported-version negative cases in symbol_test.go. Review marks
+        this pass; unchanged in round 3.
+    - text: |
+        2. Capslock variants converge — pointer/value and instantiated spellings map to
+        one canonical (pkg.Type).Method ID; invalid classifier text is rejected.
+      addressed: yes
+      evidence: |
+        go/internal/symbol/capslock.go:30-118: parenthesized method spellings always
+        map to (pkg.Type).Method with host canonicalization; type-argument brackets
+        are validated by validTypeArgument, a recursive-descent parser over the
+        explicit Go-type subset — now including variadic params (explicit ellipsis),
+        multi-result/parenthesized lists (typ "(" case), '/' and '%' constant
+        expressions with a no-slash dotted-name atom ([N/2]byte as division), and
+        instantiated named-type arguments (example.com/x.Pair[int]) — with new
+        positive table rows (capslock_test.go:31-36) and prior negative rows
+        unchanged. Round-3 finding 1 fixed: dotful unparenthesized spellings are
+        ambiguous (no object-kind info), so plain ParseCapslock rejects
+        example.com/p.private.Read and gopkg.in/yaml.v2.Unmarshal
+        (capslock_test.go:99-101), and ParseCapslockWithPackages
+        (capslock.go:53-62) accepts them only under a confirming known-package
+        resolver (TestParseCapslockWithPackages, capslock_test.go:118-158).
+        The convergence sub-test still asserts all spellings of one method yield
+        one ID.
+    - text: |
+        3. Declaring-object rule covers every object kind — funcs, methods, types,
+        fields, interface methods, vars, consts, aliases, promotions; generic origins.
+      addressed: yes
+      evidence: |
+        go/internal/symbol/typesconv.go:23-153 with pkgPathOf and guarded
+        constructors (typesconv.go:156-190); TestFromSelection_PredeclaredInterfaceError
+        covers error.Error without panicking. Review marks this pass; unchanged in
+        round 3.
+    - text: |
+        4. Alias extraction is complete but bounded — alias key always emitted,
+        same-package target key additionally, no foreign target claimed.
+      addressed: yes
+      evidence: |
+        go/internal/symbol/extract.go:78-83,113-130; exact same-package and
+        cross-package cases asserted by extract_test.go:40-127. Review marks this
+        pass; unchanged in round 3.
+    - text: |
+        5. Extraction is deterministic — sorted, duplicate-free, byte-for-byte stable.
+      addressed: yes
+      evidence: |
+        go/internal/symbol/extract.go:29-35,90-95 seen-set dedup + SymbolID.Compare
+        sort; repeated/reversed-order/duplicate-init coverage in
+        extract_test.go:129-166; init-path cases at extract_test.go:185-204.
+        Review marks this pass; unchanged in round 3.
+    - text: |
+        6. Live check behavior is unchanged — capanalyzer/InterfaceSymbol path intact,
+        just ci verdicts unchanged.
+      addressed: yes
+      evidence: |
+        The round-3 change touches only go/internal/symbol/capslock.go,
+        capslock_test.go and a doc-contract comment in symbol.go; no capanalyzer,
+        goanalysis, facts or CLI production file is modified, and the existing
+        InterfaceSymbol/SSA path remains (goanalysis.go:311-312,1342-1359). Full
+        `just ci` re-recorded in work.log: exit 0, 79/79 Bazel tests pass; go vet
+        and gofmt clean.
+  artifacts:
+    scratchpad_dir: .agents/scratchpad/2026-08-04-compositional-component-analysis/step03/task-04-implement-symbol-id-grammar
+    files:
+      - go/internal/symbol/symbol.go
+      - go/internal/symbol/symbol_test.go
+      - go/internal/symbol/capslock.go
+      - go/internal/symbol/capslock_test.go
+      - go/internal/symbol/typesconv.go
+      - go/internal/symbol/typesconv_test.go
+      - go/internal/symbol/extract.go
+      - go/internal/symbol/extract_test.go
+      - go/internal/symbol/BUILD.bazel
+      - go/internal/symbol/component.textproto
+      - justfile
+  notes: >
+    Rework round 3 addressed the two remaining important findings. The
+    round-2 claim that slash-qualified dotful spellings are unambiguous was
+    retracted: dotful unparenthesized spellings carry no object-kind
+    information, so plain ParseCapslock now rejects them and the new
+    ParseCapslockWithPackages accepts them only under a caller-supplied
+    known-package resolver, retaining gopkg.in/yaml.v2.Unmarshal and
+    example.com/p.private.Read top-level paths exactly when the package is
+    actually known, as the review requested. The type parser was completed
+    for variadic params, parenthesized/multi-result lists, the full
+    constant-expression operators, and instantiated named-type arguments,
+    with RED-to-GREEN table rows for every form. The full just ci gate passes
+    79/79; fresh change rznrnvmp committed on top of wntkwnln. No escalation
+    was needed: the review's "known package" disambiguator was implementable
+    in scope as an explicit resolver API.

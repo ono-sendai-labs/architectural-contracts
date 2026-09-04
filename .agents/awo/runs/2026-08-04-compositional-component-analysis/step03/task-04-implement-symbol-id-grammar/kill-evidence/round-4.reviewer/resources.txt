@@ -1,0 +1,30 @@
+# resources at 2026-09-04T01:53:29Z
+
+               total        used        free      shared  buff/cache   available
+Mem:           31366       20462        4247         972        8136       10904
+Swap:          32027        5643       26384
+
+## process counts by name
+      3 bun
+      3 bash
+      2 sort
+      1 uniq
+      1 sh
+      1 script
+      1 ps
+      1 opencode
+      1 node
+      1 java
+      1 head
+      1 codex-code-mode
+      1 codex
+      1 claude
+      1 bwrap
+
+## acpx / adapter processes  (pid ppid elapsed_s rss_kb comm args)
+   2128       1    1926 127948 bun            /home/xtof/.bun/bin/bun /home/xtof/.bun/install/global/node_modules/acpx/dist/cli.js __queue-owner
+   2147    2128    1926 83132 node            node /home/xtof/.bun/bin/codex-acp
+   2159    2147    1926 45228 bun             /home/xtof/.bun/bin/bun /home/xtof/.bun/install/global/node_modules/@openai/codex/bin/codex.js app-server
+   2170    2159    1926 173088 codex          /home/xtof/.bun/install/global/node_modules/@openai/codex-linux-x64/vendor/x86_64-unknown-linux-musl/bin/codex app-server
+  37557       1     447 104788 bun            /home/xtof/.bun/bin/bun /home/xtof/.bun/install/global/node_modules/acpx/dist/cli.js __queue-owner
+  37576   37557     447 564560 opencode       opencode acp

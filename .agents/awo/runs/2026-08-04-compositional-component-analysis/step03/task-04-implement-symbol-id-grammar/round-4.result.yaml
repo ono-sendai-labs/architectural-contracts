@@ -1,0 +1,91 @@
+result:
+  task_file: .agents/tasks/2026-08-04-compositional-component-analysis/step03/task-04-implement-symbol-id-grammar.code-task.md
+  change_id: rqmylkmzlstnvqtznlsnukoplwtpsroz
+  status: completed
+  schema_version: 2
+  produced_at: 2026-09-04T02:10:00Z
+  acceptance_criteria:
+    - text: |
+        1. Text encoding is canonical and versioned — format→parse→format byte-stable,
+        v1 grammar, pointer markers/type arguments rejected, malformed bodies fail clearly.
+      addressed: yes
+      evidence: |
+        go/internal/symbol/symbol.go:30-124 (GrammarVersion, Parse/Format/Compare);
+        round-trip cases for example.com/init.F and example.com/sub.init.F and
+        malformed/unsupported-version negative cases in symbol_test.go. Review marks
+        this pass; unchanged in round 4.
+    - text: |
+        2. Capslock variants converge — pointer/value and instantiated spellings map to
+        one canonical (pkg.Type).Method ID; invalid classifier text cannot enter an
+        artifact as an ID.
+      addressed: yes
+      evidence: |
+        go/internal/symbol/capslock.go. Round-4 finding fixed on both sides:
+        fail-closed — hyphens valid only in slash-separated path segments
+        (hostPart/goIdent/validGoIdent/validatePathTail; foo-bar, x-y.T and
+        example.com/2x.T reject), variadic must be last (func(...int, string)
+        rejects), named/unnamed params cannot be mixed, and stripTrailingBrackets
+        checks the raw prefix so store.Load[T][int] and (pkg.A[T]B).Get reject;
+        complete — named parameters (func(x int) string, func(a, b int) string),
+        struct and interface literal bodies, and <<, >>, &, |, ^ constant
+        expressions ([N<<1]byte) are parsed. All pinned RED-to-GREEN in
+        capslock_test.go (positive rows at :31-43, negative rows at :109-115).
+        Resolver-gated dotful paths and the earlier convergence rows remain
+        (capslock_test.go:121-165).
+    - text: |
+        3. Declaring-object rule covers every object kind — funcs, methods, types,
+        fields, interface methods, vars, consts, aliases, promotions; generic origins.
+      addressed: yes
+      evidence: |
+        go/internal/symbol/typesconv.go:23-153 with pkgPathOf and guarded
+        constructors; TestFromSelection_PredeclaredInterfaceError covers error.Error
+        without panicking. Review marks this pass; unchanged in round 4.
+    - text: |
+        4. Alias extraction is complete but bounded — alias key always emitted,
+        same-package target key additionally, no foreign target claimed.
+      addressed: yes
+      evidence: |
+        go/internal/symbol/extract.go:78-83,113-130; extract_test.go:40-127.
+        Review marks this pass; unchanged in round 4.
+    - text: |
+        5. Extraction is deterministic — sorted, duplicate-free, byte-for-byte stable.
+      addressed: yes
+      evidence: |
+        go/internal/symbol/extract.go:29-35,90-95; extract_test.go:129-166,185-204.
+        Review marks this pass; unchanged in round 4.
+    - text: |
+        6. Live check behavior is unchanged — capanalyzer/InterfaceSymbol path intact,
+        just ci verdicts unchanged.
+      addressed: yes
+      evidence: |
+        The round-4 change touches only go/internal/symbol/capslock.go,
+        capslock_test.go and typesconv.go/its test; no capanalyzer, goanalysis,
+        facts or CLI production file is modified. Full `just ci` re-recorded in
+        work.log: exit 0, 79/79 Bazel tests pass; go vet and gofmt clean.
+  artifacts:
+    scratchpad_dir: .agents/scratchpad/2026-08-04-compositional-component-analysis/step03/task-04-implement-symbol-id-grammar
+    files:
+      - go/internal/symbol/symbol.go
+      - go/internal/symbol/symbol_test.go
+      - go/internal/symbol/capslock.go
+      - go/internal/symbol/capslock_test.go
+      - go/internal/symbol/typesconv.go
+      - go/internal/symbol/typesconv_test.go
+      - go/internal/symbol/extract.go
+      - go/internal/symbol/extract_test.go
+      - go/internal/symbol/BUILD.bazel
+      - go/internal/symbol/component.textproto
+      - justfile
+  notes: >
+    Rework round 4 addressed the remaining important finding and both
+    suggestions. The Capslock type-argument grammar is now fail-closed
+    (hyphens restricted to slash-separated path segments, variadic parameters
+    required to be last, mixed named/unnamed parameters rejected, and the
+    raw-prefix bracket check closing the repeated-group and glued-name holes
+    in both top-level and receiver parsing) and more complete (named
+    parameters, struct and interface literal bodies, and the full
+    constant-expression operator set). FromObject now rejects a nil object
+    with an actionable error, and this round's work.log contains a genuine
+    failing RED run before the GREEN run, fixing the evidence-quality gap.
+    The full just ci gate passes 79/79; fresh change rqmylkmz committed on
+    top of rznrnvmp.

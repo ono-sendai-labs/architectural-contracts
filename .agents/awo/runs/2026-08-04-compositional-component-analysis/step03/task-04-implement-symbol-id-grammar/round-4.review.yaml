@@ -1,0 +1,176 @@
+review:
+  task_file: .agents/tasks/2026-08-04-compositional-component-analysis/step03/task-04-implement-symbol-id-grammar.code-task.md
+  change_id: rqmylkmzlstnvqtznlsnukoplwtpsroz
+  reviewed_at: 2026-09-04T03:19:00Z
+  verdict: changes_requested
+  schema_version: 2
+  lsp_coverage: partial
+
+merge_request:
+  title: "fix(symbol): harden Capslock type grammar [Compositional Symbols: Step 03/Task 04]"
+  body: |
+    Reviews the complete ten-change series from the supplied base through the
+    supplied current change. The initial five changes add SymbolID parsing,
+    Capslock normalization, go/types conversion, exact-surface extraction, and
+    component registration; nukpzvow preserves the interrupted first rework;
+    xqvosyps verifies it; wntkwnln replaces heuristic admission and the type
+    whitelist; rznrnvmp adds resolver-gated dotful paths and more type forms; and
+    rqmylkmz hardens bracket admission, signatures, literals, expressions, and
+    nil-object handling. The supplied tip is unchanged from the previously
+    reviewed round-4 tip, and the live call-graph path remains untouched.
+
+summary: |
+  The supplied tip resolves the prior review's explicit malformed-input cases
+  and both non-blocking suggestions: the focused RED-to-GREEN run is recorded,
+  FromObject(nil) returns an error, and dotful package paths are resolver-gated.
+  The newly added variadic, named-parameter, literal, shift, and bracket cases
+  pass, but the type grammar still accepts an invalid parenthesized tuple and
+  rejects valid Go type spellings such as digit-leading package paths, qualified
+  signature parameters, and named variadic parameters. Those AC2 gaps are
+  blocking for this task; no findings are safely deferrable to a follow-up while
+  this parser is intended to be the canonical normalizer. The other criteria and
+  the saved 79/79 just ci gate pass; the local Bazel reattempt remains blocked by
+  read-only shared cache state.
+
+acceptance_criteria:
+  - text: |
+      1. **Text encoding is canonical and versioned**
+         - Given valid IDs for every supported top-level, method, and init form
+         - When each is formatted, parsed, and formatted again
+         - Then the bytes are identical, contain the supported version, omit pointer markers/type arguments, and unsupported versions or malformed bodies fail clearly.
+    status: pass
+    evidence: |
+      `go/internal/symbol/symbol.go:30-124` defines GrammarVersion=1, the bare
+      v1 grammar, strict parsing, and canonical construction. Round-trip coverage
+      is at `symbol_test.go:13-49`, including init-containing package paths;
+      malformed and unsupported-version rejection with actionable errors is at
+      `symbol_test.go:80-125`.
+  - text: |
+      2. **Capslock variants converge**
+         - Given pointer/value and instantiated/uninstantiated spellings of the same declared method
+         - When normalized from Capslock form
+         - Then all produce one identical `(pkg.Type).Method` `SymbolID`; invalid classifier text cannot enter an artifact as an ID.
+    status: partial
+    evidence: |
+      The prior dotful-path finding is addressed: plain parsing rejects
+      unparenthesized dotful spellings at `go/internal/symbol/capslock_test.go:92-109`,
+      while `ParseCapslockWithPackages` accepts them only for a confirming
+      resolver at `capslock_test.go:131-170`, implemented at `capslock.go:89-102`.
+      Round 4 adds passing convergence cases for named parameters, literals,
+      shifts, and bracket placement at `capslock_test.go:18-87,109-127`.
+      The criterion remains partial because the parser still accepts
+      `store.Load[(int, string)]` and rejects valid emitted type spellings; the
+      two blocking findings below remain.
+  - text: |
+      3. **Declaring-object rule covers every object kind**
+         - Given typed references to funcs, methods, types, fields, interface methods, vars, consts, aliases, and promoted members
+         - When converted to IDs
+         - Then each maps to the top-level declaration specified by the design table, with generic methods using their origin and promotions using the actual declaring member/type.
+    status: pass
+    evidence: |
+      `go/internal/symbol/typesconv.go:23-157` implements package-level objects,
+      methods through Origin, receiver-base reduction, fields, interface methods,
+      aliases, promotions, and init. The grammar-table and selection fixtures at
+      `typesconv_test.go:164-308` cover those kinds and generic origins;
+      non-symbol and universe-object errors are tested at
+      `typesconv_test.go:310-402`, and the round-4 nil-object guard is tested at
+      `typesconv_test.go:404-411`.
+  - text: |
+      4. **Alias extraction is complete but bounded**
+         - Given an exported alias to a same-package named type and an alias to a cross-package type
+         - When exact surface symbols are extracted
+         - Then the alias key is always emitted, the same-package target key is additionally emitted where required for member resolution, and no foreign target is falsely claimed.
+    status: pass
+    evidence: |
+      `go/internal/symbol/extract.go:78-83,113-130` emits every alias key and
+      expands only a same-package named target. Same-package expansion and the
+      cross-package non-claiming bound are asserted at
+      `extract_test.go:40-127`.
+  - text: |
+      5. **Extraction is deterministic**
+         - Given repeated files or observations that describe the same declaration in differing traversal orders
+         - When extraction runs
+         - Then the result is sorted, duplicate-free, and byte-for-byte stable after schema encoding.
+    status: pass
+    evidence: |
+      `go/internal/symbol/extract.go:29-35,90-95` uses a seen set and
+      SymbolID.Compare sorting. Repeated extraction, reversed file order,
+      duplicate init observations, and sorted output are covered at
+      `extract_test.go:129-166`; init-path extraction is covered at
+      `extract_test.go:185-204`.
+  - text: |
+      6. **Live check behavior is unchanged**
+         - Given existing call-graph, pruning, and dependency-interface fixtures
+         - When `just ci` runs after the new grammar is added
+         - Then their verdicts remain unchanged and the current `InterfaceSymbol`/SSA path is still present for the Step 6 cutover.
+    status: pass
+    evidence: |
+      The complete base-to-current range changes only `go/internal/symbol` plus
+      the symbol self-check entry/comment in `justfile`; no live capanalyzer,
+      facts, goanalysis, or CLI production path is changed. The existing
+      `InterfaceSymbol`/SSA path remains at
+      `go/internal/goanalysis/goanalysis.go:311-312,1342-1359`. The round-4
+      `just ci` record at `work.log:1152-1372` reports Go build/tests,
+      integration tests, native selfchecks, and all 79/79 Bazel tests passing;
+      this review independently passed the focused package tests, Go vet,
+      gofmt, integration Go tests, and native selfchecks. The direct local
+      `just ci` rerun reached the same Go/native successes but could not start
+      Bazel because the shared output base is read-only, an environment issue.
+      FR10/BUILD/manifest/black-box artifacts remain present at
+      `go/internal/symbol/symbol.go:5-20`, `BUILD.bazel:4-38`,
+      `component.textproto:1-4`, and the `symbol_test` black-box package.
+
+findings:
+  - severity: important
+    category: security
+    file: go/internal/symbol/capslock.go
+    line: 299
+    title: Parenthesized parsing accepts an invalid tuple type argument
+    details: |
+      `typ` sends every parenthesized form through `paramList(')', false)` at
+      `go/internal/symbol/capslock.go:299-303`. Consequently,
+      `validTypeArgument("(int, string)")` succeeds and
+      `ParseCapslock("store.Load[(int, string)]")` strips the brackets and
+      returns `store.Load`, even though a comma-separated parenthesized list is
+      only valid as a function result list, not as one Go type argument. This
+      violates AC2's requirement that invalid classifier text cannot enter an
+      artifact and is not covered by `capslock_test.go:92-120`.
+    suggested_action: |
+      Track parsing context explicitly: allow a parenthesized parameter/result
+      list only after a function or interface method, and require a single type
+      for a parenthesized type expression used as a generic argument. Add a
+      negative regression for `(int, string)` and related named-list forms.
+    source: built-in
+  - severity: important
+    category: acceptance_criteria
+    file: go/internal/symbol/capslock.go
+    line: 632
+    title: Capslock type grammar still rejects valid Go spellings
+    details: |
+      The round-4 parser still has valid-type false negatives beyond the cases
+      it added. `validatePathTail` requires every package-path segment to start
+      with `isIdentStart` at `capslock.go:632-638`, so the new negative case
+      `example.com/2x.T` at `capslock_test.go:119` is rejected even though ASCII
+      digits are valid in Go import-path elements and the shared
+      `validPackagePath` accepts them at `symbol.go:132-150`. In the signature
+      grammar, `paramList` treats a leading identifier as a possible parameter
+      name at `capslock.go:512-531`, so valid formatter output such as
+      `func(example.com/x.T)` and `func(x ...int)` is rejected (the latter is
+      the standard named-variadic form). The same ambiguity affects qualified
+      embedded struct fields and interface-method parameters, while `expr`
+      still omits valid constant operators such as `&^`. These gaps leave
+      generic Capslock instantiations unable to converge with the same declared
+      symbol, so the prior important type-grammar finding is only partially
+      resolved.
+    suggested_action: |
+      Implement the type grammar from the actual Go/SSA formatter with
+      context-aware signature parsing. Permit all valid import-path element
+      characters and starts consistently with the canonical package-path grammar;
+      distinguish unnamed qualified types from named parameters; support named
+      variadics, qualified embedded fields and method parameters, and the
+      remaining emitted constant-expression operators. Add positive table rows
+      for these forms, especially `example.com/2x.T`,
+      `func(example.com/x.T)`, and `func(x ...int)`, before marking AC2 pass.
+    source: built-in
+
+ecosystem_reviews: []

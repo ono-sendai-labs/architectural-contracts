@@ -1,0 +1,221 @@
+review:
+  task_file: .agents/tasks/2026-08-04-compositional-component-analysis/step03/task-04-implement-symbol-id-grammar.code-task.md
+  change_id: zlvvtrovywoumylyyxrsyzmktumyysoz
+  reviewed_at: 2026-09-03T23:05:54Z
+  verdict: changes_requested
+  schema_version: 2
+  lsp_coverage: partial
+
+merge_request:
+  title: "feat(symbol): add canonical grammar and exact surfaces [Compositional Symbols: Step 03/Task 04]"
+  body: |
+    Reviews the complete five-change series from the supplied base through the
+    current change. The initial mumrltmt change adds the strict SymbolID v1
+    grammar and tests; onzrzvr adds Capslock normalization; qktupx adds
+    go/types declaring-object conversion; yplpnt adds the deterministic exact
+    surface extractor; and zlvvt adds the BUILD/component registration and
+    self-check wiring. The live call-graph path is unchanged. Focused Go tests,
+    vet, formatting, and the recorded full CI/Bazel validation are green; the
+    review requests fixes for canonicalization, fail-closed parsing, valid
+    package paths, and one conversion panic.
+
+summary: |
+  The five-change series adds the SymbolID grammar, Capslock adapter,
+  go/types conversion, exact-surface extractor, and component registration
+  without modifying the live analysis path; focused tests, vet, formatting,
+  and the recorded CI gate pass. Fixable correctness gaps remain: Capslock
+  output bypasses the host namespace hook, ambiguous or malformed classifier
+  text can be accepted, valid import paths containing an `init` segment are
+  rejected, and predeclared `error` method conversion can panic. The initial
+  grammar RED-to-GREEN log also contains a mislabeled failed command, so the
+  verdict is changes_requested.
+
+acceptance_criteria:
+  - text: |
+      1. **Text encoding is canonical and versioned**
+         - Given valid IDs for every supported top-level, method, and init form
+         - When each is formatted, parsed, and formatted again
+         - Then the bytes are identical, contain the supported version, omit pointer markers/type arguments, and unsupported versions or malformed bodies fail clearly.
+    status: partial
+    evidence: |
+      `go/internal/symbol/symbol.go:29-126` defines GrammarVersion=1, the
+      documented bare v1 grammar, strict parsing, and byte-stable Format;
+      `go/internal/symbol/symbol_test.go:13-119` covers top-level, method, init,
+      and malformed cases. However `validPackagePath` rejects every path
+      element or dot-separated part named `init` at
+      `go/internal/symbol/symbol.go:138-148`, so a valid canonical import path
+      such as `example.com/init` cannot produce or parse `example.com/init.F`.
+  - text: |
+      2. **Capslock variants converge**
+         - Given pointer/value and instantiated/uninstantiated spellings of the same declared method
+         - When normalized from Capslock form
+         - Then all produce one identical `(pkg.Type).Method` `SymbolID`; invalid classifier text cannot enter an artifact as an ID.
+    status: partial
+    evidence: |
+      `go/internal/symbol/capslock.go:26-54` and
+      `go/internal/symbol/capslock_test.go:13-61` cover pointer/value and
+      generic-instantiated convergence. The normalizer reconstructs raw
+      receiver/top-level text and calls Parse without applying the host policy,
+      so it does not produce the same canonical-namespace ID as
+      `typesconv.go:159-170` under a path rewrite. Also, the lowercase-only
+      ambiguity heuristic and bracket stripper admit inputs that are not safely
+      mappable classifier spellings; see the two Capslock findings below.
+  - text: |
+      3. **Declaring-object rule covers every object kind**
+         - Given typed references to funcs, methods, types, fields, interface methods, vars, consts, aliases, and promoted members
+         - When converted to IDs
+         - Then each maps to the top-level declaration specified by the design table, with generic methods using their origin and promotions using the actual declaring member/type.
+    status: partial
+    evidence: |
+      `go/internal/symbol/typesconv.go:23-153` implements package-level objects,
+      methods, fields, interfaces, aliases, promotions, and init; the fixtures
+      at `go/internal/symbol/typesconv_test.go:164-308` cover the named and
+      generic cases in the design table. The implementation is not total for
+      valid inputs: the `init` path rejection described above drops objects,
+      and a selection of the predeclared `error.Error` interface method reaches
+      `typesconv.go:89-94`, where a nil package is dereferenced instead of
+      returning an actionable error.
+  - text: |
+      4. **Alias extraction is complete but bounded**
+         - Given an exported alias to a same-package named type and an alias to a cross-package type
+         - When exact surface symbols are extracted
+         - Then the alias key is always emitted, the same-package target key is additionally emitted where required for member resolution, and no foreign target is falsely claimed.
+    status: pass
+    evidence: |
+      `go/internal/symbol/extract.go:78-83,113-130` emits an alias key and
+      expands only to a same-package named target. The exact same-package and
+      cross-package cases are asserted by
+      `go/internal/symbol/extract_test.go:40-127`.
+  - text: |
+      5. **Extraction is deterministic**
+         - Given repeated files or observations that describe the same declaration in differing traversal orders
+         - When extraction runs
+         - Then the result is sorted, duplicate-free, and byte-for-byte stable after schema encoding.
+    status: pass
+    evidence: |
+      `go/internal/symbol/extract.go:29-35,90-95` deduplicates through a seen
+      set and sorts with SymbolID.Compare. The repeated extraction, reversed
+      file order, duplicate init observations, and expected sorted output are
+      covered by `go/internal/symbol/extract_test.go:129-166`.
+  - text: |
+      6. **Live check behavior is unchanged**
+         - Given existing call-graph, pruning, and dependency-interface fixtures
+         - When `just ci` runs after the new grammar is added
+         - Then their verdicts remain unchanged and the current `InterfaceSymbol`/SSA path is still present for the Step 6 cutover.
+    status: pass
+    evidence: |
+      The complete jj range changes only the new `go/internal/symbol` files
+      and the symbol self-check line/comment in `justfile`; there is no diff in
+      capanalyzer, goanalysis, facts, or the CLI. The existing path remains at
+      `go/internal/goanalysis/goanalysis.go:311-312,1342-1350,1352-1359`.
+      `work.log:126-333` records the full just-ci run with all 79 Bazel tests
+      passing, and the review rerun independently passed the focused and full
+      Go tests, vet, formatting, and native self-check legs. The rerun's Bazel
+      startup was blocked by this environment's output-base permissions, not
+      by a source failure.
+
+findings:
+  - severity: important
+    category: acceptance_criteria
+    file: go/internal/symbol/capslock.go
+    line: 41
+    title: Capslock IDs bypass host-path canonicalization
+    details: |
+      Both branches of `ParseCapslock` return `Parse` of the raw spelling at
+      `go/internal/symbol/capslock.go:41,54`; neither applies
+      `hostpolicy.CanonicalizePath`. With the namespace override used by
+      `go/internal/symbol/extract_test.go:168-182`, a Capslock spelling such as
+      `(raw.T).M` remains `(raw.T).M`, while the same typed declaration is
+      emitted as `(canonical.example/raw.T).M` by
+      `go/internal/symbol/typesconv.go:159-170`. The two producers therefore
+      disagree in a host-rewritten namespace, violating the canonical-ID part
+      of Technical Requirement 2 and AC2.
+    suggested_action: |
+      Route the package/receiver portion through the host-policy hook in the
+      shared constructor used by ParseCapslock and the go/types conversion, or
+      otherwise canonicalize the parsed ID before returning it. Add a test that
+      overrides CanonicalizePath and asserts Capslock and go/types spellings are
+      identical.
+    source: built-in
+  - severity: important
+    category: security
+    file: go/internal/symbol/capslock.go
+    line: 64
+    title: Capslock parser admits ambiguous or malformed spellings
+    details: |
+      `capslockTopLevelPackagePlausible` only rejects uppercase-starting path
+      parts. An unparenthesized method spelling on a lower-case receiver, such
+      as `example.com/p.private.Read`, passes that check and is persisted as a
+      top-level symbol in package `example.com/p.private`. In addition,
+      `stripBalancedBrackets` discards bracket contents without validating them,
+      so `(*example.com/store.Box[not a type]).Get` is accepted as
+      `(example.com/store.Box).Get`. These are not safely mappable classifier
+      names, contrary to AC2; the current rejection table at
+      `go/internal/symbol/capslock_test.go:67-90` covers only the uppercase
+      heuristic and bracket shape, not these cases.
+    suggested_action: |
+      Define an unambiguous classifier grammar and enforce it before calling
+      Parse: validate type-argument syntax (or use a semantic type/package
+      resolver), and reject ambiguous unparenthesized method forms rather than
+      relying on receiver capitalization. Add negative table cases for a
+      lower-case receiver and invalid bracket contents.
+    source: built-in
+  - severity: important
+    category: acceptance_criteria
+    file: go/internal/symbol/symbol.go
+    line: 139
+    title: Package-path validation reserves valid init path segments
+    details: |
+      `validPackagePath` rejects an element equal to `init` and any dotted path
+      part equal to `init` at `go/internal/symbol/symbol.go:138-148`. `init` is
+      special only as the final symbol name; it is valid inside a Go import path,
+      so `example.com/init.F` is rejected. `canonicalID` propagates that error,
+      and `ExtractSurface` silently skips the declaration at
+      `go/internal/symbol/extract.go:48-50,73-75`, making an exact surface
+      incomplete for a valid package namespace.
+    suggested_action: |
+      Remove the `init` reservations from package-path validation and retain
+      the aggregate-init rule by recognizing `init` only as the symbol name
+      after the final separator. Add round-trip and extractor coverage for a
+      package path containing `/init` and a dotted `init` path part.
+    source: built-in
+  - severity: important
+    category: security
+    file: go/internal/symbol/typesconv.go
+    line: 92
+    title: Predeclared error method conversion can panic
+    details: |
+      A valid selection such as `var e error; e.Error()` resolves to the
+      predeclared `error.Error` interface method, whose declaring TypeName has
+      no package (`go/types` uses `Pkg() == nil` for universe objects).
+      `FromSelection` dispatches to `fromFunc` at
+      `go/internal/symbol/typesconv.go:43-52`, and the interface branch then
+      dereferences `base.Obj().Pkg().Path()` at line 92. This panics instead of
+      returning the actionable unsupported/no-canonical-package error promised
+      by the conversion contract. The current fixture only covers named package
+      interfaces at `go/internal/symbol/typesconv_test.go:291-293`.
+    suggested_action: |
+      Check the declaring object's package before constructing an ID and return
+      a contextual error for universe/unnamed declarations. Add a type-checked
+      fixture for `error.Error` (and assert that FromSelection returns an error
+      without panicking).
+    source: built-in
+  - severity: suggestion
+    category: tests
+    file: .agents/scratchpad/2026-08-04-compositional-component-analysis/step03/task-04-implement-symbol-id-grammar/work.log
+    line: 47
+    title: Initial grammar GREEN evidence is not a passing command
+    details: |
+      The log labels lines 47-49 as `symbol-grammar: GREEN`, but the recorded
+      command exits with `bash: line 1: cd: go: No such file or directory`.
+      `progress.md:7` nevertheless records that cycle as passing. Later focused
+      tests and the recorded full CI run are valid evidence of the final code,
+      and no test was deleted; this is a non-blocking TDD-evidence gap for the
+      first change.
+    suggested_action: |
+      Re-run `go test ./internal/symbol/` from the repository root and append
+      the successful output to the work log, or correct the entry so the failed
+      command is not presented as GREEN.
+    source: built-in
+
+ecosystem_reviews: []

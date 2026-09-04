@@ -1,0 +1,6 @@
+go/internal/symbol/capslock.go      | 99 ++++++++++++++++++++++++++-------------
+go/internal/symbol/capslock_test.go | 73 ++++++++++++++++++++++++++++
+go/internal/symbol/symbol.go        |  8 +--
+go/internal/symbol/symbol_test.go   |  3 +-
+go/internal/symbol/typesconv.go     | 36 ++++++++++----
+5 files changed, 171 insertions(+), 48 deletions(-)

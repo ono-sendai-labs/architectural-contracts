@@ -1,0 +1,89 @@
+result:
+  task_file: .agents/tasks/2026-08-04-compositional-component-analysis/step03/task-04-implement-symbol-id-grammar.code-task.md
+  change_id: xqvosypslrypmtnylouqnptyqommulqo
+  status: completed
+  schema_version: 2
+  produced_at: 2026-09-03T23:55:00Z
+  acceptance_criteria:
+    - text: |
+        1. Text encoding is canonical and versioned — format→parse→format byte-stable,
+        v1 grammar, pointer markers/type arguments rejected, malformed bodies fail clearly.
+      addressed: yes
+      evidence: |
+        go/internal/symbol/symbol.go:29-127 (GrammarVersion, Parse/Format/Compare);
+        round-trip coverage in symbol_test.go including "package path containing init
+        element" example.com/init.F and dotted example.com/sub.init.F (review finding 3
+        fixed: validPackagePath no longer reserves init, symbol.go:134-155). Malformed
+        and unsupported-version negative cases in symbol_test.go.
+    - text: |
+        2. Capslock variants converge — pointer/value and instantiated spellings map to
+        one canonical (pkg.Type).Method ID; invalid classifier text is rejected.
+      addressed: yes
+      evidence: |
+        go/internal/symbol/capslock.go:31-65 routes both branches through
+        hostpolicy.CanonicalizePath (review finding 1 fixed);
+        TestParseCapslock_CanonicalizesNamespace (capslock_test.go:101-163) asserts
+        Capslock and go/types produce identical IDs in a host-rewritten namespace.
+        Dotted-method spellings and invalid bracket contents are rejected via
+        capslockTopLevelPackagePlausible and validTypeArgumentText (finding 2 fixed),
+        with negative table cases at capslock_test.go:84-89.
+    - text: |
+        3. Declaring-object rule covers every object kind — funcs, methods, types,
+        fields, interface methods, vars, consts, aliases, promotions; generic origins.
+      addressed: yes
+      evidence: |
+        go/internal/symbol/typesconv.go:23-153 plus pkgPathOf (typesconv.go:156-164)
+        returning "" for universe objects, with canonicalID/methodID surfacing an
+        actionable error (finding 4 fixed); TestFromSelection_PredeclaredInterfaceError
+        (typesconv_test.go:365-402) covers error.Error without panicking. Fixture table
+        at typesconv_test.go covers all design-table rows.
+    - text: |
+        4. Alias extraction is complete but bounded — alias key always emitted,
+        same-package target key additionally, no foreign target claimed.
+      addressed: yes
+      evidence: |
+        go/internal/symbol/extract.go:78-83,113-130; exact same-package and
+        cross-package cases asserted by extract_test.go:40-127 (verified pass in
+        review, unchanged by rework).
+    - text: |
+        5. Extraction is deterministic — sorted, duplicate-free, byte-for-byte stable.
+      addressed: yes
+      evidence: |
+        go/internal/symbol/extract.go:29-35,90-95 seen-set dedup + SymbolID.Compare
+        sort; repeated/reversed-order/duplicate-init coverage in
+        extract_test.go:129-166; TestExtractSurface_InitPackagePaths added for the
+        init-path namespaces (extract_test.go:185-204).
+    - text: |
+        6. Live check behavior is unchanged — capanalyzer/InterfaceSymbol path intact,
+        just ci verdicts unchanged.
+      addressed: yes
+      evidence: |
+        jj diff across the series touches only go/internal/symbol/*, BUILD.bazel,
+        component.textproto and justfile self-check; the full `just ci` gate
+        re-recorded in work.log passes 79/79 Bazel tests (exit 0).
+  artifacts:
+    scratchpad_dir: .agents/scratchpad/2026-08-04-compositional-component-analysis/step03/task-04-implement-symbol-id-grammar
+    files:
+      - go/internal/symbol/symbol.go
+      - go/internal/symbol/symbol_test.go
+      - go/internal/symbol/capslock.go
+      - go/internal/symbol/capslock_test.go
+      - go/internal/symbol/typesconv.go
+      - go/internal/symbol/typesconv_test.go
+      - go/internal/symbol/extract.go
+      - go/internal/symbol/extract_test.go
+      - go/internal/symbol/BUILD.bazel
+      - go/internal/symbol/component.textproto
+      - justfile
+  notes: >
+    Rework round 1 resumed after an infrastructure interruption mid-round. The
+    interrupted change nukpzvow was verified line-by-line against the review's
+    four important findings rather than trusted; all four were found fully and
+    correctly implemented (canonicalization hook in ParseCapslock, classifier
+    grammar rejections, init package-path de-reservation, nil-package
+    error.Error handling), each with its suggested test. The work.log GREEN
+    correction (suggestion) was also already present. This session removed a
+    duplicated validation branch in Parse, cleaned a dead binding in the new
+    canonicalization test, re-ran vet/gofmt/focused tests, and recorded a full
+    just ci pass (79/79). Fresh change xqvosyps was committed on top of the
+    untouched nukpzvow.

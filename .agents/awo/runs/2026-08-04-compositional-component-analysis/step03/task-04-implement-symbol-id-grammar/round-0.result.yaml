@@ -1,0 +1,136 @@
+result:
+  task_file: .agents/tasks/2026-08-04-compositional-component-analysis/step03/task-04-implement-symbol-id-grammar.code-task.md
+  change_id: zlvvtrovywoumylyyxrsyzmktumyysoz
+  status: completed
+  schema_version: 2
+  produced_at: 2026-09-03T22:46:46Z
+
+acceptance_criteria:
+  - text: |
+      1. Text encoding is canonical and versioned — valid IDs for every supported
+      top-level, method, and init form format, parse, and format again to identical
+      bytes, omit pointer markers/type arguments, and unsupported versions or
+      malformed bodies fail clearly.
+    addressed: yes
+    evidence: |
+      go/internal/symbol/symbol.go pins one v1 grammar (GrammarVersion=1, DR-04);
+      artifact-level versioning stays with each artifact's format_version (DR-15),
+      matching the design table's bare persisted keys. TestParseFormat_RoundTrip
+      (symbol_test.go:13) covers top-level/method/init/stdlib forms with byte-stable
+      round trips and asserts no *[] chars; TestParse_Malformed (symbol_test.go:78)
+      rejects 21 malformed/out-of-grammar spellings with errors naming the text.
+  - text: |
+      2. Capslock variants converge — pointer/value and instantiated/uninstantiated
+      spellings of the same declared method all produce one identical
+      (pkg.Type).Method SymbolID; invalid classifier text cannot enter an artifact.
+    addressed: yes
+    evidence: |
+      symbol.ParseCapslock (capslock.go, built on Parse for one canonicalization
+      rule). TestParseCapslock_Convergence (capslock_test.go:9) asserts four
+      spellings of one declared generic method converge on a single ID and maps
+      (*os.File).Read/(os.File).Read to the same ID; TestParseCapslock_Rejected
+      (capslock_test.go:64) rejects 10 unmappable spellings.
+  - text: |
+      3. Declaring-object rule covers every object kind — funcs, methods, types,
+      fields, interface methods, vars, consts, aliases, and promoted members each
+      map to the top-level declaration specified by the design table, with generic
+      methods using their origin and promotions using the actual declaring
+      member/type.
+    addressed: yes
+    evidence: |
+      symbol.FromObject/FromSelection (typesconv.go) implement the rule; methods use
+      Func.Origin() and the receiver base named type, fields walk the selection index
+      path to the declaring struct, interface method specs key the declaring
+      interface. TestFromObject_GrammarTable (typesconv_test.go:164) and
+      TestFromSelection_DeclaringObject (typesconv_test.go:262) pin every table row
+      over type-checked fixtures including generic origins (Box → (store.Box).Unwrap),
+      alias receivers (DB → (store.Store).Touch), and promotions.
+  - text: |
+      4. Alias extraction is complete but bounded — an exported alias key is always
+      emitted, the same-package target key is additionally emitted where required for
+      member resolution, and no foreign target is falsely claimed.
+    addressed: yes
+    evidence: |
+      extract.go aliasTargetID emits the same-package named target key only;
+      TestExtractSurface_ExactDeclared (extract_test.go:40) shows DB + unexported
+      target emitted; TestExtractSurface_CrossPackageAliasBounded (extract_test.go:98)
+      shows a cross-package alias emits only its own key.
+  - text: |
+      5. Extraction is deterministic — repeated files or observations in differing
+      traversal orders produce a sorted, duplicate-free, byte-stable result.
+    addressed: yes
+    evidence: |
+      extract.go sorts via symbol.Compare and dedups with a seen-set;
+      TestExtractSurface_Deterministic (extract_test.go:111) checks repeated,
+      reversed-order, and duplicate-init observations collapse to one sorted result.
+  - text: |
+      6. Live check behavior is unchanged — existing call-graph, pruning, and
+      dependency-interface fixtures keep their verdicts and the current
+      InterfaceSymbol/SSA path is still present for the Step 6 cutover.
+    addressed: yes
+    evidence: |
+      The change is purely additive: only new files under go/internal/symbol/ plus
+      component registration; capanalyzer.InterfaceSymbol, goanalysis SSA/VTA,
+      facts.CallEdges and ResolveDependencyInterface are untouched (jj diff shows no
+      modification to existing Go sources). `just ci` is green end to end — all 79
+      Bazel test targets (including every verdict fixture) and both selfcheck legs.
+  - text: |
+      7. A new non-test package carries its FR10 Component Contract, BUILD target,
+      manifest ownership/dependency declarations, and black-box tests.
+    addressed: yes
+    evidence: |
+      Inspection: go/internal/symbol/symbol.go:1-23 carries the FR10 block (pure,
+      no ambient authority); go/internal/symbol/BUILD.bazel declares go_library,
+      go_test and go_component (with hostpolicy member, mirroring goanalysis);
+      go/internal/symbol/component.textproto declares the membership; all four test
+      files use `package symbol_test` (black-box). Component "symbol" conforms under
+      native arcc check and //go/internal/symbol:symbol_component.check passes.
+  - text: |
+      8. Table-driven tests for every row in the design grammar table, including
+      pointer/value receivers, generic origins/instantiations, embedded/promoted
+      fields and methods, interface method specs, same- and cross-package aliases,
+      init, duplicate observations, malformed encodings, and namespace
+      canonicalization.
+    addressed: yes
+    evidence: |
+      TestParseFormat_RoundTrip, TestParse_Malformed (grammar rows + malformed);
+      TestParseCapslock_Convergence/Rejected (instantiations); TestFromObject_
+      GrammarTable and TestFromSelection_DeclaringObject (pointer/value receivers,
+      origins, promoted fields/methods, interface specs, aliases, init, fields);
+      TestExtractSurface_* (aliases, duplicates, canonicalization via an overridden
+      hostpolicy.CanonicalizePath in extract_test.go:168).
+
+artifacts:
+  scratchpad_dir: .agents/scratchpad/2026-08-04-compositional-component-analysis/step03/task-04-implement-symbol-id-grammar/
+  files:
+    - context.md
+    - plan.md
+    - progress.md
+    - work.log
+    - result.yaml
+    - go/internal/symbol/symbol.go
+    - go/internal/symbol/capslock.go
+    - go/internal/symbol/typesconv.go
+    - go/internal/symbol/extract.go
+    - go/internal/symbol/symbol_test.go
+    - go/internal/symbol/capslock_test.go
+    - go/internal/symbol/typesconv_test.go
+    - go/internal/symbol/extract_test.go
+    - go/internal/symbol/BUILD.bazel
+    - go/internal/symbol/component.textproto
+    - justfile (selfcheck line + comment)
+
+notes: |
+  Implemented the SymbolID grammar additively in a new pure core package
+  go/internal/symbol over four incremental commits: the v1 grammar with strict
+  Parse/Format/Compare, the Capslock normalizer, the go/types declaring-object
+  conversion (FromObject/FromSelection), and the exact declared-surface extractor,
+  followed by component registration (BUILD, textproto, justfile selfcheck). TDD was
+  followed per requirement with RED evidence in work.log. One interpretation is
+  recorded: "versioned encoding" is implemented as a pinned v1 grammar with strict
+  rejection of out-of-grammar spellings, with artifact versioning in each artifact's
+  format_version, because the design table fixes the persisted keys as bare spellings
+  (no prefix) and DR-15 puts format_version on artifacts. Declaring an unused cli
+  dependency on symbol would raise UNUSED_DEPENDENCY, so that wiring is deferred to
+  the Step 5 surface producer. `just ci` is green end to end; the live check path is
+  untouched.

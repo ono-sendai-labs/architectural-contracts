@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+echo $$ > .agents/runs-acpx/20260903-152457-step03-task-04-implement-symbol-id-grammar/round-3.reviewer/turn.pid
+exec acpx --approve-all --format json --suppress-reads --ttl 0 --cwd /home/xtof/git/ono-sendai-labs/architectural-contracts codex -s awo-rev-2026-08-04-compositional-component-analysis-step03-task04 --file .agents/runs-acpx/20260903-152457-step03-task-04-implement-symbol-id-grammar/round-3.reviewer/prompt.md > .agents/runs-acpx/20260903-152457-step03-task-04-implement-symbol-id-grammar/round-3.reviewer/out.json 2> .agents/runs-acpx/20260903-152457-step03-task-04-implement-symbol-id-grammar/round-3.reviewer/out.err

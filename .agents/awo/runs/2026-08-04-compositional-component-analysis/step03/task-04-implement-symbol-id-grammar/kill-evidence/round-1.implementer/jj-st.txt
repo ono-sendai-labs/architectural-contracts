@@ -1,0 +1,8 @@
+Working copy changes:
+M go/internal/symbol/capslock.go
+M go/internal/symbol/capslock_test.go
+M go/internal/symbol/symbol.go
+M go/internal/symbol/symbol_test.go
+M go/internal/symbol/typesconv.go
+Working copy  (@) : nukpzvow b5deee1c (no description set)
+Parent commit (@-): zlvvtrov 9269bca3 build(symbol): register the symbol component

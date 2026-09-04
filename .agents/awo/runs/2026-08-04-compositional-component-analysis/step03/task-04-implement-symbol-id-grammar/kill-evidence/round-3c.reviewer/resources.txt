@@ -1,0 +1,23 @@
+# resources at 2026-09-04T00:17:18Z
+
+               total        used        free      shared  buff/cache   available
+Mem:           31366       20209        4818        1236        8081       11156
+Swap:          32027        5784       26243
+
+## process counts by name
+      3 bash
+      2 sort
+      1 uniq
+      1 sh
+      1 script
+      1 ps
+      1 opencode
+      1 java
+      1 head
+      1 claude
+      1 bwrap
+      1 bun
+
+## acpx / adapter processes  (pid ppid elapsed_s rss_kb comm args)
+ 147002       1    2755 124472 bun            /home/xtof/.bun/bin/bun /home/xtof/.bun/install/global/node_modules/acpx/dist/cli.js __queue-owner
+ 147017  147002    2755 561600 opencode       opencode acp

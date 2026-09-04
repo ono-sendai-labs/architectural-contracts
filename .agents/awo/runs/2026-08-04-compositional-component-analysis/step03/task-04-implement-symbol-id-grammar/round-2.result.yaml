@@ -1,0 +1,92 @@
+result:
+  task_file: .agents/tasks/2026-08-04-compositional-component-analysis/step03/task-04-implement-symbol-id-grammar.code-task.md
+  change_id: wntkwnlnnskptyvvrylpwwmtpxxmoslt
+  status: completed
+  schema_version: 2
+  produced_at: 2026-09-04T00:20:00Z
+  acceptance_criteria:
+    - text: |
+        1. Text encoding is canonical and versioned — format→parse→format byte-stable,
+        v1 grammar, pointer markers/type arguments rejected, malformed bodies fail clearly.
+      addressed: yes
+      evidence: |
+        go/internal/symbol/symbol.go:29-123 (GrammarVersion, Parse/Format/Compare);
+        round-trip coverage in symbol_test.go including example.com/init.F and
+        example.com/sub.init.F; malformed and unsupported-version negative cases.
+        Unchanged by round 2 (review marks this pass).
+    - text: |
+        2. Capslock variants converge — pointer/value and instantiated spellings map to
+        one canonical (pkg.Type).Method ID; invalid classifier text is rejected.
+      addressed: yes
+      evidence: |
+        go/internal/symbol/capslock.go:31-64: both branches canonicalize through
+        hostpolicy.CanonicalizePath (round-1 finding 1). Round-2 finding 1 fixed by
+        capslockTopLevelPackageUnambiguous (capslock.go:67-81): dotless and
+        slash-qualified paths accepted — gopkg.in/yaml.v2.Unmarshal and
+        example.com/p.private.Read in the positive table (capslock_test.go:33-35) —
+        while dotful no-slash example.com.private.Read rejects. Round-2 finding 2
+        fixed by validTypeArgument (capslock.go:190-...), a recursive-descent parser
+        over the explicit Go-type subset: chan int, func(int) string, [N+1]byte and
+        hyphenated example.com/x-y.T now accepted; [,,], [.], [chan] and
+        "not a type" rejected (capslock_test.go negative table). Convergence
+        sub-test asserts all spellings of one method yield one ID.
+    - text: |
+        3. Declaring-object rule covers every object kind — funcs, methods, types,
+        fields, interface methods, vars, consts, aliases, promotions; generic origins.
+      addressed: yes
+      evidence: |
+        go/internal/symbol/typesconv.go:23-153 with pkgPathOf and guarded
+        constructors (typesconv.go:156-190); TestFromSelection_PredeclaredInterfaceError
+        covers error.Error without panicking. Review marks this pass; unchanged in
+        round 2.
+    - text: |
+        4. Alias extraction is complete but bounded — alias key always emitted,
+        same-package target key additionally, no foreign target claimed.
+      addressed: yes
+      evidence: |
+        go/internal/symbol/extract.go:78-83,113-130; exact same-package and
+        cross-package cases asserted by extract_test.go:40-127. Review marks this
+        pass; unchanged in round 2.
+    - text: |
+        5. Extraction is deterministic — sorted, duplicate-free, byte-for-byte stable.
+      addressed: yes
+      evidence: |
+        go/internal/symbol/extract.go:29-35,90-95 seen-set dedup + SymbolID.Compare
+        sort; repeated/reversed-order/duplicate-init coverage in
+        extract_test.go:129-166; init-path cases at extract_test.go:185-204.
+        Review marks this pass; unchanged in round 2.
+    - text: |
+        6. Live check behavior is unchanged — capanalyzer/InterfaceSymbol path intact,
+        just ci verdicts unchanged.
+      addressed: yes
+      evidence: |
+        The round-2 change touches only go/internal/symbol/capslock.go and
+        capslock_test.go; no capanalyzer, goanalysis, facts or CLI production file
+        is modified. Full `just ci` re-recorded in work.log: exit 0, 79/79 Bazel
+        tests pass; go vet and gofmt clean.
+  artifacts:
+    scratchpad_dir: .agents/scratchpad/2026-08-04-compositional-component-analysis/step03/task-04-implement-symbol-id-grammar
+    files:
+      - go/internal/symbol/symbol.go
+      - go/internal/symbol/symbol_test.go
+      - go/internal/symbol/capslock.go
+      - go/internal/symbol/capslock_test.go
+      - go/internal/symbol/typesconv.go
+      - go/internal/symbol/typesconv_test.go
+      - go/internal/symbol/extract.go
+      - go/internal/symbol/extract_test.go
+      - go/internal/symbol/BUILD.bazel
+      - go/internal/symbol/component.textproto
+      - justfile
+  notes: >
+    Rework round 2 addressed the two remaining important findings on the
+    Capslock normalizer. The round-1 dot-placement/capitalization heuristic
+    was replaced by an explicit unambiguity rule that accepts dotless and
+    slash-qualified package paths (restoring gopkg.in/yaml.v2) while
+    rejecting dotful no-slash spellings that could be dotted method names.
+    The type-argument character whitelist was replaced by a recursive-descent
+    parser over a documented Go-type subset, fixing both the false rejections
+    of channel, function, array-constant and hyphenated-path arguments and
+    the false accepts of punctuation-only bodies. Both fixes were driven
+    RED-to-GREEN with new table cases, and the full just ci gate passes
+    79/79. Fresh change wntkwnln committed on top of xqvosyps.
