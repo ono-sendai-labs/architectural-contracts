@@ -5,6 +5,7 @@ go_library(
     name = "artifactio",
     srcs = [
         "artifactio.go",
+        "capabilities.go",
         "digest.go",
         "stdlibmap.go",
         "surface.go",
@@ -18,7 +19,6 @@ go_library(
         "//go:__subpackages__",
     ],
     deps = [
-        "//go/internal/manifest",
         "//go/internal/schema/gen",
         "//go/internal/symbol",
         "@org_golang_google_protobuf//encoding/protojson",
@@ -31,6 +31,7 @@ go_test(
     size = "small",
     srcs = [
         "artifactio_test.go",
+        "capabilities_test.go",
         "decode_test.go",
         "rework_test.go",
         "write_test.go",
@@ -46,12 +47,16 @@ go_test(
 )
 
 # Mirrors the checked-in artifactio/component.textproto: shell component with
-# the protobuf runtime it drives directly as members; the manifest, schema, and
-# symbol packages are consumed through declared component dependencies on their
+# the protobuf runtime it drives directly as members; the schema and symbol
+# packages are consumed through declared component dependencies on their
 # single-owner components.
 go_component(
     name = "artifactio_component",
     interface_style = "PACKAGE_SURFACE",
+    component_deps = [
+        "//go/internal/schema:schema_component",
+        "//go/internal/symbol:symbol_component",
+    ],
     declared_authority = [
         "FILES",
         "MODIFY_SYSTEM_STATE",
@@ -63,10 +68,6 @@ go_component(
     ],
     members = [
         "//go/internal/artifactio",
-        "//go/internal/hostpolicy",
-        "//go/internal/manifest",
-        "//go/internal/schema/gen",
-        "//go/internal/symbol",
         "@org_golang_google_protobuf//encoding/protojson:protojson",
         "@org_golang_google_protobuf//encoding/prototext:prototext",
         "@org_golang_google_protobuf//encoding/protowire:protowire",

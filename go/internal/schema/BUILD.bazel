@@ -1,5 +1,7 @@
 load("@rules_arcc//bazel_rules/go:defs.bzl", "go_component")
 
+exports_files(["component.textproto"])
+
 # Mirrors the checked-in schema/component.textproto: the generated protobuf
 # package is the component's declared interface, so manifest and artifactio
 # consume the schema surface through declared component dependencies instead

@@ -10,8 +10,8 @@ import (
 // TestSelfManifestParity checks that the generated manifests for arcc's own
 // components agree with their checked-in component.textproto counterparts.
 //
-// The test covers the six components that have go_component targets: capanalyzer,
-// report, facts, manifest, checker, and goanalysis.
+// The test covers the components that have go_component targets: capanalyzer,
+// report, facts, manifest, checker, goanalysis, artifactio, and schema.
 //
 // capslockadapter and cli are excluded by design: capslockadapter owns capslock,
 // whose closure contains golang.org/x/sys/unix built with cgo, and the go_component

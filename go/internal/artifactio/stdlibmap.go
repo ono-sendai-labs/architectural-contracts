@@ -8,7 +8,6 @@ import (
 
 	"google.golang.org/protobuf/proto"
 
-	"github.com/ono-sendai-labs/architectural-contracts/go/internal/manifest"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/schema/gen"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/symbol"
 )
@@ -243,7 +242,7 @@ func validateMap(m *gen.StdlibMap) error {
 			return fmt.Errorf("duplicate evidence entry for (%s, %s)", e.SymbolId, e.Capability)
 		}
 		evSeen[key] = true
-		if !manifest.KnownCapabilities[e.Capability] {
+		if !knownCapabilities[e.Capability] {
 			return fmt.Errorf("evidence capability %q is not a known capability", e.Capability)
 		}
 		if _, err := symbol.Parse(e.SymbolId); err != nil {
@@ -283,7 +282,7 @@ func validateRecordClassification(class gen.Classification, capabilities []strin
 			return err
 		}
 		for _, c := range capabilities {
-			if !manifest.KnownCapabilities[c] {
+			if !knownCapabilities[c] {
 				return fmt.Errorf("%s: capability %q is not a known capability", what, c)
 			}
 		}

@@ -1,14 +1,19 @@
 name: "artifactio"
-# Shell component: owns its own implementation and the protobuf runtime
-# closure it drives directly. The manifest model, generated schema types, and
-# symbol grammar are consumed inward through declared component dependencies;
-# their single owners are the manifest and symbol components.
+# Shell component: owns its own implementation plus the protobuf runtime
+# closure it drives directly. The generated schema surface and the symbol
+# grammar are consumed inward through declared component dependencies on
+# their single-owner components; the known-capability taxonomy it validates
+# against is a local, drift-guarded spelling of the manifest component's set.
 interface_style: INTERFACE_STYLE_PACKAGE_SURFACE
+component_dependencies {
+  name: "schema"
+  manifest: "../schema/component.textproto"
+}
+component_dependencies {
+  name: "symbol"
+  manifest: "../symbol/component.textproto"
+}
 members: "github.com/ono-sendai-labs/architectural-contracts/go/internal/artifactio"
-members: "github.com/ono-sendai-labs/architectural-contracts/go/internal/hostpolicy"
-members: "github.com/ono-sendai-labs/architectural-contracts/go/internal/manifest"
-members: "github.com/ono-sendai-labs/architectural-contracts/go/internal/schema/gen"
-members: "github.com/ono-sendai-labs/architectural-contracts/go/internal/symbol"
 members: "google.golang.org/protobuf/encoding/protojson"
 members: "google.golang.org/protobuf/encoding/prototext"
 members: "google.golang.org/protobuf/encoding/protowire"
