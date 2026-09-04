@@ -8,9 +8,7 @@ exports_files([
 
 # The schema vocabulary package: the known Capslock capability taxonomy that
 # the manifest model and the artifact-I/O shell consume through the schema
-# component dependency. It is a declared member of the schema component
-# alongside the generated package, but only the generated source forms the
-# component's declared interface files.
+# component dependency.
 go_library(
     name = "schema",
     srcs = ["capabilities.go"],
@@ -24,16 +22,17 @@ go_library(
     ],
 )
 
-# Mirrors the checked-in schema/component.textproto: the generated protobuf
-# package is the component's declared interface, so manifest and artifactio
-# consume the schema surface through declared component dependencies instead
-# of duplicated membership. The generated closure imports the protobuf runtime
+# Mirrors the checked-in schema/component.textproto: a package-surface
+# component whose complete surface is the exported API of the generated
+# protobuf package and the capability taxonomy package, so manifest and
+# artifactio consume both through declared component dependencies instead of
+# duplicated membership. The generated closure imports the protobuf runtime
 # owned by the consuming components' own member closures, so the component's
 # own .check is kept out of the default test wildcard; the manifest is still
 # validated every time a consumer resolves it as a dependency.
 go_component(
     name = "schema_component",
-    interface = "//go/internal/schema/gen",
+    interface_style = "PACKAGE_SURFACE",
     members = [
         "//go/internal/schema",
         "//go/internal/schema/gen",

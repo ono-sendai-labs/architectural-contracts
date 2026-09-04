@@ -100,12 +100,13 @@ func TestProjectPackagesSingleOwner(t *testing.T) {
 }
 
 // TestArtifactioDeclaresCoreComponentDependencies pins the shell-to-core
-// dependency edges: the artifactio component must consume the schema surface
-// (generated types and the shared capability taxonomy) and the symbol grammar
-// through declared component dependencies rather than duplicated membership.
-// These are exactly the core components artifactio imports; it uses no
-// manifest-package API (the capability taxonomy it validates against is
-// schema.KnownCapabilities, owned by the schema component), so a manifest
+// dependency edges (amended spec, recorded in the task file): the artifactio
+// shell must consume the schema surface (generated types and the shared
+// capability taxonomy) and the symbol grammar through declared component
+// dependencies rather than duplicated membership, and its declared edges must
+// cover every core package its production code actually imports. It uses no
+// manifest-package API — the capability taxonomy it validates against is
+// schema.KnownCapabilities, owned by the schema component — so a manifest
 // dependency would be an unused edge. The dependency names and manifest paths
 // are contract strings resolved by `arcc check`.
 func TestArtifactioDeclaresCoreComponentDependencies(t *testing.T) {
@@ -131,6 +132,118 @@ func TestArtifactioDeclaresCoreComponentDependencies(t *testing.T) {
 	for name := range got {
 		if _, ok := want[name]; !ok {
 			t.Errorf("artifactio declares unexpected component dependency %q", name)
+		}
+	}
+
+	// The declared edges must be sufficient for the actual imports: every
+	// core package artifactio's production code imports must be a member of a
+	// declared dependency (or of artifactio itself).
+	owners := map[string]string{}
+	for _, name := range []string{"artifactio", "schema", "symbol"} {
+		for _, member := range manifests[name].Members {
+			if strings.HasPrefix(member, modulePrefix) {
+				owners[member] = name
+			}
+		}
+	}
+	imports := projectImports(t, "../../internal/artifactio")
+	for imp := range imports {
+		owningComp, isCore := owners[imp]
+		if !isCore {
+			continue
+		}
+		if !isDeclared(owningComp, want, got) {
+			t.Errorf("artifactio imports core package %q (component %q) without a declared component dependency", imp, owningComp)
+		}
+	}
+	if imports[modulePrefix+"internal/manifest"] {
+		t.Errorf("artifactio imports the manifest package; the amended spec makes the schema component own the shared capability taxonomy, so the shell must consume it via the schema dependency")
+	}
+}
+
+// isDeclared reports whether a component dependency on comp is declared.
+func isDeclared(comp string, want, got map[string]string) bool {
+	_, inWant := want[comp]
+	_, inGot := got[comp]
+	return inWant && inGot
+}
+
+// projectImports parses the non-test Go files under dir (relative to this
+// package) and returns the module-internal import paths they use.
+func projectImports(t *testing.T, dir string) map[string]bool {
+	t.Helper()
+
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("reading %s: %v", dir, err)
+	}
+	imports := map[string]bool{}
+	for _, entry := range entries {
+		name := entry.Name()
+		if entry.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
+			continue
+		}
+		f, err := parser.ParseFile(token.NewFileSet(), filepath.Join(dir, name), nil, parser.ImportsOnly)
+		if err != nil {
+			t.Fatalf("parsing %s/%s: %v", dir, name, err)
+		}
+		for _, imp := range f.Imports {
+			path := strings.Trim(imp.Path.Value, `"`)
+			if strings.HasPrefix(path, modulePrefix) {
+				imports[path] = true
+			}
+		}
+	}
+	return imports
+}
+
+// TestSchemaSurfaceCoversCapabilityTaxonomy pins the schema component's
+// declared surface: it must be package-surface over both the generated
+// protobuf package and the schema vocabulary package, so the
+// schema.KnownCapabilities references in the manifest model and the artifact
+// shell are authorized by the schema dependency's declared surface rather
+// than by an undeclared member symbol.
+func TestSchemaSurfaceCoversCapabilityTaxonomy(t *testing.T) {
+	manifests := checkedInComponentManifests(t)
+	m, ok := manifests["schema"]
+	if !ok {
+		t.Fatal("checked-in manifest for component schema not found")
+	}
+	if m.InterfaceStyle != manifest.InterfaceStylePackageSurface {
+		t.Fatalf("schema component interface style = %v, want PACKAGE_SURFACE so the vocabulary package is part of its declared surface", m.InterfaceStyle)
+	}
+	if len(m.InterfaceFiles) != 0 {
+		t.Errorf("schema package-surface component must not declare interface files, got %v", m.InterfaceFiles)
+	}
+	wantMembers := map[string]bool{
+		modulePrefix + "internal/schema":     true,
+		modulePrefix + "internal/schema/gen": true,
+	}
+	gotMembers := map[string]bool{}
+	for _, member := range m.Members {
+		gotMembers[member] = true
+	}
+	for member := range wantMembers {
+		if !gotMembers[member] {
+			t.Errorf("schema component members %v are missing the declared member %q", m.Members, member)
+		}
+	}
+
+	// Both consumers of the taxonomy must reach it through the schema
+	// dependency, not through membership in another component.
+	for _, consumer := range []string{"manifest", "artifactio"} {
+		cm, ok := manifests[consumer]
+		if !ok {
+			t.Fatalf("checked-in manifest for component %q not found", consumer)
+		}
+		declared := false
+		for _, dep := range cm.ComponentDependencies {
+			if dep.Name == "schema" {
+				declared = true
+			}
+		}
+		if !declared {
+			t.Errorf("%s consumes the capability taxonomy via schema.KnownCapabilities but declares no schema component dependency", consumer)
 		}
 	}
 }

@@ -1,9 +1,10 @@
 name: "artifactio"
 # Shell component: owns its own implementation plus the protobuf runtime
-# closure it drives directly. The generated schema surface and the symbol
-# grammar are consumed inward through declared component dependencies on
-# their single-owner components; the known-capability taxonomy it validates
-# against is a local, drift-guarded spelling of the manifest component's set.
+# closure it drives directly. The schema surface — the generated artifact
+# types and the shared known-capability taxonomy — and the symbol grammar are
+# consumed inward through declared component dependencies on their
+# single-owner components (see the specification amendment in the task file
+# for why there is no manifest component edge).
 interface_style: INTERFACE_STYLE_PACKAGE_SURFACE
 component_dependencies {
   name: "schema"

@@ -2,8 +2,8 @@
 //
 // Component Contract (FR10):
 // - What it does: Generated API and structures for the surface manifest schema.
-//   This package is an implementation detail of the manifest component, which
-//   owns all persisted archcontracts schemas.
+//   This package is an implementation detail of the schema component, which
+//   owns all persisted archcontracts schemas and the capability taxonomy.
 // - What it requires: Protobuf unmarshaler to populate the models.
 // - What it provides: Protoreflect-enabled struct types for parsing surface
 //   manifests that cross process and Bazel action boundaries.

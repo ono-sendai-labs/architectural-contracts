@@ -140,10 +140,24 @@ func CompareManifests(t testing.TB, dir string, gen, chk manifest.Manifest) {
 		t.Errorf("%s: authority = %s, want %s", dir, describeAuthority(gen.Authority), describeAuthority(chk.Authority))
 	}
 
-	// Component dependencies: same identity set — name, target manifest
-	// basename (`_component` suffix normalized for the Bazel-generated
-	// filename), and auto-attached status. Comparing the manifest path keeps a
-	// same-named dependency pointing at the wrong component from passing.
+	// Component dependencies: each representation must follow its own manifest
+	// filename convention (checked-in dependencies name the dependency's
+	// component.textproto; generated ones name <dep target>.component.textproto
+	// in the dependency's own directory), and the identity sets — component
+	// name plus referenced directory plus auto-attached status — must match.
+	// Comparing identity and convention keeps a same-named dependency pointing
+	// at the wrong component, directory, or file from passing.
+	for _, dep := range chk.ComponentDependencies {
+		if base := filepath.Base(filepath.ToSlash(dep.Manifest)); base != "component.textproto" {
+			t.Errorf("%s: checked-in dependency %q must reference the dependency's component.textproto, got %q", dir, dep.Name, dep.Manifest)
+		}
+	}
+	for _, dep := range gen.ComponentDependencies {
+		want := dep.Name + ".component.textproto"
+		if base := filepath.Base(filepath.ToSlash(dep.Manifest)); base != want {
+			t.Errorf("%s: generated dependency %q must reference %q, got %q", dir, dep.Name, want, dep.Manifest)
+		}
+	}
 	if got, want := depIdentities(gen.ComponentDependencies), depIdentities(chk.ComponentDependencies); !slices.Equal(got, want) {
 		t.Errorf("%s: component-dependency identities = %v, want %v", dir, got, want)
 	}

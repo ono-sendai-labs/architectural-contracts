@@ -337,7 +337,7 @@ func TestCompareManifests_DependencyAutoAttachedMismatchFails(t *testing.T) {
 		Name:           "mycomp",
 		InterfaceFiles: []string{"mycomp.go"},
 		ComponentDependencies: []manifest.ComponentDependency{
-			{Name: "dep", Manifest: "../dep/dep.component.textproto"},
+			{Name: "dep", Manifest: "../dep/component.textproto"},
 		},
 	}
 
@@ -353,21 +353,22 @@ func TestCompareManifests_DependencyAutoAttachedMismatchFails(t *testing.T) {
 }
 
 func TestCompareManifests_DependencyParityAgrees(t *testing.T) {
-	// The positive case: Bazel's generated dependency filename carries the
-	// `_component` suffix and lives in the dep's own directory; the checked-in
-	// declaration names the same component and file modulo those conventions.
+	// The positive case: Bazel's generated dependency names its dep target
+	// ("dep_component") and file, living in the dep's own directory; the
+	// checked-in declaration names the same component and its
+	// component.textproto.
 	gen := manifest.Manifest{
 		Name:           "mycomp_component",
 		InterfaceFiles: []string{"mycomp.go"},
 		ComponentDependencies: []manifest.ComponentDependency{
-			{Name: "dep", Manifest: "../dep/dep_component.component.textproto"},
+			{Name: "dep_component", Manifest: "../dep/dep_component.component.textproto"},
 		},
 	}
 	chk := manifest.Manifest{
 		Name:           "mycomp",
 		InterfaceFiles: []string{"mycomp.go"},
 		ComponentDependencies: []manifest.ComponentDependency{
-			{Name: "dep", Manifest: "../dep/dep.component.textproto"},
+			{Name: "dep", Manifest: "../dep/component.textproto"},
 		},
 	}
 
@@ -377,4 +378,68 @@ func TestCompareManifests_DependencyParityAgrees(t *testing.T) {
 	if len(spy.errors) > 0 {
 		t.Errorf("unexpected errors for equivalent dependency declarations: %v", spy.errors)
 	}
+}
+
+func TestCompareManifests_DependencyFilenameConvention(t *testing.T) {
+	t.Run("CheckedInWrongFilenameFails", func(t *testing.T) {
+		// Same dependency name and directory, but the checked-in declaration
+		// points at a wrong same-directory file instead of the dependency's
+		// component.textproto. Name-and-directory identity alone cannot catch
+		// this; the filename convention check must.
+		gen := manifest.Manifest{
+			Name:           "mycomp_component",
+			InterfaceFiles: []string{"mycomp.go"},
+			ComponentDependencies: []manifest.ComponentDependency{
+				{Name: "dep", Manifest: "../dep/dep_component.component.textproto"},
+			},
+		}
+		chk := manifest.Manifest{
+			Name:           "mycomp",
+			InterfaceFiles: []string{"mycomp.go"},
+			ComponentDependencies: []manifest.ComponentDependency{
+				{Name: "dep", Manifest: "../dep/wrong.textproto"},
+			},
+		}
+
+		spy := &spyTB{TB: t}
+		manifestparity.CompareManifests(spy, "mycomp", gen, chk)
+
+		if len(spy.errors) == 0 {
+			t.Fatalf("expected parity error for wrong checked-in dependency filename, got none")
+		}
+		if !strings.Contains(strings.Join(spy.errors, "\n"), "must reference the dependency's component.textproto") {
+			t.Errorf("expected filename-convention error, got %v", spy.errors)
+		}
+	})
+
+	t.Run("GeneratedNameSuffixFails", func(t *testing.T) {
+		// The generated manifest must reference its dependency by the dep's
+		// own generated target filename (<dep>_component.component.textproto);
+		// a bare component.textproto reference means the emitter wired the
+		// wrong target.
+		gen := manifest.Manifest{
+			Name:           "mycomp_component",
+			InterfaceFiles: []string{"mycomp.go"},
+			ComponentDependencies: []manifest.ComponentDependency{
+				{Name: "dep_component", Manifest: "../dep/dep.component.textproto"},
+			},
+		}
+		chk := manifest.Manifest{
+			Name:           "mycomp",
+			InterfaceFiles: []string{"mycomp.go"},
+			ComponentDependencies: []manifest.ComponentDependency{
+				{Name: "dep", Manifest: "../dep/component.textproto"},
+			},
+		}
+
+		spy := &spyTB{TB: t}
+		manifestparity.CompareManifests(spy, "mycomp", gen, chk)
+
+		if len(spy.errors) == 0 {
+			t.Fatalf("expected parity error for generated dependency filename without the target-name suffix, got none")
+		}
+		if !strings.Contains(strings.Join(spy.errors, "\n"), "dep_component.component.textproto") {
+			t.Errorf("expected generated filename-convention error, got %v", spy.errors)
+		}
+	})
 }
