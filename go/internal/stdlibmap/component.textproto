@@ -2,6 +2,7 @@ name: "stdlibmap"
 interface_style: INTERFACE_STYLE_PACKAGE_SURFACE
 # Package-surface component: the SDK enumeration oracle and its loader
 members: "github.com/ono-sendai-labs/architectural-contracts/go/internal/stdlibmap"
+members: "github.com/ono-sendai-labs/architectural-contracts/go/internal/hostpolicy"
 members: "golang.org/x/tools/go/packages"
 members: "golang.org/x/tools/internal/packagesinternal"
 members: "golang.org/x/tools/go/gcexportdata"

@@ -17,6 +17,7 @@ go_library(
     importpath = "github.com/ono-sendai-labs/architectural-contracts/go/internal/stdlibmap",
     visibility = ["//go:__subpackages__"],
     deps = [
+        "//go/internal/hostpolicy",
         "//go/internal/stdlibauthority",
         "//go/internal/symbol",
         "@org_golang_x_tools//go/packages",
