@@ -107,17 +107,23 @@ func fixtureObject(info *types.Info, pkg *types.Package, name string) types.Obje
 	return nil
 }
 
-// corpusAndNotArray prints the array type of a real parsed/type-checked
-// declaration whose length uses the &^ constant-expression operator, so the
-// rendered text originates from a checked declaration rather than being
-// hand-authored.
-func corpusAndNotArray(t *testing.T) string {
+// corpusArrayTypes prints the array types of real parsed/type-checked
+// declarations whose lengths exercise the constant-expression operators the
+// formatter emits (&^, /, <<, +), so the rendered texts originate from checked
+// declarations rather than being hand-authored.
+func corpusArrayTypes(t *testing.T) map[string]string {
 	t.Helper()
 	const src = `package ctestarray
 
 const N = 13
 
-type wide [N &^ 3]byte
+type andNot [N &^ 3]byte
+
+type divide [N / 2]byte
+
+type shift [N << 1]byte
+
+type add [N + 1]byte
 `
 	fset := token.NewFileSet()
 	file, err := parser.ParseFile(fset, "array.go", src, 0)
@@ -129,25 +135,25 @@ type wide [N &^ 3]byte
 	if _, err := conf.Check("example.com/ctestarray", fset, []*ast.File{file}, info); err != nil {
 		t.Fatalf("check array fixture: %v", err)
 	}
-	var arrayType ast.Expr
+	out := map[string]string{}
 	for _, decl := range file.Decls {
 		gd, ok := decl.(*ast.GenDecl)
 		if !ok || gd.Tok != token.TYPE {
 			continue
 		}
 		spec := gd.Specs[0].(*ast.TypeSpec)
-		if spec.Name.Name == "wide" {
-			arrayType = spec.Type
+		var buf bytes.Buffer
+		if err := printer.Fprint(&buf, fset, spec.Type); err != nil {
+			t.Fatalf("print array type %s: %v", spec.Name.Name, err)
+		}
+		out[spec.Name.Name] = buf.String()
+	}
+	for _, name := range []string{"andNot", "divide", "shift", "add"} {
+		if out[name] == "" {
+			t.Fatalf("fixture array type %q not found", name)
 		}
 	}
-	if arrayType == nil {
-		t.Fatalf("fixture array type not found")
-	}
-	var buf bytes.Buffer
-	if err := printer.Fprint(&buf, fset, arrayType); err != nil {
-		t.Fatalf("print array type: %v", err)
-	}
-	return buf.String()
+	return out
 }
 
 // TestCapslockCorpus is the differential regression corpus (AC5). Every
@@ -170,6 +176,8 @@ type T struct{}
 	pkgx, infox := typeCheckSource(t, "example.com/x", `package xpkg
 
 type T struct{}
+
+type Pair[K any] struct{ A K }
 `, nil)
 
 	const pkgPath = "example.com/ctest"
@@ -199,6 +207,28 @@ type variadicFunc func(x ...int)
 type ifaceParamT interface{ M(x.T) string }
 
 type bareStruct struct{ T }
+
+type sliceT []x.T
+
+type mapT map[x.T]two.T
+
+type chanT chan two.T
+
+type multiResultT func() (int, string)
+
+type groupedParamsT func(a, b int) string
+
+type ellipsisVariadicT func(...two.T) int
+
+type ptrEmbedStruct struct{ *x.T }
+
+type taggedStruct struct {
+	A int "json:\"a]\""
+}
+
+type parenTypeT *x.T
+
+type nestedGenericHolder struct{ F x.Pair[int] }
 `, mapImporter{pkg2x.Path(): pkg2x, pkgx.Path(): pkgx})
 
 	inv := corpusInventory{
@@ -259,10 +289,43 @@ type bareStruct struct{ T }
 	if bareEmbedded != "struct{T}" {
 		t.Fatalf("rendered struct %q; want the bare embedded form", bareEmbedded)
 	}
-	andNotArray := corpusAndNotArray(t)
+	andNotArray := corpusArrayTypes(t)["andNot"]
 	if andNotArray != "[N &^ 3]byte" {
 		t.Fatalf("checked array type rendered %q; want the deferred &^ spelling", andNotArray)
 	}
+
+	// Rendered forms of every remaining accepted type constructor, each from
+	// a real parsed/type-checked declaration (technical req 7).
+	render := func(name string, want string) string {
+		t.Helper()
+		got := types.TypeString(fixtureObject(info, pkg, name).Type().Underlying(), qualifierPath)
+		if got != want {
+			t.Fatalf("rendered %s %q; want %q", name, got, want)
+		}
+		return got
+	}
+	sliceForm := render("sliceT", "[]example.com/x.T")
+	mapForm := render("mapT", "map[example.com/x.T]example.com/2x.T")
+	chanForm := render("chanT", "chan example.com/2x.T")
+	multiResultForm := render("multiResultT", "func() (int, string)")
+	// types.TypeString expands a grouped parameter list ("a, b int") into
+	// per-name declarations; the normalizer accepts both the expanded and
+	// merged spellings, and the merged form is pinned by the hand-authored
+	// row in capslock_test.go.
+	groupedParamsForm := render("groupedParamsT", "func(a int, b int) string")
+	ellipsisVariadicForm := render("ellipsisVariadicT", "func(...example.com/2x.T) int")
+	ptrEmbedForm := render("ptrEmbedStruct", "struct{*example.com/x.T}")
+	taggedForm := render("taggedStruct", `struct{A int "json:\"a]\""}`)
+	parenForm := render("parenTypeT", "*example.com/x.T")
+	// The instantiated generic type argument: the holder's field carries the
+	// x.Pair[int] named type, which TypeString renders with the full
+	// import-path qualifier.
+	holder := fixtureObject(info, pkg, "nestedGenericHolder").Type().Underlying().(*types.Struct)
+	nestedGenericForm := types.TypeString(holder.Field(0).Type(), qualifierPath)
+	if nestedGenericForm != "example.com/x.Pair[int]" {
+		t.Fatalf("rendered nested generic %q; want the instantiated generic spelling", nestedGenericForm)
+	}
+	divideForm, shiftForm, addForm := corpusArrayTypes(t)["divide"], corpusArrayTypes(t)["shift"], corpusArrayTypes(t)["add"]
 
 	for _, tc := range []struct {
 		name string
@@ -276,6 +339,19 @@ type bareStruct struct{ T }
 		{"qualified interface method parameter", symbol.CapslockFunction{Name: "ctest.Load[" + qualifiedIfaceParam + "]", Package: pkgPath}, "example.com/ctest.Load"},
 		{"bare embedded struct field", symbol.CapslockFunction{Name: "ctest.Load[" + bareEmbedded + "]", Package: pkgPath}, "example.com/ctest.Load"},
 		{"and-not array length from checked declaration", symbol.CapslockFunction{Name: "ctest.Load[" + andNotArray + "]", Package: pkgPath}, "example.com/ctest.Load"},
+		{"slice type from checked declaration", symbol.CapslockFunction{Name: "ctest.Load[" + sliceForm + "]", Package: pkgPath}, "example.com/ctest.Load"},
+		{"map type from checked declaration", symbol.CapslockFunction{Name: "ctest.Load[" + mapForm + "]", Package: pkgPath}, "example.com/ctest.Load"},
+		{"channel type from checked declaration", symbol.CapslockFunction{Name: "ctest.Load[" + chanForm + "]", Package: pkgPath}, "example.com/ctest.Load"},
+		{"multi-result function from checked declaration", symbol.CapslockFunction{Name: "ctest.Load[" + multiResultForm + "]", Package: pkgPath}, "example.com/ctest.Load"},
+		{"grouped named parameters from checked declaration", symbol.CapslockFunction{Name: "ctest.Load[" + groupedParamsForm + "]", Package: pkgPath}, "example.com/ctest.Load"},
+		{"unnamed qualified variadic from checked declaration", symbol.CapslockFunction{Name: "ctest.Load[" + ellipsisVariadicForm + "]", Package: pkgPath}, "example.com/ctest.Load"},
+		{"pointer embedded field from checked declaration", symbol.CapslockFunction{Name: "ctest.Load[" + ptrEmbedForm + "]", Package: pkgPath}, "example.com/ctest.Load"},
+		{"tagged field with a bracket in the tag from checked declaration", symbol.CapslockFunction{Name: "ctest.Load[" + taggedForm + "]", Package: pkgPath}, "example.com/ctest.Load"},
+		{"parenthesized pointer type from checked declaration", symbol.CapslockFunction{Name: "ctest.Load[(" + parenForm + ")]", Package: pkgPath}, "example.com/ctest.Load"},
+		{"nested generic type from checked declaration", symbol.CapslockFunction{Name: "ctest.Load[" + nestedGenericForm + "]", Package: pkgPath}, "example.com/ctest.Load"},
+		{"division array length from checked declaration", symbol.CapslockFunction{Name: "ctest.Load[" + divideForm + "]", Package: pkgPath}, "example.com/ctest.Load"},
+		{"shift array length from checked declaration", symbol.CapslockFunction{Name: "ctest.Load[" + shiftForm + "]", Package: pkgPath}, "example.com/ctest.Load"},
+		{"addition array length from checked declaration", symbol.CapslockFunction{Name: "ctest.Load[" + addForm + "]", Package: pkgPath}, "example.com/ctest.Load"},
 		{"deferred tuple type argument is rejected", symbol.CapslockFunction{Name: "ctest.Load[(int, string)]", Package: pkgPath}, ""},
 		{"deferred named-list type argument is rejected", symbol.CapslockFunction{Name: "ctest.Load[(x int)]", Package: pkgPath}, ""},
 		{"pointer receiver method", symbol.CapslockFunction{Name: "(*ctest.T).M", Package: pkgPath}, "(example.com/ctest.T).M"},
