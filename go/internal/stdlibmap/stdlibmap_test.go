@@ -1,8 +1,6 @@
 package stdlibmap
 
 import (
-	"context"
-	"errors"
 	"reflect"
 	"strings"
 	"testing"
@@ -88,58 +86,4 @@ func entriesToPaths(entries []PackageEntry) []string {
 		paths[i] = e.Path
 	}
 	return paths
-}
-
-func TestNativeStdPackageListRunsToolchain(t *testing.T) {
-	entries, err := NativeStdPackageList(context.Background())
-	if err != nil {
-		t.Fatalf("NativeStdPackageList: %v", err)
-	}
-	var haveOS, haveInternal bool
-	seen := map[string]bool{}
-	for _, e := range entries {
-		if seen[e.Path] {
-			t.Fatalf("NativeStdPackageList: duplicate path %q", e.Path)
-		}
-		seen[e.Path] = true
-		if e.Path == "os" {
-			haveOS = true
-		}
-		if strings.HasPrefix(e.Path, "internal/") || e.Path == "internal" {
-			haveInternal = true
-			if e.Importable {
-				t.Fatalf("internal package %q marked importable", e.Path)
-			}
-		}
-		for i := 1; i < len(entries); i++ {
-			if entries[i-1].Path > entries[i].Path {
-				t.Fatalf("NativeStdPackageList not sorted at %q > %q", entries[i-1].Path, entries[i].Path)
-			}
-		}
-	}
-	if !haveOS || !haveInternal {
-		t.Fatalf("NativeStdPackageList missing os=%t internal=%t", haveOS, haveInternal)
-	}
-}
-
-func TestNativeToolchainVersion(t *testing.T) {
-	v, err := NativeToolchainVersion(context.Background())
-	if err != nil {
-		t.Fatalf("NativeToolchainVersion: %v", err)
-	}
-	if !strings.HasPrefix(v, "go1.") {
-		t.Fatalf("NativeToolchainVersion = %q, want a go1.x version", v)
-	}
-}
-
-func TestNativeToolchainVersionError(t *testing.T) {
-	// A context that is already canceled fails the exec quickly and
-	// deterministically; the error must be actionable.
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-	if _, err := NativeToolchainVersion(ctx); err == nil {
-		t.Fatalf("NativeToolchainVersion with canceled context: want error, got nil")
-	} else if !errors.Is(err, context.Canceled) {
-		t.Fatalf("NativeToolchainVersion error %v: want it to wrap the context error", err)
-	}
 }

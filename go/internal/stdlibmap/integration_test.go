@@ -12,6 +12,60 @@ import (
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/symbol"
 )
 
+// TestNativeOracleAgainstLocalToolchain covers the native toolchain seams
+// (oracle, toolchain version, loader) against the local Go installation.
+func TestNativeOracleAgainstLocalToolchain(t *testing.T) {
+	entries, err := stdlibmap.NativeStdPackageList(context.Background())
+	if err != nil {
+		t.Fatalf("NativeStdPackageList: %v", err)
+	}
+	var haveOS, haveInternal bool
+	seen := map[string]bool{}
+	for _, e := range entries {
+		if seen[e.Path] {
+			t.Fatalf("NativeStdPackageList: duplicate path %q", e.Path)
+		}
+		seen[e.Path] = true
+		if e.Path == "os" {
+			haveOS = true
+		}
+		if strings.HasPrefix(e.Path, "internal/") || e.Path == "internal" {
+			haveInternal = true
+			if e.Importable {
+				t.Fatalf("internal package %q marked importable", e.Path)
+			}
+		}
+		for i := 1; i < len(entries); i++ {
+			if entries[i-1].Path > entries[i].Path {
+				t.Fatalf("NativeStdPackageList not sorted at %q > %q", entries[i-1].Path, entries[i].Path)
+			}
+		}
+	}
+	if !haveOS || !haveInternal {
+		t.Fatalf("NativeStdPackageList missing os=%t internal=%t", haveOS, haveInternal)
+	}
+
+	version, err := stdlibmap.NativeToolchainVersion(context.Background())
+	if err != nil {
+		t.Fatalf("NativeToolchainVersion: %v", err)
+	}
+	if !strings.HasPrefix(version, "go1.") {
+		t.Fatalf("NativeToolchainVersion = %q, want a go1.x version", version)
+	}
+
+	loader := &stdlibmap.NativeLoader{}
+	loaded, err := loader.Load([]string{"os", "strings"})
+	if err != nil {
+		t.Fatalf("NativeLoader.Load: %v", err)
+	}
+	if loaded["os"] == nil || loaded["os"].Scope().Lookup("Open") == nil {
+		t.Fatalf("NativeLoader did not load package os with its declarations")
+	}
+	if _, err := loader.Load([]string{"os/nonexistent"}); err == nil {
+		t.Fatalf("NativeLoader.Load(os/nonexistent): want error, got nil")
+	}
+}
+
 // TestRealSDKInventory is the real-toolchain coverage (task AC 6): the native
 // oracle enumerates every `go list std` package of the local toolchain, the
 // native loader inventories every importable package, and every inventoried
