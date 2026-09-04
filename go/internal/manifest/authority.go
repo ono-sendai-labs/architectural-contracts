@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/ono-sendai-labs/architectural-contracts/go/internal/schema"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/schema/gen"
 )
 
@@ -39,7 +40,7 @@ func NewDeclared(capabilities ...Capability) (AuthorityDeclaration, error) {
 			return AuthorityDeclaration{}, &DuplicateDeclarationError{Kind: "declared authority", Value: c}
 		}
 		seen[c] = true
-		if !KnownCapabilities[c] {
+		if !schema.KnownCapabilities[c] {
 			return AuthorityDeclaration{}, &UnknownCapabilityError{Capability: c}
 		}
 	}

@@ -14,6 +14,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/ono-sendai-labs/architectural-contracts/go/internal/schema"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/schema/gen"
 	"google.golang.org/protobuf/encoding/prototext"
 )
@@ -155,23 +156,6 @@ type DuplicateDeclarationError struct {
 
 func (e *DuplicateDeclarationError) Error() string {
 	return fmt.Sprintf("duplicate %s: %s", e.Kind, e.Value)
-}
-
-// KnownCapabilities is the set of known Capslock capabilities.
-var KnownCapabilities = map[string]bool{
-	"FILES":               true,
-	"NETWORK":             true,
-	"READ_SYSTEM_STATE":   true,
-	"MODIFY_SYSTEM_STATE": true,
-	"OPERATING_SYSTEM":    true,
-	"SYSTEM_CALLS":        true,
-	"EXEC":                true,
-	"RUNTIME":             true,
-	"ARBITRARY_EXECUTION": true,
-	"CGO":                 true,
-	"UNSAFE_POINTER":      true,
-	"REFLECT":             true,
-	"UNANALYZED":          true,
 }
 
 // UnknownCapabilityError represents an unknown capability error.
@@ -341,7 +325,7 @@ func validate(m Manifest) error {
 			return &DuplicateDeclarationError{Kind: "declared authority", Value: auth}
 		}
 		seenAuth[auth] = true
-		if !KnownCapabilities[auth] {
+		if !schema.KnownCapabilities[auth] {
 			return &UnknownCapabilityError{Capability: auth}
 		}
 	}

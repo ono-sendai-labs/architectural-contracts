@@ -16,10 +16,10 @@ sh_test(
     size = "small",
     args = [
         "$(rootpath //bazel_rules:authority.bzl)",
-        "$(rootpath //go/internal/manifest:manifest.go)",
+        "$(rootpath //go/internal/schema:capabilities.go)",
     ],
     data = [
         "//bazel_rules:authority.bzl",
-        "//go/internal/manifest:manifest.go",
+        "//go/internal/schema:capabilities.go",
     ],
 )

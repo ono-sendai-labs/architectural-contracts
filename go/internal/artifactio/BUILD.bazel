@@ -5,7 +5,6 @@ go_library(
     name = "artifactio",
     srcs = [
         "artifactio.go",
-        "capabilities.go",
         "digest.go",
         "stdlibmap.go",
         "surface.go",
@@ -19,6 +18,7 @@ go_library(
         "//go:__subpackages__",
     ],
     deps = [
+        "//go/internal/schema",
         "//go/internal/schema/gen",
         "//go/internal/symbol",
         "@org_golang_google_protobuf//encoding/protojson",
@@ -31,14 +31,12 @@ go_test(
     size = "small",
     srcs = [
         "artifactio_test.go",
-        "capabilities_test.go",
         "decode_test.go",
         "rework_test.go",
         "write_test.go",
     ],
     embed = [":artifactio"],
     deps = [
-        "//go/internal/manifest",
         "//go/internal/schema/gen",
         "//go/internal/symbol",
         "@org_golang_google_protobuf//encoding/protojson",

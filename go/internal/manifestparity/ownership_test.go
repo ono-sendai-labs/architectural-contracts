@@ -12,10 +12,13 @@ import (
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/manifest"
 )
 
-// checkedInComponentManifests parses every checked-in component manifest in the
-// Go tree (internal packages plus the CLI) keyed by component name. The test
-// binary runs with the package directory as working directory, so the paths are
-// relative to go/internal/manifestparity.
+// checkedInComponentManifests parses every checked-in component manifest in
+// the Go tree keyed by component name. The Go tree's manifests live in exactly
+// two roots — one per package under go/internal and the CLI's under
+// go/cmd/arcc — so scanning those two roots enumerates all checked-in
+// component manifests in the repository. The test binary runs with the package
+// directory as working directory, so the paths are relative to
+// go/internal/manifestparity.
 func checkedInComponentManifests(t *testing.T) map[string]manifest.Manifest {
 	t.Helper()
 
@@ -83,7 +86,9 @@ func TestProjectPackagesSingleOwner(t *testing.T) {
 	}
 
 	wantOwner := map[string]string{
+		modulePrefix + "internal/artifactio": "artifactio",
 		modulePrefix + "internal/manifest":   "manifest",
+		modulePrefix + "internal/schema":     "schema",
 		modulePrefix + "internal/schema/gen": "schema",
 		modulePrefix + "internal/symbol":     "symbol",
 	}
@@ -95,10 +100,14 @@ func TestProjectPackagesSingleOwner(t *testing.T) {
 }
 
 // TestArtifactioDeclaresCoreComponentDependencies pins the shell-to-core
-// dependency edges: the artifactio component must consume the manifest model,
-// generated schema, and symbol grammar through declared component dependencies
-// rather than duplicated membership. The dependency names and manifest paths are
-// contract strings resolved by `arcc check`.
+// dependency edges: the artifactio component must consume the schema surface
+// (generated types and the shared capability taxonomy) and the symbol grammar
+// through declared component dependencies rather than duplicated membership.
+// These are exactly the core components artifactio imports; it uses no
+// manifest-package API (the capability taxonomy it validates against is
+// schema.KnownCapabilities, owned by the schema component), so a manifest
+// dependency would be an unused edge. The dependency names and manifest paths
+// are contract strings resolved by `arcc check`.
 func TestArtifactioDeclaresCoreComponentDependencies(t *testing.T) {
 	manifests := checkedInComponentManifests(t)
 	m, ok := manifests["artifactio"]

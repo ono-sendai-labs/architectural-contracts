@@ -10,6 +10,7 @@ import (
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 
+	"github.com/ono-sendai-labs/architectural-contracts/go/internal/schema"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/schema/gen"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/symbol"
 )
@@ -139,7 +140,7 @@ func validateAuthority(a *gen.AuthorityDeclaration) error {
 			return err
 		}
 		for _, cap := range a.DeclaredAuthority {
-			if !knownCapabilities[cap] {
+			if !schema.KnownCapabilities[cap] {
 				return fmt.Errorf("declared capability %q is not a known capability", cap)
 			}
 		}

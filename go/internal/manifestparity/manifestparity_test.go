@@ -290,3 +290,91 @@ func TestCompareManifests_MissingNonInterfaceMemberFails(t *testing.T) {
 		t.Errorf("expected error containing 'members', got %v", spy.errors)
 	}
 }
+
+func TestCompareManifests_DependencyPathMismatchFails(t *testing.T) {
+	// Same dependency names, but the generated manifest points its "dep"
+	// dependency at a different component's manifest file than the checked-in
+	// declaration. Name-only comparison would pass; identity comparison must
+	// fail so a wrong same-named dependency cannot hide behind parity.
+	gen := manifest.Manifest{
+		Name:           "mycomp_component",
+		InterfaceFiles: []string{"mycomp.go"},
+		ComponentDependencies: []manifest.ComponentDependency{
+			{Name: "dep", Manifest: "../dep/dep_component.component.textproto"},
+		},
+	}
+	chk := manifest.Manifest{
+		Name:           "mycomp",
+		InterfaceFiles: []string{"mycomp.go"},
+		ComponentDependencies: []manifest.ComponentDependency{
+			{Name: "dep", Manifest: "../other/dep.component.textproto"},
+		},
+	}
+
+	spy := &spyTB{TB: t}
+	manifestparity.CompareManifests(spy, "mycomp", gen, chk)
+
+	if len(spy.errors) == 0 {
+		t.Fatalf("expected parity error for dependency manifest path mismatch, got none")
+	}
+	joined := strings.Join(spy.errors, "\n")
+	for _, want := range []string{"component-dependency identities", "dep.component.textproto"} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("expected error containing %q, got %v", want, spy.errors)
+		}
+	}
+}
+
+func TestCompareManifests_DependencyAutoAttachedMismatchFails(t *testing.T) {
+	gen := manifest.Manifest{
+		Name:           "mycomp_component",
+		InterfaceFiles: []string{"mycomp.go"},
+		ComponentDependencies: []manifest.ComponentDependency{
+			{Name: "dep", Manifest: "../dep/dep_component.component.textproto", AutoAttached: true},
+		},
+	}
+	chk := manifest.Manifest{
+		Name:           "mycomp",
+		InterfaceFiles: []string{"mycomp.go"},
+		ComponentDependencies: []manifest.ComponentDependency{
+			{Name: "dep", Manifest: "../dep/dep.component.textproto"},
+		},
+	}
+
+	spy := &spyTB{TB: t}
+	manifestparity.CompareManifests(spy, "mycomp", gen, chk)
+
+	if len(spy.errors) == 0 {
+		t.Fatalf("expected parity error for auto-attached mismatch, got none")
+	}
+	if !strings.Contains(strings.Join(spy.errors, "\n"), "auto_attached=true") {
+		t.Errorf("expected error showing auto_attached=true, got %v", spy.errors)
+	}
+}
+
+func TestCompareManifests_DependencyParityAgrees(t *testing.T) {
+	// The positive case: Bazel's generated dependency filename carries the
+	// `_component` suffix and lives in the dep's own directory; the checked-in
+	// declaration names the same component and file modulo those conventions.
+	gen := manifest.Manifest{
+		Name:           "mycomp_component",
+		InterfaceFiles: []string{"mycomp.go"},
+		ComponentDependencies: []manifest.ComponentDependency{
+			{Name: "dep", Manifest: "../dep/dep_component.component.textproto"},
+		},
+	}
+	chk := manifest.Manifest{
+		Name:           "mycomp",
+		InterfaceFiles: []string{"mycomp.go"},
+		ComponentDependencies: []manifest.ComponentDependency{
+			{Name: "dep", Manifest: "../dep/dep.component.textproto"},
+		},
+	}
+
+	spy := &spyTB{TB: t}
+	manifestparity.CompareManifests(spy, "mycomp", gen, chk)
+
+	if len(spy.errors) > 0 {
+		t.Errorf("unexpected errors for equivalent dependency declarations: %v", spy.errors)
+	}
+}

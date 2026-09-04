@@ -10,8 +10,8 @@
 //     bytes, decodes them with bounded reads and semantic validation, computes
 //     lowercase SHA-256 digests over the canonical bytes, and replaces target
 //     files atomically via a temporary sibling and rename.
-//   - What it requires: Generated artifact message types (manifest/gen), the
-//     SymbolID grammar (symbol) and the known capability set (manifest) for
+//   - What it requires: The generated artifact message types and known
+//     capability taxonomy (schema), the SymbolID grammar (symbol) for
 //     validation, and write access to the target directory for atomic
 //     replacement.
 //   - What it provides: MarshalSurface/MarshalMap, DecodeSurface/DecodeMap,

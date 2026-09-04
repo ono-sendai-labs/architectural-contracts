@@ -5,11 +5,11 @@
 # added to one and not the other turns into a confusing parse error at check
 # time, so the two sets are compared here instead.
 #
-# Args: <authority.bzl> <manifest.go>
+# Args: <authority.bzl> <capabilities.go>
 set -euo pipefail
 
 authority_bzl="$1"
-manifest_go="$2"
+capabilities_go="$2"
 
 # `FILES = "FILES"` — the name and the value have to agree, or a consumer
 # writing `declared_authority = [FILES]` silently emits something else.
@@ -31,9 +31,9 @@ all_authorities="$(
     grep -oE '^    [A-Z][A-Z_]*,' | tr -d ' ,' | sort
 )"
 
-# `"FILES": true,` entries in arcc's KnownCapabilities map.
+# `"FILES": true,` entries in arcc's schema.KnownCapabilities map.
 known_capabilities="$(
-  sed -n '/^var KnownCapabilities = map\[string\]bool{/,/^}/p' "${manifest_go}" |
+  sed -n '/^var KnownCapabilities = map\[string\]bool{/,/^}/p' "${capabilities_go}" |
     grep -oE '"[A-Z_]+":' | tr -d '":' | sort
 )"
 
@@ -52,7 +52,7 @@ fi
 
 if [[ "${constants}" != "${known_capabilities}" ]]; then
   echo "FAIL: authority.bzl and arcc's KnownCapabilities disagree" >&2
-  echo "      (< only in authority.bzl, > only in manifest.go):" >&2
+  echo "      (< only in authority.bzl, > only in capabilities.go):" >&2
   diff <(echo "${constants}") <(echo "${known_capabilities}") >&2 || true
   status=1
 fi

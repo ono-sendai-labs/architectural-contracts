@@ -9,8 +9,10 @@ load(
 )
 load("@rules_go//go:def.bzl", "go_library", "go_test")
 
-# keep: //bazel_rules/tests:authority_sync_test reads KnownCapabilities out of
-# the source to compare it with the Starlark authority taxonomy.
+# keep: //bazel_rules/tests:authority_sync_test reads the known capability
+# taxonomy out of the source to compare it with the Starlark authority
+# taxonomy; the set lives in the schema component
+# (//go/internal/schema:capabilities.go).
 exports_files([
     "manifest.go",
     "component.textproto",
@@ -30,6 +32,7 @@ go_library(
         "//go:__subpackages__",
     ],
     deps = [
+        "//go/internal/schema",
         "//go/internal/schema/gen",
         "@org_golang_google_protobuf//encoding/prototext",
     ],

@@ -1,6 +1,19 @@
 load("@rules_arcc//bazel_rules/go:defs.bzl", "go_component")
+load("@rules_go//go:def.bzl", "go_library")
 
 exports_files(["component.textproto"])
+
+# The schema vocabulary package: the known Capslock capability taxonomy that
+# the manifest model and the artifact-I/O shell consume through the schema
+# component dependency. It is a declared member of the schema component
+# alongside the generated package, but only the generated source forms the
+# component's declared interface files.
+go_library(
+    name = "schema",
+    srcs = ["capabilities.go"],
+    importpath = "github.com/ono-sendai-labs/architectural-contracts/go/internal/schema",
+    visibility = ["//go:__subpackages__"],
+)
 
 # Mirrors the checked-in schema/component.textproto: the generated protobuf
 # package is the component's declared interface, so manifest and artifactio
@@ -12,7 +25,10 @@ exports_files(["component.textproto"])
 go_component(
     name = "schema_component",
     interface = "//go/internal/schema/gen",
-    members = ["//go/internal/schema/gen"],
+    members = [
+        "//go/internal/schema",
+        "//go/internal/schema/gen",
+    ],
     tags = ["manual"],
     visibility = ["//go:__subpackages__"],
 )

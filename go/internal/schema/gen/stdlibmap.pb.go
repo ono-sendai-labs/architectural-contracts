@@ -3,7 +3,7 @@
 // Component Contract (FR10):
 // - What it does: Generated API and structures for the standard-library authority
 //   map schema. This package is an implementation detail of the manifest component,
-//   which owns all persisted archcontracts schemas.
+//   which owns all persisted archcontracts schemas and the capability taxonomy.
 // - What it requires: Protobuf unmarshaler to populate the models.
 // - What it provides: Protoreflect-enabled struct types for parsing stdlib maps
 //   and the SDK key that pins a map to one target SDK configuration.

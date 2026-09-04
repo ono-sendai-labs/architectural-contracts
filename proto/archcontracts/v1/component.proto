@@ -1,7 +1,7 @@
 // Package gen provides protobuf generated types.
 //
 // Component Contract (FR10):
-// - What it does: Generated API and structures for manifest protobuf schemas. This package is an implementation detail of the manifest component.
+// - What it does: Generated API and structures for manifest protobuf schemas. This package is an implementation detail of the schema component.
 // - What it requires: Protobuf unmarshaler to populate the models.
 // - What it provides: Protoreflect-enabled struct types for parsing manifests.
 // - Ambient Authority: This component is clean of filesystem/network ambient authority but leverages REFLECT, RUNTIME, SYSTEM_CALLS, and UNSAFE_POINTER internally via protobuf unmarshaling.

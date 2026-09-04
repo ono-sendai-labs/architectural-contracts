@@ -140,9 +140,12 @@ func CompareManifests(t testing.TB, dir string, gen, chk manifest.Manifest) {
 		t.Errorf("%s: authority = %s, want %s", dir, describeAuthority(gen.Authority), describeAuthority(chk.Authority))
 	}
 
-	// Component dependencies: same set of names, `_component` suffix normalized.
-	if got, want := depNames(gen.ComponentDependencies), depNames(chk.ComponentDependencies); !slices.Equal(got, want) {
-		t.Errorf("%s: component-dependency names = %v, want %v", dir, got, want)
+	// Component dependencies: same identity set — name, target manifest
+	// basename (`_component` suffix normalized for the Bazel-generated
+	// filename), and auto-attached status. Comparing the manifest path keeps a
+	// same-named dependency pointing at the wrong component from passing.
+	if got, want := depIdentities(gen.ComponentDependencies), depIdentities(chk.ComponentDependencies); !slices.Equal(got, want) {
+		t.Errorf("%s: component-dependency identities = %v, want %v", dir, got, want)
 	}
 }
 
@@ -212,10 +215,22 @@ func basenames(paths []string) []string {
 	return out
 }
 
-func depNames(deps []manifest.ComponentDependency) []string {
+// depIdentities maps dependencies onto comparable identity strings — component
+// name, the referenced manifest's component directory and basename (with the
+// Bazel-generated `_component` filename suffix normalized away), and
+// auto-attached status — sorted for deterministic comparison. Both generated
+// and checked-in manifests reference each dependency's manifest inside that
+// component's own directory, so the directory name is part of the identity and
+// a same-named dependency pointing at another component's directory fails.
+func depIdentities(deps []manifest.ComponentDependency) []string {
 	out := make([]string, len(deps))
 	for i, d := range deps {
-		out[i] = strings.TrimSuffix(d.Name, "_component")
+		slash := filepath.ToSlash(d.Manifest)
+		base := filepath.Base(slash)
+		dir := filepath.Base(filepath.Dir(slash))
+		base = strings.TrimSuffix(base, "_component.component.textproto")
+		base = strings.TrimSuffix(base, ".component.textproto")
+		out[i] = fmt.Sprintf("%s(%s/%s.component.textproto, auto_attached=%t)", d.Name, dir, base, d.AutoAttached)
 	}
 	sort.Strings(out)
 	return out
