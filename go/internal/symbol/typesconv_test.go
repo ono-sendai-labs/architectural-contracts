@@ -400,3 +400,12 @@ func useErr() string {
 		t.Fatalf("fixture produced no selection on error.Error")
 	}
 }
+
+// TestFromObject_Nil pins review-round-4 suggestion 2: FromObject returns an
+// actionable error for a nil object instead of panicking on obj.Name().
+func TestFromObject_Nil(t *testing.T) {
+	id, err := symbol.FromObject(nil)
+	if err == nil {
+		t.Fatalf("FromObject(nil) = %q; want an actionable error", id)
+	}
+}

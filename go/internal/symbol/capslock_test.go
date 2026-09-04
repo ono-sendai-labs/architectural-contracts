@@ -37,6 +37,11 @@ func TestParseCapslock_Convergence(t *testing.T) {
 		{"function type argument", "example.com/store.Load[func(int) string]", "example.com/store.Load"},
 		{"array-constant type argument", "example.com/store.Load[[N+1]byte]", "example.com/store.Load"},
 		{"hyphenated package type argument", "example.com/store.Load[example.com/x-y.T]", "example.com/store.Load"},
+		{"named function parameter type argument", "example.com/store.Load[func(x int) string]", "example.com/store.Load"},
+		{"named grouped function parameter type argument", "example.com/store.Load[func(a, b int) string]", "example.com/store.Load"},
+		{"shift constant-expression length type argument", "example.com/store.Load[[N<<1]byte]", "example.com/store.Load"},
+		{"struct literal type argument", "example.com/store.Load[struct{A int; B string}]", "example.com/store.Load"},
+		{"interface literal type argument", "example.com/store.Load[interface{M(); N(x int) string}]", "example.com/store.Load"},
 		{"pointer receiver with map type argument", "(*example.com/store.Box[map[string]int]).Get", "(example.com/store.Box).Get"},
 		{"stdlib method on generic alias", "(sync/atomic.Pointer[example.com/x.T]).Load", ""},
 		{"init", "os.init", "os.init"},
@@ -107,6 +112,11 @@ func TestParseCapslock_Rejected(t *testing.T) {
 		{"punctuation-only type argument", "example.com/store.Load[,,]"},
 		{"dot-only type argument", "example.com/store.Load[.]"},
 		{"elementless channel type argument", "example.com/store.Load[chan]"},
+		{"hyphenated bare type name", "store.Load[foo-bar]"},
+		{"variadic parameter not last", "store.Load[func(...int, string)]"},
+		{"repeated trailing bracket groups", "store.Load[example.com/x.T][int]"},
+		{"bracketed receiver type glued to name", "(example.com/store.A[example.com/x.T]B).Get"},
+		{"digit-leading path element type argument", "store.Load[example.com/2x.T]"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

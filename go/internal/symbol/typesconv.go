@@ -21,6 +21,9 @@ import (
 // The package path is canonicalized through the host-policy hook, so the
 // emitted IDs are in the canonical namespace, persisted only that way.
 func FromObject(obj types.Object) (SymbolID, error) {
+	if obj == nil {
+		return "", fmt.Errorf("object is nil; want a declared go/types object")
+	}
 	switch o := obj.(type) {
 	case *types.Func:
 		return fromFunc(o)

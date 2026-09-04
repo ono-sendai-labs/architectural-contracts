@@ -102,25 +102,21 @@ func parseCapslock(name string, knownPackage func(string) bool) (SymbolID, error
 	return Parse(hostpolicy.CanonicalizePath(pkg) + "." + rest[dot+1:])
 }
 
-// stripReceiverBrackets removes balanced type-argument bracket groups from a
-// "(pkg.Type)" receiver spelling and validates the result contains none.
+// stripReceiverBrackets removes the single trailing type-argument bracket
+// group from a "(pkg.Type[args])" receiver spelling. Any other bracket —
+// misplaced or a second group — is rejected, so a glued type name like
+// "pkg.A[T]B" cannot masquerade as a declared receiver.
 func stripReceiverBrackets(recv string) (string, error) {
-	rest, depth, err := stripBalancedBrackets(recv)
-	if err != nil {
-		return "", err
-	}
-	if depth != 0 {
-		return "", fmt.Errorf("receiver %q has unbalanced type-argument brackets", recv)
-	}
-	if strings.ContainsAny(rest, "[]") {
-		return "", fmt.Errorf("receiver %q has misplaced type-argument brackets", recv)
+	rest, ok := stripTrailingBrackets(recv)
+	if !ok {
+		return "", fmt.Errorf("receiver %q has misplaced, unbalanced or invalid type-argument brackets", recv)
 	}
 	return rest, nil
 }
 
 // stripTrailingBrackets removes one trailing balanced bracket group from s.
-// It reports false when s contains brackets that are not a single trailing
-// balanced group.
+// It reports false when s contains brackets that are not exactly one trailing
+// balanced group, or when the group's contents are not valid type arguments.
 func stripTrailingBrackets(s string) (string, bool) {
 	if !strings.ContainsAny(s, "[]") {
 		return s, true
@@ -140,8 +136,11 @@ func stripTrailingBrackets(s string) (string, bool) {
 				if inner == "" || !validTypeArgument(inner) {
 					return "", false
 				}
-				prefix, depth2, err := stripBalancedBrackets(s[:i])
-				if err != nil || depth2 != 0 || strings.ContainsAny(prefix, "[]") {
+				prefix := s[:i]
+				// The prefix must be bracket-free in its raw text: a second
+				// top-level group ("Load[T][U]") or a misplaced bracket is
+				// not a Capslock spelling.
+				if strings.ContainsAny(prefix, "[]") {
 					return "", false
 				}
 				return prefix, true
@@ -149,49 +148,6 @@ func stripTrailingBrackets(s string) (string, bool) {
 		}
 	}
 	return "", false
-}
-
-// stripBalancedBrackets removes balanced bracket groups from s, returning the
-// remaining text and the final nesting depth (0 when every group was closed).
-// The contents of each group must look like type arguments — identifiers,
-// dots, pointer markers, commas and nested brackets — otherwise the spelling
-// is not a Capslock instantiation and is rejected instead of guessed.
-func stripBalancedBrackets(s string) (string, int, error) {
-	var b strings.Builder
-	depth := 0
-	groupStart := -1
-	for i := 0; i < len(s); i++ {
-		switch s[i] {
-		case '[':
-			if depth == 0 {
-				groupStart = i
-			}
-			depth++
-		case ']':
-			depth--
-			if depth < 0 {
-				return "", 0, fmt.Errorf("unbalanced type-argument brackets")
-			}
-			if depth == 0 {
-				// A type-argument group always carries at least one type
-				// argument, and its text must be plausible type-argument
-				// syntax; an empty or free-text group is not a Capslock
-				// spelling.
-				inner := s[groupStart+1 : i]
-				if inner == "" || !validTypeArgument(inner) {
-					return "", 0, fmt.Errorf("invalid type-argument text %q", inner)
-				}
-			}
-		default:
-			if depth == 0 {
-				b.WriteByte(s[i])
-			}
-		}
-	}
-	if depth > 0 {
-		return "", 0, fmt.Errorf("unbalanced type-argument brackets")
-	}
-	return b.String(), depth, nil
 }
 
 // validTypeArgument reports whether s is a type argument from the explicit
@@ -332,7 +288,7 @@ func (p *typeArgParser) typ() error {
 			return fmt.Errorf("type argument: func is missing (")
 		}
 		p.i++
-		if err := p.typeList(')', true); err != nil {
+		if err := p.paramList(')', true); err != nil {
 			return err
 		}
 		p.space()
@@ -341,12 +297,14 @@ func (p *typeArgParser) typ() error {
 		}
 		return nil
 	case c == '(':
-		// A parenthesized group: "(T)" or a parenthesized type list such as
-		// a function's multi-result "(int, string)".
+		// A parenthesized type list: "(T)", "(int, string)" or a named
+		// result list "(x int)".
 		p.i++
-		return p.typeList(')', false)
-	case c == 's' && p.kw("struct"), c == 'i' && p.kw("interface"):
-		return fmt.Errorf("type argument: struct and interface literals are not part of the supported subset")
+		return p.paramList(')', false)
+	case c == 's' && p.kw("struct"):
+		return p.structBody()
+	case c == 'i' && p.kw("interface"):
+		return p.ifaceBody()
 	case isIdentStart(c):
 		return p.name()
 	default:
@@ -354,21 +312,151 @@ func (p *typeArgParser) typ() error {
 	}
 }
 
-// typeList parses a comma-separated type list closed by close, which is
-// consumed. When variadic is set, the list may end with "...T" (function
-// parameter lists); generic argument lists never accept an ellipsis.
-func (p *typeArgParser) typeList(close byte, variadic bool) error {
+// structBody parses a struct literal type argument: "struct{ field-list }",
+// where a field is a comma-separated identifier list followed by a type, or a
+// single embedded type. Fields are separated by ';' with an optional
+// trailing ';'.
+func (p *typeArgParser) structBody() error {
+	p.space()
+	if p.i >= len(p.s) || p.s[p.i] != '{' {
+		return fmt.Errorf("type argument: struct is missing {")
+	}
+	p.i++
+	p.space()
+	if p.i < len(p.s) && p.s[p.i] == '}' {
+		p.i++
+		return nil
+	}
+	for {
+		names, err := p.identRun()
+		if err != nil {
+			return err
+		}
+		if p.startsType() {
+			if err := p.typ(); err != nil {
+				return err
+			}
+		} else if len(names) != 1 {
+			return fmt.Errorf("type argument: struct field %q must be a single embedded type or name a field", strings.Join(names, ", "))
+		}
+		p.space()
+		if p.i < len(p.s) && p.s[p.i] == ';' {
+			p.i++
+			p.space()
+			if p.i < len(p.s) && p.s[p.i] == '}' {
+				p.i++
+				return nil
+			}
+			continue
+		}
+		break
+	}
+	p.space()
+	if p.i >= len(p.s) || p.s[p.i] != '}' {
+		return fmt.Errorf("type argument: struct is missing }")
+	}
+	p.i++
+	return nil
+}
+
+// ifaceBody parses an interface literal type argument: "interface{ method-set
+// }", where a spec is a method declaration ("M(params) results") or a single
+// embedded type. Specs are separated by ';' with an optional trailing ';'.
+func (p *typeArgParser) ifaceBody() error {
+	p.space()
+	if p.i >= len(p.s) || p.s[p.i] != '{' {
+		return fmt.Errorf("type argument: interface is missing {")
+	}
+	p.i++
+	p.space()
+	if p.i < len(p.s) && p.s[p.i] == '}' {
+		p.i++
+		return nil
+	}
+	for {
+		if p.identThenParen() {
+			// A method declaration: name (params) results?
+			if _, err := p.goIdent(); err != nil {
+				return err
+			}
+			p.space()
+			if p.i >= len(p.s) || p.s[p.i] != '(' {
+				return fmt.Errorf("type argument: interface method is missing (")
+			}
+			p.i++
+			if err := p.paramList(')', true); err != nil {
+				return err
+			}
+			p.space()
+			if p.startsType() {
+				if err := p.typ(); err != nil {
+					return err
+				}
+			}
+		} else if err := p.typ(); err != nil {
+			return err
+		}
+		p.space()
+		if p.i < len(p.s) && p.s[p.i] == ';' {
+			p.i++
+			p.space()
+			if p.i < len(p.s) && p.s[p.i] == '}' {
+				p.i++
+				return nil
+			}
+			continue
+		}
+		break
+	}
+	p.space()
+	if p.i >= len(p.s) || p.s[p.i] != '}' {
+		return fmt.Errorf("type argument: interface is missing }")
+	}
+	p.i++
+	return nil
+}
+
+// identThenParen reports whether the text at the parser position is an
+// identifier followed (after optional space) by '(', without consuming.
+func (p *typeArgParser) identThenParen() bool {
+	j := p.i
+	for j < len(p.s) && (isIdentStart(p.s[j]) || p.s[j] >= '0' && p.s[j] <= '9') {
+		j++
+	}
+	for j < len(p.s) && p.s[j] == ' ' {
+		j++
+	}
+	return j < len(p.s) && p.s[j] == '('
+}
+
+// identRun parses a comma-separated list of plain identifiers (no dots,
+// hyphens or path separators), as used for parameter, result and field names.
+func (p *typeArgParser) identRun() ([]string, error) {
+	var names []string
+	for {
+		name, err := p.goIdent()
+		if err != nil {
+			return nil, err
+		}
+		names = append(names, name)
+		p.space()
+		if p.i < len(p.s) && p.s[p.i] == ',' {
+			p.i++
+			continue
+		}
+		return names, nil
+	}
+}
+
+// typeList parses a comma-separated list of pure types closed by close, which
+// is consumed (generic argument lists and bare parenthesized type groups).
+func (p *typeArgParser) typeList(close byte) error {
 	p.space()
 	if p.i < len(p.s) && p.s[p.i] == close {
 		p.i++
 		return nil
 	}
-	if variadic && strings.HasPrefix(p.s[p.i:], "...") {
-		p.i += 3
-		if err := p.typ(); err != nil {
-			return err
-		}
-	} else if err := p.typ(); err != nil {
+	if err := p.typ(); err != nil {
 		return err
 	}
 	for {
@@ -389,56 +477,233 @@ func (p *typeArgParser) typeList(close byte, variadic bool) error {
 	return nil
 }
 
-// name parses a package-qualified or bare name: segments of identifier
-// characters (hyphens included, as in import paths) joined by dots, with
-// slash-separated path elements ("example.com/x-y.T"), optionally
+// paramList parses a function parameter or result list closed by close, which
+// is consumed. Each declaration is either a comma-separated identifier list
+// naming a following type ("x, y int") or a single unnamed type ("int",
+// "*T"). Mixing named and unnamed declarations is invalid Go and rejected.
+// When variadic is set, the final declaration may be "...T"; a variadic
+// parameter must be the last one.
+func (p *typeArgParser) paramList(close byte, variadic bool) error {
+	p.space()
+	if p.i < len(p.s) && p.s[p.i] == close {
+		p.i++
+		return nil
+	}
+	named := 0
+	unnamed := 0
+	for {
+		p.space()
+		if p.i >= len(p.s) {
+			return fmt.Errorf("type argument: missing %q", string(close))
+		}
+		if variadic && strings.HasPrefix(p.s[p.i:], "...") {
+			p.i += 3
+			if err := p.typ(); err != nil {
+				return err
+			}
+			unnamed++
+			p.space()
+			if p.i >= len(p.s) || p.s[p.i] != close {
+				return fmt.Errorf("type argument: variadic parameter must be the last one")
+			}
+			p.i++
+			break
+		}
+		if !isIdentStart(p.s[p.i]) || p.startsTypeKeyword() {
+			// An unambiguous type start: pointer, slice, map, chan, func,
+			// struct, interface, paren or send direction.
+			if err := p.typ(); err != nil {
+				return err
+			}
+			unnamed++
+		} else {
+			names, err := p.identRun()
+			if err != nil {
+				return err
+			}
+			if p.startsType() {
+				if err := p.typ(); err != nil {
+					return err
+				}
+				named++
+			} else {
+				// The identifiers were themselves unnamed types.
+				unnamed += len(names)
+			}
+		}
+		p.space()
+		if p.i < len(p.s) && p.s[p.i] == ',' {
+			p.i++
+			continue
+		}
+		p.space()
+		if p.i >= len(p.s) || p.s[p.i] != close {
+			return fmt.Errorf("type argument: missing %q", string(close))
+		}
+		p.i++
+		break
+	}
+	if named > 0 && unnamed > 0 {
+		return fmt.Errorf("type argument: named and unnamed parameters cannot be mixed")
+	}
+	return nil
+}
+
+// startsTypeKeyword reports whether a type-keyword (func, chan, map, struct,
+// interface, <-) begins at the parser position, without consuming.
+func (p *typeArgParser) startsTypeKeyword() bool {
+	j := p.i
+	for _, w := range []string{"func", "chan", "map", "struct", "interface", "<-"} {
+		if strings.HasPrefix(p.s[j:], w) {
+			end := j + len(w)
+			if w == "<-" || end >= len(p.s) || !isWordByte(p.s[end]) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// name parses a package-qualified or bare name: a dotted module host of
+// plain identifiers, optionally followed by slash-separated path elements
+// whose segments may contain hyphens and dots ("gopkg.in/yaml.v2",
+// "example.com/x-y"), then the qualified type identifier, optionally
 // instantiated ("example.com/x.Pair[int]").
 func (p *typeArgParser) name() error {
-	if err := p.unit(); err != nil {
+	if err := p.hostPart(); err != nil {
 		return err
 	}
-	for p.i < len(p.s) && (p.s[p.i] == '.' || p.s[p.i] == '/') {
+	if p.i < len(p.s) && p.s[p.i] == '/' {
+		// Slash-separated path. Dots in path elements ("yaml.v2") are
+		// ambiguous with the qualified type name, so the tail is scanned
+		// as one token and split at its last dot: the remainder is the
+		// path, the final segment must be a plain type identifier.
+		start := p.i
+		for p.i < len(p.s) && (isIdentCont(p.s[p.i]) || p.s[p.i] == '.' || p.s[p.i] == '/') {
+			p.i++
+		}
+		tok := p.s[start+1 : p.i] // skip the leading path separator
+		lastDot := strings.LastIndexByte(tok, '.')
+		if lastDot < 0 {
+			return fmt.Errorf("type argument: missing type name after package path %q", tok)
+		}
+		if !validGoIdent(tok[lastDot+1:]) {
+			return fmt.Errorf("type argument: invalid type name %q", tok[lastDot+1:])
+		}
+		if err := validatePathTail(tok[:lastDot]); err != nil {
+			return err
+		}
+	} else if p.i < len(p.s) && p.s[p.i] == '.' {
 		p.i++
-		if err := p.unit(); err != nil {
+		if _, err := p.goIdent(); err != nil {
 			return err
 		}
 	}
 	if p.i < len(p.s) && p.s[p.i] == '[' {
 		// A generic named type used as an argument ("Pair[int]").
 		p.i++
-		return p.typeList(']', false)
+		return p.typeList(']')
 	}
 	return nil
 }
 
-func (p *typeArgParser) unit() error {
-	start := p.i
-	for p.i < len(p.s) && isIdentCont(p.s[p.i]) {
-		p.i++
+// validGoIdent reports whether s is a plain Go identifier.
+func validGoIdent(s string) bool {
+	if s == "" || !isIdentStart(s[0]) {
+		return false
 	}
-	if p.i == start {
-		return fmt.Errorf("type argument: missing name after separator")
+	for i := 1; i < len(s); i++ {
+		if !isIdentStart(s[i]) && (s[i] < '0' || s[i] > '9') {
+			return false
+		}
 	}
-	if p.s[start] == '-' || p.s[start] >= '0' && p.s[start] <= '9' {
-		return fmt.Errorf("type argument: invalid name %q", p.s[start:min(p.i+1, len(p.s))])
+	return true
+}
+
+// validatePathTail validates the slash-separated path elements of a
+// package-path tail (everything after the module host and before the type
+// name). Elements are non-empty; their dot-separated segments start with a
+// letter or underscore and continue with identifier characters or hyphens.
+func validatePathTail(tail string) error {
+	for _, elem := range strings.Split(tail, "/") {
+		if elem == "" {
+			return fmt.Errorf("type argument: empty path element in %q", tail)
+		}
+		for _, seg := range strings.Split(elem, ".") {
+			if seg == "" || !isIdentStart(seg[0]) {
+				return fmt.Errorf("type argument: invalid path segment %q", seg)
+			}
+			for i := 1; i < len(seg); i++ {
+				if !isIdentCont(seg[i]) {
+					return fmt.Errorf("type argument: invalid path segment %q", seg)
+				}
+			}
+		}
 	}
 	return nil
+}
+
+// hostPart parses the leading module host: plain identifier segments joined
+// by dots ("example.com", "gopkg.in"). Hyphens are not allowed here — they
+// are only valid inside slash-separated path elements — so a malformed bare
+// name like "foo-bar" is rejected.
+func (p *typeArgParser) hostPart() error {
+	if _, err := p.goIdent(); err != nil {
+		return err
+	}
+	for p.i < len(p.s) && p.s[p.i] == '.' {
+		p.i++
+		if _, err := p.goIdent(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// goIdent parses a plain Go identifier: a letter or underscore followed by
+// letters, digits or underscores. No hyphens and no leading digit.
+func (p *typeArgParser) goIdent() (string, error) {
+	p.space()
+	start := p.i
+	if p.i < len(p.s) && isIdentStart(p.s[p.i]) {
+		p.i++
+		for p.i < len(p.s) && (isIdentStart(p.s[p.i]) || p.s[p.i] >= '0' && p.s[p.i] <= '9') {
+			p.i++
+		}
+	}
+	if p.i == start {
+		return "", fmt.Errorf("type argument: missing identifier at %q", p.s[p.i:])
+	}
+	if p.s[start] >= '0' && p.s[start] <= '9' {
+		return "", fmt.Errorf("type argument: invalid identifier %q", p.s[start:p.i])
+	}
+	return p.s[start:p.i], nil
 }
 
 // expr parses a constant-expression array length: atoms joined by +, -, *,
-// / and %, where an atom is a number, a dotted identifier (no slashes — a
-// slash in an array length is the division operator) or a parenthesized
-// expression.
+// /, %, <<, >>, &, | and ^, where an atom is a number, a dotted identifier
+// (no slashes — a slash in an array length is the division operator) or a
+// parenthesized expression.
 func (p *typeArgParser) expr() error {
 	if err := p.atom(); err != nil {
 		return err
 	}
 	for {
 		p.space()
-		if p.i >= len(p.s) || p.s[p.i] != '+' && p.s[p.i] != '-' && p.s[p.i] != '*' && p.s[p.i] != '/' && p.s[p.i] != '%' {
+		if p.i >= len(p.s) {
 			return nil
 		}
-		p.i++
+		switch c := p.s[p.i]; {
+		case c == '+' || c == '-' || c == '*' || c == '/' || c == '%' || c == '&' || c == '|' || c == '^':
+			p.i++
+		case c == '<' || c == '>':
+			if !strings.HasPrefix(p.s[p.i:], "<<") && !strings.HasPrefix(p.s[p.i:], ">>") {
+				return fmt.Errorf("type argument: unexpected %q in array length", p.s[p.i:])
+			}
+			p.i += 2
+		default:
+			return nil
+		}
 		if err := p.atom(); err != nil {
 			return err
 		}
@@ -469,14 +734,15 @@ func (p *typeArgParser) atom() error {
 		return nil
 	}
 	if isIdentStart(p.s[p.i]) {
-		// A dotted identifier, but no slash: in an array length a slash is
-		// the division operator, not a path separator.
-		if err := p.unit(); err != nil {
+		// A dotted identifier, but no slash and no hyphen: in an array
+		// length a slash is the division operator and a hyphen is
+		// subtraction.
+		if _, err := p.goIdent(); err != nil {
 			return err
 		}
 		for p.i < len(p.s) && p.s[p.i] == '.' {
 			p.i++
-			if err := p.unit(); err != nil {
+			if _, err := p.goIdent(); err != nil {
 				return err
 			}
 		}
