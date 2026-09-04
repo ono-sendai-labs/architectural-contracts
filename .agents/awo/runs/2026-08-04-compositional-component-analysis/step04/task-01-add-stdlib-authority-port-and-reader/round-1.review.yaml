@@ -1,0 +1,144 @@
+review:
+  task_file: .agents/tasks/2026-08-04-compositional-component-analysis/step04/task-01-add-stdlib-authority-port-and-reader.code-task.md
+  change_id: vpvlvzusowqrqvmzutpuvzqtnwnxxxxw
+  reviewed_at: "2026-09-04T22:42:24Z"
+  verdict: approved
+  schema_version: 2
+  lsp_coverage: unavailable
+
+merge_request:
+  title: "feat(stdlib): add authority port and artifact reader [Compositional Analysis: Step 04/Task 01]"
+  body: |
+    Reviews the complete ordered series: the inherited empty change
+    yxwmlwuzvzswwmlsusssvpuppnyrnuwr, the core stdlibauthority port in
+    mxonzqspulksvvystzpxxutrwlqsmpnl, the artifactio reader and wiring in
+    nzopxkpytqxxnmqmkzvvzsszvozpzrnu, the reader-header documentation change
+    vupmvxwkrpuwxouzkwtsztoyzmsqsqop, the inherited empty change
+    xwkqrsrnnrttszusxolqystuvxowxkzq, and the round-1 remediation in
+    vpvlvzusowqrqvmzutpuvzqtnwnxxxxw. The remediation adds the missing Bazel
+    sources, canonical capability handling, key defensive copying, and
+    fail-closed gap assertions.
+
+summary: |
+  All four prior important findings and all four prior non-pass acceptance
+  criteria are resolved in the round-1 remediation: Bazel now includes the
+  reader and tests, capability sets are validated/canonicalized, Key returns a
+  defensive tag copy, and gap tests inspect returned classifications. The
+  prior black-box test suggestion is also addressed; no tests were removed or
+  weakened, the rework has RED-to-GREEN evidence, and the recorded full `just
+  ci` run is green. One non-blocking style suggestion remains because the
+  updated justfile comment calls the shell-side artifactio component "pure";
+  LSP diagnostics were unavailable.
+
+acceptance_criteria:
+  - text: |
+      1. **Package membership comes only from the map**
+         - Given importable and non-importable package inventory entries
+         - When `IsStdlibPackage` is queried
+         - Then it returns true for both enumerated packages and false for an absent path without applying a path heuristic.
+    status: pass
+    evidence: |
+      `go/internal/artifactio/stdlibmapreader_test.go:29-48` checks true for
+      importable `os` and non-importable `internal/secret`, and false for
+      absent paths. The implementation is the direct package-map lookup at
+      `go/internal/artifactio/stdlibmapreader.go:137-141`.
+  - text: |
+      2. **Symbol and init lookup are total and fail closed**
+         - Given an enumerated importable package with validated symbol and init records
+         - When known keys are queried
+         - Then their exact terminal classifications are returned; querying an absent symbol or init returns an actionable inventory-gap error and never `SAFE`.
+    status: pass
+    evidence: |
+      Known SAFE, CAPABILITIES, and UNANALYZED symbols plus SAFE and
+      CAPABILITIES inits are exercised at
+      `go/internal/artifactio/stdlibmapreader_test.go:50-97`; absent symbols
+      and an absent init check typed inventory-gap errors and invalid (never
+      SAFE) classifications at `:98-133` and `:321-334`. The implementation
+      returns `Classification{}` with `InventoryGapError` at
+      `go/internal/artifactio/stdlibmapreader.go:146-162`. The prior partial
+      criterion is addressed by the new classification assertions in
+      `vpvlvzusowqrqvmzutpuvzqtnwnxxxxw`.
+  - text: |
+      3. **Terminal states cannot be ambiguous**
+         - Given `SAFE`, capability-bearing, and `UNANALYZED` records plus malformed in-memory combinations
+         - When the adapter is constructed
+         - Then each valid record maps to exactly one core state and every empty, overlapping, unknown, or otherwise invalid state is rejected.
+    status: pass
+    evidence: |
+      `Classification.Validate` rejects empty/overlapping states and now also
+      rejects unsorted or duplicate capability slices at
+      `go/internal/stdlibauthority/stdlibauthority.go:67-97`. The adapter
+      canonicalizes cloned capability lists at
+      `go/internal/artifactio/stdlibmapreader.go:107-124`, while its constructor
+      validation rejects invalid enum values, duplicate records, empty lists,
+      and unknown capabilities. These cases are covered at
+      `go/internal/stdlibauthority/stdlibauthority_test.go:14-44` and
+      `go/internal/artifactio/stdlibmapreader_test.go:136-158` and `:212-269`.
+      This explicitly resolves the prior partial AC3 in the round-1 change.
+  - text: |
+      4. **Evidence and SDK identity are stable**
+         - Given capability evidence and a complete persisted SDK key
+         - When they are read through the port
+         - Then frame order and every target-configuration field are preserved, returned collections cannot mutate adapter state, and a required-key mismatch fails closed.
+    status: pass
+    evidence: |
+      Evidence order and capability/evidence defensive copies are tested at
+      `go/internal/artifactio/stdlibmapreader_test.go:177-210`. SDK-key field
+      conversion and sorted build tags are implemented at
+      `go/internal/artifactio/stdlibmapreader.go:82-99`; mismatched fields and
+      matching keys are checked at `:271-318`, and the new key-slice defensive
+      copy test is at `:160-175`. `Key` clones `BuildTags` at `:175-182`,
+      resolving the prior partial AC4.
+  - text: |
+      5. **Architectural boundaries remain clean**
+         - Given the new port and adapter packages
+         - When dependency and self-component checks run
+         - Then the core port has no protobuf/Capslock dependency, the shell adapter owns decoding, and each new package carries the FR10 Component Contract including Ambient Authority.
+    status: pass
+    evidence: |
+      The core package imports only standard library packages plus the pure
+      `symbol` vocabulary at `go/internal/stdlibauthority/stdlibauthority.go:27-34`
+      and carries its FR10/Ambient Authority block at `:8-25`. The adapter's
+      `OpenStdlibMap` delegates decoding to `DecodeMap` at
+      `go/internal/artifactio/stdlibmapreader.go:72-79`, with a compile-time
+      port assertion at `:16-18`. Component dependency declarations are in
+      `go/internal/stdlibauthority/component.textproto:1-7` and
+      `go/internal/artifactio/component.textproto:8-20`; the recorded self-check
+      passed in `work.log:538-602`.
+  - text: |
+      6. **Integration remains green**
+         - Given the additive lookup implementation
+         - When `just ci` runs
+         - Then all generation, lint, unit, Bazel, and self-check gates pass and the existing check path is unchanged.
+    status: pass
+    evidence: |
+      The round-1 change adds `stdlibmapreader.go` to the artifactio library
+      and `stdlibmapreader_test.go` to its test at
+      `go/internal/artifactio/BUILD.bazel:6-13` and `:34-41`. The final
+      `just ci` evidence records native generation/lint/build/tests at
+      `work.log:484-537`, self-checks at `:538-602`, and successful Bazel build,
+      test, and auxiliary checks at `:603-716`. The existing check path has no
+      production consumer changes in this series.
+
+findings:
+  - severity: suggestion
+    category: style
+    file: justfile
+    line: 38
+    title: Self-check comment calls artifactio pure
+    details: |
+      The round-1 edit correctly adds `stdlibauthority` and `artifactio` to
+      the self-check list at `justfile:39-40`, but the preceding description
+      still says the list contains "pure components." `artifactio` is the
+      shell-side component and declares FILES, MODIFY_SYSTEM_STATE,
+      READ_SYSTEM_STATE, REFLECT, RUNTIME, SYSTEM_CALLS, and UNSAFE_POINTER in
+      `go/internal/artifactio/component.textproto:51-57`. The list is complete,
+      but the classification is inaccurate and could mislead future boundary
+      changes.
+    suggested_action: |
+      Change the wording to "components checked here" or separate the pure
+      stdlibauthority entry from the shell-side artifactio entry while retaining
+      the native-only explanation for capslockadapter and cli.
+    source: built-in
+
+ecosystem_reviews: []

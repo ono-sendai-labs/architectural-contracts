@@ -1,0 +1,97 @@
+result:
+  task_file: .agents/tasks/2026-08-04-compositional-component-analysis/step04/task-01-add-stdlib-authority-port-and-reader.code-task.md
+  change_id: vpvlvzusowqr
+  status: completed
+  schema_version: 2
+  produced_at: 2026-09-04T22:55:00Z
+
+acceptance_criteria:
+  - text: |
+      1. **Package membership comes only from the map**
+         - Given importable and non-importable package inventory entries
+         - When `IsStdlibPackage` is queried
+         - Then it returns true for both enumerated packages and false for an absent path without applying a path heuristic.
+    addressed: yes
+    evidence: |
+      go/internal/artifactio/stdlibmapreader_test.go TestStdlibMapReaderMembership:
+      true for importable "os" and non-importable "internal/secret", false for
+      absent paths; IsStdlibPackage is a direct map lookup (stdlibmapreader.go).
+  - text: |
+      2. **Symbol and init lookup are total and fail closed**
+         - Given an enumerated importable package with validated symbol and init records
+         - When known keys are queried
+         - Then their exact terminal classifications are returned; querying an absent symbol or init returns an actionable inventory-gap error and never `SAFE`.
+    addressed: yes
+    evidence: |
+      TestStdlibMapReaderLookups: exact SAFE/CAPABILITIES/UNANALYZED returns;
+      mustSymErr now captures the classification and asserts the gap result is
+      the invalid zero value (never SAFE) alongside ErrInventoryGap with
+      Package/Symbol set; absent-init case asserts the same (round-1 finding F4).
+  - text: |
+      3. **Terminal states cannot be ambiguous**
+         - Given `SAFE`, capability-bearing, and `UNANALYZED` records plus malformed in-memory combinations
+         - When the adapter is constructed
+         - Then each valid record maps to exactly one core state and every empty, overlapping, unknown, or otherwise invalid state is rejected.
+    addressed: yes
+    evidence: |
+      Classification.Validate (stdlibauthority.go) now rejects empty, overlapping,
+      AND unsorted/duplicate capability slices; TestValidateClassification covers
+      all cases; TestStdlibMapReaderCanonicalizesCapabilities proves an unsorted
+      in-memory record is indexed canonically (round-1 finding F2);
+      TestStdlibMapReaderRejectsInvalidInMemoryStates keeps decoder-free
+      rejection of malformed states.
+  - text: |
+      4. **Evidence and SDK identity are stable**
+         - Given capability evidence and a complete persisted SDK key
+         - When they are read through the port
+         - Then frame order and every target-configuration field are preserved, returned collections cannot mutate adapter state, and a required-key mismatch fails closed.
+    addressed: yes
+    evidence: |
+      Evidence order and defensive copies unchanged; reader.Key() now clones
+      BuildTags (stdlibmapreader.go) and TestStdlibMapReaderKeyIsDefensiveCopy
+      proves mutation of a returned key leaves adapter state intact (round-1
+      finding F3); TestStdlibMapReaderKeyMismatch fails closed with
+      mismatched-field diagnostics.
+  - text: |
+      5. **Architectural boundaries remain clean**
+         - Given the new port and adapter packages
+         - When dependency and self-component checks run
+         - Then the core port has no protobuf/Capslock dependency, the shell adapter owns decoding, and each new package carries the FR10 Component Contract including Ambient Authority.
+    addressed: yes
+    evidence: |
+      stdlibauthority imports only stdlib + symbol; DecodeMap in
+      artifactio/stdlibmapreader.go owns decoding; FR10/Ambient Authority blocks
+      on both packages; arcc check and Bazel .check targets pass for both
+      components; manifestparity ownership/pure-package guards green.
+  - text: |
+      6. **Integration remains green**
+         - Given the additive lookup implementation
+         - When `just ci` runs
+         - Then all generation, lint, unit, Bazel, and self-check gates pass and the existing check path is unchanged.
+    addressed: yes
+    evidence: |
+      Round-1 finding F1 fixed: stdlibmapreader.go/stdlibmapreader_test.go added
+      to the artifactio BUILD srcs, so Bazel builds and exercises the adapter;
+      full `just ci` recorded green in work.log ("Review round 1: full just ci");
+      check path unchanged.
+
+artifacts:
+  scratchpad_dir: .agents/scratchpad/2026-08-04-compositional-component-analysis/step04/task-01-add-stdlib-authority-port-and-reader/
+  files:
+    - context.md
+    - plan.md
+    - progress.md
+    - work.log
+    - review.yaml
+    - result.yaml
+
+notes: |
+  Rework round 1 addressed all four important review findings and both
+  suggestions as a fresh child change (vpvlvzusowqr) on top of the round-0
+  series: Bazel src coverage for the new reader files, strictly
+  sorted/duplicate-free capability canonicalization (core Validate plus
+  reader-side canonical clone), defensive-copy of the key's build tags, and
+  gap tests asserting the never-SAFE zero classification. The core test
+  package was flipped to black-box and the justfile self-check comment
+  updated. RED→GREEN evidence and the full green `just ci` run are logged in
+  work.log; no prior change was amended or rewritten.

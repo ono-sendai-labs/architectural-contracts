@@ -1,0 +1,73 @@
+result:
+  task_file: .agents/tasks/2026-08-04-compositional-component-analysis/step04/task-01-add-stdlib-authority-port-and-reader.code-task.md
+  change_id: vupmvxwkrpuw
+  status: completed
+  schema_version: 2
+  produced_at: 2026-09-04T15:24:00Z
+
+acceptance_criteria:
+  - text: "**Package membership comes only from the map** ... returns true for both enumerated packages and false for an absent path without applying a path heuristic"
+    addressed: yes
+    evidence: |
+      go/internal/artifactio/stdlibmapreader_test.go TestStdlibMapReaderMembership:
+      IsStdlibPackage true for importable "os" and non-importable
+      "internal/secret", false for absent paths; implementation
+      stdlibmapreader.go IsStdlibPackage is pure map-membership lookup.
+  - text: "**Symbol and init lookup are total and fail closed** ... exact terminal classifications are returned; querying an absent symbol or init returns an actionable inventory-gap error and never SAFE"
+    addressed: yes
+    evidence: |
+      TestStdlibMapReaderLookups: SAFE/CAPABILITIES{FILES,READ_SYSTEM_STATE}/
+      UNANALYZED returned exactly; absent symbol (os.Nope, non-importable,
+      unlisted) and absent init yield errors.Is(err, ErrInventoryGap) with
+      InventoryGapError.Package/Symbol set.
+  - text: "**Terminal states cannot be ambiguous** ... every empty, overlapping, unknown, or otherwise invalid state is rejected"
+    addressed: yes
+    evidence: |
+      stdlibauthority_test.go TestValidateClassification (empty, SAFE+caps,
+      UNANALYZED+caps, all three, zero value) and
+      TestStdlibMapReaderRejectsInvalidInMemoryStates (SAFE-with-caps,
+      UNSPECIFIED, duplicate/contradictory records, nil key, format version)
+      rejected via NewStdlibMapReader without the decoder.
+  - text: "**Evidence and SDK identity are stable** ... frame order and every target-configuration field are preserved, returned collections cannot mutate adapter state, and a required-key mismatch fails closed"
+    addressed: yes
+    evidence: |
+      TestStdlibMapReaderEvidenceOrderAndCopies (ordered [h f g] frames,
+      mutation of returned capability/frames slices leaves adapter state
+      intact); TestStdlibMapReaderKeyMismatch (goarch, cgo_enabled, combined
+      fields; matching key succeeds; OpenStdlibMap round trip). EqualKeys is
+      field-exhaustive (TestSDKKeyEqualKeysAndString).
+  - text: "**Architectural boundaries remain clean** ... the core port has no protobuf/Capslock dependency, the shell adapter owns decoding, and each new package carries the FR10 Component Contract including Ambient Authority"
+    addressed: yes
+    evidence: |
+      Inspection in work.log: stdlibauthority imports only symbol (grep finds
+      no protobuf/capslock/gen); decoding via DecodeMap is in
+      artifactio/stdlibmapreader.go:72; FR10 blocks with Ambient Authority on
+      stdlibauthority package doc and artifactio package contract (reader file
+      header notes the shell-side role). Enforced by
+      manifestparity/ownership_test.go pure-package and declared-dependency
+      guards and by `arcc check` of both components (Bazel .check targets).
+  - text: "**Integration remains green** ... all generation, lint, unit, Bazel, and self-check gates pass and the existing check path is unchanged"
+    addressed: yes
+    evidence: |
+      Full `just ci` passed after both implementation commits (work.log
+      "Validation: full just ci"); no check-path file was modified.
+
+artifacts:
+  scratchpad_dir: .agents/scratchpad/2026-08-04-compositional-component-analysis/step04/task-01-add-stdlib-authority-port-and-reader/
+  files:
+    - context.md
+    - plan.md
+    - progress.md
+    - work.log
+    - result.yaml
+
+notes: |
+  Implemented the StdlibAuthority port in a new pure core package
+  (go/internal/stdlibauthority: Classification, Capability, Frame, SDKKey,
+  EqualKeys, inventory-gap and key-mismatch errors) and the artifact-backed
+  reader in artifactio (stdlibmapreader.go) with compile-time port
+  assertion, immutable indexes, defensive copies, and fail-closed key
+  checking. Two task changes were committed incrementally (core port
+  ef13f37a/mxonzqsp; reader + wiring a66114a2/nzopxkpy, plus a docs header
+  vupmvxwk); result.change_id is the @- tip vupmvxwkrpuw. Full `just ci`
+  green, including the new Bazel component check and parity/self-check legs.
