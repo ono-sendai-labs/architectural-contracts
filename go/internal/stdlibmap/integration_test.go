@@ -1,3 +1,5 @@
+//go:build integration
+
 package stdlibmap_test
 
 import (
@@ -255,7 +257,7 @@ func TestRealSDKInventory(t *testing.T) {
 		}
 		pkg := string(id[:strings.LastIndexByte(id.String(), '.')])
 		symbolsByPkg[pkg]++
-		if strings.HasPrefix(pkg, "internal/") {
+		if stdlibmap.IsInternalPath(pkg) {
 			t.Fatalf("internal package %q contributed symbol %q", pkg, id)
 		}
 	}
@@ -264,7 +266,7 @@ func TestRealSDKInventory(t *testing.T) {
 			t.Fatalf("inventoried init ID %q does not parse canonically: %v", id, err)
 		}
 		pkg := strings.TrimSuffix(id.String(), ".init")
-		if strings.HasPrefix(pkg, "internal/") {
+		if stdlibmap.IsInternalPath(pkg) {
 			t.Fatalf("internal package %q contributed an init record", pkg)
 		}
 	}

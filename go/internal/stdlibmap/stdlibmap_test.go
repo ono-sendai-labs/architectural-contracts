@@ -57,6 +57,21 @@ func TestIsInternalPath(t *testing.T) {
 	}
 }
 
+func TestParseGoListOutputWhitespacePortable(t *testing.T) {
+	got, err := parseGoListOutput("os\r\nstrings\tfmt\n\nos\r\n")
+	if err != nil {
+		t.Fatalf("parseGoListOutput: %v", err)
+	}
+	want := []PackageEntry{
+		{Path: "fmt", Importable: true},
+		{Path: "os", Importable: true},
+		{Path: "strings", Importable: true},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("parseGoListOutput = %+v, want %+v (CRLF and tab separators must not corrupt paths)", got, want)
+	}
+}
+
 func TestExplicitPackageList(t *testing.T) {
 	oracle := ExplicitPackageList([]string{"b", "internal/x", "a", "b"})
 	raw, err := oracle.Packages()

@@ -195,7 +195,15 @@ func NativeStdPackageList(ctx context.Context, env []string) ([]PackageEntry, er
 	if err != nil {
 		return nil, fmt.Errorf("discovering the standard library with `go list std`: %w: %s", err, strings.TrimSpace(stderr.String()))
 	}
-	return NormalizePackageList(strings.FieldsFunc(string(out), func(r rune) bool { return r == '\n' || r == ' ' }))
+	return parseGoListOutput(string(out))
+}
+
+// parseGoListOutput normalizes `go list` output into the total package list.
+// strings.Fields splits on every whitespace run — newlines, carriage returns
+// and tabs included — so CRLF or tab-separated tool output never leaves a
+// stray separator attached to a package path.
+func parseGoListOutput(out string) ([]PackageEntry, error) {
+	return NormalizePackageList(strings.Fields(out))
 }
 
 // NativeToolchainVersion reports the exact toolchain version of the Go

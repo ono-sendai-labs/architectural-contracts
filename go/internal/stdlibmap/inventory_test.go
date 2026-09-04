@@ -158,29 +158,30 @@ func TestBuildInventoryForeignAliasMethods(t *testing.T) {
 		"example.com/inventory":  foreignAliasSrc,
 		"example.com/foreignpkg": foreignSrc,
 	})
+	// Only the alias package is inventoried: the foreign source stays
+	// available to the fixture importer, so a walk that claimed the foreign
+	// type's members would surface them here (round-2 isolation fix).
 	inv, err := BuildInventory([]PackageEntry{
 		{Path: "example.com/inventory", Importable: true},
-		{Path: "example.com/foreignpkg", Importable: true},
 	}, loader)
 	if err != nil {
 		t.Fatalf("BuildInventory: %v", err)
 	}
-	// The alias package's contribution is its own alias key only: a
-	// cross-package target is not claimed (DR-04).
 	for _, id := range inv.Symbols {
-		switch id.String() {
-		case "example.com/inventory.A", "example.com/foreignpkg.B", "(example.com/foreignpkg.B).M":
-			continue
-		default:
-			t.Fatalf("unexpected inventory symbol %q", id)
+		if id.String() != "example.com/inventory.A" {
+			t.Fatalf("alias package contributed %q; want only the alias key", id)
 		}
 	}
 	if !containsID(inv.Symbols, "example.com/inventory.A") {
 		t.Fatalf("alias key missing from inventory")
 	}
-	// Both importable packages keep their own aggregate init.
-	if len(inv.Inits) != 2 {
-		t.Fatalf("inits = %v, want one per importable package", inv.Inits)
+	// The foreign method must not be attributed to the alias package.
+	if containsID(inv.Symbols, "(example.com/foreignpkg.B).M") {
+		t.Fatalf("foreign method (example.com/foreignpkg.B).M leaked into the alias package's inventory")
+	}
+	// The single importable package keeps exactly one aggregate init.
+	if len(inv.Inits) != 1 || inv.Inits[0].String() != "example.com/inventory.init" {
+		t.Fatalf("inits = %v, want one for the alias package", inv.Inits)
 	}
 }
 
