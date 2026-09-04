@@ -22,9 +22,12 @@
 //     Every inventoried identifier must be grammar-valid under the canonical
 //     SymbolID constructors.
 //   - What it provides: PackageEntry, PackageOracle, NormalizePackageList,
-//     ExplicitPackageList, NativeStdPackageList, IsInternalPath, Loader,
-//     BuildInventory with its total Inventory (Packages/Symbols/Inits, sorted
-//     and duplicate-free), TargetConfig, GenerationDescriptor, ClassifierRule,
+//     ExplicitPackageList, NativeStdPackageList (target-environment aware),
+//     IsInternalPath, Loader, BuildInventory with its total Inventory
+//     (Packages/Symbols/Inits, sorted and duplicate-free; the Inventory is
+//     also the inventory-backed Capslock normalization context —
+//     symbol.CapslockInventory — for the generator's reconciliation),
+//     TargetConfig, GenerationDescriptor, ClassifierRule,
 //     CanonicalClassifierText, ClassifierHash, DeriveSDKKey,
 //     NativeToolchainVersion, TargetEnv and NativeLoader.
 //   - Ambient Authority: This is a shell generation component. It holds FILES
@@ -44,6 +47,8 @@ import (
 	"os/exec"
 	"sort"
 	"strings"
+
+	"github.com/ono-sendai-labs/architectural-contracts/go/internal/hostpolicy"
 )
 
 // PackageEntry is one package of the SDK enumeration oracle's total list
@@ -122,14 +127,28 @@ func NormalizePackageList(paths []string) ([]PackageEntry, error) {
 		entries = append(entries, PackageEntry{Path: p, Importable: !IsInternalPath(p)})
 	}
 	sort.Slice(entries, func(i, j int) bool { return entries[i].Path < entries[j].Path })
+	if err := hostpolicy.ValidateStdlibPaths(pathsOf(entries)); err != nil {
+		return nil, fmt.Errorf("normalizing the package list: %w", err)
+	}
 	return entries, nil
 }
 
+func pathsOf(entries []PackageEntry) []string {
+	paths := make([]string, len(entries))
+	for i, e := range entries {
+		paths[i] = e.Path
+	}
+	return paths
+}
+
 // validatePackagePath rejects import paths outside the grammar the persisted
-// package inventory admits: non-empty, slash-separated, no empty, dot, dotdot
-// or whitespace-containing segments, and no leading, trailing or repeated
-// separators. Non-canonical spellings (backslashes) are rejected with the
-// same authority.
+// package inventory admits: non-empty, slash-separated, no empty, dot,
+// dotdot or whitespace-containing segments, only Go import-path characters
+// (letters, digits, '-', '.', '_'), and no leading, trailing or repeated
+// separators. The host-policy canonicalization fixed-point invariant is then
+// enforced with hostpolicy.ValidateCanonicalPath, so a path the canonical
+// SymbolID grammar or a host rewriter would reject fails here, before any
+// inventory work.
 func validatePackagePath(path string) error {
 	if path == "" {
 		return fmt.Errorf("package path %q is not a canonical import path: empty path", path)
@@ -141,20 +160,35 @@ func validatePackagePath(path string) error {
 		return fmt.Errorf("package path %q is not canonical: empty path segment", path)
 	}
 	for _, seg := range strings.Split(path, "/") {
-		switch seg {
-		case ".", "..":
+		switch {
+		case seg == ".", seg == "..", strings.Contains(seg, ".."):
 			return fmt.Errorf("package path %q is not canonical: %q path segment", path, seg)
 		}
+		for i := 0; i < len(seg); i++ {
+			c := seg[i]
+			if c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' ||
+				c == '-' || c == '.' || c == '_' {
+				continue
+			}
+			return fmt.Errorf("package path %q is not canonical: %q segment contains invalid import-path character %q", path, seg, string(rune(c)))
+		}
+	}
+	if err := hostpolicy.ValidateCanonicalPath(path); err != nil {
+		return fmt.Errorf("package path %q: %w", path, err)
 	}
 	return nil
 }
 
-// NativeStdPackageList discovers the standard library of the Go toolchain on
-// PATH by running `go list std` (task req 2, native mode). Output is
+// NativeStdPackageList discovers the standard library of the Go toolchain by
+// running `go list std` (task req 2, native mode). env is the COMPLETE
+// environment the toolchain runs in — NativeLoader.Environment() carries the
+// target overrides, so a cross-compilation enumerates the target's package
+// list, not the host's; nil inherits the host environment. Output is
 // whitespace-split per line, so any unsorted or repeated `go list` output is
 // normalized by NormalizePackageList downstream.
-func NativeStdPackageList(ctx context.Context) ([]PackageEntry, error) {
+func NativeStdPackageList(ctx context.Context, env []string) ([]PackageEntry, error) {
 	cmd := exec.CommandContext(ctx, "go", "list", "std")
+	cmd.Env = env
 	var stderr strings.Builder
 	cmd.Stderr = &stderr
 	out, err := cmd.Output()

@@ -3,7 +3,6 @@ package stdlibmap
 import (
 	"fmt"
 	"go/ast"
-	"go/importer"
 	"go/parser"
 	"go/token"
 	"go/types"
@@ -79,37 +78,259 @@ type H = hidden
 // toolchain invocation.
 func fixtureLoader(t *testing.T, pkgPath, src string) Loader {
 	t.Helper()
+	return typeCheckLoader(t, map[string]string{pkgPath: src})
+}
+
+// typeCheckLoader is the hermetic multi-package Loader seam: it type-checks
+// every fixture package in memory, resolving imports among the fixtures.
+func typeCheckLoader(t *testing.T, sources map[string]string) Loader {
+	t.Helper()
+	cache := map[string]*types.Package{}
+	var check func(path string) (*types.Package, error)
+	check = func(path string) (*types.Package, error) {
+		if p, ok := cache[path]; ok {
+			return p, nil
+		}
+		src, ok := sources[path]
+		if !ok {
+			return nil, fmt.Errorf("fixture loader: no fixture source for %q", path)
+		}
+		fset := token.NewFileSet()
+		file, err := parser.ParseFile(fset, "fixture.go", src, 0)
+		if err != nil {
+			return nil, fmt.Errorf("fixture loader: %w", err)
+		}
+		conf := types.Config{Importer: importerFunc(check)}
+		var errs []error
+		conf.Error = func(err error) { errs = append(errs, err) }
+		pkg, checkErr := conf.Check(path, fset, []*ast.File{file}, nil)
+		if checkErr != nil {
+			errs = append(errs, checkErr)
+		}
+		pkg.MarkComplete()
+		cache[path] = pkg
+		if len(errs) > 0 {
+			return nil, fmt.Errorf("fixture loader: type errors in %q: %v", path, errs)
+		}
+		return pkg, nil
+	}
 	return LoaderFunc(func(paths []string) (map[string]*types.Package, error) {
 		out := make(map[string]*types.Package, len(paths))
 		for _, p := range paths {
-			if p != pkgPath {
-				return nil, fmt.Errorf("fixture loader: unexpected package %q", p)
-			}
-			fset := token.NewFileSet()
-			file, err := parser.ParseFile(fset, "fixture.go", src, 0)
+			pkg, err := check(p)
 			if err != nil {
-				return nil, fmt.Errorf("fixture loader: %w", err)
+				return nil, err
 			}
-			pkg := types.NewPackage(pkgPath, file.Name.Name)
-			conf := types.Config{
-				Importer: importer.Default(),
-			}
-			var errs []error
-			conf.Error = func(err error) { errs = append(errs, err) }
-			files := []*ast.File{file}
-			pkg, checkErr := conf.Check(pkgPath, fset, files, nil)
-			if checkErr != nil {
-				errs = append(errs, checkErr)
-			}
-			pkg.MarkComplete()
 			out[p] = pkg
-			if len(errs) > 0 {
-				return nil, fmt.Errorf("fixture loader: type errors in %q: %v", p, errs)
-			}
 		}
 		return out, nil
 	})
 }
+
+type importerFunc func(path string) (*types.Package, error)
+
+// Import implements types.Importer.
+func (f importerFunc) Import(path string) (*types.Package, error) {
+	if p, err := f(path); err != nil || p != nil {
+		return p, err
+	}
+	return nil, fmt.Errorf("fixture loader: cannot import %q", path)
+}
+
+// --- round-1 finding: cross-package aliases must not contribute foreign methods
+
+const foreignAliasSrc = `package inventory
+
+import "example.com/foreignpkg"
+
+type A = foreignpkg.B
+`
+
+const foreignSrc = `package foreignpkg
+
+type B struct{}
+
+func (B) M() string { return "m" }
+`
+
+func TestBuildInventoryForeignAliasMethods(t *testing.T) {
+	loader := typeCheckLoader(t, map[string]string{
+		"example.com/inventory":  foreignAliasSrc,
+		"example.com/foreignpkg": foreignSrc,
+	})
+	inv, err := BuildInventory([]PackageEntry{
+		{Path: "example.com/inventory", Importable: true},
+		{Path: "example.com/foreignpkg", Importable: true},
+	}, loader)
+	if err != nil {
+		t.Fatalf("BuildInventory: %v", err)
+	}
+	// The alias package's contribution is its own alias key only: a
+	// cross-package target is not claimed (DR-04).
+	for _, id := range inv.Symbols {
+		switch id.String() {
+		case "example.com/inventory.A", "example.com/foreignpkg.B", "(example.com/foreignpkg.B).M":
+			continue
+		default:
+			t.Fatalf("unexpected inventory symbol %q", id)
+		}
+	}
+	if !containsID(inv.Symbols, "example.com/inventory.A") {
+		t.Fatalf("alias key missing from inventory")
+	}
+	// Both importable packages keep their own aggregate init.
+	if len(inv.Inits) != 2 {
+		t.Fatalf("inits = %v, want one per importable package", inv.Inits)
+	}
+}
+
+func containsID(ids []symbol.SymbolID, want string) bool {
+	for _, id := range ids {
+		if id.String() == want {
+			return true
+		}
+	}
+	return false
+}
+
+// --- round-1 finding: BuildInventory must normalize raw package entries itself
+
+func TestBuildInventoryRejectsRawEntries(t *testing.T) {
+	dummy := LoaderFunc(func(paths []string) (map[string]*types.Package, error) {
+		return nil, fmt.Errorf("fixture loader: unexpected load %v", paths)
+	})
+	for name, entries := range map[string][]PackageEntry{
+		"duplicate path":               {{Path: "a/b", Importable: true}, {Path: "a/b", Importable: true}},
+		"malformed path":               {{Path: "a/b ", Importable: true}},
+		"empty path":                   {{Path: "", Importable: true}},
+		"internal marked importable":   {{Path: "a/internal/x", Importable: true}},
+		"public marked non-importable": {{Path: "a/b", Importable: false}},
+	} {
+		inv, err := BuildInventory(entries, dummy)
+		if err == nil {
+			t.Fatalf("BuildInventory(%s): want error, got nil inventory %v", name, inv)
+		}
+		if inv != nil {
+			t.Fatalf("BuildInventory(%s): returned a partial inventory", name)
+		}
+	}
+}
+
+func TestBuildInventoryNormalizesRawEntries(t *testing.T) {
+	loader := fixtureLoader(t, fixturePkgPath, fixtureSrc)
+	inv, err := BuildInventory([]PackageEntry{
+		{Path: fixturePkgPath, Importable: true},
+		{Path: "example.com/internal/secret", Importable: false},
+	}, loader)
+	if err != nil {
+		t.Fatalf("BuildInventory: %v", err)
+	}
+	want := []PackageEntry{
+		{Path: "example.com/internal/secret", Importable: false},
+		{Path: fixturePkgPath, Importable: true},
+	}
+	if !reflect.DeepEqual(inv.Packages, want) {
+		t.Fatalf("packages = %+v, want sorted %+v", inv.Packages, want)
+	}
+}
+
+// --- round-1 finding: the inventory exposes Capslock normalization context ---
+
+const capslockFixtureSrc = `package osx
+
+type File struct {
+	Fd int
+}
+
+func (f *File) Read(b []byte) (int, error) { return 0, nil }
+
+func (f File) Close() error { return nil }
+
+func (f File) secret() {}
+
+type I interface {
+	M()
+}
+
+func Open() (*File, error) { return nil, nil }
+
+var Default *File
+`
+
+func TestInventoryImplementsCapslockInventory(t *testing.T) {
+	inv, err := BuildInventory(
+		[]PackageEntry{{Path: "example.com/osx", Importable: true}},
+		typeCheckLoader(t, map[string]string{"example.com/osx": capslockFixtureSrc}))
+	if err != nil {
+		t.Fatalf("BuildInventory: %v", err)
+	}
+	var _ symbol.CapslockInventory = inv
+
+	cases := []struct {
+		name     string
+		capslock symbol.CapslockFunction
+		want     string
+		wantErr  string
+	}{
+		{
+			name:     "pointer method",
+			capslock: symbol.CapslockFunction{Name: "(*osx.File).Read", Package: "example.com/osx"},
+			want:     "(example.com/osx.File).Read",
+		},
+		{
+			name:     "top-level func",
+			capslock: symbol.CapslockFunction{Name: "example.com/osx.Open", Package: "example.com/osx"},
+			want:     "example.com/osx.Open",
+		},
+		{
+			name:     "interface method spec",
+			capslock: symbol.CapslockFunction{Name: "(example.com/osx.I).M", Package: "example.com/osx"},
+			want:     "example.com/osx.I",
+		},
+		{
+			name:     "unresolved method",
+			capslock: symbol.CapslockFunction{Name: "(*example.com/osx.File).Write", Package: "example.com/osx"},
+			wantErr:  "does not confirm a declaration",
+		},
+		{
+			name:     "interface method on a struct",
+			capslock: symbol.CapslockFunction{Name: "(*example.com/osx.File).M", Package: "example.com/osx"},
+			wantErr:  "does not confirm a declaration",
+		},
+		{
+			name:     "unknown symbol",
+			capslock: symbol.CapslockFunction{Name: "example.com/osx.Missing", Package: "example.com/osx"},
+			wantErr:  "does not confirm a declaration",
+		},
+		{
+			name:     "unknown package",
+			capslock: symbol.CapslockFunction{Name: "example.com/otherpkg.Y", Package: "example.com/otherpkg"},
+			wantErr:  "does not confirm a declaration",
+		},
+		{
+			name:     "unexported helper is not a declaration",
+			capslock: symbol.CapslockFunction{Name: "(*example.com/osx.File).secret", Package: "example.com/osx"},
+			wantErr:  "does not confirm a declaration",
+		},
+	}
+	for _, tc := range cases {
+		id, err := symbol.ParseCapslockFunction(tc.capslock, inv)
+		if tc.wantErr != "" {
+			if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
+				t.Fatalf("%s: ParseCapslockFunction(%v) = (%q, %v); want error %q", tc.name, tc.capslock.Name, id, err, tc.wantErr)
+			}
+			continue
+		}
+		if err != nil {
+			t.Fatalf("%s: ParseCapslockFunction(%v): %v", tc.name, tc.capslock.Name, err)
+		}
+		if id.String() != tc.want {
+			t.Fatalf("%s: normalized ID = %q, want %q", tc.name, id, tc.want)
+		}
+	}
+}
+
+// --- hermetic fixture loader (original single-package tests) ------------------
 
 func mustIDs(t *testing.T, raw []symbol.SymbolID) []string {
 	t.Helper()

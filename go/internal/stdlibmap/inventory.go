@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"go/types"
 	"sort"
+	"strings"
 
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/symbol"
 )
@@ -42,6 +43,90 @@ type Inventory struct {
 	// Inits holds exactly one aggregate pkg.init per importable package,
 	// sorted.
 	Inits []symbol.SymbolID
+
+	// loaded retains the typed package per importable path, and topNames the
+	// inventoried top-level declaration names per path, so the inventory can
+	// serve as the Capslock normalization context (symbol.CapslockInventory)
+	// without reloading the SDK.
+	loaded   map[string]*types.Package
+	topNames map[string]map[string]bool
+}
+
+// KnownPackage implements symbol.CapslockInventory: an import path is known
+// exactly when it is an importable package of the inventory (non-importable
+// packages have no symbols, so their names must not normalize).
+func (inv *Inventory) KnownPackage(importPath string) bool {
+	if inv == nil {
+		return false
+	}
+	return inv.loaded[importPath] != nil
+}
+
+// Declares implements symbol.CapslockInventory: the package must declare the
+// name as an inventoried top-level declaration (exported objects, same-
+// package alias targets, and unsafe builtins; never unexported helpers,
+// which Capslock reports but the map drops).
+func (inv *Inventory) Declares(pkg, name string) bool {
+	if inv == nil {
+		return false
+	}
+	return inv.topNames[pkg][name]
+}
+
+// MethodOwner implements symbol.CapslockInventory: it resolves a method
+// spelled against the receiver type pkg.TypeName to the canonical
+// declaring-object SymbolID text — "(pkg.T).Method" for a concrete method
+// (aliases resolve to the declaring target type) and "pkg.Interface" for an
+// interface method spec. ok=false unless the resolved declaring object is
+// itself inventoried.
+func (inv *Inventory) MethodOwner(pkg, typeName, method string) (string, bool) {
+	if inv == nil || !inv.Declares(pkg, typeName) {
+		return "", false
+	}
+	p := inv.loaded[pkg]
+	obj := p.Scope().Lookup(typeName)
+	tn, ok := obj.(*types.TypeName)
+	if !ok {
+		return "", false
+	}
+	named, ok := types.Unalias(tn.Type()).(*types.Named)
+	if !ok {
+		return "", false
+	}
+	if iface, ok := named.Underlying().(*types.Interface); ok {
+		for i := 0; i < iface.NumExplicitMethods(); i++ {
+			if iface.ExplicitMethod(i).Name() == method {
+				owner, err := symbol.Parse(pkg + "." + typeName)
+				if err != nil || !inv.hasSymbol(owner) {
+					return "", false
+				}
+				return owner.String(), true
+			}
+		}
+		return "", false
+	}
+	for i := 0; i < named.NumMethods(); i++ {
+		m := named.Method(i)
+		if m.Name() != method {
+			continue
+		}
+		id, err := symbol.FromObject(m)
+		if err != nil || !inv.hasSymbol(id) {
+			return "", false
+		}
+		return id.String(), true
+	}
+	return "", false
+}
+
+// hasSymbol reports whether id is in the inventoried symbol set.
+func (inv *Inventory) hasSymbol(id symbol.SymbolID) bool {
+	for _, s := range inv.Symbols {
+		if s == id {
+			return true
+		}
+	}
+	return false
 }
 
 // observed pairs one inventoried ID with the object identity that produced
@@ -54,16 +139,46 @@ type observed struct {
 	obj types.Object
 }
 
-// BuildInventory inventories packages through loader (task reqs 3–6): every
-// importable package is loaded and its exported surface walked; every
-// non-importable (internal) package is retained in the package list but
-// contributes no symbols or init. Any load error, type error, malformed
-// object conversion, or canonical-ID collision fails the whole generation
-// with an actionable error and a nil Inventory — a partial inventory is never
-// returned.
+// normalizeEntries is the single validation boundary in front of the
+// inventory (task reqs 2–3): every path is grammar- and policy-validated,
+// importable flags must agree with the path's internal status, and duplicate
+// paths are rejected, so an unnormalized or inconsistent oracle result can
+// never reach loading or duplicate init records.
+func normalizeEntries(entries []PackageEntry) ([]PackageEntry, error) {
+	seen := make(map[string]bool, len(entries))
+	out := make([]PackageEntry, 0, len(entries))
+	for _, e := range entries {
+		if err := validatePackagePath(e.Path); err != nil {
+			return nil, fmt.Errorf("normalizing the package inventory: %w", err)
+		}
+		importable := !IsInternalPath(e.Path)
+		if e.Importable != importable {
+			return nil, fmt.Errorf("normalizing the package inventory: package %q declares importable %t, but its path segments make it %t", e.Path, e.Importable, importable)
+		}
+		if seen[e.Path] {
+			return nil, fmt.Errorf("normalizing the package inventory: duplicate package path %q", e.Path)
+		}
+		seen[e.Path] = true
+		out = append(out, PackageEntry{Path: e.Path, Importable: importable})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Path < out[j].Path })
+	return out, nil
+}
+
+// BuildInventory inventories packages through loader (task reqs 3–6): the
+// package list is normalized and validated first, every importable package
+// is loaded and its exported surface walked, and every non-importable
+// (internal) package is retained in the package list but contributes no
+// symbols or init. Any load error, type error, malformed object conversion,
+// or canonical-ID collision fails the whole generation with an actionable
+// error and a nil Inventory — a partial inventory is never returned.
 func BuildInventory(packages []PackageEntry, loader Loader) (*Inventory, error) {
 	if loader == nil {
 		return nil, fmt.Errorf("building the stdlib inventory: the package loader is required")
+	}
+	packages, err := normalizeEntries(packages)
+	if err != nil {
+		return nil, err
 	}
 	var importable []string
 	for _, p := range packages {
@@ -104,10 +219,24 @@ func BuildInventory(packages []PackageEntry, loader Loader) (*Inventory, error) 
 	}
 	sortIDs(symbols)
 	sortIDs(inits)
+	topNames := make(map[string]map[string]bool, len(importable))
+	for path := range loaded {
+		topNames[path] = map[string]bool{}
+	}
+	for _, id := range symbols {
+		text := id.String()
+		if strings.HasPrefix(text, "(") {
+			continue
+		}
+		dot := strings.LastIndexByte(text, '.')
+		topNames[text[:dot]][text[dot+1:]] = true
+	}
 	return &Inventory{
-		Packages: sortedEntries(packages),
+		Packages: packages,
 		Symbols:  symbols,
 		Inits:    inits,
+		loaded:   loaded,
+		topNames: topNames,
 	}, nil
 }
 
@@ -147,7 +276,7 @@ func packageSymbols(pkg *types.Package) ([]observed, error) {
 		}
 		obs = append(obs, observed{id: id, obj: obj})
 		if tn, ok := obj.(*types.TypeName); ok {
-			named := methodScanTarget(tn)
+			named := methodScanTarget(pkg, tn)
 			if named != nil {
 				methodTargets = append(methodTargets, named)
 			}
@@ -185,12 +314,17 @@ func packageSymbols(pkg *types.Package) ([]observed, error) {
 // methodScanTarget returns the named type whose methods an exported type
 // declaration contributes to the inventory: the named type itself, with
 // aliases resolved (task req 4 — methods of exported named or alias types).
-// Instantiations never appear here because the package scope only holds
-// declarations.
-func methodScanTarget(tn *types.TypeName) *types.Named {
+// Only same-package targets qualify: an exported alias of a foreign type is
+// inventoried as the alias key alone, never contributing the foreign type's
+// methods to this package's inventory (DR-04). Instantiations never appear
+// here because the package scope only holds declarations.
+func methodScanTarget(pkg *types.Package, tn *types.TypeName) *types.Named {
 	t := types.Unalias(tn.Type())
 	named, ok := t.(*types.Named)
 	if !ok {
+		return nil
+	}
+	if obj := named.Obj(); obj.Pkg() == nil || obj.Pkg().Path() != pkg.Path() {
 		return nil
 	}
 	return named
@@ -250,10 +384,4 @@ func mergeObserved(all []observed) ([]symbol.SymbolID, error) {
 
 func sortIDs(ids []symbol.SymbolID) {
 	sort.Slice(ids, func(i, j int) bool { return symbol.Compare(ids[i], ids[j]) < 0 })
-}
-
-func sortedEntries(entries []PackageEntry) []PackageEntry {
-	out := append([]PackageEntry(nil), entries...)
-	sort.Slice(out, func(i, j int) bool { return out[i].Path < out[j].Path })
-	return out
 }

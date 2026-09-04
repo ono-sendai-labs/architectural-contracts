@@ -37,7 +37,7 @@ func TestNormalizePackageList(t *testing.T) {
 }
 
 func TestNormalizePackageListMalformed(t *testing.T) {
-	for _, p := range []string{"", " os", "os/", "/os", "a//b", "a/../b", "./a", "a\\b"} {
+	for _, p := range []string{"", " os", "os/", "/os", "a//b", "a/../b", "./a", "a\\b", "a:b", "example..com/pkg", "a~b"} {
 		if _, err := NormalizePackageList([]string{p}); err == nil {
 			t.Fatalf("NormalizePackageList(%q): want error, got nil", p)
 		} else if !strings.Contains(err.Error(), "package path") && !strings.Contains(err.Error(), "import path") {
