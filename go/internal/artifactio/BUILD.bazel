@@ -21,6 +21,7 @@ go_library(
         "//go/internal/schema",
         "//go/internal/schema/gen",
         "//go/internal/symbol",
+        "//go/internal/stdlibauthority",
         "@org_golang_google_protobuf//encoding/protojson",
         "@org_golang_google_protobuf//proto",
     ],
@@ -40,6 +41,7 @@ go_test(
     deps = [
         "//go/internal/schema/gen",
         "//go/internal/symbol",
+        "//go/internal/stdlibauthority",
         "@org_golang_google_protobuf//encoding/protojson",
         "@org_golang_google_protobuf//proto",
     ],
@@ -55,6 +57,7 @@ go_component(
     component_deps = [
         "//go/internal/schema:schema_component",
         "//go/internal/symbol:symbol_component",
+        "//go/internal/stdlibauthority:stdlibauthority_component",
     ],
     declared_authority = [
         "FILES",

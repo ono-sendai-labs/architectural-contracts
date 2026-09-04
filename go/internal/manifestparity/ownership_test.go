@@ -65,7 +65,7 @@ func TestProjectPackagesSingleOwner(t *testing.T) {
 
 	// The slice under repair; every other component (e.g. goanalysis, which
 	// predates the slice and is remediated separately) is out of scope here.
-	slice := []string{"artifactio", "manifest", "schema", "symbol"}
+	slice := []string{"artifactio", "manifest", "schema", "stdlibauthority", "symbol"}
 
 	owner := map[string]string{}
 	for _, name := range slice {
@@ -86,11 +86,12 @@ func TestProjectPackagesSingleOwner(t *testing.T) {
 	}
 
 	wantOwner := map[string]string{
-		modulePrefix + "internal/artifactio": "artifactio",
-		modulePrefix + "internal/manifest":   "manifest",
-		modulePrefix + "internal/schema":     "schema",
-		modulePrefix + "internal/schema/gen": "schema",
-		modulePrefix + "internal/symbol":     "symbol",
+		modulePrefix + "internal/artifactio":      "artifactio",
+		modulePrefix + "internal/manifest":        "manifest",
+		modulePrefix + "internal/schema":          "schema",
+		modulePrefix + "internal/schema/gen":      "schema",
+		modulePrefix + "internal/symbol":          "symbol",
+		modulePrefix + "internal/stdlibauthority": "stdlibauthority",
 	}
 	for pkg, want := range wantOwner {
 		if got := owner[pkg]; got != want {
@@ -117,8 +118,9 @@ func TestArtifactioDeclaresCoreComponentDependencies(t *testing.T) {
 	}
 
 	want := map[string]string{
-		"schema": "../schema/component.textproto",
-		"symbol": "../symbol/component.textproto",
+		"schema":          "../schema/component.textproto",
+		"stdlibauthority": "../stdlibauthority/component.textproto",
+		"symbol":          "../symbol/component.textproto",
 	}
 	got := map[string]string{}
 	for _, dep := range m.ComponentDependencies {
@@ -139,7 +141,7 @@ func TestArtifactioDeclaresCoreComponentDependencies(t *testing.T) {
 	// core package artifactio's production code imports must be a member of a
 	// declared dependency (or of artifactio itself).
 	owners := map[string]string{}
-	for _, name := range []string{"artifactio", "schema", "symbol"} {
+	for _, name := range []string{"artifactio", "schema", "stdlibauthority", "symbol"} {
 		for _, member := range manifests[name].Members {
 			if strings.HasPrefix(member, modulePrefix) {
 				owners[member] = name
@@ -259,6 +261,7 @@ var purePackages = []string{
 	"internal/manifest",
 	"internal/schema/gen",
 	"internal/report",
+	"internal/stdlibauthority",
 	"internal/symbol",
 }
 

@@ -11,6 +11,10 @@ component_dependencies {
   manifest: "../schema/component.textproto"
 }
 component_dependencies {
+  name: "stdlibauthority"
+  manifest: "../stdlibauthority/component.textproto"
+}
+component_dependencies {
   name: "symbol"
   manifest: "../symbol/component.textproto"
 }
