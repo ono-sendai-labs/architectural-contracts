@@ -96,7 +96,7 @@ func TestMapRequiresCompleteInitInventory(t *testing.T) {
 // entry whose path is non-empty, and no evidence is unmatched.
 func TestMapRequiresCompleteEvidenceInventory(t *testing.T) {
 	m := mapWithFullInventory()
-	m.Evidence = append(m.Evidence, &gen.Evidence{SymbolId: "(os.File).Read", Capability: "READ_SYSTEM_STATE"})
+	m.Evidence = m.Evidence[:1] // drop READ_SYSTEM_STATE's evidence; FILES keeps one
 	if _, err := MarshalMap(m); err == nil || !strings.Contains(err.Error(), "evidence") {
 		t.Errorf("capability without evidence: err = %v, want evidence-inventory error", err)
 	}

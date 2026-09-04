@@ -33,6 +33,7 @@ go_test(
         "artifactio_test.go",
         "decode_test.go",
         "rework_test.go",
+        "stdlibmap_test.go",
         "write_test.go",
     ],
     embed = [":artifactio"],
