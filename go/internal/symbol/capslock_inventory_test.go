@@ -13,26 +13,53 @@ import (
 // sets, standing in for Step 4's independently computed inventory.
 type mapInventory struct {
 	packages     map[string]bool
-	declarations map[string]bool // "pkg.Name" keys
+	declarations map[string]bool   // "pkg.Name" keys
+	methods      map[string]string // "pkg.Type.M" -> declaring canonical ID
 }
 
 func (m mapInventory) KnownPackage(importPath string) bool { return m.packages[importPath] }
 
 func (m mapInventory) Declares(pkg, name string) bool { return m.declarations[pkg+"."+name] }
 
-func (m mapInventory) DeclaresMethod(pkg, typeName, method string) bool {
-	return m.declarations["("+pkg+"."+typeName+")."+method]
+// MethodOwner resolves a method spelling to its canonical declaring-object
+// ID: a concrete method's "(pkg.T).Method", or, per the declaring-object
+// rule, the declaring interface "pkg.Interface" for an interface method
+// spec.
+func (m mapInventory) MethodOwner(pkg, typeName, method string) (string, bool) {
+	owner, ok := m.methods[pkg+"."+typeName+"."+method]
+	return owner, ok
 }
 
-func newMapInventory(pkgs, decls []string) mapInventory {
-	inv := mapInventory{packages: map[string]bool{}, declarations: map[string]bool{}}
+func newMapInventory(pkgs, decls, ifaceMethods []string) mapInventory {
+	inv := mapInventory{packages: map[string]bool{}, declarations: map[string]bool{}, methods: map[string]string{}}
 	for _, p := range pkgs {
 		inv.packages[p] = true
 	}
 	for _, d := range decls {
 		inv.declarations[d] = true
+		// Derive concrete method ownership from the declared method IDs.
+		if recv, method, ok := splitTestMethodID(d); ok {
+			inv.methods[recv+"."+method] = d
+		}
+	}
+	for _, im := range ifaceMethods {
+		// "pkg.Iface.Method" -> owner "pkg.Iface" (declaring-object rule).
+		inv.methods[im] = im[:strings.LastIndexByte(im, '.')]
 	}
 	return inv
+}
+
+// splitTestMethodID splits a canonical "(pkg.Type).Method" ID.
+func splitTestMethodID(id string) (recv, method string, ok bool) {
+	if !strings.HasPrefix(id, "(") {
+		return "", "", false
+	}
+	inner := id[1:]
+	idx := strings.Index(inner, ").")
+	if idx < 0 {
+		return "", "", false
+	}
+	return inner[:idx], inner[idx+2:], true
 }
 
 // TestParseCapslockFunction pins the structured normalization contract
@@ -43,7 +70,8 @@ func newMapInventory(pkgs, decls []string) mapInventory {
 func TestParseCapslockFunction(t *testing.T) {
 	inv := newMapInventory(
 		[]string{"example.com/store", "gopkg.in/yaml.v2", "os"},
-		[]string{"example.com/store.Load", "(example.com/store.Box).Get", "example.com/store.Box", "gopkg.in/yaml.v2.Unmarshal", "os.ReadFile"},
+		[]string{"example.com/store.Load", "(example.com/store.Box).Get", "example.com/store.Box", "gopkg.in/yaml.v2.Unmarshal", "os.ReadFile", "example.com/store.Iface"},
+		[]string{"example.com/store.Iface.Wait"},
 	)
 
 	for _, tc := range []struct {
@@ -65,6 +93,11 @@ func TestParseCapslockFunction(t *testing.T) {
 			name: "method with structured package",
 			fn:   symbol.CapslockFunction{Name: "(*store.Box[int]).Get", Package: "example.com/store"},
 			want: "(example.com/store.Box).Get",
+		},
+		{
+			name: "interface method spec resolves to its declaring interface",
+			fn:   symbol.CapslockFunction{Name: "(*store.Iface).Wait", Package: "example.com/store"},
+			want: "example.com/store.Iface",
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -123,6 +156,7 @@ func TestParseCapslockFunction_CanonicalizesNamespace(t *testing.T) {
 	inv := newMapInventory(
 		[]string{"canonical.example/os", "canonical.example/store"},
 		[]string{"canonical.example/os.ReadFile", "canonical.example/store.Box", "(canonical.example/store.Box).Get"},
+		nil,
 	)
 
 	for _, tc := range []struct {

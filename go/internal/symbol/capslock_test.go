@@ -47,6 +47,8 @@ func TestParseCapslock_Convergence(t *testing.T) {
 		{"qualified unnamed parameter type argument", "store.Load[func(example.com/x.T)]", "store.Load"},
 		{"named variadic parameter type argument", "store.Load[func(x ...int)]", "store.Load"},
 		{"qualified embedded struct field type argument", "store.Load[struct{example.com/x.T}]", "store.Load"},
+		{"bare embedded struct type argument", "store.Load[struct{Local}]", "store.Load"},
+		{"bare embedded struct field after a named field", "store.Load[struct{A int; Local}]", "store.Load"},
 		{"qualified pointer embedded struct field type argument", "store.Load[struct{*example.com/x.T}]", "store.Load"},
 		{"tagged struct field type argument", `store.Load[struct{A int "json:\"a\""}]`, "store.Load"},
 		{"qualified interface method parameter type argument", "store.Load[interface{M(example.com/x.T) string}]", "store.Load"},

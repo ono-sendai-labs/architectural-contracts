@@ -70,11 +70,14 @@ type CapslockInventory interface {
 	// receiver type name. Normalization fails closed unless the inventory
 	// confirms exactly the one canonical declaration the name maps to.
 	Declares(pkg, name string) bool
-	// DeclaresMethod reports whether the inventory contains exactly the
-	// canonical method declaration (pkg.TypeName).Method. The receiver type
-	// alone is not sufficient: an inventoried receiver does not vouch for
-	// arbitrary methods spelled against it.
-	DeclaresMethod(pkg, typeName, method string) bool
+	// MethodOwner resolves a method spelled against the receiver type
+	// pkg.TypeName to its canonical declaring-object SymbolID: the concrete
+	// method's "(pkg.TypeName).Method", or — under the declaring-object
+	// rule (DR-04) — the declaring interface "pkg.Interface" when the
+	// method is an interface method spec of that interface. An inventoried
+	// receiver does not vouch for arbitrary methods spelled against it;
+	// ok=false when the receiver declares no such method.
+	MethodOwner(pkg, typeName, method string) (owner string, ok bool)
 }
 
 // ParseCapslockFunction normalizes a Capslock function given its structured
@@ -158,10 +161,20 @@ func parseCapslock(name string, knownPackage func(string) bool, inv CapslockInve
 		if err := confirmDeclaration(inv, name, canon, recv[dot+1:]); err != nil {
 			return "", err
 		}
-		if inv != nil && !inv.DeclaresMethod(canon, recv[dot+1:], method) {
+		if inv == nil {
+			return Parse("(" + canon + "." + recv[dot+1:] + ")." + method)
+		}
+		// The inventory resolves the method to its canonical declaring
+		// object: a concrete method's "(pkg.T).Method", or the declaring
+		// interface "pkg.Interface" for an interface method spec
+		// (declaring-object rule, DR-04) — which has no method ID of its
+		// own, so the query and the emitted ID must both go through the
+		// owner.
+		owner, ok := inv.MethodOwner(canon, recv[dot+1:], method)
+		if !ok {
 			return "", fmt.Errorf("capslock name %q: inventory does not confirm a declaration of %q in %q", name, "("+recv[dot+1:]+")."+method, canon)
 		}
-		return Parse("(" + canon + "." + recv[dot+1:] + ")." + method)
+		return Parse(owner)
 	}
 	// Top-level spelling: type-argument brackets are allowed only as a
 	// trailing group (store.Load[example.com/x.T]); anywhere else they would
@@ -274,8 +287,7 @@ func stripTrailingBrackets(s string) (string, error) {
 // every element is exactly one Go type spelled the way the Capslock/SSA
 // formatter prints them (task req 3/4/5).
 //
-// The check is context-aware in two steps instead of a handwritten Go-type
-// grammar:
+// The check has two steps:
 //
 //  1. translateImportPaths rewrites every package-qualified name's full
 //     import path ("example.com/2x.T") to a placeholder identifier,
@@ -283,13 +295,17 @@ func stripTrailingBrackets(s string) (string, error) {
 //     (validPackagePath — the same authority SymbolID.Parse applies), so
 //     there is no second, stricter path grammar.
 //  2. checkSingleType validates each translated element as exactly one type
-//     with a recursive-descent grammar over real Go tokens (go/scanner). A
-//     parenthesized group in a type position must contain a single type, so
-//     tuples ("(int, string)") and named lists ("(x int)") that are only
+//     with a handwritten recursive-descent grammar over real Go tokens
+//     (go/scanner; see checkSingleType for why the parser package is not
+//     used). It covers the single-type-position semantics over the subset
+//     the supported formatter emits and is pinned by the typed-fixture
+//     corpus; it is not a reimplementation of the go/parser type grammar.
+//     A parenthesized group in a type position must contain a single type,
+//     so tuples ("(int, string)") and named lists ("(x int)") that are only
 //     legal in function signatures are rejected, while real formatter
-//     output — qualified unnamed and named variadic parameters, qualified embedded struct fields, interface-method
-//     parameters, and constant-expression array lengths including &^ — is
-//     accepted by Go's own grammar.
+//     output — qualified unnamed and named variadic parameters, qualified
+//     and bare embedded struct fields, interface-method parameters, and
+//     constant-expression array lengths including &^ — is accepted.
 func validateTypeArguments(inner string) error {
 	args, err := splitTypeArgumentList(inner)
 	if err != nil {
@@ -795,24 +811,30 @@ func (p *typeParser) structBody() error {
 		return nil
 	}
 	for {
-		if !p.startsTypeKeyword() && !(p.tok == token.IDENT && p.peekIsQualified()) {
-			// A named field: a comma-separated identifier list plus its type.
-			if _, err := p.identRun(); err != nil {
-				return err
-			}
-			if !p.startsType() {
-				return p.errorf("struct field %q must be a single embedded type or name a field", p.lit)
-			}
+		if p.startsTypeKeyword() || (p.tok == token.IDENT && p.peekIsQualified()) {
+			// A single embedded type: bare, qualified, pointer or other.
 			if err := p.typ(); err != nil {
 				return err
 			}
-			if p.tok == token.STRING {
-				// A field tag, part of the formatter's Go output.
-				p.next()
+		} else {
+			count, err := p.identRun()
+			if err != nil {
+				return err
 			}
-		} else if err := p.typ(); err != nil {
-			// A single embedded type (qualified, pointer or other).
-			return err
+			switch {
+			case p.startsType():
+				if err := p.typ(); err != nil {
+					return err
+				}
+			case count == 1:
+				// A bare embedded type name ("struct{T}").
+			default:
+				return p.errorf("struct field %q must be a single embedded type or name a field", p.lit)
+			}
+		}
+		if p.tok == token.STRING {
+			// A field tag, part of the formatter's Go output.
+			p.next()
 		}
 		if p.tok == token.SEMICOLON {
 			p.next()
