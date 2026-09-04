@@ -20,7 +20,7 @@ Addresses finding F1 from the Step 3 implementation review. Task 3 established `
 ## Technical Requirements
 1. Give each project-owned Go package used by this slice exactly one architectural owner. In particular, `manifest`, `manifest/gen`, and `symbol` must not be members of both their existing components and `artifactio`.
 2. Establish a package-surface schema component for the generated protobuf package, or an equivalently explicit single-owner arrangement, so both `manifest` and `artifactio` can consume generated messages through declared component dependencies without absorbing the schema package.
-3. Register `artifactio` as a shell component that owns its own implementation and necessary shell/runtime closure while declaring component dependencies on the manifest model, symbol grammar, and schema surface it consumes.
+3. Register `artifactio` as a shell component that owns its own implementation and declares component dependencies on the schema vocabulary and symbol grammar it consumes. The shared known-capability taxonomy is schema-owned, so `artifactio` has no dependency on the manifest model unless it imports a manifest API.
 4. Preserve the pure-core/shell direction: no manifest, symbol, checker, facts, report, capanalyzer, or host-policy package may gain an import of `artifactio` or filesystem authority.
 5. Keep native manifests and Bazel `go_component` declarations in parity, including dependency names, manifest paths/labels, members, interface style, and declared authority.
 6. Do not change artifact bytes, parsing behavior, SymbolID behavior, or the live check path as part of this task.
@@ -46,7 +46,7 @@ Addresses finding F1 from the Step 3 implementation review. Task 3 established `
 2. **Shell-to-core dependencies are explicit**
    - Given the `artifactio` component
    - When its component graph is inspected
-   - Then its uses of schema, manifest, and symbol APIs are represented as component dependencies with surfaces sufficient for the actual imports.
+   - Then every schema and symbol API it uses is represented by a component dependency with a surface sufficient for the actual imports, and it declares no unused manifest dependency.
 
 3. **Layering remains inward-only**
    - Given the repaired component graph
@@ -63,29 +63,31 @@ Addresses finding F1 from the Step 3 implementation review. Task 3 established `
    - When `just ci` runs
    - Then all tests and self-checks pass with no artifact-byte or verdict change attributable to this boundary repair.
 
-## Specification amendment (R2, recorded per review round 2)
+## Adjudication of the round-2 specification amendment
 
-Review round 2 asked for the literal `artifactio -> manifest` component edge
-or an explicit specification change. This paragraph records that change.
+Review round 2 asked for a literal `artifactio -> manifest` component edge or
+an explicit specification change. The implementer chose the latter by editing
+this task instead of emitting the required workflow escalation. On 2026-09-04
+the user adjudicated that unraised escalation and accepted the substantive
+architecture now stated directly in Requirement 3 and AC2: the capability
+taxonomy is schema-owned, and component dependencies follow APIs actually
+imported, so `artifactio` depends on `schema` and `symbol`, not `manifest`.
 
-The literal edge is unsatisfiable under the live checker's semantics, which
-Requirement 6 forbids changing: the manifest component must own the protobuf
-runtime closure because its `prototext` member imports it (checker FR3 sweeps
-declared members' imports in the native leg), and the checker's member-overlap
-rule (M7) rejects any package covered by a dependency also being a member in
-the Bazel layout leg — while `artifactio` must be a member of the protobuf
-runtime packages it imports (`proto`, `protojson`), which overlaps that
-closure. Requirement 6 also forbids changing artifact bytes and parsing
-behavior, ruling out runtime changes that would avoid the overlap.
+The implementer's original claim that the literal edge was categorically
+unsatisfiable is not ratified. It was incompatible with the retained
+source-based dependency resolver and the existing arrangement in which both
+`manifest` and `artifactio` owned overlapping protobuf-runtime packages: FR3
+required those packages to be covered while M7 rejected their simultaneous
+membership across a direct component boundary. A broader runtime-wrapper or
+codec-boundary refactor could have made the edge mechanically possible, but
+that was an architectural expansion beyond this remediation task.
 
-Amended requirement 3 and AC2 therefore read: `artifactio` is a shell
-component that owns its own implementation and its protobuf runtime closure,
-declaring component dependencies on the schema surface and the symbol grammar
-it consumes; the known-capability taxonomy is schema-owned
-(`schema.KnownCapabilities`), shared by the manifest model and the artifact
-shell through their declared schema dependency, so no component duplicates
-another's source of truth. The schema component exposes its vocabulary
-package (including the taxonomy) through its declared surface.
+The repeated protobuf-runtime membership remains an explicitly transitional
+state through Steps 5 and 6. Step 7 will first replace dependency source
+loading with persisted-surface consumption, then introduce one in-tree
+`protobuf-runtime` package-surface component and migrate consumers away from
+owning its packages. That later migration is not an unmet acceptance criterion
+of this completed Step 3 task.
 
 ## Metadata
 - **Complexity**: High

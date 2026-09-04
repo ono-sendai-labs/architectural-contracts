@@ -391,6 +391,31 @@ Consumption returns a `facts.DependencyInterface` extended with the three status
 (below). The consumer verifies `FormatVersion`, `Namespace` and `SDKKey` before use;
 each mismatch is a distinct tool error.
 
+### New: `schema` and the protobuf-runtime boundary
+
+The `schema` package-surface component owns the generated persisted-artifact types and
+the shared capability-name vocabulary. `manifest` consumes that component for parsing
+and validation, while the artifact-I/O shell consumes it for artifact messages and
+capability validation. `artifactio` therefore depends inward on `schema` and `symbol`;
+it does not declare an unused dependency on `manifest` merely because the capability
+vocabulary once lived there.
+
+The final ownership model gives the protobuf runtime one in-tree
+`PACKAGE_SURFACE` wrapper component, with the exact foreign package set enumerated as
+members. Hand-authored imports such as `protojson`, `proto`, or `prototext` use an
+explicit component dependency. Generated or host-injected runtime edges may point to
+the same component with `auto_attached: true` once the host-adapter hooks land; the
+component is shared, while edge provenance reflects who introduced the dependency.
+
+There is one deliberate migration interval. The legacy native
+`ResolveDependencyInterface` loads `./...` beneath a dependency manifest and therefore
+cannot consume an in-tree wrapper whose members are foreign import paths. Through Steps
+5 and 6, self-hosting consumers temporarily retain their protobuf-runtime packages as
+members. Step 7 removes that source-loading path in favour of persisted surfaces; after
+that cutover, and before dependency-overlap enforcement is accepted, it introduces the
+protobuf-runtime component and removes those packages from consumers. This duplicated
+runtime membership is transitional, not the final component model.
+
 ### Changed: `goanalysis`
 
 Loses SSA construction, VTA, `scanFuncValueEscapes`, `collectBodilessAbsorbedPackages`,
@@ -435,7 +460,8 @@ analysis ran, for the Bazel action). `arcc stdlibmap generate|inspect` is added.
 ### Unchanged in role
 
 `manifest`, `report`, `hostpolicy`, `packagelayout` keep their roles. Their *schemas*
-change: `manifest` loses three fields; `report` gains kinds and status axes;
+change: `manifest` loses three fields and consumes the schema-owned capability
+vocabulary; `report` gains kinds and status axes;
 `hostpolicy` gains `NamespaceID` and `IsCanonicalPath` and loses `IsStdlibPath`'s
 classification role; `packagelayout` gains `export_file`, `goexperiment`, dependency
 surface/report paths and closure validation.

@@ -292,6 +292,15 @@ source, with structural provenance (R7, R14, Q16, DR-03, DR-06, DR-08, DR-12).
 **Guidance.**
 - `ResolveDependencyInterface` reads the dependency's surface and, when present, report.
   Delete the `./...` source load (`goanalysis.go:1441-1470`).
+- After surface-based resolution is operational, introduce one in-tree
+  `protobuf-runtime` `PACKAGE_SURFACE` component owning the explicitly enumerated
+  protobuf package closure. Migrate `schema`, `manifest`, `artifactio`, and other
+  self-hosting consumers away from declaring those packages as their own members before
+  enabling the overlap checks below. This ordering removes the native resolver limitation
+  that prevents a foreign-member wrapper from working during Steps 5 and 6.
+- Keep dependencies explicit for hand-authored protobuf imports. Step 12 may auto-attach
+  the same runtime component for generated or host-injected imports; auto-attachment
+  changes edge provenance, not runtime ownership or the component's surface.
 - Bazel: the analysis action takes direct dependencies' `surface` and `report` from
   `ArccComponentInfo` (declared and auto-attached) as inputs; the layout carries their
   paths. Provenance derived: `CHECKED_PASS` iff a report is present with verdict pass;

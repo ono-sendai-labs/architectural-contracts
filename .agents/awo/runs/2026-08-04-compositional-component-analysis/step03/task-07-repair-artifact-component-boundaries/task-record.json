@@ -136,9 +136,12 @@
       "change": "qwzruqotmwqoztumtzvkntqlmvmqqozn",
       "authored_by": "implementer",
       "escalation_emitted": false,
-      "orchestrator_boundary_test_applied": false,
-      "user_signoff": false,
-      "note": "amends Requirement 3 and AC2; see F-66 and the merge-request description"
+      "orchestrator_boundary_test_applied": true,
+      "user_signoff": true,
+      "adjudicated_at": "2026-09-04",
+      "decision": "accepted_with_step07_runtime_wrapper_followup",
+      "ratification_change": "vymxvusyzrtpuqukqnwuptyvttmvvqnp",
+      "note": "The user ratified schema ownership of the capability taxonomy and artifactio dependencies on schema plus symbol. The categorical unsatisfiability claim was not ratified; protobuf-runtime ownership is transitional and will move to one package-surface wrapper after Step 7 replaces source-based dependency resolution."
     }
   }
 }
