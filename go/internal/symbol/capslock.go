@@ -27,7 +27,32 @@ import (
 // contents, dotted method spellings, compiler-synthesized names — are
 // rejected with an error instead of guessed, so classifier text can never
 // enter an artifact as an ID.
+//
+// Unparenthesized spellings whose package path contains a dot (such as
+// "gopkg.in/yaml.v2.Unmarshal") are ambiguous without outside knowledge: a
+// dot could equally be a dotted method separator, and Capslock's text carries
+// no object-kind information. ParseCapslock rejects them; callers that know
+// the package inventory use ParseCapslockWithPackages to disambiguate.
 func ParseCapslock(name string) (SymbolID, error) {
+	return parseCapslock(name, nil)
+}
+
+// ParseCapslockWithPackages is ParseCapslock with one piece of structured
+// context: knownPackage reports whether an import path names a package in the
+// caller's world (typed declarations, a manifest, a module inventory). An
+// unparenthesized spelling whose package path contains a dot is accepted as a
+// top-level symbol only when knownPackage confirms that package; otherwise
+// the spelling could be an unprinted dotted method name and is rejected
+// instead of guessed. Dotless package paths ("os.ReadFile") are unambiguous
+// and need no resolver.
+func ParseCapslockWithPackages(name string, knownPackage func(importPath string) bool) (SymbolID, error) {
+	if knownPackage == nil {
+		return "", fmt.Errorf("capslock name %q: disambiguating a dotful unparenthesized spelling requires a known-package resolver", name)
+	}
+	return parseCapslock(name, knownPackage)
+}
+
+func parseCapslock(name string, knownPackage func(string) bool) (SymbolID, error) {
 	if recv, method, ok := splitMethod(name); ok {
 		recv, err := stripReceiverBrackets(recv)
 		if err != nil {
@@ -57,26 +82,24 @@ func ParseCapslock(name string) (SymbolID, error) {
 		return "", fmt.Errorf("capslock name %q: type-argument brackets are only supported as a trailing group or inside a method receiver", name)
 	}
 	dot := strings.LastIndexByte(rest, '.')
-	if dot < 0 || !capslockTopLevelPackageUnambiguous(rest[:dot]) {
-		return "", fmt.Errorf("capslock name %q: %q is not an unambiguous Capslock top-level spelling; a dotful package path without a module-host slash could equally be a dotted method spelling, which Capslock never prints unparenthesized", name, rest)
+	if dot < 0 {
+		return "", fmt.Errorf("capslock name %q: %q is not a Capslock spelling of a declared top-level symbol", name, rest)
 	}
-	return Parse(hostpolicy.CanonicalizePath(rest[:dot]) + "." + rest[dot+1:])
-}
-
-// capslockTopLevelPackageUnambiguous reports whether an unparenthesized
-// spelling's package path unambiguously names a package. Capslock/SSA never
-// prints a method in dotted form, so an unparenthesized spelling is a
-// top-level symbol by protocol; the only ambiguity is a dotful path with no
-// explicit module-host slash ("example.com.private.Read"), where a dot could
-// equally be a method separator. That shape is rejected instead of guessed.
-// Dotless paths ("os") and slash-qualified paths — including dotted module
-// hosts and versioned elements ("gopkg.in/yaml.v2") — are unambiguous and
-// accepted.
-func capslockTopLevelPackageUnambiguous(pkg string) bool {
-	if !strings.Contains(pkg, ".") {
-		return true
+	pkg := rest[:dot]
+	if strings.Contains(pkg, ".") {
+		// A dot in the package path makes the spelling ambiguous: the same
+		// text could be a dotted method spelling ("pkg.Type.Method"), which
+		// Capslock never prints unparenthesized, or a top-level symbol in a
+		// dotful package. Without a known-package confirmation there is no
+		// safe mapping.
+		if knownPackage == nil {
+			return "", fmt.Errorf("capslock name %q: %q is ambiguous — a dotful unparenthesized spelling could equally be a dotted method spelling; confirm the package with ParseCapslockWithPackages", name, rest)
+		}
+		if !knownPackage(pkg) {
+			return "", fmt.Errorf("capslock name %q: package %q is not known, so %q cannot be mapped safely to a top-level symbol", name, pkg, rest)
+		}
 	}
-	return strings.Contains(pkg, "/")
+	return Parse(hostpolicy.CanonicalizePath(pkg) + "." + rest[dot+1:])
 }
 
 // stripReceiverBrackets removes balanced type-argument bracket groups from a
@@ -174,11 +197,12 @@ func stripBalancedBrackets(s string) (string, int, error) {
 // validTypeArgument reports whether s is a type argument from the explicit
 // subset of Go type syntax that Capslock instantiations print: pointers,
 // slices and arrays (including constant-expression lengths), maps, channels,
-// functions, parenthesized groups, and package-qualified named types (import
+// functions (including variadic and multi-result lists), parenthesized
+// groups, instantiated named types, and package-qualified named types (import
 // paths may contain dots, slashes and hyphens). Struct and interface literal
 // bodies are never printed by Capslock and are rejected. The check is a real
 // grammar, not a character whitelist: malformed bodies such as ",," or "."
-// fail, and valid bodies such as "chan int", "func(int) string" or
+// fail, and valid bodies such as "chan int", "func(...int) (int, string)" or
 // "[N+1]byte" pass.
 func validTypeArgument(s string) bool {
 	p := &typeArgParser{s: s}
@@ -308,7 +332,7 @@ func (p *typeArgParser) typ() error {
 			return fmt.Errorf("type argument: func is missing (")
 		}
 		p.i++
-		if err := p.typeList(')'); err != nil {
+		if err := p.typeList(')', true); err != nil {
 			return err
 		}
 		p.space()
@@ -316,6 +340,11 @@ func (p *typeArgParser) typ() error {
 			return p.typ()
 		}
 		return nil
+	case c == '(':
+		// A parenthesized group: "(T)" or a parenthesized type list such as
+		// a function's multi-result "(int, string)".
+		p.i++
+		return p.typeList(')', false)
 	case c == 's' && p.kw("struct"), c == 'i' && p.kw("interface"):
 		return fmt.Errorf("type argument: struct and interface literals are not part of the supported subset")
 	case isIdentStart(c):
@@ -326,14 +355,16 @@ func (p *typeArgParser) typ() error {
 }
 
 // typeList parses a comma-separated type list closed by close, which is
-// consumed.
-func (p *typeArgParser) typeList(close byte) error {
+// consumed. When variadic is set, the list may end with "...T" (function
+// parameter lists); generic argument lists never accept an ellipsis.
+func (p *typeArgParser) typeList(close byte, variadic bool) error {
 	p.space()
 	if p.i < len(p.s) && p.s[p.i] == close {
 		p.i++
 		return nil
 	}
-	if p.kw("...") {
+	if variadic && strings.HasPrefix(p.s[p.i:], "...") {
+		p.i += 3
 		if err := p.typ(); err != nil {
 			return err
 		}
@@ -360,7 +391,8 @@ func (p *typeArgParser) typeList(close byte) error {
 
 // name parses a package-qualified or bare name: segments of identifier
 // characters (hyphens included, as in import paths) joined by dots, with
-// slash-separated path elements ("example.com/x-y.T").
+// slash-separated path elements ("example.com/x-y.T"), optionally
+// instantiated ("example.com/x.Pair[int]").
 func (p *typeArgParser) name() error {
 	if err := p.unit(); err != nil {
 		return err
@@ -370,6 +402,11 @@ func (p *typeArgParser) name() error {
 		if err := p.unit(); err != nil {
 			return err
 		}
+	}
+	if p.i < len(p.s) && p.s[p.i] == '[' {
+		// A generic named type used as an argument ("Pair[int]").
+		p.i++
+		return p.typeList(']', false)
 	}
 	return nil
 }
@@ -388,15 +425,17 @@ func (p *typeArgParser) unit() error {
 	return nil
 }
 
-// expr parses a constant-expression array length: atoms joined by +, - and *,
-// where an atom is a number, a name or a parenthesized expression.
+// expr parses a constant-expression array length: atoms joined by +, -, *,
+// / and %, where an atom is a number, a dotted identifier (no slashes — a
+// slash in an array length is the division operator) or a parenthesized
+// expression.
 func (p *typeArgParser) expr() error {
 	if err := p.atom(); err != nil {
 		return err
 	}
 	for {
 		p.space()
-		if p.i >= len(p.s) || p.s[p.i] != '+' && p.s[p.i] != '-' && p.s[p.i] != '*' {
+		if p.i >= len(p.s) || p.s[p.i] != '+' && p.s[p.i] != '-' && p.s[p.i] != '*' && p.s[p.i] != '/' && p.s[p.i] != '%' {
 			return nil
 		}
 		p.i++
@@ -430,7 +469,18 @@ func (p *typeArgParser) atom() error {
 		return nil
 	}
 	if isIdentStart(p.s[p.i]) {
-		return p.name()
+		// A dotted identifier, but no slash: in an array length a slash is
+		// the division operator, not a path separator.
+		if err := p.unit(); err != nil {
+			return err
+		}
+		for p.i < len(p.s) && p.s[p.i] == '.' {
+			p.i++
+			if err := p.unit(); err != nil {
+				return err
+			}
+		}
+		return nil
 	}
 	return fmt.Errorf("type argument: unexpected %q in array length", p.s[p.i:])
 }

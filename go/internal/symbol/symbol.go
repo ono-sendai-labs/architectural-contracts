@@ -11,10 +11,11 @@
 //     conversion and extraction operate on already type-checked ASTs and their
 //     types.Info; extraction canonicalizes package paths through
 //     hostpolicy.CanonicalizePath.
-//   - What it provides: Parse, Format, Compare, ParseCapslock, FromObject,
-//     FromSelection and ExtractSurface. All pure and deterministic; results are
-//     sorted and duplicate-free. Nothing here alters the live call-graph check
-//     path (capanalyzer.InterfaceSymbol stays until the Step 6 cutover).
+//   - What it provides: Parse, Format, Compare, ParseCapslock,
+//     ParseCapslockWithPackages, FromObject, FromSelection and ExtractSurface.
+//     All pure and deterministic; results are sorted and duplicate-free.
+//     Nothing here alters the live call-graph check path (capanalyzer.
+//     InterfaceSymbol stays until the Step 6 cutover).
 //   - Ambient Authority: This component is guaranteed-pure and holds no ambient
 //     authority (no filesystem I/O, network, process execution or reflection).
 package symbol

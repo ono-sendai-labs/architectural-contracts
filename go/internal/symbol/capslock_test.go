@@ -28,6 +28,11 @@ func TestParseCapslock_Convergence(t *testing.T) {
 		{"generic method instantiation pointer", "(*example.com/store.Box[int]).Get", "(example.com/store.Box).Get"},
 		{"generic method instantiation value", "(example.com/store.Box[int]).Get", "(example.com/store.Box).Get"},
 		{"generic type args value receiver", "(example.com/store.Pair[K,V]).First", "(example.com/store.Pair).First"},
+		{"variadic function type argument", "example.com/store.Load[func(...int) int]", "example.com/store.Load"},
+		{"multi-result function type argument", "example.com/store.Load[func() (int, string)]", "example.com/store.Load"},
+		{"parenthesized type argument", "example.com/store.Load[(*example.com/x.T)]", "example.com/store.Load"},
+		{"array-division length type argument", "example.com/store.Load[[N/2]byte]", "example.com/store.Load"},
+		{"nested generic type argument", "example.com/store.Load[example.com/x.Pair[int]]", "example.com/store.Load"},
 		{"channel type argument", "example.com/store.Load[chan int]", "example.com/store.Load"},
 		{"function type argument", "example.com/store.Load[func(int) string]", "example.com/store.Load"},
 		{"array-constant type argument", "example.com/store.Load[[N+1]byte]", "example.com/store.Load"},
@@ -35,8 +40,6 @@ func TestParseCapslock_Convergence(t *testing.T) {
 		{"pointer receiver with map type argument", "(*example.com/store.Box[map[string]int]).Get", "(example.com/store.Box).Get"},
 		{"stdlib method on generic alias", "(sync/atomic.Pointer[example.com/x.T]).Load", ""},
 		{"init", "os.init", "os.init"},
-		{"dotted versioned module path", "gopkg.in/yaml.v2.Unmarshal", "gopkg.in/yaml.v2.Unmarshal"},
-		{"dotted subdirectory package", "example.com/p.private.Read", "example.com/p.private.Read"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -44,12 +47,17 @@ func TestParseCapslock_Convergence(t *testing.T) {
 				// covered by the rejection table below
 				return
 			}
-			got, err := symbol.ParseCapslock(tt.input)
+			// Top-level spellings with a dotful package path are ambiguous
+			// without package knowledge (round-3 finding 1); the table's
+			// resolver confirms their packages.
+			got, err := symbol.ParseCapslockWithPackages(tt.input, func(pkg string) bool {
+				return pkg == "example.com/store" || pkg == "store"
+			})
 			if err != nil {
-				t.Fatalf("ParseCapslock(%q) error = %v", tt.input, err)
+				t.Fatalf("ParseCapslockWithPackages(%q) error = %v", tt.input, err)
 			}
 			if string(got) != tt.want {
-				t.Fatalf("ParseCapslock(%q) = %q; want %q", tt.input, got, tt.want)
+				t.Fatalf("ParseCapslockWithPackages(%q) = %q; want %q", tt.input, got, tt.want)
 			}
 		})
 	}
@@ -92,6 +100,8 @@ func TestParseCapslock_Rejected(t *testing.T) {
 		{"empty brackets", "example.com/store.Read[]"},
 		{"method on pointer-typed package", "(*os).Read"},
 		{"dotful package path without host slash", "example.com.private.Read"},
+		{"dotted path without package knowledge", "example.com/p.private.Read"},
+		{"dotted module path without package knowledge", "gopkg.in/yaml.v2.Unmarshal"},
 		{"invalid type-argument text", "(*example.com/store.Box[not a type]).Get"},
 		{"invalid type-argument colon", "(example.com/store.Map[string]int]).Get"},
 		{"punctuation-only type argument", "example.com/store.Load[,,]"},
@@ -105,6 +115,47 @@ func TestParseCapslock_Rejected(t *testing.T) {
 				t.Fatalf("ParseCapslock(%q) = nil error; want rejection", tt.input)
 			}
 		})
+	}
+}
+
+// TestParseCapslockWithPackages pins review-round-3 finding 1: an
+// unparenthesized spelling whose package path contains a dot is ambiguous
+// (it could be a dotted method spelling, which Capslock never prints, or a
+// top-level symbol in a dotful package), so plain ParseCapslock rejects it
+// and ParseCapslockWithPackages accepts it only when the caller's
+// known-package resolver confirms the top-level package.
+func TestParseCapslockWithPackages(t *testing.T) {
+	if _, err := symbol.ParseCapslockWithPackages("gopkg.in/yaml.v2.Unmarshal", nil); err == nil {
+		t.Fatalf("ParseCapslockWithPackages with a nil resolver = nil error; want rejection")
+	}
+
+	known := map[string]bool{"gopkg.in/yaml.v2": true, "example.com/p.private": true}
+	resolver := func(pkg string) bool { return known[pkg] }
+
+	for _, tc := range []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{"dotted versioned module path", "gopkg.in/yaml.v2.Unmarshal", "gopkg.in/yaml.v2.Unmarshal"},
+		{"dotted subdirectory package", "example.com/p.private.Read", "example.com/p.private.Read"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := symbol.ParseCapslockWithPackages(tc.input, resolver)
+			if err != nil {
+				t.Fatalf("ParseCapslockWithPackages(%q) error = %v", tc.input, err)
+			}
+			if string(got) != tc.want {
+				t.Fatalf("ParseCapslockWithPackages(%q) = %q; want %q", tc.input, got, tc.want)
+			}
+		})
+	}
+
+	// Without the package being known, the ambiguous spellings stay rejected.
+	for _, in := range []string{"gopkg.in/yaml.v2.Unmarshal", "example.com/p.private.Read"} {
+		if _, err := symbol.ParseCapslockWithPackages(in, func(string) bool { return false }); err == nil {
+			t.Fatalf("ParseCapslockWithPackages(%q, unknown-package resolver) = nil error; want rejection", in)
+		}
 	}
 }
 
