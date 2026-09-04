@@ -1,0 +1,95 @@
+result:
+  task_file: .agents/tasks/2026-08-04-compositional-component-analysis/step03/task-09-replace-fragile-capslock-type-text-parser.code-task.md
+  change_id: xnmomvwkulyppqtxzkqsqltuwlmrymwq
+  status: completed
+  schema_version: 2
+  produced_at: 2026-09-04T22:45:00Z
+
+acceptance_criteria:
+  - text: "Malformed tuple arguments fail closed"
+    addressed: yes
+    evidence: |
+      capslock.go typeParser.typ/paramList: a parenthesized group in type
+      position must contain exactly one type. Tests: capslock_test.go
+      TestParseCapslock_Rejected rows "tuple type argument"
+      store.Load[(int, string)] and "named-list type argument"
+      store.Load[(x int)], plus corpus rows "deferred tuple/named-list type
+      argument is rejected";       all fail with an actionable error and emit no
+      SymbolID. Additionally (round 4), the scanner's lexical errors are
+      enforced: checkSingleType rejects any argument whose scan reported an
+      error, so malformed literals cannot validate (TestParseCapslock_Rejected
+      rows "invalid string escape in tag" and "malformed numeric literal in
+      array length").
+  - text: "Valid formatter spellings converge"
+    addressed: yes
+    evidence: |
+      capslock_test.go acceptance rows cover example.com/2x.T,
+      func(example.com/x.T), func(x ...int), qualified embedded fields,
+      interface parameters, and [N &^ 3]byte; the typed corpus pins each of
+      the deferred spellings exactly (capslock_corpus_test.go deferred rows),
+      including the round-3 tagged rows.
+  - text: "Package grammar has one authority"
+    addressed: yes
+    evidence: |
+      qualifiedNameParts delegates package-path validation to the canonical
+      validPackagePath (symbol.go:134, the same check SymbolID.Parse applies)
+      at capslock.go; digit-leading example.com/2x is accepted and malformed
+      structured paths fail (capslock_inventory_test.go). No private
+      package-path grammar remains.
+  - text: "Normalization is inventory-backed"
+    addressed: yes
+    evidence: |
+      ParseCapslockFunction rejects nil inventories, malformed/contradictory
+      structured packages, unconfirmed declarations and unknown methods;
+      MethodOwner resolves methods to their canonical declaring object
+      (concrete "(pkg.T).Method" or the declaring interface per DR-04).
+      Tests: capslock_inventory_test.go and the corpus method rows, including
+      concrete and interface-owner cases.
+  - text: "Regression corpus tracks real Go syntax"
+    addressed: yes
+    evidence: |
+      Round 3 closes the coverage gap: capslock_corpus_test.go now renders
+      positive rows for every accepted type constructor from real parsed and
+      type-checked fixture declarations — qualified named types (including the
+      digit-leading example.com/2x), qualified/named/variadic function
+      signatures, multi-result and grouped-parameter functions, unnamed
+      qualified variadics, qualified/bare/pointer embedded struct fields, a
+      tagged field whose tag contains ']',
+      interface-method parameters, parenthesized pointer types, nested generic
+      instantiation x.Pair[int], slices, maps, channels, and the &^, /, <<, +
+      array lengths printed from checked declarations — each pinned to its
+      exact formatter spelling, each normalizing to an inventoried canonical
+      SymbolID; negative rows are syntactically invalid or unresolvable and
+      the deferred cases stay pinned.
+  - text: "Live checking remains unchanged"
+    addressed: yes
+    evidence: |
+      The round-3 changes touch only go/internal/symbol (capslock.go and its
+      test files); the full `just ci` gate — vet, gofmt, native and
+      integration tests, self-checks, and the Bazel leg (81 tests pass,
+      including symbol_component.check) — is green with unchanged
+      call-graph/pruning verdicts.
+
+artifacts:
+  scratchpad_dir: .agents/scratchpad/2026-08-04-compositional-component-analysis/step03/task-09-replace-fragile-capslock-type-text-parser/
+  files:
+    - context.md
+    - plan.md
+    - progress.md
+    - work.log
+    - result.yaml
+
+notes: |
+  Rework round 4 addressed the remaining important security finding in one
+  fresh child change (xnmomvwk) of the round-3 tip vquzympz. The scanner-
+  based validator had initialized go/scanner with a nil error handler and
+  never enforced the error count, so the scanner's best-effort recovery let
+  malformed Go literals — an invalid tag escape (struct{A int "json:\q"})
+  and a malformed numeric literal ([1_]byte) — validate as type arguments.
+  typeParser now records the first scanner error and the error count through
+  the error handler, and checkSingleType rejects any lexically dirty scan
+  with the actionable first-error description; because the main scan is
+  sequential over the whole argument (which must be fully consumed), the
+  throwaway lookahead scanner cannot hide a lexical error. New rejection
+  rows cover both cases; the full `just ci` gate is green and no prior
+  change was rewritten.

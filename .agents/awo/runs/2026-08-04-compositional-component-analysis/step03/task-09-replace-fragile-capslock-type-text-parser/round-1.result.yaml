@@ -1,0 +1,84 @@
+result:
+  task_file: .agents/tasks/2026-08-04-compositional-component-analysis/step03/task-09-replace-fragile-capslock-type-text-parser.code-task.md
+  change_id: wruzuzzknqzuuxnzmqoztrrswzqxnlmu
+  status: completed
+  schema_version: 2
+  produced_at: 2026-09-04T20:42:09Z
+
+acceptance_criteria:
+  - text: "Malformed tuple arguments fail closed"
+    addressed: yes
+    evidence: |
+      capslock.go paramList/typ: a parenthesized group in type position must
+      contain exactly one type. Tests: capslock_test.go TestParseCapslock_Rejected
+      rows "tuple type argument" store.Load[(int, string)], "named-list type
+      argument" store.Load[(x int)], plus corpus rows "deferred tuple/named-list
+      type argument is rejected"; all fail with an actionable scanner error and
+      emit no SymbolID.
+  - text: "Valid formatter spellings converge"
+    addressed: yes
+    evidence: |
+      capslock_test.go acceptance rows: example.com/2x.T (digit-leading),
+      func(example.com/x.T), func(x ...int), struct{example.com/x.T},
+      interface{M(example.com/x.T) string}, [N &^ 3]byte — all normalize to
+      store.Load; corpus test pins the same spellings against the typed fixture.
+  - text: "Package grammar has one authority"
+    addressed: yes
+    evidence: |
+      The private validatePathTail/hostPart grammar is deleted (grep in
+      work.log shows no matches); inner paths are validated by the canonical
+      validPackagePath (symbol.go:132, the same function SymbolID.Parse
+      applies) via qualifiedNameParts in capslock.go, and digit-leading
+      elements such as example.com/2x are accepted while malformed paths
+      (os//x, /os//) still fail.
+  - text: "Normalization is inventory-backed"
+    addressed: yes
+    evidence: |
+      ParseCapslockFunction (capslock.go) with CapslockFunction/CapslockInventory:
+      nil inventory, malformed structured package, contradictory package field,
+      unconfirmed declaration, unknown receiver type and — via the new
+      DeclaresMethod — a method not declared on an inventoried receiver all
+      fail closed (capslock_inventory_test.go, corpus row
+      method_on_inventoried_receiver_not_declared); confirmation queries and
+      the emitted ID both use the canonical namespace
+      (TestParseCapslockFunction_CanonicalizesNamespace), and confirmed
+      declarations normalize to canonical IDs that parse under symbol.Parse.
+  - text: "Regression corpus tracks real Go syntax"
+    addressed: yes
+    evidence: |
+      capslock_corpus_test.go parses and type-checks a real fixture package,
+      builds the inventory via symbol.FromObject, and generates the positive
+      type-argument texts from typed go/values values rendered with the
+      full-import-path qualifier (example.com/2x.T, example.com/x.T,
+      func(example.com/x.T), func(x ...int), struct{example.com/2x.T},
+      interface{M(example.com/x.T) string}) plus the &^ array length printed
+      from a real parsed/type-checked declaration; each positive
+      normalization resolves to an inventoried canonical SymbolID and the
+      generated text is asserted equal to the pinned deferred spellings;
+      negative rows are syntactically invalid or unresolvable.
+  - text: "Live checking remains unchanged"
+    addressed: yes
+    evidence: |
+      Only go/internal/symbol/{capslock.go,symbol.go} and its test files were
+      modified (jj diff summaries in work.log); the full `just ci` gate — vet,
+      gofmt, native and integration tests, self-checks and the Bazel leg — is
+      green with unchanged call-graph/pruning verdicts.
+
+artifacts:
+  scratchpad_dir: .agents/scratchpad/2026-08-04-compositional-component-analysis/step03/task-09-replace-fragile-capslock-type-text-parser/
+  files:
+    - context.md
+    - plan.md
+    - progress.md
+    - work.log
+    - result.yaml
+
+notes: |
+  Rework round 1 addressed all four important findings: method identity is
+  confirmed via the new DeclaresMethod inventory operation, inventory queries
+  and emitted IDs use the canonical namespace, the scanner grammar now
+  separates parameter/result modes and enforces variadic arity and true
+  end-of-input, and the corpus positives are generated from typed go/types
+  values plus a printed checked &^ declaration. Stale go/parser comments were
+  corrected. Focused RED→GREEN runs and the full `just ci` gate are green;
+  the fresh child change is wruzuzzknqzuuxnzmqoztrrswzqxnlmu.

@@ -1,0 +1,145 @@
+review:
+  task_file: .agents/tasks/2026-08-04-compositional-component-analysis/step03/task-09-replace-fragile-capslock-type-text-parser.code-task.md
+  change_id: vquzympzsnkywnllqvxsmprxwtstytoq
+  reviewed_at: "2026-09-04T21:41:51Z"
+  verdict: changes_requested
+  schema_version: 2
+  lsp_coverage: partial
+
+merge_request:
+  title: "fix(symbol): complete Capslock normalization [Compositional Analysis: Step 03/Task 09]"
+  body: |
+    Reviews the complete ordered nine-change series. The initial changes
+    replace the private type grammar, add structured inventory-backed
+    normalization, add and register the typed corpus, document the API, and
+    remove the parser's ambient FILES reachability. The successive rework
+    changes confirm method identity and namespaces, resolve declaring-object
+    ownership, source corpus rows from checked declarations, make delimiter
+    scanning quote-aware, and expand the corpus to the remaining accepted type
+    forms.
+
+summary: |
+  Both round-2 findings are resolved: the bracket and delimiter scanners now skip quoted literals and escapes, and the corpus exercises the previously omitted constructors from parsed/type-checked fixtures while checking inventory membership. The focused and full Go test suites, vet, gofmt, gopls checks, and the recorded final `just ci` gate pass; the live SSA/VTA path is outside the range and no tests were removed. Changes are still requested because the scanner-based validator ignores lexical errors, allowing malformed literals and numeric tokens through the fail-closed normalizer.
+
+acceptance_criteria:
+  - text: |
+      1. **Malformed tuple arguments fail closed**
+         - Given `store.Load[(int, string)]` and related parenthesized named-list forms in a single type-argument position
+         - When normalization runs
+         - Then it returns an actionable error and emits no SymbolID.
+    status: pass
+    evidence: |
+      `go/internal/symbol/capslock.go:659-665` parses a parenthesized type as
+      exactly one type and requires its closing `)`, while errors from the
+      type check are wrapped with the argument number at `capslock.go:362-364`.
+      The rejection table covers the tuple and named-list forms at
+      `go/internal/symbol/capslock_test.go:133-135`, and the typed corpus pins
+      the same deferred cases at `capslock_corpus_test.go:355-356`.
+
+  - text: |
+      2. **Valid formatter spellings converge**
+         - Given type arguments containing `example.com/2x.T`, `func(example.com/x.T)`, `func(x ...int)`, qualified embedded fields/interface parameters, and array expressions using `&^`
+         - When normalized with matching package and declaration inventory context
+         - Then each maps to the expected uninstantiated canonical SymbolID.
+    status: pass
+    evidence: |
+      The focused convergence table covers all requested spellings at
+      `go/internal/symbol/capslock_test.go:46-59`. The corpus parses and
+      type-checks the imported and local fixtures at
+      `go/internal/symbol/capslock_corpus_test.go:172-232`, renders the
+      checked forms at `capslock_corpus_test.go:253-328`, and normalizes the
+      resulting rows to the expected `example.com/ctest.Load` at
+      `capslock_corpus_test.go:335-354`.
+
+  - text: |
+      3. **Package grammar has one authority**
+         - Given any package path accepted by canonical SymbolID construction
+         - When it appears in structured Capslock normalization context
+         - Then no stricter duplicate path grammar rejects it; malformed or non-canonical paths still fail.
+    status: pass
+    evidence: |
+      `qualifiedNameParts` delegates package-path validation to the canonical
+      `validPackagePath` at `go/internal/symbol/capslock.go:461-465`, the same
+      function used by `SymbolID.Parse` at `go/internal/symbol/symbol.go:123-125`.
+      The digit-leading `example.com/2x` case is accepted at
+      `capslock_test.go:46`, malformed structured package paths are rejected
+      at `capslock_inventory_test.go:122-124`, and the work-log inspection at
+      `work.log:592-595` confirms the obsolete private grammar is absent.
+
+  - text: |
+      4. **Normalization is inventory-backed**
+         - Given ambiguous or generic Capslock text
+         - When the structured package or declaration inventory does not confirm one canonical declaration
+         - Then normalization fails rather than guessing; when exactly one declaration is confirmed, the result parses as a canonical SymbolID.
+    status: pass
+    evidence: |
+      `ParseCapslockFunction` requires an inventory and validates the
+      structured package at `go/internal/symbol/capslock.go:90-114`; canonical
+      receiver/package confirmation and declaring-object method resolution are
+      performed at `capslock.go:159-177` and `capslock.go:216-220`. Positive,
+      missing-inventory, missing-declaration, method-identity, interface-owner,
+      and namespace cases are exercised at
+      `go/internal/symbol/capslock_inventory_test.go:82-178` and
+      `capslock_corpus_test.go:357-363`, with successful results parsed and
+      checked against the inventoried canonical IDs.
+
+  - text: |
+      5. **Regression corpus tracks real Go syntax**
+         - Given the supported Go/SSA formatter corpus
+         - When symbol tests run
+         - Then positive rows originate from parsed/type-checked declarations, negative rows are syntactically invalid or unresolvable, and the deferred cases are permanently pinned.
+    status: pass
+    evidence: |
+      `typeCheckSource` parses and checks each fixture at
+      `go/internal/symbol/capslock_corpus_test.go:80-107`; the corpus includes
+      imported qualified types, functions, interfaces, struct fields, maps,
+      channels, generics, tags, and expression forms in the checked source at
+      `capslock_corpus_test.go:172-232`. Rendered positive rows are built at
+      `capslock_corpus_test.go:253-328`, every success is required to be a
+      member of the canonical inventory at `capslock_corpus_test.go:376-385`,
+      and invalid/unresolvable plus deferred rows remain pinned at
+      `capslock_corpus_test.go:355-363`.
+
+  - text: |
+      6. **Live checking remains unchanged**
+         - Given existing call-graph, pruning, and dependency-interface fixtures
+         - When `just ci` runs
+         - Then all verdicts remain unchanged and the production SSA/VTA path is still present for the Step 6 cutover.
+    status: pass
+    evidence: |
+      The complete base-to-current jj range touches only
+      `go/internal/symbol` implementation, documentation, BUILD, and test
+      files. The recorded final `just ci` run at `work.log:1303-1527` reports
+      passing native, integration, self-check, and all 81 Bazel tests; a fresh
+      `go test -count=1 ./...` and integration-tagged run also passed. The
+      production SSA/VTA files are outside the range. A local re-run could not
+      get past generation because `protoc` is unavailable in this environment,
+      but the recorded gate is complete and the working copy remains clean.
+
+findings:
+  - severity: important
+    category: security
+    file: go/internal/symbol/capslock.go
+    line: 548
+    title: Scanner lexical errors are ignored
+    details: |
+      The scanner-based validator initializes `go/scanner` with a nil error
+      handler at `go/internal/symbol/capslock.go:548`, and `checkSingleType`
+      never checks `p.scan.ErrorCount`. The standard scanner deliberately
+      returns a best-effort token stream after lexical errors. As a result,
+      `struct{A int "json:\q"}` can be consumed as a tagged struct because
+      `structBody` accepts the resulting `STRING` token, and `[1_]byte` can be
+      consumed because `expr` accepts the resulting `INT` token, even though
+      both contain invalid Go syntax. These malformed classifier inputs are
+      not rejected by the current tables (`capslock_test.go:133-142` and
+      `capslock_corpus_test.go:355-363`), violating the fail-closed normalizer
+      boundary and the documented syntax-validation contract.
+    suggested_action: |
+      Capture scanner errors (including their source positions) and reject the
+      type argument whenever the completed scan has a nonzero error count,
+      while preserving an actionable wrapped error. Add negative table rows for
+      an invalid string escape and malformed numeric literal, and ensure the
+      lookahead scanner cannot hide lexical errors from the main validation.
+    source: built-in
+
+ecosystem_reviews: []

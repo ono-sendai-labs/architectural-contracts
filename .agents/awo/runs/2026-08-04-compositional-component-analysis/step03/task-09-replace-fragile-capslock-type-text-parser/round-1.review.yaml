@@ -1,0 +1,260 @@
+review:
+  task_file: .agents/tasks/2026-08-04-compositional-component-analysis/step03/task-09-replace-fragile-capslock-type-text-parser.code-task.md
+  change_id: wruzuzzknqzuuxnzmqoztrrswzqxnlmu
+  reviewed_at: "2026-09-04T20:51:54Z"
+  verdict: changes_requested
+  schema_version: 2
+  lsp_coverage: partial
+
+merge_request:
+  title: "fix(symbol): complete Capslock normalization [Compositional Analysis: Step 03/Task 09]"
+  body: |
+    Reviews the complete ordered six-change series. The initial five changes
+    replace the private Capslock grammar, add structured inventory-backed
+    normalization, add the corpus and BUILD registration, document the public
+    API, and remove the parser's ambient FILES reachability. The round-1
+    rework adds exact concrete-method confirmation, canonical inventory
+    queries, grammar regressions, generated formatter strings, and namespace
+    tests.
+
+summary: |
+  The round-1 rework resolves the prior concrete-method and canonical-namespace
+  findings, and it adds passing regressions for variadic results, grouped
+  variadics, trailing newline tokens, pointer embedded fields, and tags.
+  Focused symbol tests, vet, gofmt, gopls diagnostics for all touched Go files,
+  and the recorded full CI gate pass; no tests were deleted and the live
+  checking path remains outside the range. Changes are still requested because
+  the new exact-method API is incompatible with the declaring-object treatment
+  of interface methods, a bare embedded struct type is now rejected, and most
+  of the claimed differential corpus is built with manual `types.New*` values
+  rather than parsed/type-checked declarations.
+
+acceptance_criteria:
+  - text: |
+      1. **Malformed tuple arguments fail closed**
+         - Given `store.Load[(int, string)]` and related parenthesized named-list forms in a single type-argument position
+         - When normalization runs
+         - Then it returns an actionable error and emits no SymbolID.
+    status: pass
+    evidence: |
+      `go/internal/symbol/capslock.go:591-597` parses a parenthesized type as
+      exactly one type, so a comma or named-list token is rejected. The
+      rejection table at `go/internal/symbol/capslock_test.go:128-130` and the
+      corpus rows at `go/internal/symbol/capslock_corpus_test.go:216-217`
+      exercise both forms; errors are returned before the outer parser emits an
+      ID. The prior tuple-acceptance finding is therefore resolved.
+
+  - text: |
+      2. **Valid formatter spellings converge**
+         - Given type arguments containing `example.com/2x.T`, `func(example.com/x.T)`, `func(x ...int)`, qualified embedded fields/interface parameters, and array expressions using `&^`
+         - When normalized with matching package and declaration inventory context
+         - Then each maps to the expected uninstantiated canonical SymbolID.
+    status: pass
+    evidence: |
+      The table at `go/internal/symbol/capslock_test.go:46-54` covers the
+      requested spellings, including pointer embedded fields and tags, while
+      the inventory-backed generated rows at
+      `go/internal/symbol/capslock_corpus_test.go:210-215` normalize to
+      `example.com/ctest.Load`. Import-path translation and type validation are
+      implemented at `go/internal/symbol/capslock.go:345-400`, with final IDs
+      routed through `Parse` at `capslock.go:203-207`. The prior F4 examples
+      now have both positive coverage and passing focused tests.
+
+  - text: |
+      3. **Package grammar has one authority**
+         - Given any package path accepted by canonical SymbolID construction
+         - When it appears in structured Capslock normalization context
+         - Then no stricter duplicate path grammar rejects it; malformed or non-canonical paths still fail.
+    status: pass
+    evidence: |
+      `qualifiedNameParts` delegates package-path validation to the canonical
+      `validPackagePath` at `go/internal/symbol/capslock.go:382-400`, while
+      `SymbolID.Parse` uses the same function at `go/internal/symbol/symbol.go:132`.
+      The digit-leading `example.com/2x` row is accepted at
+      `go/internal/symbol/capslock_test.go:46`, malformed structured paths are
+      rejected at `capslock_inventory_test.go:89-91`, and the old private
+      grammar names are absent (`work.log:592-595`).
+
+  - text: |
+      4. **Normalization is inventory-backed**
+         - Given ambiguous or generic Capslock text
+         - When the structured package or declaration inventory does not confirm one canonical declaration
+         - Then normalization fails rather than guessing; when exactly one declaration is confirmed, the result parses as a canonical SymbolID.
+    status: partial
+    evidence: |
+      The prior concrete-method gap is addressed by the new
+      `DeclaresMethod` query and rejection row at
+      `go/internal/symbol/capslock.go:156-164` and
+      `go/internal/symbol/capslock_inventory_test.go:94`; canonical package
+      confirmation is now performed before emission at `capslock.go:157-164`
+      and `capslock.go:203-207`, with the non-identity namespace test at
+      `capslock_inventory_test.go:105-146`. However, the method path is now
+      unconditional: the design and `FromObject` represent an interface method
+      spec by its declaring interface ID (`go/internal/symbol/typesconv.go:92-95`),
+      not `(pkg.Interface).Method`, so a design-shaped inventory cannot satisfy
+      `DeclaresMethod` without returning a non-inventoried ID. This new
+      interface-method case remains non-passing.
+
+  - text: |
+      5. **Regression corpus tracks real Go syntax**
+         - Given the supported Go/SSA formatter corpus
+         - When symbol tests run
+         - Then positive rows originate from parsed/type-checked declarations, negative rows are syntactically invalid or unresolvable, and the deferred cases are permanently pinned.
+    status: partial
+    evidence: |
+      The outer fixture is parsed and type-checked at
+      `go/internal/symbol/capslock_corpus_test.go:52-79`, and the &^ row comes
+      from the parsed/check-validated AST at `capslock_corpus_test.go:98-134`.
+      The rework also pins generated strings at `capslock_corpus_test.go:167-215`
+      and the deferred rows at `capslock_corpus_test.go:210-223`. The remaining
+      type-form positives are nevertheless constructed with
+      `types.NewPackage`, `types.NewNamed`, `types.NewSignatureType`,
+      `types.NewStruct`, and `types.NewInterfaceType` at
+      `capslock_corpus_test.go:82-91` and `158-203`, not obtained from parsed
+      and type-checked declarations. Thus the prior corpus finding remains
+      partially unresolved.
+
+  - text: |
+      6. **Live checking remains unchanged**
+         - Given existing call-graph, pruning, and dependency-interface fixtures
+         - When `just ci` runs
+         - Then all verdicts remain unchanged and the production SSA/VTA path is still present for the Step 6 cutover.
+    status: pass
+    evidence: |
+      The complete base-to-current range touches only
+      `go/internal/symbol` implementation, documentation, BUILD, and test
+      files. The final recorded `just ci` run at `work.log:700-923` reports
+      passing native, integration, self-check, and Bazel legs, and the live
+      SSA/VTA implementation is outside the range. The fresh review run also
+      passed the focused package tests, vet, and native/self-check legs.
+
+findings:
+  - severity: important
+    category: architecture
+    file: go/internal/symbol/capslock.go
+    line: 161
+    title: Exact method lookup rejects interface method owners
+    details: |
+      `ParseCapslockFunction` now requires `inv.DeclaresMethod` for every
+      receiver spelling at `go/internal/symbol/capslock.go:161-164`. That does
+      not match the component's declaring-object rule: an interface method spec
+      has no `(pkg.Interface).Method` SymbolID and `FromObject` maps it to the
+      declaring interface ID `pkg.Interface` at `go/internal/symbol/typesconv.go:92-95`;
+      the design states the same rule at
+      `.agents/planning/2026-08-04-compositional-component-analysis/design/detailed-design.md:516-522`.
+      A Step 4-shaped inventory therefore contains `pkg.Interface`, not the
+      method ID queried here, so a valid Capslock interface-method record is
+      rejected. If the inventory fabricates the method ID to make the query
+      pass, the returned `(pkg.Interface).Method` still is not the inventoried
+      canonical declaring ID. The new tests cover only concrete `Box.Get`.
+    suggested_action: |
+      Make the inventory resolve a function to its declaring canonical ID and
+      kind, or provide an interface-method-set query that returns the owner
+      `pkg.Interface` for interface specs while concrete methods use
+      `(pkg.Type).Method`. Add a typed interface-method regression; do not
+      merely whitelist a synthetic method ID.
+    source: built-in
+
+  - severity: important
+    category: acceptance_criteria
+    file: go/internal/symbol/capslock.go
+    line: 798
+    title: Round-1 parser rejects bare embedded struct types
+    details: |
+      The new `structBody` branch treats every unqualified identifier that is
+      not followed by a selector as a named field and requires another type at
+      `go/internal/symbol/capslock.go:798-807`. Consequently the valid Go type
+      spelling `struct{T}` (and a bare embedded field following a named field)
+      fails with "struct field ... must be ... name a field". The earlier
+      parser accepted a single identifier as an embedded type, so this is a
+      regression introduced by the rework. The added positives cover only
+      qualified embedded fields at `go/internal/symbol/capslock_test.go:49-50`,
+      and the generated corpus constructs a qualified field at
+      `capslock_corpus_test.go:191-194`; neither catches the bare form.
+      This leaves the formatter-coverage requirement incomplete even though
+      the explicitly qualified case passes.
+    suggested_action: |
+      In `structBody`, distinguish an unqualified identifier followed by the
+      field-list delimiter from a named field, and parse it as an embedded
+      type (including any supported generic form). Add a positive row generated
+      from a parsed/type-checked `struct{T}` declaration and retain the
+      qualified/pointer/tag cases.
+    source: built-in
+
+  - severity: important
+    category: tests
+    file: go/internal/symbol/capslock_corpus_test.go
+    line: 86
+    title: Corpus positives still use synthetic types
+    details: |
+      The rework changes the rows to call `types.TypeString`, but
+      `corpusFixtureTypes` still creates its package and named type directly
+      with `types.NewPackage`/`types.NewNamed` at
+      `go/internal/symbol/capslock_corpus_test.go:82-91`. The function,
+      struct, and interface positives are likewise assembled with
+      `types.NewSignatureType`, `types.NewStruct`, and `types.NewInterfaceType`
+      at `capslock_corpus_test.go:181-203`; they are never parsed or checked by
+      `types.Config`. Only the outer fixture and the source AST used for `&^`
+      are real parsed/check-validated declarations. The test therefore verifies
+      rendering of synthetic `go/types` values, not the required parsed and
+      type-checked Go/SSA corpus, so AC5 and technical requirement 7 remain
+      partial.
+    suggested_action: |
+      Put the named types, function signatures, anonymous struct, and interface
+      method in real fixture source (using imported fixture packages for the
+      qualified paths), type-check the files, and obtain the actual `go/types`
+      objects/expressions from `types.Info` before rendering them. Keep the
+      explicit deferred-string equality checks as a second layer of regression
+      protection.
+    source: built-in
+
+  - severity: suggestion
+    category: tests
+    file: .agents/scratchpad/2026-08-04-compositional-component-analysis/step03/task-09-replace-fragile-capslock-type-text-parser/work.log
+    line: 628
+    title: Rework RED evidence is still not a failing test
+    details: |
+      The rework's RED section at `work.log:628-631` runs the focused command
+      and records `ok`, not a failing assertion or compilation failure. The
+      earlier Cycle A/B RED entries also stop at failed `cd go` commands. The
+      subsequent GREEN run is valid (`work.log:632-694`), but the claimed
+      RED-to-GREEN evidence remains inaccurate even though the code tests pass.
+    suggested_action: |
+      Record a genuine failing focused test from the pre-fix state before the
+      passing run, using the correct module working directory.
+    source: built-in
+
+  - severity: suggestion
+    category: style
+    file: go/internal/symbol/capslock.go
+    line: 277
+    title: Helper comment still misstates the parser authority
+    details: |
+      The public comment was corrected in the rework to describe `go/scanner`
+      at `capslock.go:27-33`, but `validateTypeArguments` still says the check
+      is "instead of a handwritten Go-type grammar" and that it is accepted by
+      "Go's own grammar" at `capslock.go:277-292`. The implementation is a
+      handwritten recursive-descent grammar at `capslock.go:429-457`, so this
+      residual documentation does not accurately describe its supported subset.
+    suggested_action: |
+      Describe the scanner-backed handwritten grammar consistently and state
+      its supported subset and purity rationale without claiming full Go parser
+      equivalence.
+    source: built-in
+
+  - severity: suggestion
+    category: style
+    file: go/internal/symbol/capslock_corpus_test.go
+    line: 251
+    title: Unused qualifiedType helper remains in the corpus test
+    details: |
+      `qualifiedType` is declared at `go/internal/symbol/capslock_corpus_test.go:251-253`
+      but has no call site in the changed test file or the repository. It is
+      dead scaffolding left alongside the synthetic-type construction and adds
+      no coverage.
+    suggested_action: |
+      Remove the unused helper or use it as part of the real parsed fixture
+      lookup when completing the corpus.
+    source: built-in
+
+ecosystem_reviews: []

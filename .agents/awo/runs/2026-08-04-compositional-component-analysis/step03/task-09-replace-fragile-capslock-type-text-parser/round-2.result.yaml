@@ -1,0 +1,92 @@
+result:
+  task_file: .agents/tasks/2026-08-04-compositional-component-analysis/step03/task-09-replace-fragile-capslock-type-text-parser.code-task.md
+  change_id: xruumuvsyoopvoqrtusklkmrqruvskvq
+  status: completed
+  schema_version: 2
+  produced_at: 2026-09-04T21:00:54Z
+
+acceptance_criteria:
+  - text: "Malformed tuple arguments fail closed"
+    addressed: yes
+    evidence: |
+      capslock.go paramList/typ: a parenthesized group in type position must
+      contain exactly one type. Tests: capslock_test.go TestParseCapslock_Rejected
+      rows "tuple type argument" store.Load[(int, string)], "named-list type
+      argument" store.Load[(x int)], plus corpus rows "deferred tuple/named-list
+      type argument is rejected"; all fail with an actionable scanner error and
+      emit no SymbolID.
+  - text: "Valid formatter spellings converge"
+    addressed: yes
+    evidence: |
+      capslock_test.go acceptance rows: example.com/2x.T (digit-leading),
+      func(example.com/x.T), func(x ...int), struct{example.com/x.T},
+      interface{M(example.com/x.T) string}, [N &^ 3]byte — all normalize to
+      store.Load; corpus test pins the same spellings against the typed fixture.
+  - text: "Package grammar has one authority"
+    addressed: yes
+    evidence: |
+      The private validatePathTail/hostPart grammar is deleted (grep in
+      work.log shows no matches); inner paths are validated by the canonical
+      validPackagePath (symbol.go:132, the same function SymbolID.Parse
+      applies) via qualifiedNameParts in capslock.go, and digit-leading
+      elements such as example.com/2x are accepted while malformed paths
+      (os//x, /os//) still fail.
+  - text: "Normalization is inventory-backed"
+    addressed: yes
+    evidence: |
+      ParseCapslockFunction (capslock.go) with CapslockFunction/CapslockInventory:
+      nil inventory, malformed structured package, contradictory package field,
+      unconfirmed declaration, unknown receiver type and — via MethodOwner — a
+      method not declared on an inventoried receiver all fail closed
+      (capslock_inventory_test.go, corpus row
+      method_on_inventoried_receiver_not_declared). MethodOwner resolves a
+      method to its canonical declaring-object ID — concrete "(pkg.T).Method"
+      or the declaring interface "pkg.Interface" for an interface method spec,
+      per the declaring-object rule — and the resolved owner is the emitted ID
+      (corpus row interface_method_spec_resolves_to_its_declaring_interface);
+      queries and emitted IDs use the canonical namespace
+      (TestParseCapslockFunction_CanonicalizesNamespace), and confirmed
+      declarations parse under symbol.Parse.
+  - text: "Regression corpus tracks real Go syntax"
+    addressed: yes
+    evidence: |
+      capslock_corpus_test.go type-checks real fixture packages with
+      types.Config.Check (imported packages example.com/x and example.com/2x
+      via a map importer, and ctest with qualified-struct, qualified-func,
+      named-variadic, interface-method and bare-embedded declarations), builds
+      the inventory via symbol.FromObject, and renders the positive
+      type-argument texts from those checked declarations with
+      types.TypeString (full-import-path qualifier; relative for the
+      same-package embedded field), plus the &^ array length printed from a
+      real parsed/type-checked declaration; each positive normalization
+      resolves to an inventoried canonical SymbolID and the generated text is
+      asserted equal to the pinned deferred spellings; negative rows are
+      syntactically invalid or unresolvable.
+  - text: "Live checking remains unchanged"
+    addressed: yes
+    evidence: |
+      Only go/internal/symbol/{capslock.go,symbol.go} and its test files were
+      modified (jj diff summaries in work.log); the full `just ci` gate — vet,
+      gofmt, native and integration tests, self-checks and the Bazel leg — is
+      green with unchanged call-graph/pruning verdicts.
+
+artifacts:
+  scratchpad_dir: .agents/scratchpad/2026-08-04-compositional-component-analysis/step03/task-09-replace-fragile-capslock-type-text-parser/
+  files:
+    - context.md
+    - plan.md
+    - progress.md
+    - work.log
+    - result.yaml
+
+notes: |
+  Rework round 2 resolved all three important findings: methods resolve
+  through the new MethodOwner query to their canonical declaring object
+  (interface method specs key their declaring interface per the
+  declaring-object rule), bare embedded struct types are accepted again, and
+  every corpus positive is rendered from real parsed/type-checked fixture
+  declarations (imported fixture packages type-checked with a map importer)
+  instead of synthetic types.New* values. The stale grammar comments and the
+  dead test helper were removed. Focused RED→GREEN runs and the full
+  `just ci` gate are green; the fresh child change is
+  xruumuvsyoopvoqrtusklkmrqruvskvq.

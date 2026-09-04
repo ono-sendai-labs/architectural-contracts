@@ -1,0 +1,398 @@
+{
+  "task_file": ".agents/tasks/2026-08-04-compositional-component-analysis/step03/task-09-replace-fragile-capslock-type-text-parser.code-task.md",
+  "planning_slug": "2026-08-04-compositional-component-analysis",
+  "step": 3,
+  "task": 9,
+  "implementer_session": "awo-impl-...-step03-task09 (retired after round 3 no-op) -> awo-impl-...-step03-task09b",
+  "reviewer_session": "awo-rev-...-step03-task09 (retired at 65.2% of window, by user instruction) -> awo-rev-...-step03-task09b",
+  "base": {
+    "change_id": "oozynwtruzsouwrwvwuumttvrknlkvmq",
+    "bookmark": "pr/awo-record-2026-08-04-compositional-component-analysis-step03-task-08"
+  },
+  "produced_changes": [
+    "kwnurlzymlustqlluspnsqozuxnmymyp",
+    "vpznvkqkvkltqpxkxonvuovzwxrsvwwp",
+    "oowwosxxmxskoyottkusvpoxtypqlywr",
+    "tqkvunylsurxpmtvvkoluwxsukrlyzks",
+    "kluqkuzwotolssznrnpxusvmnlzpvtzx",
+    "wruzuzzknqzuuxnzmqoztrrswzqxnlmu",
+    "xruumuvsyoopvoqrtusklkmrqruvskvq",
+    "pvxqmozysmsvvytsmuvxltoyrvlmmolt",
+    "vquzympzsnkywnllqvxsmprxwtstytoq",
+    "xnmomvwkulyppqtxzkqsqltuwlmrymwq"
+  ],
+  "rounds": [
+    {
+      "round": 0,
+      "role": "implementer",
+      "prompt": ".agents/runs-acpx/20260904-124216-step03-task-09-replace-fragile-capslock-type-text-parser/round-0.implementer/prompt.md",
+      "out": ".agents/runs-acpx/20260904-124216-step03-task-09-replace-fragile-capslock-type-text-parser/round-0.implementer",
+      "status": "completed",
+      "change_id": "kluqkuzwotolssznrnpxusvmnlzpvtzx",
+      "wall_seconds": 1504,
+      "tool_calls": 519,
+      "compaction": false,
+      "tokens": {
+        "inputTokens": 20,
+        "outputTokens": 292,
+        "totalTokens": 123704,
+        "cachedReadTokens": 123392
+      },
+      "check_ins": [
+        {
+          "elapsed_s": 600,
+          "tool_events": 118,
+          "last_tool": "go test ./internal/symbol/"
+        },
+        {
+          "elapsed_s": 1200,
+          "tool_events": 437,
+          "last_tool": "just ci"
+        }
+      ],
+      "diff_summary": [
+        "M go/internal/symbol/BUILD.bazel",
+        "M go/internal/symbol/capslock.go",
+        "A go/internal/symbol/capslock_corpus_test.go",
+        "A go/internal/symbol/capslock_inventory_test.go",
+        "M go/internal/symbol/capslock_test.go",
+        "M go/internal/symbol/symbol.go"
+      ],
+      "orchestrator_notes": "Diff matches claims; no .agents/tasks or .agents/planning file touched. Gate-coverage check PASSES this time: both new test files are in go_test(symbol_test) srcs. Implementer reports a documented deviation from TR3: go/parser was abandoned because every parser entry point statically reaches os.ReadFile via readSource, which the self-check flags as undeclared FILES authority in the pure `symbol` component; it used a recursive-descent grammar over go/scanner tokens instead. Deviation resolved in CODE and documented, not by editing the spec - left entirely for the reviewer to judge, not disclosed."
+    },
+    {
+      "round": 0,
+      "role": "reviewer",
+      "prompt": ".agents/runs-acpx/20260904-124216-step03-task-09-replace-fragile-capslock-type-text-parser/round-0.reviewer/prompt.md",
+      "out": ".agents/runs-acpx/20260904-124216-step03-task-09-replace-fragile-capslock-type-text-parser/round-0.reviewer",
+      "verdict": "changes_requested",
+      "acceptance_criteria": "4/6 pass, AC4 and AC5 partial",
+      "findings": [
+        {
+          "severity": "important",
+          "file": "go/internal/symbol/capslock.go:148",
+          "title": "Inventory lookup does not verify method identity"
+        },
+        {
+          "severity": "important",
+          "file": "go/internal/symbol/capslock.go:148",
+          "title": "Structured inventory lookup ignores canonical namespace"
+        },
+        {
+          "severity": "important",
+          "file": "go/internal/symbol/capslock.go:479",
+          "title": "Scanner grammar still diverges from Go syntax"
+        },
+        {
+          "severity": "important",
+          "file": "go/internal/symbol/capslock_corpus_test.go:96",
+          "title": "Corpus positives are not generated from typed declarations"
+        },
+        {
+          "severity": "suggestion",
+          "file": "work.log:32",
+          "title": "Inventory and corpus TDD evidence is incomplete"
+        },
+        {
+          "severity": "suggestion",
+          "file": "go/internal/symbol/capslock.go:27",
+          "title": "Parser documentation still claims go/parser"
+        }
+      ],
+      "wall_seconds": 1473,
+      "tool_calls": 376,
+      "compaction": false,
+      "tokens": {
+        "inputTokens": 841,
+        "outputTokens": 340,
+        "totalTokens": 282525,
+        "cachedReadTokens": 281344
+      },
+      "context_pct_of_window": 33.2,
+      "orchestrator_notes": "Repository unchanged pre/post. Reviewer engaged the go/scanner deviation on the merits and found concrete grammar gaps (variadic results, grouped variadics, trailing tokens after an inserted semicolon, *-embedded and tagged struct fields) plus that the 'differential' corpus is hand-authored. NEW ENVIRONMENT OBSERVATION: the reviewer reports it could not start Bazel - 'this sandbox's Bazel output base is read-only' - so it verified the native and self-check legs only and relied on the implementer's archived Bazel run. Task 08's reviewer ran bazel query and a focused bazel test successfully, so this is a change; possibly a consequence of the orchestrator's `bazel shutdown` immediately before the launch."
+    },
+    {
+      "round": 1,
+      "role": "implementer",
+      "prompt": ".agents/runs-acpx/20260904-124216-step03-task-09-replace-fragile-capslock-type-text-parser/round-1.implementer/prompt.md",
+      "out": ".agents/runs-acpx/20260904-124216-step03-task-09-replace-fragile-capslock-type-text-parser/round-1.implementer",
+      "status": "no_op_turn",
+      "change_id": null,
+      "wall_seconds": 82,
+      "tool_calls": 3,
+      "compaction": false,
+      "tokens": {
+        "inputTokens": 12965,
+        "outputTokens": 4751,
+        "totalTokens": 132532,
+        "cachedReadTokens": 114816
+      },
+      "orchestrator_notes": "NO-OP TURN. stopReason=end_turn, exit 0, but the turn read review.yaml, emitted 1977 agent_thought_chunks (18814 chars) planning all six fixes, then terminated with ZERO assistant text and no edits. Reasoning ends mid-sentence at 'Let me start editing capslock.go inventory interface + parseCapslock.' - an adapter/model-side early stop at the reasoning/tool-use boundary, NOT a harness kill (a stopReason arrived) and NOT a repository change (jj st clean, series unchanged at 5). Provably inert, so no rework round and no loop-guard charge; recovered by re-prompting the same warm session."
+    },
+    {
+      "round": 1,
+      "role": "implementer",
+      "prompt": ".agents/runs-acpx/20260904-124216-step03-task-09-replace-fragile-capslock-type-text-parser/round-1.implementer-b/prompt.md",
+      "out": ".agents/runs-acpx/20260904-124216-step03-task-09-replace-fragile-capslock-type-text-parser/round-1.implementer-b",
+      "status": "completed",
+      "change_id": "wruzuzzknqzuuxnzmqoztrrswzqxnlmu",
+      "retry_of": "no_op_turn",
+      "wall_seconds": 371,
+      "tool_calls": 222,
+      "compaction": false,
+      "tokens": {
+        "inputTokens": 421,
+        "outputTokens": 129,
+        "totalTokens": 156710,
+        "cachedReadTokens": 156160
+      },
+      "diff_summary": [
+        "M go/internal/symbol/capslock.go",
+        "M go/internal/symbol/capslock_corpus_test.go",
+        "M go/internal/symbol/capslock_inventory_test.go",
+        "M go/internal/symbol/capslock_test.go"
+      ],
+      "orchestrator_notes": "Two-line nudge ('your previous turn ended after planning without making any edits; carry out the plan you just formed') recovered it in the SAME session - the model resumed from the plan it had formed in the lost turn's reasoning, which is the continuity hypothesis working in an unplanned way. Diff touches every findings file. Fresh child change; kluqkuzw still present and an ancestor."
+    },
+    {
+      "round": 1,
+      "role": "reviewer",
+      "prompt": ".agents/runs-acpx/20260904-124216-step03-task-09-replace-fragile-capslock-type-text-parser/round-1.reviewer/prompt.md",
+      "out": ".agents/runs-acpx/20260904-124216-step03-task-09-replace-fragile-capslock-type-text-parser/round-1.reviewer",
+      "verdict": "changes_requested",
+      "acceptance_criteria": "4/6 pass, AC4 and AC5 still partial",
+      "findings": [
+        {
+          "severity": "important",
+          "file": "go/internal/symbol/capslock.go:161",
+          "title": "Exact method lookup rejects interface method owners",
+          "note": "regression introduced by the round-1 rework"
+        },
+        {
+          "severity": "important",
+          "file": "go/internal/symbol/capslock.go:798",
+          "title": "Round-1 parser rejects bare embedded struct types",
+          "note": "regression introduced by the round-1 rework"
+        },
+        {
+          "severity": "important",
+          "file": "go/internal/symbol/capslock_corpus_test.go:86",
+          "title": "Corpus positives still use synthetic types",
+          "note": "repeat of a round-0 finding, only partially addressed"
+        }
+      ],
+      "wall_seconds": 687,
+      "tool_calls": 126,
+      "compaction": false,
+      "tokens": {
+        "inputTokens": 1306,
+        "outputTokens": 1277,
+        "totalTokens": 443671,
+        "cachedReadTokens": 441088
+      },
+      "context_pct_of_window": 52.2,
+      "context_flag": "ABOVE 50% of the 850000-token codex window. Session retained for round 2: it is awarding partial credit against its own prior findings and caught two regressions the rework introduced, which a fresh reviewer could not do without being re-fed the old review. Increment was +161k on this round; will retire before round 3 if it approaches ~70%.",
+      "orchestrator_notes": "Repository unchanged pre/post. Reviewer awarded partial credit correctly (prior method-identity and namespace findings resolved) while catching two NEW regressions the rework introduced, and correctly held the corpus finding open as only partially addressed. lsp_coverage improved to partial with gopls diagnostics on touched files."
+    },
+    {
+      "round": 2,
+      "role": "implementer",
+      "prompt": ".agents/runs-acpx/20260904-124216-step03-task-09-replace-fragile-capslock-type-text-parser/round-2.implementer/prompt.md",
+      "out": ".agents/runs-acpx/20260904-124216-step03-task-09-replace-fragile-capslock-type-text-parser/round-2.implementer",
+      "status": "completed",
+      "change_id": "xruumuvsyoopvoqrtusklkmrqruvskvq",
+      "wall_seconds": 358,
+      "tool_calls": 123,
+      "compaction": false,
+      "tokens": {
+        "inputTokens": 121,
+        "outputTokens": 354,
+        "totalTokens": 181467,
+        "cachedReadTokens": 180992
+      },
+      "diff_summary": [
+        "M go/internal/symbol/capslock.go",
+        "M go/internal/symbol/capslock_corpus_test.go",
+        "M go/internal/symbol/capslock_inventory_test.go",
+        "M go/internal/symbol/capslock_test.go"
+      ],
+      "orchestrator_notes": "Diff touches every findings file. Fresh child; wruzuzzk still present and an ancestor. Replaced DeclaresMethod with MethodOwner to follow the declaring-object rule, restored bare embedded struct types, and rebuilt the corpus on parsed/type-checked imported fixture packages via a map importer."
+    },
+    {
+      "round": 2,
+      "role": "reviewer",
+      "prompt": ".agents/runs-acpx/20260904-124216-step03-task-09-replace-fragile-capslock-type-text-parser/round-2.reviewer/prompt.md",
+      "out": ".agents/runs-acpx/20260904-124216-step03-task-09-replace-fragile-capslock-type-text-parser/round-2.reviewer",
+      "verdict": "changes_requested",
+      "acceptance_criteria": "5/6 pass, AC5 partial",
+      "findings": [
+        {
+          "severity": "important",
+          "file": "go/internal/symbol/capslock.go:326",
+          "title": "Type-argument splitting is not quote-aware"
+        },
+        {
+          "severity": "important",
+          "file": "go/internal/symbol/capslock_corpus_test.go:267",
+          "title": "Typed corpus omits accepted type forms"
+        }
+      ],
+      "wall_seconds": 905,
+      "tool_calls": 123,
+      "compaction": false,
+      "tokens": {
+        "inputTokens": 1023,
+        "outputTokens": 373,
+        "totalTokens": 554100,
+        "cachedReadTokens": 552704
+      },
+      "context_pct_of_window": 65.2,
+      "context_flag": "65.2% of the 850000-token codex window; increment +110k this round. Retained for round 3: the reviewed delta is now small (2 findings) and the accumulated finding history is what is driving convergence (4 -> 3 -> 2 important). Will retire before round 4 if it exceeds ~75%.",
+      "REVIEWER_MUTATED_REPOSITORY": {
+        "what": "The reviewer created `stdin.o` (1960-byte ar archive, a compiler artifact) in the repo root. jj auto-tracked it, so the empty working copy @ became non-empty and its commit id changed 3edbf8d7 -> abca9904.",
+        "investigation": "No produced change was altered - all seven change ids and descriptions are intact, all 120 pr/ bookmarks present, and no tracked source file changed. The mutation was confined to the untracked-then-auto-tracked artifact in @.",
+        "action": "Deleted the artifact; @ is empty again (4d387da5). Not committed - it is a regenerable binary compiler temp with zero information value, and committing it would corrupt the task series.",
+        "skill_finding": "\u00a7Troubleshooting's 'The reviewer modified the repository' is written for a semantic mutation and says stop-and-investigate. A build artifact dropped in the repo root by the reviewer's own tooling is a distinct, benign case that jj's auto-tracking converts into a dirty working copy. The skill has no rule for it; \u00a7'Stray files in @' would have had me COMMIT it, which is wrong here."
+      },
+      "orchestrator_notes": "Convergence is real: important findings 4 -> 3 -> 2, ACs 4/6 -> 4/6 -> 5/6 pass, and the round-1 regressions are confirmed fixed. Both remaining findings are narrow (quote-aware delimiter scanning; corpus breadth for TR7)."
+    },
+    {
+      "round": 3,
+      "role": "implementer",
+      "prompt": ".agents/runs-acpx/20260904-124216-step03-task-09-replace-fragile-capslock-type-text-parser/round-3.implementer/prompt.md",
+      "out": ".agents/runs-acpx/20260904-124216-step03-task-09-replace-fragile-capslock-type-text-parser/round-3.implementer",
+      "status": "no_op_turn_session_degraded",
+      "change_id": null,
+      "wall_seconds": 8,
+      "tool_calls": 0,
+      "compaction": false,
+      "tokens": {
+        "inputTokens": 330,
+        "outputTokens": 282,
+        "totalTokens": 181860,
+        "cachedReadTokens": 181248
+      },
+      "orchestrator_notes": "SECOND no-op turn in this session, and this one is diagnostic. 8s, zero tool calls, zero assistant text, stopReason=end_turn, topology unchanged. The 42 thought chunks are a single paragraph: 'The user says reviewer's findings are at a review.yaml. I need to read it. ... Note: in my previous replies, I apparently fabricated content - the previous turns show me writing odd fabricated replies. I must be careful: actually READ the review.yaml first. Let me explore the directory structure.' It then ended the turn without reading anything. The session's model of its own history is corrupted: its prior work was NOT fabricated - every round's diff was verified against the findings' files by the orchestrator and the code was independently confirmed by the reviewer across three review turns. Diagnosis: task-scoped implementer session degradation at ~181k totalTokens after 5 turns (two of them no-ops). Remedy: retire the session and open a fresh implementer for the remaining rounds, per the cold-start-is-cheap design. No rework round and no loop-guard charge - the turn was provably inert."
+    },
+    {
+      "round": 3,
+      "role": "implementer",
+      "session": "awo-impl-2026-08-04-compositional-component-analysis-step03-task09b",
+      "prompt": ".agents/runs-acpx/20260904-124216-step03-task-09-replace-fragile-capslock-type-text-parser/round-3.implementer-b/prompt.md",
+      "out": ".agents/runs-acpx/20260904-124216-step03-task-09-replace-fragile-capslock-type-text-parser/round-3.implementer-b",
+      "status": "completed",
+      "change_ids": [
+        "pvxqmozysmsvvytsmuvxltoyrvlmmolt",
+        "vquzympzsnkywnllqvxsmprxwtstytoq"
+      ],
+      "wall_seconds": 343,
+      "tool_calls": 198,
+      "compaction": false,
+      "tokens": {
+        "inputTokens": 52,
+        "outputTokens": 212,
+        "totalTokens": 60168,
+        "cachedReadTokens": 59904
+      },
+      "diff_summary": [
+        "M go/internal/symbol/capslock.go",
+        "M go/internal/symbol/capslock_corpus_test.go",
+        "M go/internal/symbol/capslock_test.go"
+      ],
+      "orchestrator_notes": "FRESH implementer session (task09b) after the previous one degraded. Cold start cost one prompt naming the series, the scratchpad and the review path - exactly the 'cold session is cheap' design claim - and it produced two coherent incremental changes covering both open findings. Diff touches both findings' files. Prior tip xruumuvs still present and an ancestor."
+    },
+    {
+      "round": 3,
+      "role": "reviewer",
+      "session": "awo-rev-2026-08-04-compositional-component-analysis-step03-task09b",
+      "prompt": ".agents/runs-acpx/20260904-124216-step03-task-09-replace-fragile-capslock-type-text-parser/round-3.reviewer/prompt.md",
+      "out": ".agents/runs-acpx/20260904-124216-step03-task-09-replace-fragile-capslock-type-text-parser/round-3.reviewer",
+      "verdict": "changes_requested",
+      "acceptance_criteria": "6/6 pass",
+      "findings": [
+        {
+          "severity": "important",
+          "file": "go/internal/symbol/capslock.go:548",
+          "title": "Scanner lexical errors are ignored"
+        }
+      ],
+      "wall_seconds": 1201,
+      "tool_calls": 256,
+      "compaction": false,
+      "tokens": {
+        "inputTokens": 3276,
+        "outputTokens": 1113,
+        "totalTokens": 300069,
+        "cachedReadTokens": 295680
+      },
+      "context_pct_of_window": 35.3,
+      "orchestrator_notes": "FRESH reviewer session (task09b) at the user's instruction; the previous one had reached 65.2% of the window. Cold start cost 3276 inputTokens and one prompt naming the three archived prior reviews - it read them, correctly confirmed both round-2 findings resolved, and passed all six ACs for the first time. It then found a NEW important defect no warm round had: go/scanner is initialized with a nil error handler at capslock.go:548 and ErrorCount is never checked, so the best-effort token stream lets lexically invalid input through (struct tag with an invalid escape, [1_]byte). A fresh context found a real fail-closed hole in the very property the task exists to establish - evidence for the step-review rationale that context independence catches what accumulated context does not."
+    },
+    {
+      "round": 4,
+      "role": "implementer",
+      "session": "awo-impl-2026-08-04-compositional-component-analysis-step03-task09b",
+      "prompt": ".agents/runs-acpx/20260904-124216-step03-task-09-replace-fragile-capslock-type-text-parser/round-4.implementer/prompt.md",
+      "out": ".agents/runs-acpx/20260904-124216-step03-task-09-replace-fragile-capslock-type-text-parser/round-4.implementer",
+      "status": "completed",
+      "change_id": "xnmomvwkulyppqtxzkqsqltuwlmrymwq",
+      "wall_seconds": 171,
+      "tool_calls": 74,
+      "compaction": false,
+      "tokens": {
+        "inputTokens": 283,
+        "outputTokens": 177,
+        "totalTokens": 67532,
+        "cachedReadTokens": 67072
+      },
+      "diff_summary": [
+        "M go/internal/symbol/capslock.go",
+        "M go/internal/symbol/capslock_test.go"
+      ],
+      "orchestrator_notes": "Diff touches the finding's file. Fresh child; vquzympz still ancestor. Both malformed inputs pinned as new rejection rows, RED-verified before the fix."
+    },
+    {
+      "round": 4,
+      "role": "reviewer",
+      "session": "awo-rev-2026-08-04-compositional-component-analysis-step03-task09b",
+      "prompt": ".agents/runs-acpx/20260904-124216-step03-task-09-replace-fragile-capslock-type-text-parser/round-4.reviewer/prompt.md",
+      "out": ".agents/runs-acpx/20260904-124216-step03-task-09-replace-fragile-capslock-type-text-parser/round-4.reviewer",
+      "verdict": "approved",
+      "acceptance_criteria": "6/6 pass",
+      "findings": [],
+      "wall_seconds": 374,
+      "tool_calls": 124,
+      "compaction": false,
+      "tokens": {
+        "inputTokens": 565,
+        "outputTokens": 108,
+        "totalTokens": 408993,
+        "cachedReadTokens": 408320
+      },
+      "context_pct_of_window": 48.1,
+      "orchestrator_notes": "Approval cites file:line per criterion. Repository unchanged pre/post."
+    }
+  ],
+  "outcome": {
+    "status": "approved",
+    "rework_rounds_used": 4,
+    "rework_rounds_allowed": 4,
+    "produced_changes": [
+      "kwnurlzymlustqlluspnsqozuxnmymyp",
+      "vpznvkqkvkltqpxkxonvuovzwxrsvwwp",
+      "oowwosxxmxskoyottkusvpoxtypqlywr",
+      "tqkvunylsurxpmtvvkoluwxsukrlyzks",
+      "kluqkuzwotolssznrnpxusvmnlzpvtzx",
+      "wruzuzzknqzuuxnzmqoztrrswzqxnlmu",
+      "xruumuvsyoopvoqrtusklkmrqruvskvq",
+      "pvxqmozysmsvvytsmuvxltoyrvlmmolt",
+      "vquzympzsnkywnllqvxsmprxwtstytoq",
+      "xnmomvwkulyppqtxzkqsqltuwlmrymwq"
+    ],
+    "bookmark": "pr/2026-08-04-compositional-component-analysis/step03/task-09-replace-fragile-capslock-type-text-parser.code-task",
+    "acceptance_criteria": "6/6 pass",
+    "open_findings": [],
+    "sessions": "implementer task09 retired after two no-op turns -> task09b; reviewer task09 retired at 65.2% of window by user instruction -> task09b",
+    "merge_request_corrections": "Title tag was correct this time ([Compositional Analysis: Step 03/Task 09]) - no correction needed. Body rewritten from reviewer voice into the change's voice, preserving every substantive claim and adding the go/parser purity rationale."
+  }
+}

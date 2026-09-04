@@ -1,0 +1,174 @@
+review:
+  task_file: .agents/tasks/2026-08-04-compositional-component-analysis/step03/task-09-replace-fragile-capslock-type-text-parser.code-task.md
+  change_id: xruumuvsyoopvoqrtusklkmrqruvskvq
+  reviewed_at: "2026-09-04T21:15:15Z"
+  verdict: changes_requested
+  schema_version: 2
+  lsp_coverage: partial
+
+merge_request:
+  title: "fix(symbol): complete Capslock normalization [Compositional Analysis: Step 03/Task 09]"
+  body: |
+    Reviews the complete ordered seven-change series. The initial five changes
+    replace the private Capslock grammar, add structured inventory-backed
+    normalization, add the corpus and BUILD registration, document the public
+    API, and remove the parser's ambient FILES reachability. Round 1 adds exact
+    concrete-method confirmation, canonical inventory queries, grammar
+    regressions, generated formatter strings, and namespace tests; round 2
+    resolves methods through their declaring object, sources the corpus from
+    checked declarations, restores bare embedded types, and updates the
+    associated regressions.
+
+summary: |
+  Round 2 resolves the prior important findings: MethodOwner now returns the
+  concrete or interface declaring ID, inventory checks use the canonical
+  namespace, the prior malformed-signature cases are rejected, and the corpus
+  positives now come from checked fixture source. Focused symbol tests, vet,
+  gofmt, gopls diagnostics for all touched Go files, and the recorded full CI
+  gate pass; no tests were deleted and the live checking path remains outside
+  the range. Changes are still requested because delimiter scanning is not
+  quote-aware and the typed corpus does not cover all of the accepted type
+  forms, including the existing hand-authored pointer/tag/map/channel cases.
+
+acceptance_criteria:
+  - text: |
+      1. **Malformed tuple arguments fail closed**
+         - Given `store.Load[(int, string)]` and related parenthesized named-list forms in a single type-argument position
+         - When normalization runs
+         - Then it returns an actionable error and emits no SymbolID.
+    status: pass
+    evidence: |
+      `go/internal/symbol/capslock.go:607-613` parses a parenthesized type as
+      exactly one type, so a comma or named-list token is rejected. The
+      rejection table at `go/internal/symbol/capslock_test.go:130-132` and the
+      corpus rows at `go/internal/symbol/capslock_corpus_test.go:279-280`
+      exercise both forms. The prior tuple-acceptance finding is resolved and
+      focused tests pass.
+
+  - text: |
+      2. **Valid formatter spellings converge**
+         - Given type arguments containing `example.com/2x.T`, `func(example.com/x.T)`, `func(x ...int)`, qualified embedded fields/interface parameters, and array expressions using `&^`
+         - When normalized with matching package and declaration inventory context
+         - Then each maps to the expected uninstantiated canonical SymbolID.
+    status: pass
+    evidence: |
+      The acceptance rows at `go/internal/symbol/capslock_test.go:46-56` cover
+      the requested spellings, and the checked-fixture rows at
+      `go/internal/symbol/capslock_corpus_test.go:272-278` normalize them to
+      `example.com/ctest.Load`. Import translation and validation are at
+      `go/internal/symbol/capslock.go:361-416`; the final path is parsed via
+      the canonical constructor at `capslock.go:216-220`. Prior F4 cases now
+      have passing positive coverage, including pointer embedded fields and
+      tags.
+
+  - text: |
+      3. **Package grammar has one authority**
+         - Given any package path accepted by canonical SymbolID construction
+         - When it appears in structured Capslock normalization context
+         - Then no stricter duplicate path grammar rejects it; malformed or non-canonical paths still fail.
+    status: pass
+    evidence: |
+      `qualifiedNameParts` delegates package-path validation to the canonical
+      `validPackagePath` at `go/internal/symbol/capslock.go:398-416`, while
+      `SymbolID.Parse` uses the same function at `go/internal/symbol/symbol.go:132`.
+      The digit-leading `example.com/2x` row is accepted at
+      `go/internal/symbol/capslock_test.go:46`, malformed structured paths are
+      rejected at `capslock_inventory_test.go:122-124`, and the obsolete
+      private grammar names remain absent (`work.log:592-595`).
+
+  - text: |
+      4. **Normalization is inventory-backed**
+         - Given ambiguous or generic Capslock text
+         - When the structured package or declaration inventory does not confirm one canonical declaration
+         - Then normalization fails rather than guessing; when exactly one declaration is confirmed, the result parses as a canonical SymbolID.
+    status: pass
+    evidence: |
+      The round-1 receiver and namespace findings are addressed by
+      `MethodOwner` and canonical lookup/emission at
+      `go/internal/symbol/capslock.go:159-177` and `216-220`. Round 2 adds
+      concrete and interface-owner cases at
+      `go/internal/symbol/capslock_inventory_test.go:97-100` and
+      `go/internal/symbol/capslock_corpus_test.go:281-287`; the interface row
+      resolves to `example.com/ctest.Iface`, the declaring-object ID. Missing
+      inventories, packages, declarations, methods, and contradictory package
+      fields are rejected at `capslock_inventory_test.go:117-135`.
+
+  - text: |
+      5. **Regression corpus tracks real Go syntax**
+         - Given the supported Go/SSA formatter corpus
+         - When symbol tests run
+         - Then positive rows originate from parsed/type-checked declarations, negative rows are syntactically invalid or unresolvable, and the deferred cases are permanently pinned.
+    status: partial
+    evidence: |
+      Round 2 resolves the prior synthetic-value issue: imported packages and
+      the ctest fixture are parsed and type-checked at
+      `go/internal/symbol/capslock_corpus_test.go:165-202`, and their positive
+      strings are rendered from checked objects at `capslock_corpus_test.go:223-265`.
+      The deferred cases and negative rows remain pinned at
+      `capslock_corpus_test.go:272-287`. However, the typed corpus still omits
+      several accepted forms exercised only by hand-authored rows in
+      `go/internal/symbol/capslock_test.go:27-56` (for example map, channel,
+      nested generic, multi-result, pointer-embedded, and tagged forms), so it
+      does not cover every accepted type form required by the criterion.
+
+  - text: |
+      6. **Live checking remains unchanged**
+         - Given existing call-graph, pruning, and dependency-interface fixtures
+         - When `just ci` runs
+         - Then all verdicts remain unchanged and the production SSA/VTA path is still present for the Step 6 cutover.
+    status: pass
+    evidence: |
+      The complete base-to-current range touches only
+      `go/internal/symbol` implementation, documentation, BUILD, and test
+      files. The final recorded `just ci` run at `work.log:1031-1254` reports
+      passing native, integration, self-check, and Bazel legs, and the live
+      SSA/VTA implementation is outside the range. The fresh review run also
+      passed the symbol package tests and vet.
+
+findings:
+  - severity: important
+    category: acceptance_criteria
+    file: go/internal/symbol/capslock.go
+    line: 326
+    title: Type-argument splitting is not quote-aware
+    details: |
+      `splitTypeArgumentList` counts delimiters byte-by-byte at
+      `go/internal/symbol/capslock.go:326-350`, without recognizing Go string
+      literals or escapes. A valid formatter output such as
+      `struct{A int "json:\"}\""}` therefore treats the `}` inside the tag
+      as the end of the struct and rejects the real closing brace as
+      unbalanced. `stripTrailingBrackets` also scans bracket characters inside
+      tags at `capslock.go:253-282`. The new tag test at
+      `go/internal/symbol/capslock_test.go:53` contains no delimiter in its
+      string, so it does not catch this valid Go/SSA spelling.
+    suggested_action: |
+      Make the outer bracket/delimiter scan token-aware, at minimum skipping
+      quoted strings and escaped bytes, and add a parsed/type-checked tagged
+      struct fixture whose tag contains a bracket or brace. Keep the existing
+      tuple and nested-type balance checks.
+    source: built-in
+
+  - severity: important
+    category: tests
+    file: go/internal/symbol/capslock_corpus_test.go
+    line: 267
+    title: Typed corpus omits accepted type forms
+    details: |
+      The rework now sources its six deferred examples from checked declarations,
+      but the corpus table at `go/internal/symbol/capslock_corpus_test.go:272-287`
+      still covers only those generated forms plus bare embedded and the
+      method cases. Other forms accepted by the normalizer — slices, arrays,
+      maps, channels, nested generic types, multi-result functions, pointer
+      embedded fields, and tagged fields — remain only hand-authored strings in
+      `go/internal/symbol/capslock_test.go:27-56`. The task's technical
+      requirement 7 says the corpus must cover every accepted type form, so
+      this is an incomplete resolution of the prior corpus-coverage concern
+      even though the included rows are now genuinely type-checked.
+    suggested_action: |
+      Add real parsed/type-checked fixture declarations for every accepted
+      type constructor and render each through the formatter path used by the
+      normalizer. Use the resulting rows in the differential corpus, while
+      retaining the explicit deferred-string equality checks and negative cases.
+    source: built-in
+
+ecosystem_reviews: []
