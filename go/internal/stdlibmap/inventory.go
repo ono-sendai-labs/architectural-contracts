@@ -50,7 +50,7 @@ type Inventory struct {
 // deduplicated (task req 6). Repeated observations of the same object (for
 // example an alias expansion and its target's own declaration) collapse.
 type observed struct {
-	id symbol.SymbolID
+	id  symbol.SymbolID
 	obj types.Object
 }
 
