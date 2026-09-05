@@ -82,7 +82,9 @@ func cacheArtifactPath(root string, key stdlibauthority.SDKKey) string {
 type CacheSeams struct {
 	// UserCacheDir resolves the default cache root (DefaultCacheRoot's base).
 	UserCacheDir func() (string, error)
-	// ReadFile reads the artifact bytes at a path (os.ReadFile).
+	// ReadFile reads the artifact bytes at a path (os.Open plus a read
+	// bounded by artifactio.MaxMapBytes, so an oversized cache entry cannot
+	// allocate unbounded memory before the decoder rejects it).
 	ReadFile func(path string) ([]byte, error)
 	// MkdirAll creates the artifact directory (os.MkdirAll).
 	MkdirAll func(path string, perm os.FileMode) error
@@ -104,7 +106,18 @@ func (s *CacheSeams) readFile() func(string) ([]byte, error) {
 	if s != nil && s.ReadFile != nil {
 		return s.ReadFile
 	}
-	return os.ReadFile
+	// The bounded default: at most MaxMapBytes plus one sentinel byte is
+	// read, so an oversized or runaway cache entry is rejected by the
+	// decoder's own bound without the whole file ever being loaded (DR-15;
+	// review-round-3 finding).
+	return func(path string) ([]byte, error) {
+		f, err := os.Open(path)
+		if err != nil {
+			return nil, err
+		}
+		defer f.Close()
+		return io.ReadAll(io.LimitReader(f, artifactio.MaxMapBytes+1))
+	}
 }
 
 func (s *CacheSeams) mkdirAll() func(string, os.FileMode) error {

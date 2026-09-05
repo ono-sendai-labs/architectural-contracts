@@ -7,7 +7,26 @@ import (
 	"testing"
 
 	"github.com/ono-sendai-labs/architectural-contracts/go/cmd/arcc/app"
+	"github.com/ono-sendai-labs/architectural-contracts/go/internal/artifactio"
 )
+
+// oversizedPath creates a sparse file one byte over the decoder's bound, so
+// the size guard (not the content) is what fails (review round 3).
+func oversizedPath(t *testing.T) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "oversized.json")
+	f, err := os.Create(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Truncate(artifactio.MaxMapBytes + 1); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
 
 // TestStdlibmapUsageErrors pins the stdlibmap commands' arg-parsing and
 // lookup exit-code contract (task req 7): usage, decode, and lookup errors
@@ -93,6 +112,11 @@ func TestStdlibmapUsageErrors(t *testing.T) {
 			name:       "generate with a mismatched toolchain override",
 			args:       []string{"stdlibmap", "generate", "--output=" + filepath.Join(t.TempDir(), "map.json"), "--toolchain=go-wrong"},
 			wantStderr: "does not match the current toolchain",
+		},
+		{
+			name:       "inspect an oversized artifact is a bounded tool error",
+			args:       []string{"stdlibmap", "inspect", oversizedPath(t), "summary"},
+			wantStderr: "decoding the stdlib map artifact",
 		},
 	}
 	for _, tt := range tests {

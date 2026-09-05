@@ -1,7 +1,6 @@
 package app
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -225,14 +224,17 @@ func (r *Runner) runStdlibmapInspect(args []string, stdout, stderr io.Writer) in
 		return 2
 	}
 
-	// Read, decode and validate the artifact (fail closed on any decode or
-	// validation fault), then check the expected key, then run the queries.
-	data, err := os.ReadFile(artifactPath)
+	// Stream the artifact straight into the bounded decoder: the decoder
+	// reads at most MaxMapBytes, so a user-supplied path can never allocate
+	// unbounded memory before validation rejects the content (review
+	// round-3 finding).
+	f, err := os.Open(artifactPath)
 	if err != nil {
 		fmt.Fprintf(stderr, "error: opening the stdlib map artifact: %v\n", err)
 		return 2
 	}
-	m, err := stdlibmap.DecodeMapArtifact(bytes.NewReader(data))
+	defer f.Close()
+	m, err := stdlibmap.DecodeMapArtifact(f)
 	if err != nil {
 		fmt.Fprintf(stderr, "error: decoding the stdlib map artifact %s: %v\n", artifactPath, err)
 		return 2

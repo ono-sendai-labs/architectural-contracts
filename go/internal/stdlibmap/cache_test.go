@@ -305,6 +305,50 @@ func TestFailedGenerationPreservesPriorBytes(t *testing.T) {
 	}
 }
 
+// TestOversizedCacheEntryIsAMissAndRegenerated pins the bounded default read
+// (review round 3): a cache entry over artifactio.MaxMapBytes is read through
+// the decoder's bound, fails validation, and is regenerated — without the
+// whole file being loaded.
+func TestOversizedCacheEntryIsAMissAndRegenerated(t *testing.T) {
+	root := t.TempDir()
+	key := cacheKey()
+	valid := cannedGeneration(t, key, false)
+	spy := &generatorSpy{results: valid}
+	seams := cacheSeams(t, root, spy)
+	dir := filepath.Join(root, "arcc", "stdlibmap")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, CacheKeyDigest(key)+".json")
+	f, err := os.Create(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Truncate(artifactio.MaxMapBytes + 1); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
+	auth, err := OpenCachedMap(CachedMapInput{Key: key, Seams: seams})
+	if err != nil {
+		t.Fatalf("OpenCachedMap over oversized entry: %v", err)
+	}
+	if got := spy.count(); got != 1 {
+		t.Fatalf("generator invocations = %d; want 1 (oversized entry is a miss)", got)
+	}
+	if fields := stdlibauthority.EqualKeys(auth.Key(), key); len(fields) > 0 {
+		t.Fatalf("regenerated authority reports mismatched fields: %v", fields)
+	}
+	fresh, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(fresh, valid.Bytes) {
+		t.Fatalf("oversized entry was not replaced by the fresh bytes")
+	}
+}
+
 // --- req 2/3: read faults and the concurrent cache write path --------------------
 
 func TestCacheReadErrorSurfacesWithoutGeneration(t *testing.T) {
