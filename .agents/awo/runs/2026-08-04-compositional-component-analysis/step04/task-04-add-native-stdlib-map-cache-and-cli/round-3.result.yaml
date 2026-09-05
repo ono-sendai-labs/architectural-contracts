@@ -1,0 +1,48 @@
+status: completed
+task_file: .agents/tasks/2026-08-04-compositional-component-analysis/step04/task-04-add-native-stdlib-map-cache-and-cli.code-task.md
+change_id: uvzyxrvqykrkypuxkumytuwmxlptyspr
+schema_version: 2
+produced_at: 2026-09-05T10:10:00Z
+acceptance_criteria:
+  - text: "Native generation is cached by the full SDK key (reuse without generator invocation; every key-field change selects a distinct entry)"
+    addressed: yes
+    evidence: "review round 3: pass; unchanged this round (TestOpenCachedMapGeneratesOnceThenReuses, TestDistinctKeysSelectDistinctEntries, GOFLAGS identity pinned by TestTargetEnvReplacesHostGOFLAGS)"
+  - text: "Corrupt caches regenerate safely; a generation failure leaves prior bytes intact and errors"
+    addressed: yes
+    evidence: "review round 3: pass; extended this round by TestOversizedCacheEntryIsAMissAndRegenerated — a 64 MiB+1 cache entry read through the bounded default seam fails the decoder bound, is treated as a miss, and is atomically replaced by fresh validated bytes"
+  - text: "Concurrent readers never observe partial output"
+    addressed: yes
+    evidence: "review round 3: pass (TestConcurrentReadersNeverObservePartialOutput); unchanged this round"
+  - text: "Generate command emits a canonical artifact; second identical run produces identical bytes; exit 0"
+    addressed: yes
+    evidence: "review round 3: pass; integration suite rerun green after the bounded-read change"
+  - text: "Inspect queries show the full SDK key, exact terminal classification, provenance, and ordered evidence; absent inventory exits 2"
+    addressed: yes
+    evidence: "review round 3: pass; oversized artifacts now also exit 2 with a decode error (new table case) and inspect streams the file into the bounded decoder"
+  - text: "Existing checking remains unchanged; no native map generated implicitly before the Step 6 cutover"
+    addressed: yes
+    evidence: "review round 3: pass; check path untouched this round; selfcheck green in just ci"
+  - text: "Integration remains green (just ci)"
+    addressed: yes
+    evidence: "just ci rerun this round: gen-is-clean, lint, build, unit, integration (all ok), selfcheck all components conform, bazel test 84/84 pass, label/shape validation OK (work.log rework-round-3 entries)"
+  - text: "Usage documentation and package Component Contracts updated; arcc check not wired to the map"
+    addressed: yes
+    evidence: "review round 3: pass; the CacheSeams.ReadFile doc now records the bounded default read (cache.go); README and FR10 unchanged and accurate"
+artifacts:
+  scratchpad_dir: .agents/scratchpad/2026-08-04-compositional-component-analysis/step04/task-04-add-native-stdlib-map-cache-and-cli
+  files:
+    - go/internal/stdlibmap/cache.go
+    - go/internal/stdlibmap/cache_test.go
+    - go/cmd/arcc/app/stdlibmap.go
+    - go/cmd/arcc/app/stdlibmap_test.go
+notes: >
+  Rework round 3. The remaining important security finding is closed: both the
+  inspect path (streams *os.File directly into the bounded
+  stdlibmap.DecodeMapArtifact) and the cache's default read seam (io.LimitReader
+  capped at artifactio.MaxMapBytes+1) now enforce the decoder's 64 MiB bound
+  before validation, so a user-supplied path or a locally writable cache entry
+  can no longer cause unbounded allocation; oversized content fails the bound
+  and is treated as a corrupt miss that regenerates. Pinned by
+  TestOversizedCacheEntryIsAMissAndRegenerated and an oversized-artifact usage
+  test. Fresh child jj change ddae418f; prior changes untouched; full just ci
+  gate green.

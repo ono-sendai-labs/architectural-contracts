@@ -1,0 +1,224 @@
+review:
+  task_file: .agents/tasks/2026-08-04-compositional-component-analysis/step04/task-04-add-native-stdlib-map-cache-and-cli.code-task.md
+  change_id: zmkvtsmxmopnsqwznlmqpuytrvktpwut
+  reviewed_at: 2026-09-05T02:31:19Z
+  verdict: changes_requested
+  schema_version: 2
+  lsp_coverage: unavailable
+
+merge_request:
+  title: "feat(stdlibmap): add native cache and CLI [Stdlib Map: Step 04/Task 04]"
+  body: |
+    Reviews the complete ordered series: the initial cache implementation in
+    skyvmpyupztlypwurymlropppktwlzrr and the follow-up CLI, wiring, and
+    documentation change in zmkvtsmxmopnsqwznlmqpuytrvktpwut. The series adds
+    SDK-keyed cache generation, corruption recovery, atomic artifact output,
+    and the stdlibmap generate/inspect commands with tests and component
+    contract updates.
+
+summary: |
+  The cache and CLI implementation is broadly functional, and the focused and
+  integration Go tests pass with a fresh build cache; the recorded CI evidence
+  also reports the full gate as green. Inspection found important correctness
+  gaps in inspect provenance, expected-key validation, native toolchain identity,
+  discovery environment consistency, and cache read-error handling. No tests
+  were deleted or weakened wholesale; LSP diagnostics were unavailable.
+
+acceptance_criteria:
+  - text: |
+      1. **Native generation is cached by the full SDK key**
+         - Given repeated requests for one target configuration
+         - When the first request generates a valid map and the second runs
+         - Then the second reuses byte-identical cached content without invoking the generator; changing cgo, GOOS/GOARCH, tags, GOEXPERIMENT, classifier hash, or format version selects a distinct entry.
+    status: pass
+    evidence: |
+      `go/internal/stdlibmap/cache.go:28-56` hashes all SDK-key fields and
+      `cache.go:165-209` validates and reuses the keyed artifact. The tests at
+      `go/internal/stdlibmap/cache_test.go:115-191` assert one generator call,
+      distinct paths for the key variations, and format-version digest
+      separation.
+  - text: |
+      2. **Corrupt caches regenerate safely**
+         - Given truncated JSON, invalid inventory, or content stamped with another SDK key at the expected cache path
+         - When the cache is opened
+         - Then it is treated as corrupt, regenerated, validated, and atomically replaced; a generation failure leaves the prior bytes intact and returns an error.
+    status: pass
+    evidence: |
+      `go/internal/stdlibmap/cache.go:175-209` performs decode/key validation
+      before regeneration and uses the atomic writer. The corruption cases and
+      failure-preservation assertions are in
+      `go/internal/stdlibmap/cache_test.go:215-306`.
+  - text: |
+      3. **Concurrent readers never observe partial output**
+         - Given overlapping cache requests and a delayed writer
+         - When readers access the cache
+         - Then every observed artifact is either the previous complete valid map or the new complete valid map, never partial data.
+    status: pass
+    evidence: |
+      `go/internal/stdlibmap/cache.go:202-209` writes through the atomic
+      replacement seam. `go/internal/stdlibmap/cache_test.go:310-379` runs
+      concurrent cache readers against repeated atomic replacements and fails
+      on any decode/key error.
+  - text: |
+      4. **Generate command emits a canonical artifact**
+         - Given a valid native toolchain and target configuration
+         - When `arcc stdlibmap generate` runs with an output path
+         - Then it exits 0, writes a canonical total map atomically, and a second identical run produces identical bytes.
+    status: pass
+    evidence: |
+      `go/cmd/arcc/app/stdlibmap.go:98-171` generates through the production
+      `Generate` path and calls `WriteArtifactAtomic`. The integration test at
+      `go/cmd/arcc/app/stdlibmap_integration_test.go:19-51` verifies two exit-0
+      runs and byte-identical artifacts.
+  - text: |
+      5. **Inspect command queries semantic cases**
+         - Given a generated local map
+         - When summary, `os.ReadFile`, `strings.TrimSpace`, `sort.Slice`, and package-init queries run
+         - Then output deterministically shows the full SDK key, exact terminal classification, provenance, and ordered evidence where applicable; absent inventory exits 2 with an actionable message.
+    status: partial
+    evidence: |
+      Summary, classifications, evidence, and missing-symbol handling are
+      implemented and exercised at
+      `go/cmd/arcc/app/stdlibmap.go:217-285,397-440` and
+      `go/cmd/arcc/app/stdlibmap_integration_test.go:53-112`. However, the
+      symbol and init renderers never print the persisted `Provenance` fields;
+      `stdlibmap_integration_test.go:76-90` checks only SAFE/UNANALYZED labels,
+      so the required provenance output is absent.
+  - text: |
+      6. **Existing checking remains unchanged**
+         - Given the new CLI commands and cache
+         - When ordinary `arcc check` fixtures run
+         - Then their analysis inputs and verdicts are unchanged and no native map is generated implicitly before the Step 6 cutover.
+    status: pass
+    evidence: |
+      `go/cmd/arcc/app/app.go:60-68` adds a separate stdlibmap dispatch and the
+      existing check path remains at `app.go:64-277` without cache calls. The
+      existing app tests pass under the fresh-cache integration run, and the
+      recorded self-check evidence is in `work.log:103-106` and
+      `progress.md:8`.
+  - text: |
+      7. **Integration remains green**
+         - Given cache and CLI behavior are complete
+         - When `just ci` runs
+         - Then all generation, lint, unit, Bazel, and self-check gates pass.
+    status: pass
+    evidence: |
+      `progress.md:8` records ci-go, selfcheck, and bazel-test as green;
+      `work.log:107-110` records the final Bazel validation legs. The review
+      also ran `go test -tags=integration ./...` with an isolated GOCACHE,
+      which completed successfully.
+findings:
+  - severity: important
+    category: acceptance_criteria
+    file: go/cmd/arcc/app/stdlibmap.go
+    line: 412
+    title: "Inspect omits record provenance from semantic queries"
+    details: |
+      AC5 requires inspect output to show provenance where applicable. At
+      `go/cmd/arcc/app/stdlibmap.go:411-416`, `inspectSymbol` renders only the
+      terminal classification and evidence; it never reads
+      `record.Provenance`. `inspectInit` has the same omission at lines
+      434-439. Generated records such as `strings.TrimSpace` carry a
+      `proved-pure` provenance, but that trust annotation is invisible to the
+      user.
+    suggested_action: |
+      Render a deterministic provenance field for symbol and init records (at
+      least when the persisted field is non-empty), and add integration
+      assertions for a proved-pure and a curated or project-override record.
+    source: built-in
+  - severity: important
+    category: acceptance_criteria
+    file: go/cmd/arcc/app/stdlibmap.go
+    line: 337
+    title: "Malformed and duplicate expected-key fields are accepted"
+    details: |
+      The parser comment promises that a field given twice is a usage error,
+      but `parseExpectKey`'s `note` helper at lines 331-335 silently ignores
+      duplicates while the later assignment wins. It also maps every value
+      other than the literal `true` to false for `cgo_enabled` at line 350,
+      so `cgo_enabled=garbage` can be accepted as a valid expectation and
+      succeed against a false-cgo artifact. This violates the CLI's fail-fast
+      usage-error contract and makes the expected-key check ambiguous.
+    suggested_action: |
+      Reject duplicate non-repeatable fields, require `cgo_enabled` to be
+      exactly `true` or `false`, and parse numeric values strictly before
+      constructing the expected key. Add table cases asserting exit 2 and
+      empty stdout for these malformed inputs.
+    source: built-in
+  - severity: important
+    category: security
+    file: go/cmd/arcc/app/stdlibmap.go
+    line: 115
+    title: "Toolchain override can stamp a map with the wrong SDK version"
+    details: |
+      `--toolchain` only overwrites `target.ToolchainVersion` at lines
+      115-117. Package discovery and type loading still execute the current
+      `go` toolchain through `NativeStdPackageList` and `NativeLoader`, with no
+      executable, SDK, or version validation tied to that override. A caller
+      can therefore generate bytes from the host SDK while stamping an
+      arbitrary target version into the SDK key; a later fail-closed key check
+      will accept the internally consistent but semantically false artifact.
+    suggested_action: |
+      Tie the supplied toolchain version to an actual pinned toolchain/SDK
+      execution seam, or reject an explicit version that does not equal the
+      discovered toolchain. Test that an override cannot produce a map labeled
+      as a different SDK.
+    source: built-in
+  - severity: important
+    category: architecture
+    file: go/cmd/arcc/app/stdlibmap.go
+    line: 134
+    title: "Package discovery and loading use different environments"
+    details: |
+      The CLI passes the override-only slice from `TargetEnv` directly to
+      `NativeStdPackageList` at lines 134-140. That function assigns it as the
+      complete child environment at `go/internal/stdlibmap/stdlibmap.go:202-204`,
+      while `NativeLoader.Environment` merges the same overrides onto
+      `os.Environ` before loading packages. Host settings such as GOFLAGS,
+      GOTOOLCHAIN, GOROOT, and related toolchain state can consequently affect
+      loading but not `go list std` or the derived key, producing inconsistent
+      discovery and inventory for native generation.
+    suggested_action: |
+      Pass a complete merged environment to `NativeStdPackageList` (for
+      example, the `NativeLoader.Environment()` result) or make the discovery
+      helper perform the same merge. Add a test with controlled host
+      environment overrides to assert oracle and loader receive identical
+      target environments.
+    source: built-in
+  - severity: important
+    category: architecture
+    file: go/internal/stdlibmap/cache.go
+    line: 182
+    title: "Cache read errors are silently converted into regeneration"
+    details: |
+      `OpenCachedMap` treats every `ReadFile` error other than `os.ErrNotExist`
+      as a cache miss and discards it at lines 182-186. Permission failures,
+      I/O errors, and injected filesystem failures are not corrupt content and
+      should be surfaced as cache/tool errors under the task's exit-code
+      contract. The current behavior can hide a broken cache and trigger an
+      expensive generation, or even report success if a subsequent write is
+      possible.
+    suggested_action: |
+      Treat only a not-exist error as a miss; return a wrapped cache read error
+      for other filesystem failures. Add a seam-driven test covering a read
+      permission/I/O error and asserting that generation is not invoked.
+    source: built-in
+  - severity: suggestion
+    category: tests
+    file: go/internal/stdlibmap/cache_test.go
+    line: 310
+    title: "Concurrency test does not exercise the cache write path"
+    details: |
+      The concurrency test's writer calls `artifactio.WriteFileAtomic` directly
+      at lines 324-346 and never creates a concurrent cache miss whose
+      `OpenCachedMap` write path is exercised. It also has no deliberate writer
+      delay. As a result, a regression that made the cache's own miss write
+      non-atomic could pass this test even though the test reports concurrent
+      cache reads.
+    suggested_action: |
+      Add an overlapping miss/generation scenario with a blocked or delayed
+      generator/write seam, and have readers validate that each returned
+      artifact is one of the complete expected maps.
+    source: built-in
+
+ecosystem_reviews: []

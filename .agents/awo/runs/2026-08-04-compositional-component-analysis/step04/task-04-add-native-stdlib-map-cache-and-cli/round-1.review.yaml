@@ -1,0 +1,159 @@
+review:
+  task_file: .agents/tasks/2026-08-04-compositional-component-analysis/step04/task-04-add-native-stdlib-map-cache-and-cli.code-task.md
+  change_id: ykyllwmmnqnsvkoouunxwvkosmxrkurn
+  reviewed_at: 2026-09-05T03:05:00Z
+  verdict: changes_requested
+  schema_version: 2
+  lsp_coverage: unavailable
+
+merge_request:
+  title: "feat(stdlibmap): add native cache and CLI [Stdlib Map: Step 04/Task 04]"
+  body: |
+    Reviews the complete ordered series: the initial SDK-keyed cache in
+    skyvmpyupztlypwurymlropppktwlzrr, the generate/inspect CLI and wiring in
+    zmkvtsmxmopnsqwznlmqpuytrvktpwut, and the round-1 remediation in
+    ykyllwmmnqnsvkoouunxwvkosmxrkurn. The remediation adds strict expected-key
+    parsing, provenance rendering, toolchain-version rejection, shared native
+    environment construction, cache read-error propagation, and expanded tests.
+
+summary: |
+  All five prior important findings and the prior non-pass AC5 have been
+  addressed in the fresh rework; the focused unit and integration tests pass,
+  and the work log records the full CI gate as green. A residual important
+  correctness issue remains: inherited GOFLAGS build tags affect native
+  generation but are not represented in the SDK key/cache identity. No tests
+  were deleted or weakened wholesale; LSP diagnostics were unavailable.
+
+acceptance_criteria:
+  - text: |
+      1. **Native generation is cached by the full SDK key**
+         - Given repeated requests for one target configuration
+         - When the first request generates a valid map and the second runs
+         - Then the second reuses byte-identical cached content without invoking the generator; changing cgo, GOOS/GOARCH, tags, GOEXPERIMENT, classifier hash, or format version selects a distinct entry.
+    status: pass
+    evidence: |
+      `go/internal/stdlibmap/cache.go:28-56` hashes all SDK-key fields and
+      `cache.go:165-211` validates and reuses the keyed artifact. The tests at
+      `go/internal/stdlibmap/cache_test.go:115-191` assert one generator call,
+      distinct paths for key variations, and format-version separation. The
+      residual inherited-GOFLAGS issue is reported separately because it is an
+      effective native environment input not represented by `TargetConfig`.
+  - text: |
+      2. **Corrupt caches regenerate safely**
+         - Given truncated JSON, invalid inventory, or content stamped with another SDK key at the expected cache path
+         - When the cache is opened
+         - Then it is treated as corrupt, regenerated, validated, and atomically replaced; a generation failure leaves the prior bytes intact and returns an error.
+    status: pass
+    evidence: |
+      `go/internal/stdlibmap/cache.go:175-211` performs decode/key validation
+      before regeneration and uses atomic replacement. The corruption cases
+      and failure-preservation assertions are in
+      `go/internal/stdlibmap/cache_test.go:215-306`; the rework's read-fault
+      case is at `cache_test.go:310-326`, resolving the prior cache-read-error
+      finding through `cache.go:184-190`.
+  - text: |
+      3. **Concurrent readers never observe partial output**
+         - Given overlapping cache requests and a delayed writer
+         - When readers access the cache
+         - Then every observed artifact is either the previous complete valid map or the new complete valid map, never partial data.
+    status: pass
+    evidence: |
+      `go/internal/stdlibmap/cache.go:204-211` writes through the atomic
+      replacement seam. The expanded test at
+      `go/internal/stdlibmap/cache_test.go:328-406` races readers with
+      replacements and deliberate removals, causing overlapping misses to use
+      OpenCachedMap's own atomic write path.
+  - text: |
+      4. **Generate command emits a canonical artifact**
+         - Given a valid native toolchain and target configuration
+         - When `arcc stdlibmap generate` runs with an output path
+         - Then it exits 0, writes a canonical total map atomically, and a second identical run produces identical bytes.
+    status: pass
+    evidence: |
+      `go/cmd/arcc/app/stdlibmap.go:99-182` generates through the production
+      `Generate` path and calls `WriteArtifactAtomic`. The integration test at
+      `go/cmd/arcc/app/stdlibmap_integration_test.go:19-51` verifies two exit-0
+      runs and byte-identical artifacts; the rework preserves this behavior.
+      The prior toolchain-identity finding is resolved by the rejection at
+      `stdlibmap.go:116-126` and its usage test at `stdlibmap_test.go:92-96`.
+      The prior discovery/environment finding is resolved by the shared
+      `NativeEnvironment` path at `stdlibmap.go:143-153` and
+      `go/internal/stdlibmap/nativeloader.go:66-75`.
+  - text: |
+      5. **Inspect command queries semantic cases**
+         - Given a generated local map
+         - When summary, `os.ReadFile`, `strings.TrimSpace`, `sort.Slice`, and package-init queries run
+         - Then output deterministically shows the full SDK key, exact terminal classification, provenance, and ordered evidence where applicable; absent inventory exits 2 with an actionable message.
+    status: pass
+    evidence: |
+      The prior partial finding is addressed in the fresh change at
+      `go/cmd/arcc/app/stdlibmap.go:423-474`, which now renders persisted
+      symbol and init provenance. The integration assertions at
+      `go/cmd/arcc/app/stdlibmap_integration_test.go:92-116` cover curated,
+      project-override, and init provenance; summary, terminal classifications,
+      evidence, and absent-symbol exit 2 remain covered at lines 53-90 and
+      130-138. The prior expected-key validation finding is resolved by the
+      strict parser at `stdlibmap.go:328-396` and hermetic cases at
+      `stdlibmap_test.go:77-96`.
+  - text: |
+      6. **Existing checking remains unchanged**
+         - Given the new CLI commands and cache
+         - When ordinary `arcc check` fixtures run
+         - Then their analysis inputs and verdicts are unchanged and no native map is generated implicitly before the Step 6 cutover.
+    status: pass
+    evidence: |
+      `go/cmd/arcc/app/app.go:60-68` still dispatches check separately, and the
+      existing check path remains at `app.go:64-277` without cache calls. The
+      current unit suite passes with an isolated Go build cache, while the
+      recorded self-check evidence remains in `work.log:103-106` and
+      `progress.md:8`.
+  - text: |
+      7. **Integration remains green**
+         - Given cache and CLI behavior are complete
+         - When `just ci` runs
+         - Then all generation, lint, unit, Bazel, and self-check gates pass.
+    status: pass
+    evidence: |
+      The rework work log records `84 tests pass` and both validation scripts at
+      `work.log:126-132`. The review also ran the focused unit tests, `go vet`,
+      gofmt cleanliness, and the integration-tagged CLI test successfully.
+
+findings:
+  - severity: important
+    category: architecture
+    file: go/internal/stdlibmap/nativeloader.go
+    line: 73
+    title: "Inherited GOFLAGS tags are absent from the SDK key"
+    details: |
+      The rework correctly makes discovery and loading share
+      `NativeEnvironment`, but that environment merges the process's existing
+      `GOFLAGS` at `go/internal/stdlibmap/nativeloader.go:73-75`. When
+      `TargetConfig.BuildTags` is empty, `TargetEnv` does not override GOFLAGS,
+      and `NativeTargetConfig` never derives build tags from inherited
+      `GOFLAGS`. Thus `GOFLAGS=-tags=foo` changes the packages and symbols
+      analyzed while the generated SDKKey and `CacheKeyDigest` still say
+      `build_tags: []`; a run without that tag can share the same cache entry.
+      This is a residual fail-closed identity gap in the native path.
+    suggested_action: |
+      Either parse and canonicalize supported inherited `-tags` into the
+      target key, or clear/replace host GOFLAGS for native generation so only
+      `TargetConfig.BuildTags` affects the analysis. Add a test demonstrating
+      that an effective build-tag change selects a different key and artifact.
+    source: built-in
+  - severity: suggestion
+    category: style
+    file: go/internal/stdlibmap/stdlibmap.go
+    line: 40
+    title: "FR10 provider list omits the new NativeEnvironment API"
+    details: |
+      The rework adds the exported `NativeEnvironment` function in
+      `go/internal/stdlibmap/nativeloader.go:66-75`, but the stdlibmap FR10
+      `What it provides` list at `stdlibmap.go:30-42` still lists `TargetEnv`
+      and `NativeLoader` without naming the new public seam. The contract is
+      otherwise updated and the omission does not change runtime behavior.
+    suggested_action: |
+      Add `NativeEnvironment` to the FR10 provider list so the package contract
+      documents the newly exported environment-construction seam.
+    source: built-in
+
+ecosystem_reviews: []

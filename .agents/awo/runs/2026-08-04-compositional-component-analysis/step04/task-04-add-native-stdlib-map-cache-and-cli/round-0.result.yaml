@@ -1,0 +1,55 @@
+status: completed
+task_file: .agents/tasks/2026-08-04-compositional-component-analysis/step04/task-04-add-native-stdlib-map-cache-and-cli.code-task.md
+change_id: zmkvtsmxmopnsqwznlmqpuytrvktpwut
+schema_version: 2
+produced_at: 2026-09-04T12:35:00Z
+acceptance_criteria:
+  - text: "Native generation is cached by the full SDK key (reuse without generator invocation; every key-field change selects a distinct entry)"
+    addressed: yes
+    evidence: "go/internal/stdlibmap/cache_test.go TestOpenCachedMapGeneratesOnceThenReuses (spy generator invoked exactly once; byte-identical reuse) and TestDistinctKeysSelectDistinctEntries (cgo/GOOS/GOARCH/tags/GOEXPERIMENT/classifier-hash/format-version each select distinct digests, tag order canonicalized); implementation go/internal/stdlibmap/cache.go CacheKeyDigest + OpenCachedMap"
+  - text: "Corrupt caches regenerate safely; a generation failure leaves prior bytes intact and errors"
+    addressed: yes
+    evidence: "cache_test.go TestCorruptCacheRegenerates (truncated JSON, invalid inventory, foreign-key content, empty file → regenerate + atomic replace with validated bytes) and TestFailedGenerationPreservesPriorBytes (failing generator surfaces error; prior file bytes byte-identical afterwards); fresh bytes validated against the requested key before any write"
+  - text: "Concurrent readers never observe partial output"
+    addressed: yes
+    evidence: "cache_test.go TestConcurrentReadersNeverObservePartialOutput: 8 readers × 50 opens against a delayed writer replacing the artifact via WriteFileAtomic; zero errors, every observed authority validates against the requested key"
+  - text: "Generate command emits a canonical artifact; second identical run produces identical bytes; exit 0"
+    addressed: yes
+    evidence: "go/cmd/arcc/app/stdlibmap_integration_test.go TestStdlibmapGenerateAndInspect: two real native generations byte-identical, exit 0, atomic write via stdlibmap.WriteArtifactAtomic (artifactio.WriteFileAtomic)"
+  - text: "Inspect command queries semantic cases (summary, os.ReadFile, strings.TrimSpace, sort.Slice, package init); absent inventory exits 2"
+    addressed: yes
+    evidence: "TestStdlibmapGenerateAndInspect: summary shows full SDK key; os.ReadFile CAPABILITIES [FILES] with evidence FILES; strings.TrimSpace SAFE; sort.Slice UNANALYZED; init os terminal; os.NoSuchThing exits 2 with actionable stderr and empty stdout"
+  - text: "Existing checking remains unchanged; no native map generated implicitly before the Step 6 cutover"
+    addressed: yes
+    evidence: "arcc check path untouched (go/cmd/arcc/app/app.go only gains stdlibmap dispatch); full app_test suite green; selfcheck `arcc check cmd/arcc/component.textproto` passes with no map generation"
+  - text: "Integration remains green (just ci)"
+    addressed: yes
+    evidence: "just ci: gen-is-clean, lint, build, go test ./..., go test -tags=integration ./..., selfcheck (all components conform incl. cli), bazel build/test //... (84 tests pass), label/shape validation scripts OK"
+  - text: "Usage documentation and package Component Contracts updated, including the stdlibmap Ambient Authority line; arcc check not wired to the map"
+    addressed: yes
+    evidence: "README.md CLI Reference now documents both subcommands and the cache; go/internal/stdlibmap/stdlibmap.go FR10 block lists OpenCachedMap/CacheKeyDigest/DefaultCacheRoot/CacheSeams and the Ambient Authority line covers cache reads/writes; go/cmd/arcc/component.textproto declares stdlibmap/schema/stdlibauthority; go/internal/stdlibmap/component.textproto updated (declared-interface style + rationale). No wiring into check."
+artifacts:
+  scratchpad_dir: .agents/scratchpad/2026-08-04-compositional-component-analysis/step04/task-04-add-native-stdlib-map-cache-and-cli
+  files:
+    - go/internal/stdlibmap/cache.go
+    - go/internal/stdlibmap/cache_test.go
+    - go/cmd/arcc/app/stdlibmap.go
+    - go/cmd/arcc/app/stdlibmap_test.go
+    - go/cmd/arcc/app/stdlibmap_integration_test.go
+    - go/cmd/arcc/app/app.go
+    - go/cmd/arcc/app/BUILD.bazel
+    - go/internal/stdlibmap/BUILD.bazel
+    - go/internal/stdlibmap/stdlibmap.go
+    - go/internal/stdlibmap/component.textproto
+    - go/cmd/arcc/component.textproto
+    - README.md
+notes: >
+  Implemented the native SDK-keyed cache (CacheKeyDigest over the complete SDKKey,
+  arcc-subtree layout, injectable CacheSeams, validate-on-read via
+  artifactio.OpenStdlibMap, regenerate-on-corruption, atomic replacement) and the
+  two CLI subcommands with the exit-code contract. Two mid-flight corrections:
+  the derive-generation-key cross-check was replaced by post-generation key
+  validation, and the cli→artifactio dependency hit the design's documented
+  native-resolution limitation for foreign-member PACKAGE_SURFACE components, so
+  stdlibmap switched to declared-interface style and re-exports the artifact
+  write/decode seam. Full just ci gate is green across two described jj changes.

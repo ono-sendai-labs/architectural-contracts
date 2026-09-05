@@ -1,0 +1,44 @@
+status: completed
+task_file: .agents/tasks/2026-08-04-compositional-component-analysis/step04/task-04-add-native-stdlib-map-cache-and-cli.code-task.md
+change_id: nnnpmoxxrskklovyzolvnqkummvrzmzs
+schema_version: 2
+produced_at: 2026-09-05T09:05:00Z
+acceptance_criteria:
+  - text: "Native generation is cached by the full SDK key (reuse without generator invocation; every key-field change selects a distinct entry)"
+    addressed: yes
+    evidence: "review round 2: pass. Round-2 hardening: TargetEnv always overrides GOFLAGS (cleared when no tags requested), so inherited host build tags can no longer change the analyzed set while the key reports build_tags: [] — TestTargetEnvReplacesHostGOFLAGS (sdkkey_test.go) pins the merge in both directions"
+  - text: "Corrupt caches regenerate safely; a generation failure leaves prior bytes intact and errors"
+    addressed: yes
+    evidence: "review round 2: pass (TestCorruptCacheRegenerates, TestFailedGenerationPreservesPriorBytes, TestCacheReadErrorSurfacesWithoutGeneration); unchanged this round"
+  - text: "Concurrent readers never observe partial output"
+    addressed: yes
+    evidence: "review round 2: pass (TestConcurrentReadersNeverObservePartialOutput, including misses regenerated through the cache's own atomic write path); unchanged this round"
+  - text: "Generate command emits a canonical artifact; second identical run produces identical bytes; exit 0"
+    addressed: yes
+    evidence: "review round 2: pass (stdlibmap_integration_test.go byte-identical runs; --toolchain mismatch rejection); integration suite rerun green after the GOFLAGS change"
+  - text: "Inspect queries show the full SDK key, exact terminal classification, provenance, and ordered evidence; absent inventory exits 2"
+    addressed: yes
+    evidence: "review round 2: pass (provenance lines for symbol/init; curated + project-override + init assertions); unchanged this round"
+  - text: "Existing checking remains unchanged; no native map generated implicitly before the Step 6 cutover"
+    addressed: yes
+    evidence: "review round 2: pass; check path untouched this round; selfcheck green in just ci"
+  - text: "Integration remains green (just ci)"
+    addressed: yes
+    evidence: "just ci rerun this round: gen-is-clean, lint, build, unit, integration (all ok), selfcheck all components conform, bazel test 84/84 pass, label/shape validation OK (work.log rework-round-2 entries)"
+  - text: "Usage documentation and package Component Contracts updated; arcc check not wired to the map"
+    addressed: yes
+    evidence: "stdlibmap FR10 provider list now names NativeEnvironment (round-2 suggestion); TargetEnv doc records the always-override-GOFLAGS identity rule; README unchanged and accurate"
+artifacts:
+  scratchpad_dir: .agents/scratchpad/2026-08-04-compositional-component-analysis/step04/task-04-add-native-stdlib-map-cache-and-cli
+  files:
+    - go/internal/stdlibmap/nativeloader.go
+    - go/internal/stdlibmap/sdkkey_test.go
+    - go/internal/stdlibmap/stdlibmap.go
+notes: >
+  Rework round 2. The residual important finding — inherited host GOFLAGS build
+  tags affecting native generation while absent from the SDK key/cache identity —
+  is closed fail-closed-style: TargetEnv always overrides GOFLAGS (canonical tags
+  or cleared), so only TargetConfig.BuildTags can influence the analyzed set, and
+  the merge behavior is pinned by TestTargetEnvReplacesHostGOFLAGS. The FR10
+  provider list now names NativeEnvironment. Fresh child jj change 8165b91a; all
+  prior changes untouched; full just ci gate green.
