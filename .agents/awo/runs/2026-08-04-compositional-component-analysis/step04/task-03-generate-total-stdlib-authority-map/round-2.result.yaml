@@ -1,0 +1,140 @@
+result:
+  task_file: .agents/tasks/2026-08-04-compositional-component-analysis/step04/task-03-generate-total-stdlib-authority-map.code-task.md
+  change_id: ptstrlwvwqtunkxwvtkotmylrruvkqpm
+  status: completed
+  schema_version: 2
+  produced_at: 2026-09-05T03:10:00Z
+
+acceptance_criteria:
+  - text: |
+      1. **Pinned semantic examples classify correctly**
+         - Given the target standard library inventory
+         - When generation completes
+         - Then `os.ReadFile` is `FILES` with non-empty evidence, `strings.TrimSpace` is `SAFE`, `sort.Slice` is `UNANALYZED`, `os.Stdin` includes `FILES`, `io.EOF` is `SAFE`, `http.DefaultClient` includes `NETWORK`, and `unsafe.Pointer` is `UNANALYZED`.
+    addressed: yes
+    evidence: |
+      TestGenerateFullStdlibMap asserts all seven pinned cases with non-empty
+      (os.ReadFile, FILES) evidence; green under -tags=integration in round 2
+      as well.
+  - text: |
+      2. **Generation preserves unanalyzed findings**
+      - Given a root curated by Capslock as `CAPABILITY_UNANALYZED`
+      - When the generation classifier runs
+      - Then the emitted record is `UNANALYZED`; a regression test proves the live check-time exclusion wrapper is absent from the generation path.
+    addressed: yes
+    evidence: |
+      TestGenerationClassifierPreservesUnanalyzed (generation UNANALYZED for
+      io.ReadAll, check-time excluded) and the sort.Slice UNANALYZED pin in
+      TestGenerateFullStdlibMap; normalizeCapability treats the UNANALYZED
+      control name as terminal.
+  - text: |
+      3. **Aggregate init is classified once**
+      - Given a fixture package with multiple source-level init functions reaching different capabilities
+      - When generation runs
+      - Then one `pkg.init` record contains their terminal union and evidence, while no `init#N` record is emitted.
+    addressed: yes
+    evidence: |
+      Round-2 fix (F6): capability-bearing init records now emit deterministic
+      evidence. TestBuildAuthorityMapClassifiesAggregateInit expects
+      [FILES READ_SYSTEM_STATE] on one pkg.init record with two ordered
+      evidence paths, init#1 dropped, zero-finding inits explicit SAFE; the
+      artifactio validator and reader require and accept pkg.init evidence
+      (TestInitEvidenceIsTotal); integration leg asserts init evidence exists.
+  - text: |
+      4. **Variable and minting rules are explicit**
+      - Given pre-minted handle, network client, interface-typed, and methodless variables
+      - When they are classified
+      - Then method authority and moved minting authority are combined as designed, without treating every handle use as ambient authority.
+    addressed: yes
+    evidence: |
+      classifyVar walks the FULL pointer method set (types.NewMethodSet,
+      round-2 F4) and unions every inventory-visible record:
+      TestVarRuleCoversPromotedAndAliasExposedMethods (promoted Base method
+      NETWORK, alias-exposed unexported receiver READ_SYSTEM_STATE, curated
+      SAFE provenance inheritance), TestBuildAuthorityMapClassifiesVarsAndStructural
+      (os.Stdin/os.Stdout [FILES MODIFY_SYSTEM_STATE], interface-typed and
+      methodless SAFE), http.DefaultClient NETWORK in the integration leg.
+  - text: |
+      5. **Inventory completeness is enforced**
+      - Given the discovered importable package inventory
+      - When generation finishes or a symbol/init classification is deliberately deleted
+      - Then the complete map passes validation, while the damaged map fails with an inventory-gap error and can never be read as pure.
+    addressed: yes
+    evidence: |
+      TestDamagedMapFailsClosedOnLookup (complete map passes MarshalMap and
+      equals the inventory; symbol-deleted map lookup returns ErrInventoryGap),
+      unresolvable-root errors (exported and unknown-package, including
+      closures after round-2 F3), full-stdlib totality in
+      TestGenerateFullStdlibMap.
+  - text: |
+      6. **Provenance and evidence remain auditable**
+      - Given capability-bearing and curated-safe entries
+      - When the map is inspected
+      - Then every capability has a non-empty ordered evidence path and curated `SAFE` trust decisions are visibly distinguished from proved-pure and project overrides.
+    addressed: yes
+    evidence: |
+      Curated keys are queried over EVERY inventoried function/method (both
+      receiver spellings) and inits. Round-3 fixes: classifierSpellings'
+      value form is the canonical ID (the round-2 construction dropped the
+      receiver name, so (net.Flags).String was mislabeled proved-pure) —
+      focused TestClassifierSpellings plus a real-map capslock-curated
+      assertion; InitRecord now persists provenance (proto + regenerated gen +
+      emit + artifactio validation), so a curated SAFE init (os.init
+      CAPABILITY_SAFE) is visibly distinct from proved-pure
+      (TestCuratedInitProvenance). Real-SDK: os.Exit/runtime.GC curated,
+      math.Abs proved-pure, (os.File).Read project-override; var SAFE
+      provenance precedence order-independent.
+  - text: |
+      7. **Generation is deterministic**
+      - Given identical SDK sources, package list, target configuration, classifier rules, and generator version
+      - When generation runs twice
+      - Then canonical map bytes and digests are identical regardless of analyzer/map iteration order.
+    addressed: yes
+    evidence: |
+      Reordered findings → identical bytes (hermetic), two full generations
+      byte-identical with equal digests, -count=3 fresh runs green (round 1);
+      CuratedSafeKeys queried over a deterministic inventoried-name list.
+  - text: |
+      8. **Full stdlib generation remains practical**
+      - Given the local target SDK
+      - When the integration generation test runs
+      - Then every oracle package and every inventoried symbol/init has a terminal entry, with execution kept within the repository's integration-test conventions.
+    addressed: yes
+    evidence: |
+      TestGenerateFullStdlibMap (~3 s per generation) plus the new
+      TestGenerateCrossTarget (darwin/arm64 vs linux/amd64: target-correct
+      syscall symbols, distinct bytes — round-2 F1), both under
+      //go:build integration.
+  - text: |
+      9. **Integration remains green**
+      - Given the complete producer library
+      - When `just ci` runs
+      - Then all existing checks pass and the component check path still uses its pre-Step-6 analysis model.
+    addressed: yes
+    evidence: |
+      `just ci` exit 0 after the round-2 changes (work.log): lint/build, hermetic
+      unit leg, integration leg (incl. full stdlib + cross-target generation),
+      native selfcheck, bazel build + 84 tests. No check-path consumer added.
+
+artifacts:
+  scratchpad_dir: .agents/scratchpad/2026-08-04-compositional-component-analysis/step04/task-03-generate-total-stdlib-authority-map
+  files:
+    - context.md
+    - plan.md
+    - progress.md
+    - work.log
+    - review.yaml
+    - result.yaml
+
+notes: |
+  Round-2 rework as one fresh child change (ptstrlwvwqtunkxwvtkotmylrruvkqpm);
+  nothing amended or rewritten. The two important findings were addressed:
+  classifierSpellings now builds the value-receiver spelling from the complete
+  receiver substring (the canonical ID itself), pinned by a focused test and a
+  real-map capslock-curated assertion for (net.Flags).String; and InitRecord
+  gained a persisted provenance field (proto + regenerated gen, emitted from
+  the classifier result, validated by artifactio) so curated SAFE inits are
+  visibly distinct from proved-pure. Both suggestions adopted (import
+  grouping; the promoted fixture now embeds Base through Wrapper so the full
+  method-set path is exercised). `just ci` and the full integration leg
+  (including the two full stdlib generations and the cross-target leg) exit 0.

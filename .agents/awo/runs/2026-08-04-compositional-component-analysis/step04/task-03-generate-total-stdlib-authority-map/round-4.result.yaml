@@ -1,0 +1,144 @@
+result:
+  task_file: .agents/tasks/2026-08-04-compositional-component-analysis/step04/task-03-generate-total-stdlib-authority-map.code-task.md
+  change_id: otsyrvukokxssvwssmrwtxuwuostznln
+  status: completed
+  schema_version: 2
+  produced_at: 2026-09-05T05:55:00Z
+
+acceptance_criteria:
+  - text: |
+      1. **Pinned semantic examples classify correctly**
+         - Given the target standard library inventory
+         - When generation completes
+         - Then `os.ReadFile` is `FILES` with non-empty evidence, `strings.TrimSpace` is `SAFE`, `sort.Slice` is `UNANALYZED`, `os.Stdin` includes `FILES`, `io.EOF` is `SAFE`, `http.DefaultClient` includes `NETWORK`, and `unsafe.Pointer` is `UNANALYZED`.
+    addressed: yes
+    evidence: |
+      TestGenerateFullStdlibMap asserts all seven pinned cases with non-empty
+      (os.ReadFile, FILES) evidence at
+      go/internal/stdlibmap/generate_integration_test.go:114-150; green under
+      -tags=integration in this round.
+  - text: |
+      2. **Generation preserves unanalyzed findings**
+      - Given a root curated by Capslock as `CAPABILITY_UNANALYZED`
+      - When the generation classifier runs
+      - Then the emitted record is `UNANALYZED`; a regression test proves the live check-time exclusion wrapper is absent from the generation path.
+    addressed: yes
+    evidence: |
+      TestGenerationClassifierPreservesUnanalyzed (generation UNANALYZED for
+      io.ReadAll, check-time excluded) and the sort.Slice UNANALYZED pin in
+      TestGenerateFullStdlibMap; NewGenerationClassifier loads Capslock
+      builtins without the exclusion wrapper
+      (go/internal/capslockadapter/generation.go:29-41).
+  - text: |
+      3. **Aggregate init is classified once**
+      - Given a fixture package with multiple source-level init functions reaching different capabilities
+      - When generation runs
+      - Then one `pkg.init` record contains their terminal union and evidence, while no `init#N` record is emitted.
+    addressed: yes
+    evidence: |
+      TestBuildAuthorityMapClassifiesAggregateInit asserts the two-capability
+      aggregate, two ordered evidence entries, and absence of init#N records
+      (go/internal/stdlibmap/generate_test.go:244-276); init evidence is
+      emitted at generate.go and validated by artifactio/stdlibmap.go:294-317.
+  - text: |
+      4. **Variable and minting rules are explicit**
+      - Given pre-minted handle, network client, interface-typed, and methodless variables
+      - When they are classified
+      - Then method authority and moved minting authority are combined as designed, without treating every handle use as ambient authority.
+    addressed: yes
+    evidence: |
+      classifyVar walks the complete pointer method set and applies the
+      minting-authority clause (go/internal/stdlibmap/generate.go:569-629);
+      promoted and alias-exposed cases covered at generate_test.go:570-594
+      and the real http.DefaultClient case at
+      generate_integration_test.go:144-147.
+  - text: |
+      5. **Inventory completeness is enforced**
+      - Given the discovered importable package inventory
+      - When generation finishes or a symbol/init classification is deliberately deleted
+      - Then the complete map passes validation, while the damaged map fails with an inventory-gap error and can never be read as pure.
+    addressed: yes
+    evidence: |
+      Round-4 finding resolved: bracketed roots are no longer screened by a
+      shape-only checker. normalizeRoot routes every bracketed spelling
+      through symbol.ParseCapslockFunction (type-argument grammar + inventory
+      confirmation of the uninstantiated declaration), discarding the
+      validated instantiation without merging findings; empty/non-type
+      arguments and unknown exported origins now fail closed with prior
+      regressions at generate_test.go (TestInvalidTypeArgumentRootFailsClosed,
+      TestUnknownExportedGenericRootFailsClosed, TestInstantiationRootIsDroppedNotMerged,
+      TestGenericMethodInstantiationRootIsDroppedNotMerged,
+      TestUnexportedGenericOriginRootIsDropped,
+      TestMalformedBracketedRootFailsClosed).
+      Complete-record and damaged-map behavior remains covered by
+      TestDamagedMapFailsClosedOnLookup (generate_test.go:375-408).
+  - text: |
+      6. **Provenance and evidence remain auditable**
+      - Given capability-bearing and curated-safe entries
+      - When the map is inspected
+      - Then every capability has a non-empty ordered evidence path and curated `SAFE` trust decisions are visibly distinguished from proved-pure and project override provenance.
+    addressed: yes
+    evidence: |
+      classifierSpellings queries pointer and canonical value receiver forms
+      (generate.go:169-186; generate_test.go TestClassifierSpellings; real
+      (net.Flags).String curated assertion). Curated init provenance is
+      persisted (proto + emission + artifactio validation;
+      TestCuratedInitProvenance). Capability evidence is emitted and checked
+      for symbols and inits.
+  - text: |
+      7. **Generation is deterministic**
+      - Given identical SDK sources, package list, target configuration, classifier rules, and generator version
+      - When generation runs twice
+      - Then canonical map bytes and digests are identical regardless of analyzer/map iteration order.
+    addressed: yes
+    evidence: |
+      Reordered findings produce identical bytes (TestEvidenceIsOrderedAndDeterministic);
+      repeated full generations are byte-identical (TestGenerateFullStdlibMap
+      determinism leg) and TestGenerateRoundTripsAndKeysTheMap pins byte
+      equality across repeats; green in this round.
+  - text: |
+      8. **Full stdlib generation remains practical**
+      - Given the local target SDK
+      - When the integration generation test runs
+      - Then every oracle package and every inventoried symbol/init has a terminal entry, with execution kept within the repository's integration-test conventions.
+    addressed: yes
+    evidence: |
+      TestGenerateFullStdlibMap and TestGenerateCrossTarget re-run green under
+      -tags=integration after the round-4 change (parser-backed validation
+      accepted every real-SDK root).
+  - text: |
+      9. **Integration remains green**
+      - Given the complete producer library
+      - When `just ci` runs
+      - Then all existing checks pass and the component check path still uses its pre-Step-6 analysis model.
+    addressed: yes
+    evidence: |
+      just ci re-run in this round: 84/84 tests pass (gofmt, go vet, bazel
+      component checks). The check-time classifier remains in
+      go/internal/capslockadapter/capslockadapter.go; generation is a separate
+      path in generation.go, so the pre-Step-6 check model is preserved.
+
+artifacts:
+  scratchpad_dir: .agents/scratchpad/2026-08-04-compositional-component-analysis/step04/task-03-generate-total-stdlib-authority-map
+  files:
+    - go/internal/stdlibmap/generate.go
+    - go/internal/stdlibmap/generate_test.go
+
+escalation: null
+
+notes: >
+  Round-4 rework addressing the single remaining important finding
+  ("Instantiation pre-validation is incomplete and misclassifies roots").
+  The previous session's shape-only bracket checker (validateInstantiationSpelling)
+  was replaced by the existing Step 3 machinery: normalizeRoot now validates
+  every bracketed root with symbol.ParseCapslockFunction, which applies the
+  complete scanner-based type-argument grammar (including receiver
+  instantiations) and confirms the uninstantiated declaration through the
+  inventory; validated instantiations are discarded without merging findings,
+  unexported origins remain sanctioned drops, and invalid type arguments or
+  unknown exported origins fail closed. Regressions cover a valid generic
+  method root, invalid/empty type arguments, an unknown exported generic
+  root, and an unexported generic origin. gofmt/go vet, the stdlibmap unit
+  suite, the full real-SDK integration leg, and just ci (84 tests) pass; the
+  fresh committed change is otsyrvukokxssvwssmrwtxuwuostznln on top of the
+  prior task tip oromvzpwqnsokvuqwzxpnzuuvllyrlyu.

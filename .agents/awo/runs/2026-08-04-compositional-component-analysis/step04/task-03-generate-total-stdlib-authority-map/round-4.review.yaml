@@ -1,0 +1,149 @@
+review:
+  task_file: .agents/tasks/2026-08-04-compositional-component-analysis/step04/task-03-generate-total-stdlib-authority-map.code-task.md
+  change_id: otsyrvukokxssvwssmrwtxuwuostznln
+  reviewed_at: "2026-09-05T01:59:08Z"
+  verdict: approved
+  schema_version: 2
+  lsp_coverage: unavailable
+
+merge_request:
+  title: "review(stdlibmap): re-review total authority map generation [Compositional Analysis: Step 04/Task 03]"
+  body: |
+    Reviews the complete ordered series: the generation classifier and batched
+    Capslock runner; receiver-spelling correction; total map generation;
+    fail-closed root and promoted-wrapper handling; real-SDK integration;
+    Bazel wiring; evidence-frame normalization; round-1 target, provenance,
+    method-set, init-evidence, and evidence-frame rework; round-2 value-
+    receiver and persisted-init-provenance fixes; round-3 generic-root
+    handling; and round-4 routing of generic-root validation through the Step 3
+    parser with expanded regressions.
+
+summary: |
+  Round 4 resolves the prior important instantiation finding and the only non-pass acceptance criterion: valid top-level and receiver generic roots are validated through the Step 3 parser and discarded, while invalid arguments and unknown exported origins fail closed. The earlier provenance, init-evidence, receiver-spelling, method-set, target, determinism, and test-quality findings remain resolved; no tests were deleted or weakened. Affected unit/integration tests, go vet, gofmt, and the recorded full CI/Bazel gate pass; no important, critical, or acceptance-criteria findings remain.
+
+acceptance_criteria:
+  - text: |
+      1. **Pinned semantic examples classify correctly**
+         - Given the target standard library inventory
+         - When generation completes
+         - Then `os.ReadFile` is `FILES` with non-empty evidence, `strings.TrimSpace` is `SAFE`, `sort.Slice` is `UNANALYZED`, `os.Stdin` includes `FILES`, `io.EOF` is `SAFE`, `http.DefaultClient` includes `NETWORK`, and `unsafe.Pointer` is `UNANALYZED`.
+    status: pass
+    evidence: |
+      The real-stdlib integration test checks all seven semantic cases and
+      non-empty os.ReadFile evidence at
+      go/internal/stdlibmap/generate_integration_test.go:114-150. Generate
+      emits and canonical-round-trips the map at
+      go/internal/stdlibmap/generate.go:84-166.
+  - text: |
+      2. **Generation preserves unanalyzed findings**
+      - Given a root curated by Capslock as `CAPABILITY_UNANALYZED`
+      - When the generation classifier runs
+      - Then the emitted record is `UNANALYZED`; a regression test proves the live check-time exclusion wrapper is absent from the generation path.
+    status: pass
+    evidence: |
+      NewGenerationClassifier loads Capslock builtins without the exclusion
+      wrapper at go/internal/capslockadapter/generation.go:29-41. The focused
+      integration regression compares generation and check-time classification
+      at go/internal/capslockadapter/generation_integration_test.go:13-27, and
+      the full map pins sort.Slice as UNANALYZED at
+      go/internal/stdlibmap/generate_integration_test.go:132-134.
+  - text: |
+      3. **Aggregate init is classified once**
+      - Given a fixture package with multiple source-level init functions reaching different capabilities
+      - When generation runs
+      - Then one `pkg.init` record contains their terminal union and evidence, while no `init#N` record is emitted.
+    status: pass
+    evidence: |
+      The hermetic fixture asserts the two-capability aggregate, two ordered
+      evidence entries, and absence of init#N records at
+      go/internal/stdlibmap/generate_test.go:244-275. Generation emits init
+      evidence at generate.go:913-1027, and the canonical validator requires
+      complete init evidence at go/internal/artifactio/stdlibmap.go:294-317.
+  - text: |
+      4. **Variable and minting rules are explicit**
+      - Given pre-minted handle, network client, interface-typed, and methodless variables
+      - When they are classified
+      - Then method authority and moved minting authority are combined as designed, without treating every handle use as ambient authority.
+    status: pass
+    evidence: |
+      classifyVar walks the complete pointer method set and applies the
+      minting-authority clause at go/internal/stdlibmap/generate.go:569-629.
+      Handle, interface, methodless, promoted, alias-exposed, and provenance
+      cases are covered at generate_test.go:210-239 and :570-593; the real
+      http.DefaultClient case is covered at generate_integration_test.go:144-147.
+  - text: |
+      5. **Inventory completeness is enforced**
+      - Given the discovered importable package inventory
+      - When generation finishes or a symbol/init classification is deliberately deleted
+      - Then the complete map passes validation, while the damaged map fails with an inventory-gap error and can never be read as pure.
+    status: pass
+    evidence: |
+      The prior round-3 partial criterion is resolved. normalizeRoot now routes
+      every bracketed spelling through symbol.ParseCapslockFunction before
+      dropping it at go/internal/stdlibmap/generate.go:325-344; parser success
+      confirms the origin and covers receiver instantiations, while parser
+      failure drops only textually unexported origins and rejects invalid or
+      unknown exported roots via instantiationOriginExported at :387-417.
+      Round-4 regressions cover generic methods, invalid arguments, unknown
+      exported origins, and unexported origins at generate_test.go:744-810.
+      Existing complete/damaged-map behavior remains covered at generate_test.go:375-407.
+  - text: |
+      6. **Provenance and evidence remain auditable**
+      - Given capability-bearing and curated-safe entries
+      - When the map is inspected
+      - Then every capability has a non-empty ordered evidence path and curated `SAFE` trust decisions are visibly distinguished from proved-pure and project override provenance.
+    status: pass
+    evidence: |
+      Classifier spellings are queried for pointer and canonical value receiver
+      forms at go/internal/stdlibmap/generate.go:169-186, with focused coverage
+      at generate_test.go:682-701 and a real net.Flags.String assertion at
+      generate_integration_test.go:168-171. Curated init provenance is persisted
+      through proto/archcontracts/v1/stdlibmap.proto:161-180, emitted at
+      generate.go:1005-1012, and validated at artifactio/stdlibmap.go:210-230;
+      TestCuratedInitProvenance covers the canonical round trip at
+      generate_test.go:658-680. Capability evidence is emitted and checked for
+      both symbols and inits at generate.go:983-1027.
+  - text: |
+      7. **Generation is deterministic**
+      - Given identical SDK sources, package list, target configuration, classifier rules, and generator version
+      - When generation runs twice
+      - Then canonical map bytes and digests are identical regardless of analyzer/map iteration order.
+    status: pass
+    evidence: |
+      Root evidence selection is deterministic at
+      go/internal/stdlibmap/generate.go:490-510 and :741-773, while canonical
+      frame names remove unstable type-argument spellings at
+      go/internal/capslockadapter/generation.go:142-175. Reordered findings
+      produce identical bytes at generate_test.go:331-364, and repeated full
+      generations have identical bytes and digests at
+      generate_integration_test.go:196-203.
+  - text: |
+      8. **Full stdlib generation remains practical**
+      - Given the local target SDK
+      - When the integration generation test runs
+      - Then every oracle package and every inventoried symbol/init has a terminal entry, with execution kept within the repository's integration-test conventions.
+    status: pass
+    evidence: |
+      The integration-tagged full-generation helper and target-aware native
+      setup are at go/internal/stdlibmap/generate_integration_test.go:1-43.
+      The test checks package/init/symbol totality and terminal classifications
+      at :54-93; the focused full integration run passed in this review, and
+      the round-4 CI work log records the full integration leg at work.log:60-66.
+  - text: |
+      9. **Integration remains green**
+      - Given the complete producer library
+      - When `just ci` runs
+      - Then all existing checks pass and the component check path still uses its pre-Step-6 analysis model.
+    status: pass
+    evidence: |
+      The round-4 work log records `just ci` exit 0 and the integration leg at
+      work.log:60-66, with the detailed Go, self-check, and Bazel test results
+      through work.log:249-344. This review independently reran the affected
+      unit/integration packages, go vet, and gofmt. The check-time classifier
+      remains in go/internal/capslockadapter/capslockadapter.go, while
+      generation is separate in generation.go, preserving the pre-Step-6 check
+      model.
+
+findings: []
+
+ecosystem_reviews: []

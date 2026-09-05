@@ -1,0 +1,171 @@
+review:
+  task_file: .agents/tasks/2026-08-04-compositional-component-analysis/step04/task-03-generate-total-stdlib-authority-map.code-task.md
+  change_id: ptstrlwvwqtunkxwvtkotmylrruvkqpm
+  reviewed_at: "2026-09-05T01:35:17Z"
+  verdict: changes_requested
+  schema_version: 2
+  lsp_coverage: unavailable
+
+merge_request:
+  title: "review(stdlibmap): review total authority map generation [Compositional Analysis: Step 04/Task 03]"
+  body: |
+    Reviews the complete ordered series: the generation classifier and batched
+    Capslock runner; receiver-spelling correction; total map generation;
+    fail-closed root and promoted-wrapper handling; real-SDK integration;
+    Bazel wiring; evidence-frame normalization; round-1 target, provenance,
+    method-set, init-evidence, and evidence-frame rework; and round-2 fixes
+    for value-receiver spellings, persisted init provenance, import grouping,
+    and promoted-variable coverage.
+
+summary: |
+  Round 2 resolves both prior important findings: value-receiver curated spellings now use the canonical receiver form, and curated aggregate-init provenance is persisted and validated; the prior test-quality suggestions are also addressed. Go unit/integration tests, go vet, and gofmt pass, and the recorded CI gate remains green, with no tests deleted or weakened. One new important gap remains: generic-instantiated analyzer roots are normalized to their origin before the generator's instantiation-drop rule, contrary to the task's required root normalization.
+
+acceptance_criteria:
+  - text: |
+      1. **Pinned semantic examples classify correctly**
+         - Given the target standard library inventory
+         - When generation completes
+         - Then `os.ReadFile` is `FILES` with non-empty evidence, `strings.TrimSpace` is `SAFE`, `sort.Slice` is `UNANALYZED`, `os.Stdin` includes `FILES`, `io.EOF` is `SAFE`, `http.DefaultClient` includes `NETWORK`, and `unsafe.Pointer` is `UNANALYZED`.
+    status: pass
+    evidence: |
+      The real-stdlib integration test checks all seven semantic cases and
+      non-empty os.ReadFile evidence at
+      go/internal/stdlibmap/generate_integration_test.go:114-150. Generate
+      emits and canonical-round-trips the map at
+      go/internal/stdlibmap/generate.go:84-166.
+  - text: |
+      2. **Generation preserves unanalyzed findings**
+      - Given a root curated by Capslock as `CAPABILITY_UNANALYZED`
+      - When the generation classifier runs
+      - Then the emitted record is `UNANALYZED`; a regression test proves the live check-time exclusion wrapper is absent from the generation path.
+    status: pass
+    evidence: |
+      NewGenerationClassifier loads Capslock builtins without the exclusion
+      wrapper at go/internal/capslockadapter/generation.go:29-41. The focused
+      integration regression compares generation and check-time classification
+      at go/internal/capslockadapter/generation_integration_test.go:13-27, and
+      the full map pins sort.Slice as UNANALYZED at
+      go/internal/stdlibmap/generate_integration_test.go:132-134.
+  - text: |
+      3. **Aggregate init is classified once**
+      - Given a fixture package with multiple source-level init functions reaching different capabilities
+      - When generation runs
+      - Then one `pkg.init` record contains their terminal union and evidence, while no `init#N` record is emitted.
+    status: pass
+    evidence: |
+      The hermetic fixture asserts the two-capability aggregate, two ordered
+      evidence entries, and absence of init#N records at
+      go/internal/stdlibmap/generate_test.go:244-275. Generation emits init
+      evidence at generate.go:874-986, and the canonical validator requires
+      complete init evidence at go/internal/artifactio/stdlibmap.go:294-317.
+  - text: |
+      4. **Variable and minting rules are explicit**
+      - Given pre-minted handle, network client, interface-typed, and methodless variables
+      - When they are classified
+      - Then method authority and moved minting authority are combined as designed, without treating every handle use as ambient authority.
+    status: pass
+    evidence: |
+      classifyVar walks the complete pointer method set and applies the
+      minting-authority clause at go/internal/stdlibmap/generate.go:530-590.
+      Handle, interface, methodless, promoted, alias-exposed, and provenance
+      cases are covered at generate_test.go:210-239 and :570-593; the real
+      http.DefaultClient case is covered at generate_integration_test.go:144-147.
+  - text: |
+      5. **Inventory completeness is enforced**
+      - Given the discovered importable package inventory
+      - When generation finishes or a symbol/init classification is deliberately deleted
+      - Then the complete map passes validation, while the damaged map fails with an inventory-gap error and can never be read as pure.
+    status: pass
+    evidence: |
+      BuildAuthorityMap completes inventoried records and accounts for every
+      analyzer root at go/internal/stdlibmap/generate.go:743-935. The damaged
+      lookup and fail-closed ErrInventoryGap behavior are covered at
+      generate_test.go:375-407, while unknown-package root rejection is covered
+      at generate_test.go:627-635 and full package/init/symbol totality at
+      generate_integration_test.go:54-93.
+  - text: |
+      6. **Provenance and evidence remain auditable**
+      - Given capability-bearing and curated-safe entries
+      - When the map is inspected
+      - Then every capability has a non-empty ordered evidence path and curated `SAFE` trust decisions are visibly distinguished from proved-pure and project override provenance.
+    status: pass
+    evidence: |
+      The prior round-1 partial criterion is resolved: classifier spellings are
+      queried for both pointer and canonical value receiver forms at
+      go/internal/stdlibmap/generate.go:169-186, with focused coverage at
+      generate_test.go:682-701 and a real net.Flags.String assertion at
+      generate_integration_test.go:168-171. Curated init provenance is now
+      persisted through proto/archcontracts/v1/stdlibmap.proto:161-180,
+      emitted at generate.go:966-973, and validated at
+      artifactio/stdlibmap.go:210-230; TestCuratedInitProvenance covers the
+      canonical round trip at generate_test.go:658-680. Capability evidence is
+      emitted and checked for both symbols and inits at generate.go:944-986.
+  - text: |
+      7. **Generation is deterministic**
+      - Given identical SDK sources, package list, target configuration, classifier rules, and generator version
+      - When generation runs twice
+      - Then canonical map bytes and digests are identical regardless of analyzer/map iteration order.
+    status: pass
+    evidence: |
+      Root evidence selection is lexicographically deterministic at
+      go/internal/stdlibmap/generate.go:451-469 and canonical frame names remove
+      unstable type-argument spellings at
+      go/internal/capslockadapter/generation.go:142-175. Reordered findings
+      produce identical bytes at generate_test.go:331-364, and repeated full
+      generations have identical bytes and digests at
+      generate_integration_test.go:196-203.
+  - text: |
+      8. **Full stdlib generation remains practical**
+      - Given the local target SDK
+      - When the integration generation test runs
+      - Then every oracle package and every inventoried symbol/init has a terminal entry, with execution kept within the repository's integration-test conventions.
+    status: pass
+    evidence: |
+      The integration-tagged full-generation helper and target-aware native
+      setup are at go/internal/stdlibmap/generate_integration_test.go:1-43.
+      The test checks package/init/symbol totality and terminal classifications
+      at :54-93; the focused full integration run passed in this review, and
+      the task work log records the full integration leg at work.log:27-39 and
+      :55-59.
+  - text: |
+      9. **Integration remains green**
+      - Given the complete producer library
+      - When `just ci` runs
+      - Then all existing checks pass and the component check path still uses its pre-Step-6 analysis model.
+    status: pass
+    evidence: |
+      The task work log records the round-2 just ci gate as green at
+      work.log:55-59. This review also reran the Go, integration, self-check,
+      vet, and gofmt portions successfully; the Bazel portion could not start
+      in this sandbox because its machine-local install/output cache is
+      read-only. The check-time classifier remains in
+      go/internal/capslockadapter/capslockadapter.go, while generation is a
+      separate path in generation.go, so the pre-Step-6 check model is
+      preserved.
+
+findings:
+  - severity: important
+    category: acceptance_criteria
+    file: go/internal/stdlibmap/generate.go
+    line: 325
+    title: Generic analyzer roots are normalized instead of discarded
+    details: |
+      normalizeRoot invokes symbol.ParseCapslockFunction at
+      go/internal/stdlibmap/generate.go:325-327 before checking the bracketed
+      instantiation drop rule at :335-336. The structured Capslock parser
+      intentionally strips a valid trailing type-argument group and returns the
+      generic origin (go/internal/symbol/capslock.go:179-220), so a finding such
+      as `example.com/genpkg.Load[int]` is merged into `Load` instead of being
+      discarded as required by technical requirement 3. This can attach an
+      instantiation's evidence/capability to the persisted origin and the
+      current tests do not exercise the required drop behavior.
+    suggested_action: |
+      Detect and validate a bracketed instantiation before the successful
+      structured normalization path, returning dropInstantiation for valid
+      generic roots. Malformed bracketed exported roots should fail closed
+      rather than being silently dropped. Add a regression showing that a
+      capability-bearing generic root does not classify its uninstantiated
+      inventory symbol.
+    source: built-in
+
+ecosystem_reviews: []
