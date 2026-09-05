@@ -39,4 +39,11 @@ go_test(
         "stdlibmap_test.go",
     ],
     embed = [":stdlibmap"],
+    deps = [
+        "//go/internal/artifactio",
+        "//go/internal/capslockadapter",
+        "//go/internal/schema/gen",
+        "//go/internal/stdlibauthority",
+        "@org_golang_google_protobuf//proto",
+    ],
 )
