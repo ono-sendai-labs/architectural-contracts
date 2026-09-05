@@ -106,7 +106,11 @@ func Generate(in GenerationInput) (*GeneratedMap, error) {
 	if err != nil {
 		return nil, fmt.Errorf("generating the stdlib map: %w", err)
 	}
-	m, err := BuildAuthorityMap(inv, findings)
+	curated, err := capslockadapter.CuratedSafeKeys(rootDisplayNames(findings))
+	if err != nil {
+		return nil, fmt.Errorf("generating the stdlib map: %w", err)
+	}
+	m, err := BuildAuthorityMap(inv, findings, curated)
 	if err != nil {
 		return nil, err
 	}
@@ -131,6 +135,20 @@ func Generate(in GenerationInput) (*GeneratedMap, error) {
 		return nil, fmt.Errorf("digesting the generated map: %w", err)
 	}
 	return &GeneratedMap{Map: m, Bytes: data, Digest: digest}, nil
+}
+
+// rootDisplayNames returns each root's distinct display spelling, the keys
+// the generation classifier's FunctionCategory consults.
+func rootDisplayNames(findings []capslockadapter.GenerationFinding) []string {
+	seen := map[string]bool{}
+	var names []string
+	for _, f := range findings {
+		if !seen[f.RootName] {
+			seen[f.RootName] = true
+			names = append(names, f.RootName)
+		}
+	}
+	return names
 }
 
 // GenerationClassifierRules renders the generation classifier's hashable rule
@@ -351,8 +369,12 @@ const (
 func normalizeCapability(capName string) (string, capKind, error) {
 	switch capName {
 	case "CAPABILITY_SAFE":
+		// Defensive spelling; curated-safe roots produce no findings at all
+		// (see the SAFE handling below and capslockadapter.CuratedSafeKeys).
 		return "", capSafe, nil
-	case "CAPABILITY_UNANALYZED":
+	case "UNANALYZED", "CAPABILITY_UNANALYZED":
+		// Capslock's unanalyzable control name (spike finding 5): terminal,
+		// never a taxonomy capability despite the taxonomy listing it.
 		return "", capUnanalyzed, nil
 	}
 	base := capName
@@ -474,6 +496,13 @@ func classifyVar(inv *Inventory, obj *types.Var, records map[symbol.SymbolID]*sy
 		if !m.Exported() {
 			continue
 		}
+		// Methods on unexported receiver types are structurally excluded
+		// from the inventory (an exported method of an unexported type is
+		// not externally nameable), so they carry no classification to
+		// union; skip them rather than failing.
+		if recvBaseName(m) == "" || !tokenIsExported(recvBaseName(m)) {
+			continue
+		}
 		id, err := symbol.FromObject(m)
 		if err != nil {
 			return nil, fmt.Errorf("classifying var %q: %w", obj.Name(), err)
@@ -592,6 +621,24 @@ func containsString(s []string, v string) bool {
 	return false
 }
 
+// recvBaseName returns the receiver's base named type name for a method, or
+// "" when the receiver has none.
+func recvBaseName(m *types.Func) string {
+	recv := m.Signature().Recv()
+	if recv == nil {
+		return ""
+	}
+	t := recv.Type()
+	if ptr, ok := t.(*types.Pointer); ok {
+		t = ptr.Elem()
+	}
+	named, _ := types.Unalias(t).(*types.Named)
+	if named == nil {
+		return ""
+	}
+	return named.Obj().Name()
+}
+
 // compareFramePaths orders two evidence paths lexicographically frame by
 // frame, then by length, so evidence selection is deterministic regardless of
 // analyzer iteration order (task req 10).
@@ -633,7 +680,7 @@ func compareFrames(a, b stdlibauthority.Frame) int {
 // Reconciliation is exact: every inventory symbol carries exactly one record,
 // every analyzer root is accounted for (mapped or dropped for a sanctioned
 // cause), and every capability carries deterministic evidence.
-func BuildAuthorityMap(inv *Inventory, findings []capslockadapter.GenerationFinding) (*gen.StdlibMap, error) {
+func BuildAuthorityMap(inv *Inventory, findings []capslockadapter.GenerationFinding, curatedSafe map[string]bool) (*gen.StdlibMap, error) {
 	if inv == nil {
 		return nil, fmt.Errorf("building the authority map: the inventory is required")
 	}
@@ -642,6 +689,7 @@ func BuildAuthorityMap(inv *Inventory, findings []capslockadapter.GenerationFind
 	// tracking every root's disposition (mapped or dropped-with-reason).
 	type rootKey struct{ pkg, name string }
 	aggregates := map[symbol.SymbolID]*rootAggregate{}
+	rootNames := map[symbol.SymbolID]string{}
 	accounted := map[rootKey]bool{}
 	dropped := map[rootKey]dropReason{}
 	for _, f := range findings {
@@ -658,6 +706,9 @@ func BuildAuthorityMap(inv *Inventory, findings []capslockadapter.GenerationFind
 			continue
 		}
 		accounted[key] = true
+		if _, seen := rootNames[id]; !seen {
+			rootNames[id] = f.RootName
+		}
 		agg, ok := aggregates[id]
 		if !ok {
 			agg = newRootAggregate()
@@ -713,16 +764,32 @@ func BuildAuthorityMap(inv *Inventory, findings []capslockadapter.GenerationFind
 					}
 				}
 			} else {
-				// Zero-finding inventoried root: explicitly SAFE (proved
-				// pure under a classifier that preserves UNANALYZED, I4).
+				// Zero-finding inventoried root (curated-safe and
+				// minting-reclassified roots produce no findings either):
+				// explicitly SAFE. Provenance: this project's overriding
+				// minting rule, Capslock's curation, or analysis-proved
+				// purity — visibly distinct trust decisions (task req 8).
 				result.classification = gen.Classification_SAFE
-				result.provenance = ProvenanceProvedPure
+				switch {
+				case reclassified[id]:
+					result.provenance = ProvenanceProjectOverride
+				case curatedSafe[rootNames[id]]:
+					result.provenance = ProvenanceCapslockCurated
+				default:
+					result.provenance = ProvenanceProvedPure
+				}
 			}
 			records[id] = result
 		case kindVar:
 			continue // second pass, after methods exist
 		case kindConst, kindType:
-			// Consts and plain types are SAFE by construction (task req 5).
+			// Consts and plain types are SAFE by construction (task req 5) —
+			// except unsafe.Pointer, a compiler-magic type in a package of
+			// compiler builtins with no SSA roots (task req 7).
+			if recordPackage(id.String()) == "unsafe" {
+				records[id] = &symbolResult{classification: gen.Classification_UNANALYZED, provenance: ProvenanceProjectOverride}
+				continue
+			}
 			records[id] = &symbolResult{classification: gen.Classification_SAFE, provenance: provenanceStructural}
 		case kindBuiltin:
 			records[id] = &symbolResult{classification: gen.Classification_UNANALYZED, provenance: ProvenanceProjectOverride}

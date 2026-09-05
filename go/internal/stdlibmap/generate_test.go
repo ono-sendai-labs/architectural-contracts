@@ -113,7 +113,7 @@ func buildFixtureMap(t *testing.T) (*gen.StdlibMap, error) {
 
 func buildFixtureMapWith(t *testing.T, findings []capslockadapter.GenerationFinding) (*gen.StdlibMap, error) {
 	t.Helper()
-	m, err := BuildAuthorityMap(genInventory(t), findings)
+	m, err := BuildAuthorityMap(genInventory(t), findings, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -267,7 +267,7 @@ func TestBuildAuthorityMapFailsOnUnresolvableExportedRoot(t *testing.T) {
 	findings := append(genFindings(), capslockadapter.GenerationFinding{
 		RootName: "os.Undef", RootPackage: "os", Capability: "FILES",
 	})
-	if _, err := BuildAuthorityMap(genInventory(t), findings); err == nil {
+	if _, err := BuildAuthorityMap(genInventory(t), findings, nil); err == nil {
 		t.Fatalf("BuildAuthorityMap: want an error for the unresolvable exported root os.Undef")
 	} else if !strings.Contains(err.Error(), "os.Undef") {
 		t.Fatalf("error %v: want it to name the unresolvable root", err)
@@ -278,7 +278,7 @@ func TestBuildAuthorityMapFailsOnUnknownRootPackage(t *testing.T) {
 	findings := append(genFindings(), capslockadapter.GenerationFinding{
 		RootName: "example.com/other.Thing", RootPackage: "example.com/other", Capability: "FILES",
 	})
-	if _, err := BuildAuthorityMap(genInventory(t), findings); err == nil {
+	if _, err := BuildAuthorityMap(genInventory(t), findings, nil); err == nil {
 		t.Fatalf("BuildAuthorityMap: want an error for a root in an unqueried package")
 	}
 }

@@ -138,3 +138,23 @@ func GenerationFindings(packagePaths []string) ([]GenerationFinding, error) {
 func ReclassifiedHandleUseMethods() []string {
 	return append([]string(nil), fileHandleUseMethods...)
 }
+
+// CuratedSafeKeys loads the generation classifier once and reports which of
+// the given classifier spellings (Capslock/SSA display names, e.g.
+// "os.Exit", "(*os.File).Read") are classified CAPABILITY_SAFE. Curated-safe
+// and minting-reclassified roots produce no Capslock findings, so their SAFE
+// classification and provenance must come from the classifier itself; the
+// caller distinguishes the minting override via the reclassified-key list.
+func CuratedSafeKeys(names []string) (map[string]bool, error) {
+	cl, err := NewGenerationClassifier()
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[string]bool, len(names))
+	for _, name := range names {
+		if cl.FunctionCategory("", name) == "SAFE" {
+			out[name] = true
+		}
+	}
+	return out, nil
+}
