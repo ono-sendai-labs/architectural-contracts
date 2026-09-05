@@ -29,6 +29,8 @@
 //     symbol.CapslockInventory — for the generator's reconciliation),
 //     TargetConfig, GenerationDescriptor, ClassifierRule,
 //     CanonicalClassifierText, ClassifierHash, DeriveSDKKey,
+//     GenerationClassifierRules, FindingSource(Func), GeneratedMap, Generate,
+//     BuildAuthorityMap, the Provenance vocabulary,
 //     NativeToolchainVersion, TargetEnv and NativeLoader.
 //   - Ambient Authority: This is a shell generation component. It holds FILES
 //     (reads SDK sources and export data through the loader), EXEC and

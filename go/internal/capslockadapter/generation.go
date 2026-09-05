@@ -121,7 +121,7 @@ func GenerationFindings(packagePaths []string) ([]GenerationFinding, error) {
 		for _, fr := range ci.GetPath() {
 			site := fr.GetSite()
 			f.Path = append(f.Path, stdlibauthority.Frame{
-				Function: fr.GetName(),
+				Function: normalizeFrameName(fr.GetName()),
 				File:     site.GetFilename(),
 				Line:     int(site.GetLine()),
 			})
@@ -129,6 +129,42 @@ func GenerationFindings(packagePaths []string) ([]GenerationFinding, error) {
 		out = append(out, f)
 	}
 	return out, nil
+}
+
+// normalizeFrameName strips every balanced type-argument bracket group from a
+// Capslock/SSA function spelling for persistence. The design never persists
+// generic brackets ("generic brackets are never persisted", DR-04): the same
+// instantiation prints with different equivalent type spellings between runs
+// (e.g. "[]io/fs.DirEntry" vs "[]os.DirEntry" — the same type reached through
+// different alias spellings), which would make evidence bytes depend on
+// analyzer iteration order. Go identifiers cannot contain brackets, so every
+// bracket group in a display name is a type-argument group and safe to drop.
+func normalizeFrameName(fn string) string {
+	for {
+		open := strings.IndexByte(fn, '[')
+		if open < 0 {
+			return fn
+		}
+		depth, close := 0, -1
+		for i := open; i < len(fn); i++ {
+			switch fn[i] {
+			case '[':
+				depth++
+			case ']':
+				depth--
+				if depth == 0 {
+					close = i
+				}
+			}
+			if close >= 0 {
+				break
+			}
+		}
+		if close < 0 {
+			return fn
+		}
+		fn = fn[:open] + fn[close+1:]
+	}
 }
 
 // ReclassifiedHandleUseMethods returns the method keys the minting-site rule
