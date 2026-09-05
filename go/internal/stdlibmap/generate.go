@@ -322,19 +322,25 @@ func normalizeRoot(inv *Inventory, f capslockadapter.GenerationFinding) (symbol.
 		}
 		return id, "", nil
 	}
+	// A bracketed spelling is a generic instantiation: the structured parser
+	// would strip the trailing type-argument group and merge the finding into
+	// the generic origin, but instantiations are discarded, not merged (task
+	// req 3). Validate the spelling first so a malformed bracketed exported
+	// root fails closed rather than being silently dropped (round-3 finding).
+	if strings.ContainsAny(name, "[]") {
+		if err := validateInstantiationSpelling(name); err != nil {
+			return "", "", fmt.Errorf("capslock root %q: %w", name, err)
+		}
+		return "", dropInstantiation, nil
+	}
 	id, err := symbol.ParseCapslockFunction(symbol.CapslockFunction{Name: name, Package: pkg}, inv)
 	if err == nil {
 		return id, "", nil
 	}
 	// Sanctioned non-roots. A receiver type or trailing identifier that is
-	// unexported is a helper folded into its exported callers; a bracket
-	// group anywhere is an instantiation (uninstantiated generic origins are
-	// their own roots and normalize above). Everything else is an exported
-	// root the inventory cannot account for, which fails generation rather
-	// than guessing (task req 3).
-	if strings.ContainsAny(name, "[]") {
-		return "", dropInstantiation, nil
-	}
+	// unexported is a helper folded into its exported callers. Everything
+	// else is an exported root the inventory cannot account for, which fails
+	// generation rather than guessing (task req 3).
 	declared := name
 	if strings.HasPrefix(name, "(") {
 		// Method spelling "(*pkg.T).M" or "(pkg.T).M": the receiver type name
@@ -368,6 +374,39 @@ func normalizeRoot(inv *Inventory, f capslockadapter.GenerationFinding) (symbol.
 		return "", dropUnexported, nil
 	}
 	return "", "", fmt.Errorf("capslock root %q: the inventory does not confirm the declaration (%w)", name, err)
+}
+
+// validateInstantiationSpelling accepts exactly one trailing balanced
+// type-argument bracket group on a Capslock display spelling; any other
+// bracket layout is a malformed spelling that must fail generation, never be
+// silently dropped.
+func validateInstantiationSpelling(name string) error {
+	if !strings.HasSuffix(name, "]") {
+		return fmt.Errorf("misplaced or unbalanced type-argument brackets")
+	}
+	depth, open := 0, -1
+	for i := len(name) - 1; i >= 0; i-- {
+		switch name[i] {
+		case ']':
+			depth++
+		case '[':
+			depth--
+			if depth == 0 {
+				open = i
+				i = -1 // stop the scan at the matching bracket
+			}
+			if depth < 0 {
+				return fmt.Errorf("unbalanced type-argument brackets")
+			}
+		}
+	}
+	if open < 0 {
+		return fmt.Errorf("unbalanced type-argument brackets")
+	}
+	if strings.ContainsAny(name[:open], "[]") {
+		return fmt.Errorf("misplaced or repeated type-argument brackets")
+	}
+	return nil
 }
 
 // tokenIsExported reports whether a Go identifier is exported.

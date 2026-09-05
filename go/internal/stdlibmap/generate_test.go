@@ -700,3 +700,39 @@ func TestClassifierSpellings(t *testing.T) {
 		t.Fatalf("classifierSpellings(top-level) = %v; want the bare spelling", got)
 	}
 }
+
+// --- round-3: generic-instantiation roots are discarded, not merged -------------
+
+func TestInstantiationRootIsDroppedNotMerged(t *testing.T) {
+	// A capability-bearing instantiated root must not attach its capability
+	// to the uninstantiated inventory symbol: Load stays [FILES] from its own
+	// findings only.
+	findings := append(genFindings(), capslockadapter.GenerationFinding{
+		RootName: "example.com/genpkg.Load[int]", RootPackage: "example.com/genpkg", Capability: "NETWORK",
+		Path: []stdlibauthority.Frame{{Function: "example.com/genpkg.Load[int]", File: "x.go", Line: 7}},
+	})
+	m, err := buildFixtureMapCurated(t, findings, classifierCuratedSafe())
+	if err != nil {
+		t.Fatalf("BuildAuthorityMap: %v", err)
+	}
+	load := recordOf(t, m, "example.com/genpkg", "example.com/genpkg.Load")
+	if !slices.Equal(load.Capabilities, []string{"FILES"}) {
+		t.Fatalf("Load = %+v; want [FILES] with the instantiation root discarded", load)
+	}
+	for _, e := range m.Evidence {
+		if e.SymbolId == "example.com/genpkg.Load" && e.Capability == "NETWORK" {
+			t.Fatalf("the discarded instantiation's NETWORK capability leaked into the origin record")
+		}
+	}
+}
+
+func TestMalformedBracketedRootFailsClosed(t *testing.T) {
+	for _, name := range []string{"example.com/genpkg.Load[in[t", "example.com/genpkg.Load]x", "example.com/genpkg.Load[int][bool]"} {
+		findings := append(genFindings(), capslockadapter.GenerationFinding{
+			RootName: name, RootPackage: "example.com/genpkg", Capability: "NETWORK",
+		})
+		if _, err := BuildAuthorityMap(genInventory(t), findings, classifierCuratedSafe()); err == nil {
+			t.Fatalf("BuildAuthorityMap(%q): want a fail-closed error for the malformed bracketed root", name)
+		}
+	}
+}
