@@ -227,6 +227,9 @@ func normalizeRoot(inv *Inventory, f capslockadapter.GenerationFinding) (symbol.
 		return "", dropClosure, nil
 	}
 	pkg := f.RootPackage
+	if pkg != "" && !inv.KnownPackage(pkg) {
+		return "", "", fmt.Errorf("capslock root %q names an unknown package %q", name, pkg)
+	}
 	// Aggregate init and source-level init#N: the aggregate's findings union
 	// every init#N already (spike finding 4), so the aggregate is the only
 	// record and the sub-functions are dropped.
@@ -259,7 +262,9 @@ func normalizeRoot(inv *Inventory, f capslockadapter.GenerationFinding) (symbol.
 	// group anywhere is an instantiation (uninstantiated generic origins are
 	// their own roots and normalize above). Everything else is an exported
 	// root the inventory cannot account for, which fails generation rather
-	// than guessing (task req 3).
+	// than guessing (task req 3). Drops only apply inside a known package:
+	// Capslock roots come from the queried batch, so an unknown package is
+	// an accounting failure, never a drop.
 	if strings.ContainsAny(name, "[]") {
 		return "", dropInstantiation, nil
 	}
@@ -280,6 +285,13 @@ func normalizeRoot(inv *Inventory, f capslockadapter.GenerationFinding) (symbol.
 		if !tokenIsExported(typeName) || !tokenIsExported(method) {
 			return "", dropUnexported, nil
 		}
+		// SSA promotes embedded methods under the embedding type's spelling
+		// (a synthetic wrapper "(*pkg.T).M" for the declaring "(pkg.Base).M").
+		// Resolve through the full method set: when the declaring object is
+		// itself inventoried, the wrapper folds into it.
+		if id, ok := promotedMethodOwner(inv, pkg, typeName, method); ok {
+			return id, "", nil
+		}
 		return "", "", fmt.Errorf("capslock root %q: the inventory does not confirm the declaration (%w)", name, err)
 	}
 	if dot := strings.LastIndexByte(declared, '.'); dot >= 0 {
@@ -294,6 +306,32 @@ func normalizeRoot(inv *Inventory, f capslockadapter.GenerationFinding) (symbol.
 // tokenIsExported reports whether a Go identifier is exported.
 func tokenIsExported(name string) bool {
 	return name != "" && name[0] != '_' && name[0] < 0x80 && name[0] >= 'A' && name[0] <= 'Z'
+}
+
+// promotedMethodOwner resolves a method spelled against pkg.TypeName through
+// the type's FULL method set (including promoted methods) to the declaring
+// *types.Func's inventoried SymbolID. ok=false unless the declaring object is
+// itself inventoried.
+func promotedMethodOwner(inv *Inventory, pkg, typeName, method string) (symbol.SymbolID, bool) {
+	p := inv.loaded[pkg]
+	if p == nil {
+		return "", false
+	}
+	obj := p.Scope().Lookup(typeName)
+	tn, ok := obj.(*types.TypeName)
+	if !ok {
+		return "", false
+	}
+	found, _, _ := types.LookupFieldOrMethod(tn.Type(), true, p, method)
+	fn, ok := found.(*types.Func)
+	if !ok || fn == nil {
+		return "", false
+	}
+	id, err := symbol.FromObject(fn)
+	if err != nil || !inv.hasSymbol(id) {
+		return "", false
+	}
+	return id, true
 }
 
 // --- classification --------------------------------------------------------------

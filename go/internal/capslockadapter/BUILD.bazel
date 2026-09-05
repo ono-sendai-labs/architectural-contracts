@@ -6,7 +6,7 @@ load("@rules_go//go:def.bzl", "go_library")
 # `just selfcheck`.
 go_library(
     name = "capslockadapter",
-    srcs = ["capslockadapter.go"],
+    srcs = ["capslockadapter.go", "generation.go"],
     importpath = "github.com/ono-sendai-labs/architectural-contracts/go/internal/capslockadapter",
     visibility = ["//go:__subpackages__"],
     deps = [

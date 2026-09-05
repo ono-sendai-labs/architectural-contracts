@@ -9,6 +9,7 @@ load("@rules_go//go:def.bzl", "go_library", "go_test")
 go_library(
     name = "stdlibmap",
     srcs = [
+        "generate.go",
         "inventory.go",
         "nativeloader.go",
         "sdkkey.go",
@@ -17,7 +18,11 @@ go_library(
     importpath = "github.com/ono-sendai-labs/architectural-contracts/go/internal/stdlibmap",
     visibility = ["//go:__subpackages__"],
     deps = [
+        "//go/internal/artifactio",
+        "//go/internal/capslockadapter",
         "//go/internal/hostpolicy",
+        "//go/internal/schema",
+        "//go/internal/schema/gen",
         "//go/internal/stdlibauthority",
         "//go/internal/symbol",
         "@org_golang_x_tools//go/packages",
@@ -28,6 +33,7 @@ go_test(
     name = "stdlibmap_test",
     size = "small",
     srcs = [
+        "generate_test.go",
         "inventory_test.go",
         "sdkkey_test.go",
         "stdlibmap_test.go",

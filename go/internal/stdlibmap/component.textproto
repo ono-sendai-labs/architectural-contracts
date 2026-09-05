@@ -25,6 +25,18 @@ members: "golang.org/x/tools/internal/aliases"
 members: "golang.org/x/sync/errgroup"
 members: "golang.org/x/mod/semver"
 component_dependencies {
+  name: "artifactio"
+  manifest: "../artifactio/component.textproto"
+}
+component_dependencies {
+  name: "capslockadapter"
+  manifest: "../capslockadapter/component.textproto"
+}
+component_dependencies {
+  name: "schema"
+  manifest: "../schema/component.textproto"
+}
+component_dependencies {
   name: "stdlibauthority"
   manifest: "../stdlibauthority/component.textproto"
 }
