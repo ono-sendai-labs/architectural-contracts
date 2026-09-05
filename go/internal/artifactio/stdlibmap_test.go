@@ -112,3 +112,36 @@ func TestMapRequiresCompleteEvidenceInventory(t *testing.T) {
 		t.Errorf("DecodeMap without required evidence: err = %v, want evidence-inventory error", err)
 	}
 }
+
+// TestInitEvidenceIsTotal pins the extended evidence inventory: a
+// CAPABILITIES init record without evidence is rejected, and with evidence it
+// round-trips (round-1 finding: init capabilities were emitted without
+// evidence).
+func TestInitEvidenceIsTotal(t *testing.T) {
+	m := validMap()
+	initCaps := &gen.InitRecord{Package: "os", Classification: gen.Classification_CAPABILITIES, Capabilities: []string{"FILES"}}
+	for i, existing := range m.Inits {
+		if existing.Package == "os" {
+			m.Inits[i] = initCaps
+		}
+	}
+	if _, err := MarshalMap(m); err == nil || !strings.Contains(err.Error(), `init "os.init"`) {
+		t.Fatalf("MarshalMap without init evidence = %v; want the init evidence-totality error", err)
+	}
+	m.Evidence = append(m.Evidence, &gen.Evidence{
+		SymbolId:   "os.init",
+		Capability: "FILES",
+		Frames: []*gen.Frame{
+			{Function: "os.init", File: "init.go", Line: 1},
+			{Function: "os.ReadFile", File: "file.go", Line: 2},
+		},
+	})
+	if _, err := MarshalMap(m); err != nil {
+		t.Fatalf("MarshalMap with init evidence: %v", err)
+	}
+	// Evidence for a capability the init record does not carry is rejected.
+	m.Evidence[len(m.Evidence)-1].Capability = "NETWORK"
+	if _, err := MarshalMap(m); err == nil || !strings.Contains(err.Error(), "os.init") {
+		t.Fatalf("MarshalMap with mismatched init evidence = %v; want an error naming the init", err)
+	}
+}

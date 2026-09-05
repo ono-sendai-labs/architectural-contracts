@@ -87,22 +87,34 @@ func genFindings() []capslockadapter.GenerationFinding {
 			Path: []stdlibauthority.Frame{frame("example.com/genpkg.Load"), frame("os.ReadFile")}},
 		{RootName: "example.com/genpkg.init", RootPackage: "example.com/genpkg", Capability: "READ_SYSTEM_STATE",
 			Path: []stdlibauthority.Frame{frame("example.com/genpkg.init"), frame("os.Getenv")}},
+		{RootName: "example.com/genpkg.init", RootPackage: "example.com/genpkg", Capability: "FILES",
+			Path: []stdlibauthority.Frame{frame("example.com/genpkg.init"), frame("os.ReadFile")}},
 		{RootName: "example.com/genpkg.init#1", RootPackage: "example.com/genpkg", Capability: "FILES",
 			Path: []stdlibauthority.Frame{frame("example.com/genpkg.init#1")}},
 		{RootName: "example.com/genpkg.Load$1", RootPackage: "example.com/genpkg", Capability: "NETWORK",
 			Path: []stdlibauthority.Frame{frame("example.com/genpkg.Load$1")}},
 		{RootName: "example.com/genpkg.helper", RootPackage: "example.com/genpkg", Capability: "EXEC",
 			Path: []stdlibauthority.Frame{frame("example.com/genpkg.helper")}},
-		{RootName: "(*os.File).Read", RootPackage: "os", Capability: "CAPABILITY_SAFE"},
-		{RootName: "(*os.File).Write", RootPackage: "os", Capability: "CAPABILITY_SAFE"},
-		{RootName: "(*os.File).Chmod", RootPackage: "os", Capability: "CAPABILITY_SAFE"},
 		{RootName: "(*os.File).Chdir", RootPackage: "os", Capability: "MODIFY_SYSTEM_STATE/CHDIR",
 			Path: []stdlibauthority.Frame{frame("(*os.File).Chdir")}},
-		{RootName: "os.Open", RootPackage: "os", Capability: "CAPABILITY_SAFE"},
 		{RootName: "os.ReadFile", RootPackage: "os", Capability: "FILES",
 			Path: []stdlibauthority.Frame{frame("os.ReadFile")}},
-		{RootName: "os.Getenv", RootPackage: "os", Capability: "CAPABILITY_UNANALYZED"},
-		{RootName: "os.Exit", RootPackage: "os", Capability: "CAPABILITY_SAFE"},
+		{RootName: "os.Getenv", RootPackage: "os", Capability: "UNANALYZED"},
+	}
+}
+
+// classifierCuratedSafe simulates capslockadapter.CuratedSafeKeys over the
+// fixture's classifier spellings: curated-safe and minting-reclassified roots
+// produce NO findings, so their SAFE classification and provenance come from
+// the classifier (the production path; round-1 finding).
+func classifierCuratedSafe() map[string]bool {
+	return map[string]bool{
+		"os.Exit":          true,
+		"os.Open":          true,
+		"(*os.File).Read":  true,
+		"(*os.File).Write": true,
+		"(*os.File).Chmod": true,
+		"(os.File).Close":  true,
 	}
 }
 
@@ -113,7 +125,12 @@ func buildFixtureMap(t *testing.T) (*gen.StdlibMap, error) {
 
 func buildFixtureMapWith(t *testing.T, findings []capslockadapter.GenerationFinding) (*gen.StdlibMap, error) {
 	t.Helper()
-	m, err := BuildAuthorityMap(genInventory(t), findings, nil)
+	return buildFixtureMapCurated(t, findings, classifierCuratedSafe())
+}
+
+func buildFixtureMapCurated(t *testing.T, findings []capslockadapter.GenerationFinding, curated map[string]bool) (*gen.StdlibMap, error) {
+	t.Helper()
+	m, err := BuildAuthorityMap(genInventory(t), findings, curated)
 	if err != nil {
 		return nil, err
 	}
@@ -229,8 +246,22 @@ func TestBuildAuthorityMapClassifiesAggregateInit(t *testing.T) {
 		t.Fatalf("BuildAuthorityMap: %v", err)
 	}
 	init := initRecordOf(t, m, "example.com/genpkg")
-	if init.Classification != gen.Classification_CAPABILITIES || !slices.Equal(init.Capabilities, []string{"READ_SYSTEM_STATE"}) {
-		t.Fatalf("genpkg.init = %+v; want CAPABILITIES [READ_SYSTEM_STATE]", init)
+	if init.Classification != gen.Classification_CAPABILITIES || !slices.Equal(init.Capabilities, []string{"FILES", "READ_SYSTEM_STATE"}) {
+		t.Fatalf("genpkg.init = %+v; want CAPABILITIES [FILES READ_SYSTEM_STATE]", init)
+	}
+	// Each init capability carries its own ordered evidence path (round-1
+	// finding: init capabilities were emitted without evidence).
+	var initEvidence int
+	for _, e := range m.Evidence {
+		if e.SymbolId == "example.com/genpkg.init" {
+			initEvidence++
+			if len(e.Frames) == 0 || e.Frames[0].Function != "example.com/genpkg.init" {
+				t.Fatalf("init evidence for %s = %+v; want the ordered aggregate-root path", e.Capability, e.Frames)
+			}
+		}
+	}
+	if initEvidence != 2 {
+		t.Fatalf("init evidence entries = %d; want one per init capability", initEvidence)
 	}
 	for _, s := range m.Symbols {
 		if strings.Contains(s.Id, ".init#") || strings.HasSuffix(s.Id, ".init") {
@@ -487,5 +518,153 @@ func TestGenerateRunsCapslockOnceOverCompleteBatch(t *testing.T) {
 	slices.Sort(gotPaths)
 	if !slices.Equal(gotPaths, []string{"example.com/genpkg", "os"}) {
 		t.Fatalf("batch = %v; want the complete importable set", gotPaths)
+	}
+}
+
+// --- round-1: promoted and alias-exposed variable authority ---------------------
+
+const varPkgSrc = `package varpkg
+
+type Base struct{}
+
+func (b Base) Ping() error { return nil }
+
+type Mixed struct{}
+
+func (m Mixed) Proved() {}
+
+func (m Mixed) Curated() {}
+
+type hidden struct{}
+
+func (h *hidden) Touch() {}
+
+type Alias = hidden
+
+var Promoted Base
+var Aliased Alias
+var MixedVar Mixed
+`
+
+// varFindings carries the canned findings for the varpkg fixture: the
+// promoted Base method reaches NETWORK, the alias-exposed unexported receiver
+// method reaches READ_SYSTEM_STATE, and Mixed.Curated is classifier-curated.
+func varFindings() []capslockadapter.GenerationFinding {
+	return []capslockadapter.GenerationFinding{
+		{RootName: "(example.com/varpkg.Base).Ping", RootPackage: "example.com/varpkg", Capability: "NETWORK",
+			Path: []stdlibauthority.Frame{{Function: "(example.com/varpkg.Base).Ping", File: "p.go", Line: 4}}},
+		{RootName: "(example.com/varpkg.hidden).Touch", RootPackage: "example.com/varpkg", Capability: "READ_SYSTEM_STATE",
+			Path: []stdlibauthority.Frame{{Function: "(example.com/varpkg.hidden).Touch", File: "h.go", Line: 11}}},
+	}
+}
+
+func varCuratedSafe() map[string]bool {
+	return map[string]bool{"(*example.com/varpkg.Mixed).Curated": true}
+}
+
+func TestVarRuleCoversPromotedAndAliasExposedMethods(t *testing.T) {
+	loader := typeCheckLoader(t, map[string]string{"example.com/varpkg": varPkgSrc})
+	inv, err := BuildInventory([]PackageEntry{{Path: "example.com/varpkg", Importable: true}}, loader)
+	if err != nil {
+		t.Fatalf("BuildInventory: %v", err)
+	}
+	m, err := BuildAuthorityMap(inv, varFindings(), varCuratedSafe())
+	if err != nil {
+		t.Fatalf("BuildAuthorityMap: %v", err)
+	}
+	promoted := recordOf(t, m, "example.com/varpkg", "example.com/varpkg.Promoted")
+	if promoted.Classification != gen.Classification_CAPABILITIES || !slices.Equal(promoted.Capabilities, []string{"NETWORK"}) {
+		t.Fatalf("Promoted = %+v; want the promoted Base method's NETWORK", promoted)
+	}
+	aliased := recordOf(t, m, "example.com/varpkg", "example.com/varpkg.Aliased")
+	if aliased.Classification != gen.Classification_CAPABILITIES || !slices.Equal(aliased.Capabilities, []string{"READ_SYSTEM_STATE"}) {
+		t.Fatalf("Aliased = %+v; want the alias-exposed receiver method's READ_SYSTEM_STATE", aliased)
+	}
+	// The curated method contributes a SAFE trust decision without faking a
+	// capability record; MixedVar stays terminal-SAFE with inherited provenance.
+	mixed := recordOf(t, m, "example.com/varpkg", "example.com/varpkg.MixedVar")
+	if mixed.Classification != gen.Classification_SAFE || mixed.Provenance != "capslock-curated" {
+		t.Fatalf("MixedVar = %+v; want SAFE capslock-curated", mixed)
+	}
+}
+
+// --- round-1: SAFE provenance precedence is order-independent -------------------
+
+func TestVarProvenancePrecedenceIndependentOfOrder(t *testing.T) {
+	override := &symbolResult{classification: gen.Classification_SAFE, provenance: ProvenanceProjectOverride}
+	curated := &symbolResult{classification: gen.Classification_SAFE, provenance: ProvenanceCapslockCurated}
+	proved := &symbolResult{classification: gen.Classification_SAFE, provenance: ProvenanceProvedPure}
+	forward := &symbolResult{}
+	forward.mergeFrom(proved)
+	forward.mergeFrom(curated)
+	forward.mergeFrom(override)
+	reverse := &symbolResult{}
+	reverse.mergeFrom(override)
+	reverse.mergeFrom(curated)
+	reverse.mergeFrom(proved)
+	for name, r := range map[string]*symbolResult{"forward": forward, "reverse": reverse} {
+		r.finish()
+		if r.provenance != ProvenanceProjectOverride {
+			t.Fatalf("%s merge = %q; want project-override regardless of visit order", name, r.provenance)
+		}
+	}
+	curatedOnly := &symbolResult{}
+	curatedOnly.mergeFrom(proved)
+	curatedOnly.mergeFrom(curated)
+	curatedOnly.finish()
+	if curatedOnly.provenance != ProvenanceCapslockCurated {
+		t.Fatalf("proved-then-curated merge = %q; want capslock-curated", curatedOnly.provenance)
+	}
+}
+
+// --- round-1: unknown-package roots fail even for droppable shapes --------------
+
+func TestUnknownPackageClosureFailsGeneration(t *testing.T) {
+	findings := append(genFindings(), capslockadapter.GenerationFinding{
+		RootName: "example.com/other.Load$1", RootPackage: "example.com/other", Capability: "NETWORK",
+	})
+	if _, err := BuildAuthorityMap(genInventory(t), findings, classifierCuratedSafe()); err == nil {
+		t.Fatalf("BuildAuthorityMap: want an error for an unknown-package closure root")
+	} else if !strings.Contains(err.Error(), "example.com/other") {
+		t.Fatalf("error %v: want it to name the unknown package", err)
+	}
+}
+
+// --- round-1: the minting frame names the handle var in full --------------------
+
+func TestMintingEvidenceFrameIsFullyQualified(t *testing.T) {
+	m, err := buildFixtureMap(t)
+	if err != nil {
+		t.Fatalf("BuildAuthorityMap: %v", err)
+	}
+	for _, e := range m.Evidence {
+		if e.SymbolId == "os.Stdin" && e.Capability == "FILES" {
+			if len(e.Frames) != 1 || e.Frames[0].Function != "os.Stdin" {
+				t.Fatalf("minting evidence frames = %+v; want the fully qualified os.Stdin frame", e.Frames)
+			}
+			return
+		}
+	}
+	t.Fatalf("no minting evidence for (os.Stdin, FILES)")
+}
+
+// --- round-1: curated-safe aggregate inits --------------------------------------
+
+func TestCuratedInitProvenance(t *testing.T) {
+	inv := genInventory(t)
+	curatedOnly, err := BuildAuthorityMap(inv, []capslockadapter.GenerationFinding{
+		{RootName: "example.com/genpkg.Load", RootPackage: "example.com/genpkg", Capability: "FILES",
+			Path: []stdlibauthority.Frame{{Function: "example.com/genpkg.Load"}}},
+	}, map[string]bool{"os.init": true})
+	if err != nil {
+		t.Fatalf("BuildAuthorityMap(curated init): %v", err)
+	}
+	// InitRecord carries no provenance field (the persisted schema has no
+	// per-init trust annotation), so the curated os.init record is pinned as
+	// SAFE with no provenance claim beyond classification.
+	for _, i := range curatedOnly.Inits {
+		if i.Package == "os" && i.Classification != gen.Classification_SAFE {
+			t.Fatalf("curated os.init = %+v; want SAFE", i)
+		}
 	}
 }

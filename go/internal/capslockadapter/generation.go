@@ -79,11 +79,19 @@ type GenerationFinding struct {
 }
 
 // GenerationFindings runs Capslock ONCE over the complete batch of package
-// paths at GranularityFunction under the generation classifier (task req 1)
-// and returns the raw findings. Grouping by Path[0] is the caller's
-// (stdlibmap's) responsibility. packagePaths must be non-empty. Any package
-// load error fails the whole batch.
+// paths in the host environment (GenerationFindingsForEnv with nil env).
 func GenerationFindings(packagePaths []string) ([]GenerationFinding, error) {
+	return GenerationFindingsForEnv(nil, packagePaths)
+}
+
+// GenerationFindingsForEnv is GenerationFindings bound to a complete target
+// environment: env is the COMPLETE environment the toolchain runs in (the
+// merged host + target overrides, NativeLoader.Environment), so the Capslock
+// analysis describes the same target configuration as the inventory loader
+// and package oracle — never the host (round-1 finding). Grouping by Path[0]
+// is the caller's (stdlibmap's) responsibility. packagePaths must be
+// non-empty. Any package load error fails the whole batch.
+func GenerationFindingsForEnv(env []string, packagePaths []string) ([]GenerationFinding, error) {
 	if len(packagePaths) == 0 {
 		return nil, fmt.Errorf("generation findings: the package batch is empty")
 	}
@@ -91,7 +99,7 @@ func GenerationFindings(packagePaths []string) ([]GenerationFinding, error) {
 	if err != nil {
 		return nil, err
 	}
-	cfg := &packages.Config{Mode: analyzer.PackagesLoadModeNeeded}
+	cfg := &packages.Config{Mode: analyzer.PackagesLoadModeNeeded, Env: env}
 	pkgs, err := packages.Load(cfg, packagePaths...)
 	if err != nil {
 		return nil, fmt.Errorf("loading %d SDK packages for generation: %w", len(packagePaths), err)

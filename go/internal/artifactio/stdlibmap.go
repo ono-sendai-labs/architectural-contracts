@@ -173,6 +173,9 @@ func validateMap(m *gen.StdlibMap) error {
 		importable[p.Path] = p.Importable
 	}
 
+	// Init records keyed by their full pkg.init symbol ID, so evidence may
+	// reference aggregate inits (their capabilities require evidence too).
+	initByID := make(map[string]*gen.InitRecord, len(m.Inits))
 	symRecords := make(map[string]*gen.SymbolRecord, len(m.Symbols))
 	for _, s := range m.Symbols {
 		if s == nil {
@@ -207,6 +210,7 @@ func validateMap(m *gen.StdlibMap) error {
 			return fmt.Errorf("duplicate init inventory entry: %q (or a contradictory reclassification)", i.Package)
 		}
 		initSeen[i.Package] = true
+		initByID[i.Package+".init"] = i
 		if !importable[i.Package] {
 			return fmt.Errorf("init references non-importable or unlisted package %q", i.Package)
 		}
@@ -254,7 +258,18 @@ func validateMap(m *gen.StdlibMap) error {
 		}
 		record := symRecords[pkg+"\x00"+e.SymbolId]
 		if record == nil {
-			return fmt.Errorf("evidence references symbol %q, which is absent from the inventory of %q", e.SymbolId, pkg)
+			// Aggregate init evidence: keyed by the full pkg.init ID.
+			initRecord, ok := initByID[e.SymbolId]
+			if !ok {
+				return fmt.Errorf("evidence references symbol %q, which is absent from the inventory of %q", e.SymbolId, pkg)
+			}
+			if initRecord.Classification != gen.Classification_CAPABILITIES {
+				return fmt.Errorf("evidence for %q references a %s init record; evidence exists only for CAPABILITIES records", e.SymbolId, initRecord.Classification)
+			}
+			if !slices.Contains(initRecord.Capabilities, e.Capability) {
+				return fmt.Errorf("evidence capability %q is not among the capabilities of init %q", e.Capability, e.SymbolId)
+			}
+			continue
 		}
 		if record.Classification != gen.Classification_CAPABILITIES {
 			return fmt.Errorf("evidence for %q references a %s record; evidence exists only for CAPABILITIES symbols", e.SymbolId, record.Classification)
@@ -265,8 +280,9 @@ func validateMap(m *gen.StdlibMap) error {
 	}
 
 	// The evidence inventory is total (DR-17): every capability of every
-	// CAPABILITIES symbol has exactly one evidence entry; duplicates were
-	// rejected above, so only the missing direction remains.
+	// CAPABILITIES symbol and every CAPABILITIES aggregate init has exactly
+	// one evidence entry; duplicates were rejected above, so only the missing
+	// direction remains.
 	for _, s := range m.Symbols {
 		if s.Classification != gen.Classification_CAPABILITIES {
 			continue
@@ -274,6 +290,17 @@ func validateMap(m *gen.StdlibMap) error {
 		for _, c := range s.Capabilities {
 			if !evSeen[s.Id+"\x00"+c] {
 				return fmt.Errorf("capability %q of symbol %q has no evidence entry; the evidence inventory must cover every capability", c, s.Id)
+			}
+		}
+	}
+	for pkg := range initSeen {
+		record := initByID[pkg+".init"]
+		if record.Classification != gen.Classification_CAPABILITIES {
+			continue
+		}
+		for _, c := range record.Capabilities {
+			if !evSeen[pkg+".init"+"\x00"+c] {
+				return fmt.Errorf("capability %q of init %q has no evidence entry; the evidence inventory must cover every capability", c, pkg+".init")
 			}
 		}
 	}

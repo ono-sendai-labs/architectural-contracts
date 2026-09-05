@@ -39,6 +39,15 @@ func mapWithFullInventory() *gen.StdlibMap {
 				{Function: "g", File: "b.go", Line: 2},
 			},
 		},
+		// A CAPABILITIES init record requires evidence for each capability.
+		{
+			SymbolId:   "os.init",
+			Capability: "FILES",
+			Frames: []*gen.Frame{
+				{Function: "os.init", File: "init.go", Line: 1},
+				{Function: "os.Open", File: "file.go", Line: 2},
+			},
+		},
 	}
 	return m
 }
@@ -63,6 +72,14 @@ func TestMapCanonicalizesEveryRepeatedField(t *testing.T) {
 		{Package: "bytes", Classification: gen.Classification_SAFE},
 	}
 	b.Evidence = []*gen.Evidence{
+		{
+			SymbolId:   "os.init",
+			Capability: "FILES",
+			Frames: []*gen.Frame{
+				{Function: "os.init", File: "init.go", Line: 1},
+				{Function: "os.Open", File: "file.go", Line: 2},
+			},
+		},
 		{
 			SymbolId:   "(os.File).Read",
 			Capability: "READ_SYSTEM_STATE",

@@ -32,7 +32,9 @@ func fullGeneration(t *testing.T) *stdlibmap.GeneratedMap {
 		RuleVersion: "test-rules-v1",
 		Oracle:      stdlibmap.PackageOracleFunc(func() ([]stdlibmap.PackageEntry, error) { return entries, nil }),
 		Loader:      &stdlibmap.NativeLoader{},
-		Findings:    stdlibmap.FindingSourceFunc(capslockadapter.GenerationFindings),
+		// Findings left nil: Generate binds the native Capslock runner to the
+		// target environment (TargetEnv), proving the analysis describes the
+		// same configuration the loader and oracle describe.
 	})
 	if err != nil {
 		t.Fatalf("Generate: %v", err)
@@ -148,6 +150,39 @@ func TestGenerateFullStdlibMap(t *testing.T) {
 		t.Fatalf("unsafe.Pointer = %+v; want UNANALYZED", r)
 	}
 
+	// AC 6: the three SAFE provenance kinds are visibly distinct on real
+	// entries. Curated-safe roots produce no findings, so their provenance
+	// must come from the classifier (round-1 finding).
+	if r := lookup("os", "os.Exit"); r.Classification != gen.Classification_SAFE || r.Provenance != "capslock-curated" {
+		t.Fatalf("os.Exit = %+v; want SAFE capslock-curated", r)
+	}
+	if r := lookup("runtime", "runtime.GC"); r.Classification != gen.Classification_SAFE || r.Provenance != "capslock-curated" {
+		t.Fatalf("runtime.GC = %+v; want SAFE capslock-curated", r)
+	}
+	if r := lookup("os", "(os.File).Read"); r.Classification != gen.Classification_SAFE || r.Provenance != "project-override" {
+		t.Fatalf("(os.File).Read = %+v; want SAFE project-override", r)
+	}
+	if r := lookup("math", "math.Abs"); r.Classification != gen.Classification_SAFE || r.Provenance != "proved-pure" {
+		t.Fatalf("math.Abs = %+v; want SAFE proved-pure", r)
+	}
+	// Capability-bearing init records carry evidence (round-1 finding): at
+	// least one importable package's init is classified with capabilities
+	// somewhere in the stdlib, and its evidence exists.
+	var initCaps, initEvidence int
+	for _, i := range m.Inits {
+		if i.Classification == gen.Classification_CAPABILITIES {
+			initCaps++
+		}
+	}
+	for _, e := range m.Evidence {
+		if strings.HasSuffix(e.SymbolId, ".init") {
+			initEvidence++
+		}
+	}
+	if initCaps == 0 || initEvidence == 0 {
+		t.Fatalf("init capability records = %d, init evidence = %d; capability-bearing inits must carry evidence", initCaps, initEvidence)
+	}
+
 	// The canonical bytes decode.
 	if _, err := artifactio.DecodeMap(bytes.NewReader(out.Bytes)); err != nil {
 		t.Fatalf("DecodeMap: %v", err)
@@ -161,4 +196,59 @@ func TestGenerateFullStdlibMap(t *testing.T) {
 	if out.Digest != out2.Digest {
 		t.Fatalf("digest differs between identical generations")
 	}
+}
+
+// TestGenerateCrossTarget proves the Capslock analysis and the typed inventory
+// describe the same target configuration before the map key is derived
+// (round-1 finding): generation for darwin/arm64 must classify the
+// darwin-only syscall surface and omit linux-only declarations, and vice
+// versa, with distinct SDK keys.
+func TestGenerateCrossTarget(t *testing.T) {
+	generateFor := func(goos, goarch string) *stdlibmap.GeneratedMap {
+		t.Helper()
+		target := stdlibmap.TargetConfig{ToolchainVersion: "go-test", GOOS: goos, GOARCH: goarch}
+		env := (&stdlibmap.NativeLoader{Env: stdlibmap.TargetEnv(target)}).Environment()
+		loader := &stdlibmap.NativeLoader{Env: stdlibmap.TargetEnv(target)}
+		entries, err := stdlibmap.NormalizePackageList([]string{"syscall"})
+		if err != nil {
+			t.Fatalf("NormalizePackageList: %v", err)
+		}
+		out, err := stdlibmap.Generate(stdlibmap.GenerationInput{
+			Target:      target,
+			RuleVersion: "test-rules-v1",
+			Oracle:      stdlibmap.PackageOracleFunc(func() ([]stdlibmap.PackageEntry, error) { return entries, nil }),
+			Loader:      loader,
+			Findings: stdlibmap.FindingSourceFunc(func(paths []string) ([]capslockadapter.GenerationFinding, error) {
+				return capslockadapter.GenerationFindingsForEnv(env, paths)
+			}),
+		})
+		if err != nil {
+			t.Fatalf("Generate(%s/%s): %v", goos, goarch, err)
+		}
+		return out
+	}
+	linux := generateFor("linux", "amd64")
+	if _, ok := recordByID(linux.Map, "syscall.EpollCreate"); !ok {
+		t.Fatalf("linux/amd64 syscall map lacks syscall.EpollCreate; the target did not reach the analysis")
+	}
+	darwin := generateFor("darwin", "arm64")
+	if _, ok := recordByID(darwin.Map, "syscall.EpollCreate"); ok {
+		t.Fatalf("darwin/arm64 syscall map has linux-only syscall.EpollCreate; the analysis used the host environment")
+	}
+	if _, ok := recordByID(darwin.Map, "syscall.Sysctl"); !ok {
+		t.Fatalf("darwin/arm64 syscall map lacks syscall.Sysctl")
+	}
+	if bytes.Equal(linux.Bytes, darwin.Bytes) {
+		t.Fatalf("linux and darwin maps are byte-identical; the SDK key does not distinguish targets")
+	}
+}
+
+// recordByID finds a symbol record by its full ID.
+func recordByID(m *gen.StdlibMap, id string) (*gen.SymbolRecord, bool) {
+	for _, s := range m.Symbols {
+		if s.Id == id {
+			return s, true
+		}
+	}
+	return nil, false
 }

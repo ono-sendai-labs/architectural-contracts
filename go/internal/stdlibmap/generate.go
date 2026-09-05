@@ -67,7 +67,10 @@ type GenerationInput struct {
 	Oracle PackageOracle
 	// Loader type-loads the importable packages for the target.
 	Loader Loader
-	// Findings runs Capslock once over the complete importable batch.
+	// Findings runs Capslock once over the complete importable batch. When
+	// nil, the native Capslock runner is used, bound to the same target
+	// environment as the loader and oracle (round-1 finding: the analysis
+	// must describe the target, not the host).
 	Findings FindingSource
 }
 
@@ -85,9 +88,7 @@ func Generate(in GenerationInput) (*GeneratedMap, error) {
 	if in.Loader == nil {
 		return nil, fmt.Errorf("generating the stdlib map: the package loader is required")
 	}
-	if in.Findings == nil {
-		return nil, fmt.Errorf("generating the stdlib map: the Capslock findings source is required")
-	}
+
 	entries, err := in.Oracle.Packages()
 	if err != nil {
 		return nil, fmt.Errorf("generating the stdlib map: %w", err)
@@ -102,11 +103,39 @@ func Generate(in GenerationInput) (*GeneratedMap, error) {
 			importable = append(importable, p.Path)
 		}
 	}
-	findings, err := in.Findings.Findings(importable)
+	findingsSource := in.Findings
+	if findingsSource == nil {
+		env := (&NativeLoader{Env: TargetEnv(in.Target)}).Environment()
+		findingsSource = FindingSourceFunc(func(paths []string) ([]capslockadapter.GenerationFinding, error) {
+			return capslockadapter.GenerationFindingsForEnv(env, paths)
+		})
+	}
+	findings, err := findingsSource.Findings(importable)
 	if err != nil {
 		return nil, fmt.Errorf("generating the stdlib map: %w", err)
 	}
-	curated, err := capslockadapter.CuratedSafeKeys(rootDisplayNames(findings))
+	// Provenance for SAFE roots comes from the generation classifier itself:
+	// curated-safe and minting-reclassified roots produce NO findings, so
+	// every inventoried function and method (plus the observed roots, and the
+	// aggregate inits defensively) is queried against the classifier once.
+	// The classifier's spellings include the pointer and value receiver
+	// forms; CuratedSafeKeys marks the ones the classifier curates SAFE
+	// (round-1 finding: querying only observed findings lost curated roots
+	// such as os.Exit entirely).
+	names := rootDisplayNames(findings)
+	for _, id := range inv.Symbols {
+		kind, err := resolveSymbol(inv, id)
+		if err != nil {
+			return nil, fmt.Errorf("generating the stdlib map: %w", err)
+		}
+		if kind == kindFunc || kind == kindMethod {
+			names = append(names, classifierSpellings(id)...)
+		}
+	}
+	for _, id := range inv.Inits {
+		names = append(names, id.String())
+	}
+	curated, err := capslockadapter.CuratedSafeKeys(names)
 	if err != nil {
 		return nil, fmt.Errorf("generating the stdlib map: %w", err)
 	}
@@ -135,6 +164,24 @@ func Generate(in GenerationInput) (*GeneratedMap, error) {
 		return nil, fmt.Errorf("digesting the generated map: %w", err)
 	}
 	return &GeneratedMap{Map: m, Bytes: data, Digest: digest}, nil
+}
+
+// classifierSpellings returns the Capslock display spellings of an inventoried
+// function or method ID — the keys the generation classifier's FunctionCategory
+// consults. Methods are spelled with both pointer and value receivers: the
+// classifier's reclassification keys use the pointer form, but a curated entry
+// may be spelled either way.
+func classifierSpellings(id symbol.SymbolID) []string {
+	text := id.String()
+	if !strings.HasPrefix(text, "(") {
+		return []string{text}
+	}
+	// "(pkg.T).M" -> "(*pkg.T).M" and "(pkg.T).M"; the split is at the
+	// receiver's closing bracket, not the first dot (package paths may
+	// contain dots).
+	end := strings.IndexByte(text, ')')
+	dot := strings.LastIndexByte(text[:end], '.')
+	return []string{"(*" + text[1:end] + ")" + text[end+1:], "(" + text[1:dot] + ")" + text[end+1:]}
 }
 
 // rootDisplayNames returns each root's distinct display spelling, the keys
@@ -241,12 +288,15 @@ var initSubPattern = regexp.MustCompile(`\.init#\d+$`)
 // confirms exactly the one canonical declaration.
 func normalizeRoot(inv *Inventory, f capslockadapter.GenerationFinding) (symbol.SymbolID, dropReason, error) {
 	name := f.RootName
-	if strings.Contains(name, "$") {
-		return "", dropClosure, nil
-	}
 	pkg := f.RootPackage
+	// Drops only apply inside a known package: Capslock roots come from the
+	// queried batch, so an unknown package is an accounting failure, never a
+	// drop (task req 9). The guard precedes every drop rule.
 	if pkg != "" && !inv.KnownPackage(pkg) {
 		return "", "", fmt.Errorf("capslock root %q names an unknown package %q", name, pkg)
+	}
+	if strings.Contains(name, "$") {
+		return "", dropClosure, nil
 	}
 	// Aggregate init and source-level init#N: the aggregate's findings union
 	// every init#N already (spike finding 4), so the aggregate is the only
@@ -259,8 +309,8 @@ func normalizeRoot(inv *Inventory, f capslockadapter.GenerationFinding) (symbol.
 		if seg != "init" {
 			return "", dropInitSubFunction, nil
 		}
-		if pkg == "" || !inv.KnownPackage(pkg) {
-			return "", "", fmt.Errorf("capslock root %q names an unknown package %q", name, pkg)
+		if pkg == "" {
+			return "", "", fmt.Errorf("capslock root %q names no package", name)
 		}
 		id, err := initID(pkg)
 		if err != nil {
@@ -280,9 +330,7 @@ func normalizeRoot(inv *Inventory, f capslockadapter.GenerationFinding) (symbol.
 	// group anywhere is an instantiation (uninstantiated generic origins are
 	// their own roots and normalize above). Everything else is an exported
 	// root the inventory cannot account for, which fails generation rather
-	// than guessing (task req 3). Drops only apply inside a known package:
-	// Capslock roots come from the queried batch, so an unknown package is
-	// an accounting failure, never a drop.
+	// than guessing (task req 3).
 	if strings.ContainsAny(name, "[]") {
 		return "", dropInstantiation, nil
 	}
@@ -478,7 +526,7 @@ func classifyBuiltin() (gen.Classification, string) {
 // the map's own classifier, plus the handle minting-authority clause.
 // Interface-typed and methodless vars are SAFE. provenance is the inherited
 // SAFE provenance when the union is empty ("" otherwise, a capability record).
-func classifyVar(inv *Inventory, obj *types.Var, records map[symbol.SymbolID]*symbolResult) (*symbolResult, error) {
+func classifyVar(inv *Inventory, varID symbol.SymbolID, obj *types.Var, records map[symbol.SymbolID]*symbolResult) (*symbolResult, error) {
 	t := obj.Type()
 	if ptr, ok := t.(*types.Pointer); ok {
 		t = ptr.Elem()
@@ -491,25 +539,28 @@ func classifyVar(inv *Inventory, obj *types.Var, records map[symbol.SymbolID]*sy
 		return &symbolResult{classification: gen.Classification_SAFE, provenance: provenanceStructural}, nil
 	}
 	result := &symbolResult{}
-	for i := 0; i < named.NumMethods(); i++ {
-		m := named.Method(i)
-		if !m.Exported() {
-			continue
-		}
-		// Methods on unexported receiver types are structurally excluded
-		// from the inventory (an exported method of an unexported type is
-		// not externally nameable), so they carry no classification to
-		// union; skip them rather than failing.
-		if recvBaseName(m) == "" || !tokenIsExported(recvBaseName(m)) {
+	// The full static method set of the pointer-dereferenced type: promoted
+	// methods from embedded types and alias-exposed receivers carry authority
+	// too, so the walk uses the complete pointer method set rather than only
+	// the explicitly declared methods (round-1 finding).
+	mset := types.NewMethodSet(types.NewPointer(named))
+	for i := 0; i < mset.Len(); i++ {
+		m, ok := mset.At(i).Obj().(*types.Func)
+		if !ok || !m.Exported() {
 			continue
 		}
 		id, err := symbol.FromObject(m)
 		if err != nil {
 			return nil, fmt.Errorf("classifying var %q: %w", obj.Name(), err)
 		}
+		// Only inventory-visible methods carry a classification; an exported
+		// method declared on an unexported type that no exported alias
+		// exposes is structurally outside the inventory and is skipped.
+		// (Exact reconciliation guarantees every inventoried method has a
+		// record, so a missing record means the method is not inventoried.)
 		method, ok := records[id]
 		if !ok {
-			return nil, fmt.Errorf("classifying var %q: method %q has no classification; the map would be incomplete", obj.Name(), id)
+			continue
 		}
 		result.mergeFrom(method)
 	}
@@ -532,7 +583,7 @@ func classifyVar(inv *Inventory, obj *types.Var, records map[symbol.SymbolID]*sy
 			result.evidence = map[string][]stdlibauthority.Frame{}
 		}
 		result.evidence[cap] = append([]stdlibauthority.Frame(nil), result.evidence[cap]...)
-		result.evidence[cap] = append(result.evidence[cap], stdlibauthority.Frame{Function: obj.Name()})
+		result.evidence[cap] = append(result.evidence[cap], stdlibauthority.Frame{Function: varID.String()})
 	}
 	result.finish()
 	return result, nil
@@ -555,9 +606,24 @@ func (r *symbolResult) addCapability(cap string) {
 	}
 }
 
+// provenanceRank encodes the SAFE provenance precedence explicitly (project
+// override, then curated, then proved) so the inherited annotation is
+// independent of the method-set iteration order (round-1 finding).
+func provenanceRank(p string) int {
+	switch p {
+	case ProvenanceProjectOverride:
+		return 3
+	case ProvenanceCapslockCurated:
+		return 2
+	case ProvenanceProvedPure:
+		return 1
+	}
+	return 0
+}
+
 // mergeFrom unions a method's classification into a var's result, tracking
-// the inherited SAFE provenance (the strongest trust annotation wins:
-// override, then curated, then proved).
+// the inherited SAFE provenance: the highest-ranked incoming annotation wins,
+// regardless of visit order.
 func (r *symbolResult) mergeFrom(method *symbolResult) {
 	switch {
 	case method.classification == gen.Classification_UNANALYZED:
@@ -575,12 +641,8 @@ func (r *symbolResult) mergeFrom(method *symbolResult) {
 			}
 		}
 	case method.classification == gen.Classification_SAFE:
-		if method.provenance == ProvenanceProjectOverride {
-			r.provenance = ProvenanceProjectOverride
-		} else if r.provenance == "" && method.provenance == ProvenanceCapslockCurated {
-			r.provenance = ProvenanceCapslockCurated
-		} else if r.provenance == "" && method.provenance == ProvenanceProvedPure {
-			r.provenance = ProvenanceProvedPure
+		if provenanceRank(method.provenance) > provenanceRank(r.provenance) {
+			r.provenance = method.provenance
 		}
 	}
 }
@@ -621,22 +683,19 @@ func containsString(s []string, v string) bool {
 	return false
 }
 
-// recvBaseName returns the receiver's base named type name for a method, or
-// "" when the receiver has none.
-func recvBaseName(m *types.Func) string {
-	recv := m.Signature().Recv()
-	if recv == nil {
-		return ""
+// isCuratedSafe reports whether the generation classifier curates the
+// inventoried function or method CAPABILITY_SAFE, consulting both receiver
+// spellings for methods and the observed root name as a fallback.
+func isCuratedSafe(curatedSafe map[string]bool, id symbol.SymbolID) bool {
+	if len(curatedSafe) == 0 {
+		return false
 	}
-	t := recv.Type()
-	if ptr, ok := t.(*types.Pointer); ok {
-		t = ptr.Elem()
+	for _, name := range classifierSpellings(id) {
+		if curatedSafe[name] {
+			return true
+		}
 	}
-	named, _ := types.Unalias(t).(*types.Named)
-	if named == nil {
-		return ""
-	}
-	return named.Obj().Name()
+	return curatedSafe[id.String()]
 }
 
 // compareFramePaths orders two evidence paths lexicographically frame by
@@ -689,8 +748,6 @@ func BuildAuthorityMap(inv *Inventory, findings []capslockadapter.GenerationFind
 	// tracking every root's disposition (mapped or dropped-with-reason).
 	type rootKey struct{ pkg, name string }
 	aggregates := map[symbol.SymbolID]*rootAggregate{}
-	rootNames := map[symbol.SymbolID]string{}
-	accounted := map[rootKey]bool{}
 	dropped := map[rootKey]dropReason{}
 	for _, f := range findings {
 		key := rootKey{pkg: f.RootPackage, name: f.RootName}
@@ -704,10 +761,6 @@ func BuildAuthorityMap(inv *Inventory, findings []capslockadapter.GenerationFind
 			}
 			dropped[key] = drop
 			continue
-		}
-		accounted[key] = true
-		if _, seen := rootNames[id]; !seen {
-			rootNames[id] = f.RootName
 		}
 		agg, ok := aggregates[id]
 		if !ok {
@@ -773,7 +826,7 @@ func BuildAuthorityMap(inv *Inventory, findings []capslockadapter.GenerationFind
 				switch {
 				case reclassified[id]:
 					result.provenance = ProvenanceProjectOverride
-				case curatedSafe[rootNames[id]]:
+				case isCuratedSafe(curatedSafe, id):
 					result.provenance = ProvenanceCapslockCurated
 				default:
 					result.provenance = ProvenanceProvedPure
@@ -811,7 +864,7 @@ func BuildAuthorityMap(inv *Inventory, findings []capslockadapter.GenerationFind
 		if !ok || obj == nil {
 			return nil, fmt.Errorf("building the authority map: inventoried var %q did not resolve to a types.Var", id)
 		}
-		result, err := classifyVar(inv, obj, records)
+		result, err := classifyVar(inv, id, obj, records)
 		if err != nil {
 			return nil, fmt.Errorf("building the authority map: %w", err)
 		}
@@ -835,12 +888,29 @@ func BuildAuthorityMap(inv *Inventory, findings []capslockadapter.GenerationFind
 				}
 				result.finish()
 				if result.classification == gen.Classification_SAFE {
-					result.provenance = ProvenanceProvedPure
+					// Capslock curates some aggregate inits SAFE (e.g.
+					// "func os.init CAPABILITY_SAFE" in interesting.cm), but
+					// InitRecord carries no provenance field (the persisted
+					// schema has no per-init trust annotation yet), so the
+					// in-memory result records the classifier's answer and
+					// the persisted record degrades to proved-pure — a
+					// conservative, never more-trusting, label.
+					if isCuratedSafe(curatedSafe, id) {
+						result.provenance = ProvenanceCapslockCurated
+					} else {
+						result.provenance = ProvenanceProvedPure
+					}
 				}
 			}
 		} else {
 			result.classification = gen.Classification_SAFE
-			result.provenance = ProvenanceProvedPure
+			// Same InitRecord-provenance limitation as above: curated inits
+			// degrade to proved-pure in the persisted record.
+			if isCuratedSafe(curatedSafe, id) {
+				result.provenance = ProvenanceCapslockCurated
+			} else {
+				result.provenance = ProvenanceProvedPure
+			}
 		}
 		records[id] = result
 	}
@@ -902,6 +972,19 @@ func BuildAuthorityMap(inv *Inventory, findings []capslockadapter.GenerationFind
 			Classification: r.classification,
 			Capabilities:   r.caps,
 		})
+		// Capability-bearing init records carry the same deterministic
+		// evidence as symbols (task req 8; round-1 finding).
+		for _, c := range r.caps {
+			frames := r.evidence[c]
+			if len(frames) == 0 {
+				return nil, fmt.Errorf("building the authority map: capability %q of %q has no evidence", c, id)
+			}
+			ev := &gen.Evidence{SymbolId: id.String(), Capability: c}
+			for _, f := range frames {
+				ev.Frames = append(ev.Frames, &gen.Frame{Function: f.Function, File: f.File, Line: int32(f.Line)})
+			}
+			evidence = append(evidence, ev)
+		}
 	}
 	m.Evidence = evidence
 	return m, nil
