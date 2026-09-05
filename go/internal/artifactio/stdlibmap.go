@@ -192,6 +192,12 @@ func validateMap(m *gen.StdlibMap) error {
 		if err := validateRecordClassification(s.Classification, s.Capabilities, fmt.Sprintf("symbol %s in %s", s.Id, s.Package)); err != nil {
 			return err
 		}
+		if s.Provenance != "" && s.Classification == gen.Classification_CAPABILITIES {
+			return fmt.Errorf("symbol %s in %s: provenance %q annotates a %s record; provenance annotates SAFE and UNANALYZED trust decisions only", s.Id, s.Package, s.Provenance, s.Classification)
+		}
+		if err := validateProvenance(s.Provenance, fmt.Sprintf("symbol %s in %s", s.Id, s.Package)); err != nil {
+			return err
+		}
 		parsed, err := symbol.Parse(s.Id)
 		if err != nil {
 			return fmt.Errorf("symbol %s in %s: %w", s.Id, s.Package, err)
@@ -215,6 +221,12 @@ func validateMap(m *gen.StdlibMap) error {
 			return fmt.Errorf("init references non-importable or unlisted package %q", i.Package)
 		}
 		if err := validateRecordClassification(i.Classification, i.Capabilities, fmt.Sprintf("init of %s", i.Package)); err != nil {
+			return err
+		}
+		if i.Provenance != "" && i.Classification == gen.Classification_CAPABILITIES {
+			return fmt.Errorf("init of %s: provenance %q annotates a %s record; provenance annotates SAFE and UNANALYZED trust decisions only", i.Package, i.Provenance, i.Classification)
+		}
+		if err := validateProvenance(i.Provenance, fmt.Sprintf("init of %s", i.Package)); err != nil {
 			return err
 		}
 	}
@@ -303,6 +315,22 @@ func validateMap(m *gen.StdlibMap) error {
 				return fmt.Errorf("capability %q of init %q has no evidence entry; the evidence inventory must cover every capability", c, pkg+".init")
 			}
 		}
+	}
+	return nil
+}
+
+// validateProvenance enforces the provenance vocabulary (task req 8, DR-05):
+// the annotation is optional, names one of the generation-time trust
+// decisions, and annotates SAFE records (curated, override, proved) and
+// UNANALYZED records (the unsafe-builtin hardcoding override); capability
+// records carry no provenance.
+func validateProvenance(provenance, what string) error {
+	switch provenance {
+	case "":
+		return nil
+	case "capslock-curated", "project-override", "proved-pure":
+	default:
+		return fmt.Errorf("%s: provenance %q is not a generation-time trust annotation (capslock-curated, project-override, or proved-pure)", what, provenance)
 	}
 	return nil
 }

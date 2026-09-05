@@ -4,15 +4,16 @@ import (
 	"bytes"
 	"errors"
 	"slices"
-
-	"google.golang.org/protobuf/proto"
 	"strings"
 	"testing"
+
+	"google.golang.org/protobuf/proto"
 
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/artifactio"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/capslockadapter"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/schema/gen"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/stdlibauthority"
+	"github.com/ono-sendai-labs/architectural-contracts/go/internal/symbol"
 )
 
 // --- hermetic generation fixtures ---------------------------------------------
@@ -529,6 +530,10 @@ type Base struct{}
 
 func (b Base) Ping() error { return nil }
 
+type Wrapper struct {
+	Base
+}
+
 type Mixed struct{}
 
 func (m Mixed) Proved() {}
@@ -541,7 +546,7 @@ func (h *hidden) Touch() {}
 
 type Alias = hidden
 
-var Promoted Base
+var Promoted Wrapper
 var Aliased Alias
 var MixedVar Mixed
 `
@@ -659,12 +664,39 @@ func TestCuratedInitProvenance(t *testing.T) {
 	if err != nil {
 		t.Fatalf("BuildAuthorityMap(curated init): %v", err)
 	}
-	// InitRecord carries no provenance field (the persisted schema has no
-	// per-init trust annotation), so the curated os.init record is pinned as
-	// SAFE with no provenance claim beyond classification.
+	// The InitRecord provenance field (round-2 finding) keeps a curated SAFE
+	// init visibly distinct from a proved-pure one in the persisted artifact.
 	for _, i := range curatedOnly.Inits {
-		if i.Package == "os" && i.Classification != gen.Classification_SAFE {
-			t.Fatalf("curated os.init = %+v; want SAFE", i)
+		if i.Package == "os" && (i.Classification != gen.Classification_SAFE || i.Provenance != "capslock-curated") {
+			t.Fatalf("curated os.init = %+v; want SAFE capslock-curated", i)
 		}
+	}
+	// The persisted form carries the annotation through canonical I/O.
+	curatedOnly.FormatVersion = artifactio.MapFormatVersion
+	curatedOnly.Key = &gen.SDKKey{ToolchainVersion: "fixture", MapFormatVersion: artifactio.MapFormatVersion}
+	if _, err := artifactio.MarshalMap(curatedOnly); err != nil {
+		t.Fatalf("MarshalMap(curated init): %v", err)
+	}
+}
+
+// TestClassifierSpellings pins the Capslock display spellings the provenance
+// pass queries: the pointer form and the canonical value form, with the
+// receiver type name intact (round-2 finding: the value form dropped it).
+func TestClassifierSpellings(t *testing.T) {
+	id, err := symbol.Parse("(net.Flags).String")
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	got := classifierSpellings(id)
+	want := []string{"(*net.Flags).String", "(net.Flags).String"}
+	if !slices.Equal(got, want) {
+		t.Fatalf("classifierSpellings = %v; want %v", got, want)
+	}
+	top, err := symbol.Parse("os.ReadFile")
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if got := classifierSpellings(top); !slices.Equal(got, []string{"os.ReadFile"}) {
+		t.Fatalf("classifierSpellings(top-level) = %v; want the bare spelling", got)
 	}
 }

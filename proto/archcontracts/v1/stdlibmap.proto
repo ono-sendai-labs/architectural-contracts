@@ -170,6 +170,14 @@ message InitRecord {
   // Capability names when classification is CAPABILITIES; non-empty exactly
   // then. Sort key: lexicographic byte order.
   repeated string capabilities = 3;
+
+  // Generation-time trust annotation for SAFE init records, with the same
+  // vocabulary as SymbolRecord.provenance (Capslock curates some aggregate
+  // inits CAPABILITY_SAFE, e.g. os.init, so a curated SAFE init must not be
+  // indistinguishable from a proved-pure one). Empty for capability and
+  // UNANALYZED records. This is NOT a checked/asserted provenance claim
+  // about a surface.
+  string provenance = 4;
 }
 
 // Evidence is the generator's canned path for one (symbol, capability) pair.

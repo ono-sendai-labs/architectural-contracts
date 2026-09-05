@@ -165,6 +165,11 @@ func TestGenerateFullStdlibMap(t *testing.T) {
 	if r := lookup("math", "math.Abs"); r.Classification != gen.Classification_SAFE || r.Provenance != "proved-pure" {
 		t.Fatalf("math.Abs = %+v; want SAFE proved-pure", r)
 	}
+	// A curated VALUE-receiver method (the round-2 spelling fix): Capslock
+	// curates "func (net.Flags).String CAPABILITY_SAFE".
+	if r := lookup("net", "(net.Flags).String"); r.Classification != gen.Classification_SAFE || r.Provenance != "capslock-curated" {
+		t.Fatalf("(net.Flags).String = %+v; want SAFE capslock-curated", r)
+	}
 	// Capability-bearing init records carry evidence (round-1 finding): at
 	// least one importable package's init is classified with capabilities
 	// somewhere in the stdlib, and its evidence exists.

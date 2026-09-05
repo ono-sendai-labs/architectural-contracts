@@ -490,7 +490,14 @@ type InitRecord struct {
 	Classification Classification `protobuf:"varint,2,opt,name=classification,proto3,enum=archcontracts.v1.Classification" json:"classification,omitempty"`
 	// Capability names when classification is CAPABILITIES; non-empty exactly
 	// then. Sort key: lexicographic byte order.
-	Capabilities  []string `protobuf:"bytes,3,rep,name=capabilities,proto3" json:"capabilities,omitempty"`
+	Capabilities []string `protobuf:"bytes,3,rep,name=capabilities,proto3" json:"capabilities,omitempty"`
+	// Generation-time trust annotation for SAFE init records, with the same
+	// vocabulary as SymbolRecord.provenance (Capslock curates some aggregate
+	// inits CAPABILITY_SAFE, e.g. os.init, so a curated SAFE init must not be
+	// indistinguishable from a proved-pure one). Empty for capability and
+	// UNANALYZED records. This is NOT a checked/asserted provenance claim
+	// about a surface.
+	Provenance    string `protobuf:"bytes,4,opt,name=provenance,proto3" json:"provenance,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -544,6 +551,13 @@ func (x *InitRecord) GetCapabilities() []string {
 		return x.Capabilities
 	}
 	return nil
+}
+
+func (x *InitRecord) GetProvenance() string {
+	if x != nil {
+		return x.Provenance
+	}
+	return ""
 }
 
 // Evidence is the generator's canned path for one (symbol, capability) pair.
@@ -712,12 +726,15 @@ const file_archcontracts_v1_stdlibmap_proto_rawDesc = "" +
 	"\fcapabilities\x18\x04 \x03(\tR\fcapabilities\x12\x1e\n" +
 	"\n" +
 	"provenance\x18\x05 \x01(\tR\n" +
-	"provenance\"\x94\x01\n" +
+	"provenance\"\xb4\x01\n" +
 	"\n" +
 	"InitRecord\x12\x18\n" +
 	"\apackage\x18\x01 \x01(\tR\apackage\x12H\n" +
 	"\x0eclassification\x18\x02 \x01(\x0e2 .archcontracts.v1.ClassificationR\x0eclassification\x12\"\n" +
-	"\fcapabilities\x18\x03 \x03(\tR\fcapabilities\"x\n" +
+	"\fcapabilities\x18\x03 \x03(\tR\fcapabilities\x12\x1e\n" +
+	"\n" +
+	"provenance\x18\x04 \x01(\tR\n" +
+	"provenance\"x\n" +
 	"\bEvidence\x12\x1b\n" +
 	"\tsymbol_id\x18\x01 \x01(\tR\bsymbolId\x12\x1e\n" +
 	"\n" +

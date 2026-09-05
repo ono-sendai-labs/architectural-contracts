@@ -176,12 +176,13 @@ func classifierSpellings(id symbol.SymbolID) []string {
 	if !strings.HasPrefix(text, "(") {
 		return []string{text}
 	}
-	// "(pkg.T).M" -> "(*pkg.T).M" and "(pkg.T).M"; the split is at the
-	// receiver's closing bracket, not the first dot (package paths may
-	// contain dots).
+	// "(pkg.T).M" -> "(*pkg.T).M" (pointer form, the classifier's
+	// reclassification key spelling) and the canonical value form itself
+	// "(pkg.T).M" (round-2 finding: the previous construction dropped the
+	// receiver type name, so value-receiver curations such as
+	// "(net.Flags).String" were never found).
 	end := strings.IndexByte(text, ')')
-	dot := strings.LastIndexByte(text[:end], '.')
-	return []string{"(*" + text[1:end] + ")" + text[end+1:], "(" + text[1:dot] + ")" + text[end+1:]}
+	return []string{"(*" + text[1:end] + ")" + text[end+1:], text}
 }
 
 // rootDisplayNames returns each root's distinct display spelling, the keys
@@ -889,12 +890,11 @@ func BuildAuthorityMap(inv *Inventory, findings []capslockadapter.GenerationFind
 				result.finish()
 				if result.classification == gen.Classification_SAFE {
 					// Capslock curates some aggregate inits SAFE (e.g.
-					// "func os.init CAPABILITY_SAFE" in interesting.cm), but
-					// InitRecord carries no provenance field (the persisted
-					// schema has no per-init trust annotation yet), so the
-					// in-memory result records the classifier's answer and
-					// the persisted record degrades to proved-pure — a
-					// conservative, never more-trusting, label.
+					// "func os.init CAPABILITY_SAFE" in interesting.cm); the
+					// classifier decides between its curation and
+					// analysis-proved purity, and the InitRecord's provenance
+					// field keeps the distinction visible in the artifact
+					// (round-2 finding).
 					if isCuratedSafe(curatedSafe, id) {
 						result.provenance = ProvenanceCapslockCurated
 					} else {
@@ -904,8 +904,6 @@ func BuildAuthorityMap(inv *Inventory, findings []capslockadapter.GenerationFind
 			}
 		} else {
 			result.classification = gen.Classification_SAFE
-			// Same InitRecord-provenance limitation as above: curated inits
-			// degrade to proved-pure in the persisted record.
 			if isCuratedSafe(curatedSafe, id) {
 				result.provenance = ProvenanceCapslockCurated
 			} else {
@@ -971,6 +969,7 @@ func BuildAuthorityMap(inv *Inventory, findings []capslockadapter.GenerationFind
 			Package:        strings.TrimSuffix(id.String(), ".init"),
 			Classification: r.classification,
 			Capabilities:   r.caps,
+			Provenance:     r.provenance,
 		})
 		// Capability-bearing init records carry the same deterministic
 		// evidence as symbols (task req 8; round-1 finding).
