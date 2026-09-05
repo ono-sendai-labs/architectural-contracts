@@ -305,7 +305,25 @@ func TestFailedGenerationPreservesPriorBytes(t *testing.T) {
 	}
 }
 
-// --- req 3: concurrent readers never observe partial output -----------------------
+// --- req 2/3: read faults and the concurrent cache write path --------------------
+
+func TestCacheReadErrorSurfacesWithoutGeneration(t *testing.T) {
+	root := t.TempDir()
+	key := cacheKey()
+	spy := &generatorSpy{results: cannedGeneration(t, key, false)}
+	seams := cacheSeams(t, root, spy)
+	// A filesystem fault (permission, I/O) is not corrupt content: it must
+	// surface as an error, and it must never trigger a costly regeneration
+	// on top of a broken cache (review finding).
+	seams.ReadFile = func(path string) ([]byte, error) { return nil, os.ErrPermission }
+	_, err := OpenCachedMap(CachedMapInput{Key: key, Seams: seams})
+	if err == nil || !errors.Is(err, os.ErrPermission) {
+		t.Fatalf("OpenCachedMap with unreadable cache: want a wrapped read error, got %v", err)
+	}
+	if got := spy.count(); got != 0 {
+		t.Fatalf("generator invocations = %d; want 0 (a read fault must not regenerate)", got)
+	}
+}
 
 func TestConcurrentReadersNeverObservePartialOutput(t *testing.T) {
 	root := t.TempDir()
@@ -322,7 +340,9 @@ func TestConcurrentReadersNeverObservePartialOutput(t *testing.T) {
 	}
 
 	// A delayed writer replaces the artifact repeatedly, the way a concurrent
-	// generating process would.
+	// generating process would. Every fourth round removes the file entirely,
+	// so overlapping readers hit cache misses and regenerate through the
+	// cache's own (atomic) write path, not only the foreign writer's.
 	stop := make(chan struct{})
 	var wg sync.WaitGroup
 	wg.Add(1)
@@ -334,13 +354,20 @@ func TestConcurrentReadersNeverObservePartialOutput(t *testing.T) {
 				return
 			default:
 			}
-			next := mapA
-			if i%2 == 1 {
-				next = mapB
-			}
-			if err := artifactio.WriteFileAtomic(path, next.Bytes, 0o644, nil); err != nil {
-				t.Errorf("delayed writer: %v", err)
-				return
+			if i%4 == 3 {
+				if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+					t.Errorf("delayed writer removal: %v", err)
+					return
+				}
+			} else {
+				next := mapA
+				if i%2 == 1 {
+					next = mapB
+				}
+				if err := artifactio.WriteFileAtomic(path, next.Bytes, 0o644, nil); err != nil {
+					t.Errorf("delayed writer: %v", err)
+					return
+				}
 			}
 		}
 	}()

@@ -73,8 +73,9 @@ func TestStdlibmapGenerateAndInspect(t *testing.T) {
 		t.Fatalf("os.ReadFile inspect output: %q", out)
 	}
 
-	// strings.TrimSpace is SAFE; sort.Slice is UNANALYZED (the spike's
-	// laundering case must be terminal, not absent or silently pure).
+	// strings.TrimSpace is SAFE with its proved-pure trust annotation;
+	// sort.Slice is UNANALYZED (the spike's laundering case must be terminal,
+	// not absent or silently pure); os.Exit is SAFE with Capslock's curation.
 	for _, tc := range []struct{ symbol, want string }{
 		{"strings.TrimSpace", "SAFE"},
 		{"sort.Slice", "UNANALYZED"},
@@ -87,6 +88,31 @@ func TestStdlibmapGenerateAndInspect(t *testing.T) {
 		if !strings.Contains(stdout.String(), tc.symbol+": "+tc.want) {
 			t.Fatalf("%s inspect output %q; want %s", tc.symbol, stdout.String(), tc.want)
 		}
+	}
+	// Provenance is part of the answer (AC 5): curated SAFE records name
+	// Capslock's curation, and the minting rule's project override names this
+	// project's reclassification.
+	for _, tc := range []struct{ symbol, provenance string }{
+		{"strings.TrimSpace", "capslock-curated"},
+		{"(os.File).Chmod", "project-override"},
+	} {
+		stdout.Reset()
+		stderr.Reset()
+		if code := runner.Run([]string{"stdlibmap", "inspect", first, "symbol", tc.symbol}, &stdout, &stderr); code != 0 {
+			t.Fatalf("inspect %s provenance: exit %d, stderr: %s", tc.symbol, code, stderr.String())
+		}
+		if !strings.Contains(stdout.String(), "provenance: "+tc.provenance) {
+			t.Fatalf("%s inspect output %q; want provenance %s", tc.symbol, stdout.String(), tc.provenance)
+		}
+	}
+	// The init query carries its trust annotation too.
+	stdout.Reset()
+	stderr.Reset()
+	if code := runner.Run([]string{"stdlibmap", "inspect", first, "init", "os"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("inspect init os provenance: exit %d, stderr: %s", code, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "provenance: ") {
+		t.Fatalf("init os inspect output %q has no provenance line", stdout.String())
 	}
 
 	// A package init query shows a terminal classification.

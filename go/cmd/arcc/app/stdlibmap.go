@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/schema/gen"
@@ -112,8 +113,16 @@ func (r *Runner) runStdlibmapGenerate(args []string, stdout, stderr io.Writer) i
 		fmt.Fprintf(stderr, "error: %v\n", err)
 		return 2
 	}
-	if opts.toolchain != "" {
-		target.ToolchainVersion = opts.toolchain
+	// Toolchain identity: the native path runs the current `go` toolchain, so
+	// an explicit --toolchain must agree with the discovered version — an
+	// override that only re-stamps the key would label host-SDK bytes with a
+	// foreign SDK version, an artifact a later fail-closed key check would
+	// silently trust (review finding). A pinned-toolchain producer (the later
+	// Bazel rule) constructs the target configuration directly instead of
+	// through this command.
+	if opts.toolchain != "" && opts.toolchain != target.ToolchainVersion {
+		fmt.Fprintf(stderr, "error: --toolchain=%s does not match the current toolchain %s; native generation runs the host toolchain, so the map would be stamped with a version it was not generated against\n", opts.toolchain, target.ToolchainVersion)
+		return 2
 	}
 	if opts.goos != "" {
 		target.GOOS = opts.goos
@@ -131,14 +140,16 @@ func (r *Runner) runStdlibmapGenerate(args []string, stdout, stderr io.Writer) i
 		target.GOEXPERIMENT = opts.goexperiment
 	}
 
-	env := stdlibmap.TargetEnv(target)
 	out, err := stdlibmap.Generate(stdlibmap.GenerationInput{
 		Target:      target,
 		RuleVersion: stdlibmap.RuleVersion,
 		Oracle: stdlibmap.PackageOracleFunc(func() ([]stdlibmap.PackageEntry, error) {
-			return stdlibmap.NativeStdPackageList(context.Background(), env)
+			// The oracle enumerates in the loader's complete merged
+			// environment, so host GOFLAGS/GOTOOLCHAIN/GOROOT state cannot
+			// skew discovery against loading (review finding).
+			return stdlibmap.NativeStdPackageList(context.Background(), stdlibmap.NativeEnvironment(target))
 		}),
-		Loader: &stdlibmap.NativeLoader{Env: env},
+		Loader: &stdlibmap.NativeLoader{Env: stdlibmap.TargetEnv(target)},
 	})
 	if err != nil {
 		fmt.Fprintf(stderr, "error: %v\n", err)
@@ -318,9 +329,11 @@ func parseInspectQueries(raw []string) ([]inspectQuery, error) {
 // spec is a comma-separated field=value list naming proto field names
 // (toolchain_version, goos, goarch, cgo_enabled, goexperiment,
 // classifier_hash, map_format_version) plus tag=<value> entries for build
-// tags. A field given twice, or an unknown field, is a usage error. The
-// returned checked list names exactly the fields the user provided, so a
-// partial expectation verifies only those fields.
+// tags. Values are parsed strictly: cgo_enabled must be exactly true or
+// false and map_format_version must be a decimal integer; a non-repeatable
+// field named twice, an unknown field, or a malformed entry is a usage
+// error. The returned checked list names exactly the fields the user
+// provided, so a partial expectation verifies only those fields.
 func parseExpectKey(specs []string) (*expectedKey, error) {
 	if len(specs) == 0 {
 		return nil, nil
@@ -328,11 +341,15 @@ func parseExpectKey(specs []string) (*expectedKey, error) {
 	key := &stdlibauthority.SDKKey{}
 	checkedMap := map[string]bool{}
 	var checked []string
-	note := func(field string) {
+	note := func(field string) error {
+		if field != "tag" && checkedMap[field] {
+			return fmt.Errorf("expected-key field %q is given twice", field)
+		}
 		if !checkedMap[field] {
 			checkedMap[field] = true
 			checked = append(checked, field)
 		}
+		return nil
 	}
 	for _, spec := range specs {
 		for _, kv := range strings.Split(spec, ",") {
@@ -348,15 +365,22 @@ func parseExpectKey(specs []string) (*expectedKey, error) {
 			case "goarch":
 				key.GOARCH = value
 			case "cgo_enabled":
-				key.CgoEnabled = value == "true"
+				switch value {
+				case "true":
+					key.CgoEnabled = true
+				case "false":
+					key.CgoEnabled = false
+				default:
+					return nil, fmt.Errorf("expected cgo_enabled %q is not true or false", value)
+				}
 			case "goexperiment":
 				key.GOEXPERIMENT = value
 			case "classifier_hash":
 				key.ClassifierHash = value
 			case "map_format_version":
-				var v int64
-				if _, err := fmt.Sscanf(value, "%d", &v); err != nil {
-					return nil, fmt.Errorf("expected map_format_version %q is not a number", value)
+				v, err := strconv.ParseInt(value, 10, 32)
+				if err != nil {
+					return nil, fmt.Errorf("expected map_format_version %q is not a decimal integer", value)
 				}
 				key.MapFormatVersion = int32(v)
 			case "tag":
@@ -364,7 +388,9 @@ func parseExpectKey(specs []string) (*expectedKey, error) {
 			default:
 				return nil, fmt.Errorf("unknown expected-key field %q", field)
 			}
-			note(field)
+			if err := note(field); err != nil {
+				return nil, err
+			}
 		}
 	}
 	return &expectedKey{key: key, checked: checked}, nil
@@ -410,6 +436,11 @@ func inspectSymbol(m *gen.StdlibMap, idText string, stdout, stderr io.Writer) in
 	}
 	class := recordClassification(record.Classification, record.Capabilities)
 	fmt.Fprintf(stdout, "%s: %s\n", idText, renderClass(class))
+	// The generation-time trust annotation is part of the answer (AC 5): a
+	// SAFE record's provenance names who decided it is pure.
+	if record.Provenance != "" {
+		fmt.Fprintf(stdout, "provenance: %s\n", record.Provenance)
+	}
 	for _, cap := range class.Capabilities {
 		fmt.Fprintf(stdout, "evidence %s:\n", cap)
 		renderEvidence(m.Evidence, idText, cap, stdout)
@@ -433,6 +464,9 @@ func inspectInit(m *gen.StdlibMap, pkg string, stdout, stderr io.Writer) int {
 	}
 	class := recordClassification(record.Classification, record.Capabilities)
 	fmt.Fprintf(stdout, "%s.init: %s\n", pkg, renderClass(class))
+	if record.Provenance != "" {
+		fmt.Fprintf(stdout, "provenance: %s\n", record.Provenance)
+	}
 	for _, cap := range class.Capabilities {
 		fmt.Fprintf(stdout, "evidence %s:\n", cap)
 		renderEvidence(m.Evidence, pkg+".init", cap, stdout)

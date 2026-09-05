@@ -182,9 +182,11 @@ func OpenCachedMap(in CachedMapInput) (stdlibauthority.StdlibAuthority, error) {
 		// Corrupt or mismatched cache content is a miss: fall through to
 		// regeneration (task req 3).
 	} else if !errors.Is(err, os.ErrNotExist) {
-		// An unreadable artifact is also treated as a miss; only a failing
-		// root resolution is fatal, and that already returned above.
-		_ = err
+		// Only absence is a miss. A permission failure, I/O error, or other
+		// filesystem fault is not corrupt content — it is a broken cache, and
+		// silently regenerating on top of it would hide the fault (review:
+		// cache read errors must surface, not trigger generation).
+		return nil, fmt.Errorf("reading the cached stdlib map %s: %w", path, err)
 	}
 
 	// A miss generates through Generate; the fresh bytes are validated

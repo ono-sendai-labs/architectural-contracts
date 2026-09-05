@@ -63,6 +63,17 @@ func mergeEnv(base, overrides []string) []string {
 	return append(out, overrides...)
 }
 
+// NativeEnvironment returns the complete environment every toolchain
+// invocation of a native generation must run in: the host environment with
+// the target overrides merged. Package discovery (NativeStdPackageList) and
+// package loading (NativeLoader) must receive this same value — a partial
+// override slice would let host GOFLAGS/GOTOOLCHAIN/GOROOT state affect
+// loading but not discovery (or vice versa), producing inconsistent
+// enumeration and inventory (review finding).
+func NativeEnvironment(target TargetConfig) []string {
+	return (&NativeLoader{Env: TargetEnv(target)}).Environment()
+}
+
 // NativeLoader loads importable packages from the target toolchain's SDK
 // sources with x/tools go/packages (task req 4). The loader is constructed
 // with the target configuration's environment overrides (TargetEnv): it runs

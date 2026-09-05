@@ -74,6 +74,26 @@ func TestStdlibmapUsageErrors(t *testing.T) {
 			args:       []string{"stdlibmap", "inspect", garbage, "--expect-key=nonsense"},
 			wantStderr: "--expect-key",
 		},
+		{
+			name:       "inspect with a duplicate expect-key field",
+			args:       []string{"stdlibmap", "inspect", garbage, "--expect-key=goos=linux,goos=windows"},
+			wantStderr: "given twice",
+		},
+		{
+			name:       "inspect with a malformed cgo_enabled value",
+			args:       []string{"stdlibmap", "inspect", garbage, "--expect-key=cgo_enabled=garbage"},
+			wantStderr: "not true or false",
+		},
+		{
+			name:       "inspect with a malformed map_format_version value",
+			args:       []string{"stdlibmap", "inspect", garbage, "--expect-key=map_format_version=12x"},
+			wantStderr: "not a decimal integer",
+		},
+		{
+			name:       "generate with a mismatched toolchain override",
+			args:       []string{"stdlibmap", "generate", "--output=" + filepath.Join(t.TempDir(), "map.json"), "--toolchain=go-wrong"},
+			wantStderr: "does not match the current toolchain",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
