@@ -1,0 +1,138 @@
+result:
+  task_file: .agents/tasks/2026-08-04-compositional-component-analysis/step04/task-02-inventory-sdk-and-derive-map-key.code-task.md
+  change_id: pukskpntxlmt
+  status: completed
+  schema_version: 2
+  produced_at: 2026-09-04T17:10:00Z
+
+acceptance_criteria:
+  - text: |
+      1. **The package oracle is total and deterministic**
+         - Given unsorted or repeated native/Bazel package-list output containing public and `internal` paths
+         - When discovery runs
+         - Then every unique path is emitted in canonical order, internal-segment packages are retained as non-importable, and malformed paths fail generation.
+    addressed: yes
+    evidence: |
+      NormalizePackageList (go/internal/stdlibmap/stdlibmap.go) dedupes, sorts
+      lexicographically, retains internal paths as Importable:false
+      (IsInternalPath), and rejects empty/whitespace/backslash/dotdot/
+      empty-segment paths with actionable errors. Tests: TestNormalizePackageList,
+      TestNormalizePackageListMalformed, TestIsInternalPath,
+      TestExplicitPackageList (Bazel list), TestNativeStdPackageListRunsToolchain
+      → TestNativeOracleAgainstLocalToolchain (native `go list std`, integration
+      tag); the real-SDK test re-asserts sorting, dedup and internal flags over
+      all 360 packages.
+  - text: |
+      2. **Every externally referencable declaration is inventoried**
+         - Given typed fixture packages containing exported funcs, vars, consts, named and alias types, exported methods, fields, interface specs, and generics
+         - When inventory runs
+         - Then canonical IDs cover exactly the design's persisted symbol set plus one aggregate init, with no duplicate, promoted, instantiated, field, or interface-method-only IDs.
+    addressed: yes
+    evidence: |
+      BuildInventory/packageSymbols (go/internal/stdlibmap/inventory.go) walk the
+      package scope through symbol.FromObject (declaring-object rule; generic
+      origins via Func.Origin) plus same-package alias-target expansion, exported
+      methods of exported named/alias types (incl. pointer receivers), unsafe
+      *types.Builtin keyed canonically, and one pkg.init per importable package.
+      TestBuildInventoryFullDeclarationSet pins the exact 15-ID fixture set;
+      TestBuildInventoryExcludesNonPersistedMembers bans promoted/field/
+      interface-spec/unexported/instantiated/init#N IDs;
+      TestBuildInventoryNonImportableHasNoSymbols; TestRealSDKInventory
+      (integration) inventories the full std set with all IDs parsing canonically
+      and byte-identical re-runs.
+  - text: |
+      3. **Inventory failure cannot become partial output**
+         - Given a package load error, type error, ambiguous symbol normalization, or canonical-ID collision
+         - When inventory runs
+         - Then it returns an actionable error and no usable partial inventory.
+    addressed: yes
+    evidence: |
+      BuildInventory returns (nil, err) on loader errors, missing/incomplete
+      loader results, and merge collisions (mergeObserved rejects one ID from two
+      distinct objects). Tests: TestBuildInventoryLoadError,
+      TestBuildInventoryMissingPackageInResult, TestBuildInventoryTypeError,
+      TestBuildInventoryNilLoader, TestMergeObservedRejectsCollision. The
+      "unresolved Capslock normalization context" leg of this AC is the
+      inventory-backed ParseCapslockFunction contract (symbol/capslock.go), which
+      Task 3's reconciliation consumes; this inventory layer owns
+      load/type/collision/path failures.
+  - text: |
+      4. **SDK keys describe the target configuration**
+         - Given linux/amd64 with cgo on and off and a cross-compiled target with another GOOS
+         - When keys are derived on the same host
+         - Then all configurations have distinct deterministic keys, build tags are sorted, and repeated derivation is byte-for-byte stable.
+    addressed: yes
+    evidence: |
+      DeriveSDKKey (go/internal/stdlibmap/sdkkey.go) sorts BuildTags and stamps
+      classifier_hash + map format version into stdlibauthority.SDKKey.
+      TestDeriveSDKKeyDistinctPerConfiguration (cgo toggle, cross GOOS/GOARCH),
+      TestDeriveSDKKeySortsBuildTags, TestDeriveSDKKeyByteStable,
+      TestDeriveSDKKeyDescribesTargetNotHost. NativeLoader + TargetEnv load the
+      target configuration (GOOS/GOARCH/CGO_ENABLED/GOEXPERIMENT overrides).
+  - text: |
+      5. **Classifier drift changes the key**
+         - Given unchanged SDK fields but a changed classifier text, minting rule, variable rule version, or map format version
+         - When `classifier_hash` and the key are derived
+         - Then the hash/key changes; non-semantic iteration order does not.
+    addressed: yes
+    evidence: |
+      ClassifierHash = SHA-256 over classifier text + "\0" + rule version.
+      TestClassifierHashDrift (text, rule-version, format-version changes all move
+      hash and key), TestCanonicalClassifierTextOrderInvariant (shuffled rule
+      order yields identical text), TestCanonicalClassifierTextRejectsDuplicateNames.
+  - text: |
+      6. **Real SDK enumeration is covered**
+         - Given the local Go toolchain
+         - When the integration inventory test runs
+         - Then every `go list std` package is represented and all inventoried IDs parse canonically without relying on network access.
+    addressed: yes
+    evidence: |
+      go/internal/stdlibmap/integration_test.go TestRealSDKInventory (-tags=integration,
+      run by `just test-integration`): full 360-package `go list std` enumeration
+      via NativeStdPackageList, BuildInventory over NativeLoader, per-package
+      representation with one init per importable package, symbol.Parse on every
+      ID, and a byte-identical re-run; TestNativeOracleAgainstLocalToolchain and
+      TestNativeLoaderLoadsHostPackages cover the native seams. All data comes
+      from the local SDK (no network).
+  - text: |
+      7. **Integration remains green**
+         - Given SDK discovery and inventory are additive
+         - When `just ci` runs
+         - Then all existing checks pass and no map has yet been consumed by component analysis.
+    addressed: yes
+    evidence: |
+      `just ci` exit 0 (go build/vet/fmt, unit + integration tests, native
+      selfcheck incl. stdlibmap's component manifest via arcc check, bazel build +
+      84 passing tests). stdlibmap is referenced by no consumer: grep over
+      cmd/arcc, goanalysis and checker finds no non-test import; the stdlib
+      authority port is still fed only by artifactio's reader (task-01).
+
+artifacts:
+  scratchpad_dir: .agents/scratchpad/2026-08-04-compositional-component-analysis/step04/task-02-inventory-sdk-and-derive-map-key
+  files:
+    - go/internal/stdlibmap/stdlibmap.go
+    - go/internal/stdlibmap/inventory.go
+    - go/internal/stdlibmap/sdkkey.go
+    - go/internal/stdlibmap/nativeloader.go
+    - go/internal/stdlibmap/stdlibmap_test.go
+    - go/internal/stdlibmap/inventory_test.go
+    - go/internal/stdlibmap/sdkkey_test.go
+    - go/internal/stdlibmap/integration_test.go
+    - go/internal/stdlibmap/component.textproto
+    - go/internal/stdlibmap/BUILD.bazel
+    - go/internal/symbol/component.textproto
+
+notes: >
+  Implemented the stdlibmap generation shell in seven incremental jj changes:
+  the package oracle (native `go list std` and explicit Bazel list behind an
+  injectable seam with deterministic normalization), the go/types inventory
+  oracle (declaring-object rule, alias expansion, generic origins, aggregate
+  inits, unsafe builtins, collision detection, fail-closed on load/type
+  errors), SDK-key derivation over a hashable classifier descriptor, and a
+  full-SDK integration test. Two `just ci` failures were fixed by making the
+  fixture hermetic (no stdlib imports; importer.Default cannot resolve them in
+  a Bazel sandbox) and by gating native toolchain seams behind the
+  integration tag. symbol's declared interface files were widened to include
+  the FromObject/FromSelection/ExtractSurface constructors its FR10 contract
+  already documents. Capslock normalization-context error handling is consumed
+  (not reimplemented) here and is exercised by Task 3's reconciliation.

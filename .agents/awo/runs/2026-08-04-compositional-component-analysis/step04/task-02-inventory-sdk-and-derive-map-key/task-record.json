@@ -1,0 +1,222 @@
+{
+  "task_file": ".agents/tasks/2026-08-04-compositional-component-analysis/step04/task-02-inventory-sdk-and-derive-map-key.code-task.md",
+  "planning_slug": "2026-08-04-compositional-component-analysis",
+  "step": 4,
+  "task": 2,
+  "implementer_session": "awo-impl-2026-08-04-compositional-component-analysis-step04-task02",
+  "reviewer_session": "awo-rev-2026-08-04-compositional-component-analysis-step04-task02",
+  "base": {
+    "change_id": "rvwwmqpyzzzowwvomkpupysxrtmkplvz",
+    "bookmark": "pr/awo-record-2026-08-04-compositional-component-analysis-step04-task-01"
+  },
+  "produced_changes": [
+    "stskysyyxxxowvnnsuyvzrllpsytztun",
+    "ommuvpsrppzwrumloqtmzlnxrxmrlkut",
+    "wssvwxsoyulnpmslvzknunzoqxryskop",
+    "lrzvyqvqklpukkrrkqzuuysqvzsrswsm",
+    "lwvtkqvtkuqwsntqurnvlwwuommlrpzw",
+    "wznwxznzoomwqkxukmlwzwxnmyqpnquo",
+    "rqytxpoynoyspmtquqrsulqntonoxovw",
+    "pukskpntxlmtvsnrusynwonwluooysnm",
+    "loxpkorvwttnkssxkmmntmlmnxqzpxkq",
+    "szkkzozqslqnxlnwrmtmvonzrpowsxvr",
+    "qvtrrntyszpmzmoqumoqqwmxwqvxppst"
+  ],
+  "rounds": [
+    {
+      "round": 0,
+      "role": "implementer",
+      "prompt": ".agents/runs-acpx/20260904-160619-step04-task-02-inventory-sdk-and-derive-map-key/round-0.implementer/prompt.md",
+      "out": ".agents/runs-acpx/20260904-160619-step04-task-02-inventory-sdk-and-derive-map-key/round-0.implementer",
+      "status": "completed",
+      "wall_seconds": 751,
+      "tool_calls": 520,
+      "compaction": false,
+      "tokens": {
+        "inputTokens": 242,
+        "outputTokens": 363,
+        "totalTokens": 127581,
+        "cachedReadTokens": 126976
+      },
+      "orchestrator_notes": "8 changes, no empty ones this time - it used the inherited working copy as its first real commit. No spec/task file touched. Gate coverage: inventory_test.go, sdkkey_test.go and stdlibmap_test.go are all in go_test(stdlibmap_test) srcs; integration_test.go is deliberately excluded, consistent with the stated rationale that native toolchain seams are gated behind -tags=integration for Bazel hermeticity and `just ci` runs that leg natively. Recorded as deliberate, left for the reviewer to judge. NOTE for the reviewer prompt: the series also modifies go/internal/symbol/component.textproto, widening another component's declared interface - flagged as in-scope but cross-component."
+    },
+    {
+      "round": 0,
+      "role": "reviewer",
+      "prompt": ".agents/runs-acpx/20260904-160619-step04-task-02-inventory-sdk-and-derive-map-key/round-0.reviewer/prompt.md",
+      "out": ".agents/runs-acpx/20260904-160619-step04-task-02-inventory-sdk-and-derive-map-key/round-0.reviewer",
+      "verdict": "changes_requested",
+      "acceptance_criteria": "4/7 pass",
+      "findings": [
+        {
+          "severity": "critical",
+          "file": "go/internal/stdlibmap/stdlibmap_test.go",
+          "title": "Native toolchain cancellation test was dropped"
+        },
+        {
+          "severity": "important",
+          "file": "work.log",
+          "title": "TDD RED evidence is absent from the work log"
+        },
+        {
+          "severity": "important",
+          "file": "go/internal/stdlibmap/inventory.go",
+          "title": "Inventory does not expose Capslock normalization context"
+        },
+        {
+          "severity": "important",
+          "file": "go/internal/stdlibmap/inventory.go",
+          "title": "BuildInventory accepts unnormalized package entries"
+        },
+        {
+          "severity": "important",
+          "file": "go/internal/stdlibmap/inventory.go",
+          "title": "External aliases contribute foreign methods"
+        },
+        {
+          "severity": "important",
+          "file": "go/internal/stdlibmap/nativeloader.go",
+          "title": "TargetEnv drops the host environment and build tags"
+        },
+        {
+          "severity": "important",
+          "file": "go/internal/stdlibmap/stdlibmap.go",
+          "title": "Package-path validation accepts noncanonical spellings"
+        },
+        {
+          "severity": "important",
+          "file": "go/internal/stdlibmap/stdlibmap.go",
+          "title": "Native package discovery ignores the target configuration"
+        },
+        {
+          "severity": "suggestion",
+          "file": "go/internal/stdlibmap/integration_test.go",
+          "title": "Integration package-set assertion is incomplete"
+        }
+      ],
+      "wall_seconds": 1051,
+      "tool_calls": 167,
+      "compaction": false,
+      "tokens": {
+        "inputTokens": 1012,
+        "outputTokens": 418,
+        "totalTokens": 205974,
+        "cachedReadTokens": 204544
+      },
+      "context_pct_of_window": 24.2,
+      "orchestrator_notes": "Repository unchanged pre/post. CRITICAL finding is a dropped test - adjudicated by the orchestrator as a NORMAL rework, not \u00a7E.1 unrecoverable_state: it is one error-path test (TestNativeToolchainVersionError) lost while moving native toolchain tests under the integration tag, not wholesale deletion to force a green gate. The reviewer accepted integration_test.go's exclusion from the Bazel target, confirming the orchestrator's read that it is deliberate."
+    },
+    {
+      "round": 1,
+      "role": "implementer",
+      "prompt": ".agents/runs-acpx/20260904-160619-step04-task-02-inventory-sdk-and-derive-map-key/round-1.implementer/prompt.md",
+      "out": ".agents/runs-acpx/20260904-160619-step04-task-02-inventory-sdk-and-derive-map-key/round-1.implementer",
+      "status": "completed",
+      "wall_seconds": 500,
+      "tool_calls": 250,
+      "compaction": false,
+      "tokens": {
+        "inputTokens": 225,
+        "outputTokens": 260,
+        "totalTokens": 168677,
+        "cachedReadTokens": 168192
+      },
+      "orchestrator_notes": "Two fresh changes. Diff touches every findings file. Critical finding verified fixed directly: TestNativeToolchainVersionCanceledContext now exists in integration_test.go:71, restoring the dropped canceled-context error path under the integration tag."
+    },
+    {
+      "round": 1,
+      "role": "reviewer",
+      "prompt": ".agents/runs-acpx/20260904-160619-step04-task-02-inventory-sdk-and-derive-map-key/round-1.reviewer/prompt.md",
+      "out": ".agents/runs-acpx/20260904-160619-step04-task-02-inventory-sdk-and-derive-map-key/round-1.reviewer",
+      "verdict": "changes_requested",
+      "acceptance_criteria": "7/7 pass",
+      "findings": [
+        {
+          "severity": "important",
+          "title": "Behavioral RED evidence is still not auditable"
+        },
+        {
+          "severity": "important",
+          "title": "Integration tests lost their build tag",
+          "note": "regression introduced by the round-1 fix"
+        },
+        {
+          "severity": "suggestion",
+          "title": "Nested internal packages are not asserted"
+        },
+        {
+          "severity": "suggestion",
+          "title": "Foreign-alias test does not isolate the alias contribution"
+        },
+        {
+          "severity": "suggestion",
+          "title": "Native list parsing is not fully whitespace portable"
+        }
+      ],
+      "wall_seconds": 553,
+      "tool_calls": 119,
+      "compaction": false,
+      "tokens": {
+        "inputTokens": 4021,
+        "outputTokens": 202,
+        "totalTokens": 325503,
+        "cachedReadTokens": 321280
+      },
+      "context_pct_of_window": 38.3,
+      "orchestrator_notes": "Repository unchanged pre/post. Converging: critical+7 important -> 2 important, ACs 4/7 -> 7/7. The critical dropped-test finding is resolved. One of the two remaining is a regression the round-1 fix introduced (integration tests lost their build tag), which is exactly what the warm reviewer is for."
+    },
+    {
+      "round": 2,
+      "role": "implementer",
+      "status": "completed",
+      "wall_seconds": 212,
+      "tool_calls": 95,
+      "compaction": false,
+      "tokens": {
+        "totalTokens": 178708,
+        "cachedReadTokens": 178176
+      },
+      "orchestrator_notes": "Build tag verified restored directly: integration_test.go line 1 is //go:build integration."
+    },
+    {
+      "round": 2,
+      "role": "reviewer",
+      "verdict": "approved",
+      "acceptance_criteria": "7/7 pass",
+      "findings": [],
+      "wall_seconds": 244,
+      "tool_calls": 75,
+      "compaction": false,
+      "tokens": {
+        "inputTokens": 1009,
+        "outputTokens": 120,
+        "totalTokens": 392041,
+        "cachedReadTokens": 390912
+      },
+      "context_pct_of_window": 46.1,
+      "orchestrator_notes": "Repository unchanged pre/post."
+    }
+  ],
+  "outcome": {
+    "status": "approved",
+    "rework_rounds_used": 2,
+    "produced_changes": [
+      "stskysyyxxxowvnnsuyvzrllpsytztun",
+      "ommuvpsrppzwrumloqtmzlnxrxmrlkut",
+      "wssvwxsoyulnpmslvzknunzoqxryskop",
+      "lrzvyqvqklpukkrrkqzuuysqvzsrswsm",
+      "lwvtkqvtkuqwsntqurnvlwwuommlrpzw",
+      "wznwxznzoomwqkxukmlwzwxnmyqpnquo",
+      "rqytxpoynoyspmtquqrsulqntonoxovw",
+      "pukskpntxlmtvsnrusynwonwluooysnm",
+      "loxpkorvwttnkssxkmmntmlmnxqzpxkq",
+      "szkkzozqslqnxlnwrmtmvonzrpowsxvr",
+      "qvtrrntyszpmzmoqumoqqwmxwqvxppst"
+    ],
+    "bookmark": "pr/2026-08-04-compositional-component-analysis/step04/task-02-inventory-sdk-and-derive-map-key.code-task",
+    "acceptance_criteria": "7/7 pass",
+    "open_findings": [],
+    "convergence": "critical+7 important -> 2 important -> 0; ACs 4/7 -> 7/7 -> 7/7",
+    "merge_request_corrections": "Title tag correct as emitted. Body rewritten from reviewer voice into the change's voice."
+  }
+}

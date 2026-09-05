@@ -1,0 +1,226 @@
+review:
+  task_file: .agents/tasks/2026-08-04-compositional-component-analysis/step04/task-02-inventory-sdk-and-derive-map-key.code-task.md
+  change_id: szkkzozqslqnxlnwrmtmvonzrpowsxvr
+  reviewed_at: "2026-09-04T23:54:10Z"
+  verdict: changes_requested
+  schema_version: 2
+  lsp_coverage: unavailable
+
+merge_request:
+  title: "fix(stdlibmap): complete target-aware SDK inventory rework [Compositional Analysis: Step 04/Task 02]"
+  body: |
+    Reviews the complete base-to-current series: the initial eight changes
+    adding the stdlibmap shell, package oracle, go/types inventory, SDK key and
+    classifier hash, component manifests, unsafe-builtin handling, integration
+    coverage, and Bazel-hermetic fixtures; the round-1 remediation
+    loxpkorvwttnkssxkmmntmlmnxqzpxkq adding inventory-backed Capslock context,
+    raw-entry validation, alias ownership, target-aware discovery/loading,
+    restored cancellation coverage, and stronger integration assertions; and
+    szkkzozqslqnxlnwrmtmvonzrpowsxvr wiring hostpolicy into the manifest and
+    BUILD dependency.
+
+summary: |
+  The round-1 rework resolves the prior critical dropped-test finding and all
+  prior implementation findings: the inventory now implements the Capslock
+  context, raw entries and paths are validated, foreign alias methods are
+  excluded, target environment/discovery are wired through, and the real-SDK
+  assertions are stronger. Changes are still requested because the rework
+  removed the integration build tag, causing native toolchain tests to run in
+  the default test suite, and the work log still claims behavioral RED evidence
+  that is not actually recorded. A nested-internal test assertion and the
+  foreign-alias regression test remain weaker than their comments claim; focused
+  unit/integration tests and vet pass, and LSP diagnostics were unavailable.
+
+acceptance_criteria:
+  - text: |
+      1. **The package oracle is total and deterministic**
+         - Given unsorted or repeated native/Bazel package-list output containing public and `internal` paths
+         - When discovery runs
+         - Then every unique path is emitted in canonical order, internal-segment packages are retained as non-importable, and malformed paths fail generation.
+    status: pass
+    evidence: |
+      The prior raw-entry/path findings are addressed by normalizeEntries at
+      go/internal/stdlibmap/inventory.go:142-182, which validates grammar and
+      host-policy fixed points, rejects inconsistent flags and duplicate raw
+      entries, and sorts the result. NormalizePackageList still deduplicates
+      repeated oracle paths at go/internal/stdlibmap/stdlibmap.go:109-133,
+      while the strengthened grammar and policy checks are at :144-180.
+      TestNormalizePackageListMalformed and the raw-entry tests are at
+      go/internal/stdlibmap/stdlibmap_test.go:39-47 and
+      go/internal/stdlibmap/inventory_test.go:196-235.
+  - text: |
+      2. **Every externally referencable declaration is inventoried**
+         - Given typed fixture packages containing exported funcs, vars, consts, named and alias types, exported methods, fields, interface specs, and generics
+         - When inventory runs
+         - Then canonical IDs cover exactly the design's persisted symbol set plus one aggregate init, with no duplicate, promoted, instantiated, field, or interface-method-only IDs.
+    status: pass
+    evidence: |
+      The prior foreign-alias finding is addressed by methodScanTarget's
+      same-package check at go/internal/stdlibmap/inventory.go:314-331.
+      The exact fixture IDs and exclusions remain covered at
+      go/internal/stdlibmap/inventory_test.go:344-429, and the new
+      two-package alias scenario is at :140-185. BuildInventory continues to
+      merge canonical observations and emit one aggregate init per importable
+      package at inventory.go:194-240.
+  - text: |
+      3. **Inventory failure cannot become partial output**
+         - Given a package load error, type error, ambiguous symbol normalization, or canonical-ID collision
+         - When inventory runs
+         - Then it returns an actionable error and no usable partial inventory.
+    status: pass
+    evidence: |
+      The prior missing-context finding is addressed: Inventory now retains
+      typed packages and top-level names and implements KnownPackage, Declares,
+      and MethodOwner at go/internal/stdlibmap/inventory.go:30-129.
+      TestInventoryImplementsCapslockInventory exercises positive and
+      unresolved/unknown/unexported cases at inventory_test.go:237-331.
+      Loader, incomplete-result, type-error, nil-loader, and collision paths
+      still return nil inventories with actionable errors at
+      inventory_test.go:431-497.
+  - text: |
+      4. **SDK keys describe the target configuration**
+         - Given linux/amd64 with cgo on and off and a cross-compiled target with another GOOS
+         - When keys are derived on the same host
+         - Then all configurations have distinct deterministic keys, build tags are sorted, and repeated derivation is byte-for-byte stable.
+    status: pass
+    evidence: |
+      DeriveSDKKey still sorts and stamps all target key fields at
+      go/internal/stdlibmap/sdkkey.go:101-118. The prior target-environment
+      finding is addressed by NativeLoader.Environment and its complete merged
+      environment at go/internal/stdlibmap/nativeloader.go:51-100, with
+      cross-target declarations tested at
+      go/internal/stdlibmap/integration_test.go:81-111 and environment
+      merging at :159-186. Target-specific discovery is covered at
+      integration_test.go:113-141.
+  - text: |
+      5. **Classifier drift changes the key**
+         - Given unchanged SDK fields but a changed classifier text, minting rule, variable rule version, or map format version
+         - When `classifier_hash` and the key are derived
+         - Then the hash/key changes; non-semantic iteration order does not.
+    status: pass
+    evidence: |
+      CanonicalClassifierText, ClassifierHash, and DeriveSDKKey remain
+      deterministic at go/internal/stdlibmap/sdkkey.go:46-118. Drift,
+      format-version, duplicate-rule, and iteration-order tests remain at
+      go/internal/stdlibmap/sdkkey_test.go:73-126.
+  - text: |
+      6. **Real SDK enumeration is covered**
+         - Given the local Go toolchain
+         - When the integration inventory test runs
+         - Then every `go list std` package is represented and all inventoried IDs parse canonically without relying on network access.
+    status: pass
+    evidence: |
+      TestRealSDKInventory uses target-aware discovery and BuildInventory,
+      compares exact path/importable pairs, parses all symbol and init IDs, and
+      checks deterministic reruns at
+      go/internal/stdlibmap/integration_test.go:206-292. The prior
+      package-set assertion was addressed at :229-249, and the restored
+      cancellation plus native seam tests are at :68-186. The recorded
+      integration run is in work.log:169-176 and a fresh tagged run passed
+      during this review.
+  - text: |
+      7. **Integration remains green**
+         - Given SDK discovery and inventory are additive
+         - When `just ci` runs
+         - Then all existing checks pass and no map has yet been consumed by component analysis.
+    status: pass
+    evidence: |
+      The rework records a final just ci exit 0 at
+      .agents/scratchpad/2026-08-04-compositional-component-analysis/step04/task-02-inventory-sdk-and-derive-map-key/work.log:183-198.
+      The direct hostpolicy dependency is declared in
+      go/internal/stdlibmap/BUILD.bazel:19-24 and
+      go/internal/stdlibmap/component.textproto:1-6; the additive consumer
+      grep remains recorded in the original work log:113-121. No non-test
+      stdlibmap consumer was added under cmd/arcc, goanalysis, or checker.
+
+findings:
+  - severity: important
+    category: tests
+    file: .agents/scratchpad/2026-08-04-compositional-component-analysis/step04/task-02-inventory-sdk-and-derive-map-key/work.log
+    line: 188
+    title: "Behavioral RED evidence is still not auditable"
+    details: |
+      The prior TDD-evidence finding is only partly addressed. The rework has
+      a genuine compile RED at work.log:150-168 and GREEN runs at :169-179,
+      but the later note at :188-194 says behavioral REDs for the raw-entry,
+      path-grammar, GOFLAGS, foreign-alias, and unresolved-Capslock cases were
+      logged above; those failing test commands and outputs are not present.
+      The only failures for those sections are the compile diagnostics, so the
+      work log still cannot independently verify RED-to-GREEN evidence for
+      each claimed behavioral fix.
+    suggested_action: |
+      Record the actual failing focused-test commands and outputs for the
+      behavioral cases before the fixes, followed by the passing commands.
+      If the compile RED was the only reproducible pre-fix failure, correct the
+      note rather than claiming behavioral RED entries that are absent.
+    source: built-in
+  - severity: important
+    category: tests
+    file: go/internal/stdlibmap/integration_test.go
+    line: 1
+    title: "Integration tests lost their build tag"
+    details: |
+      The round-1 loxpkorvwttnkssxkmmntmlmnxqzpxkq change removes the
+      //go:build integration line that was present on this file. Consequently
+      go test ./... now runs NativeStdPackageList, NativeLoader cross-target
+      loads, and the full SDK inventory in the default test leg, while
+      test-integration runs them again. This regresses the explicit project
+      convention that real toolchain loads are gated behind the integration tag
+      and makes the normal unit leg depend on host toolchain behavior.
+    suggested_action: |
+      Restore //go:build integration (with the blank line) at the top of
+      integration_test.go, then rerun the default and integration test legs
+      and verify the Bazel test source list remains hermetic.
+    source: built-in
+  - severity: suggestion
+    category: tests
+    file: go/internal/stdlibmap/integration_test.go
+    line: 258
+    title: "Nested internal packages are not asserted"
+    details: |
+      TestRealSDKInventory checks strings.HasPrefix(pkg, "internal/") for
+      symbols and inits at integration_test.go:258-269. That misses valid
+      internal-segment paths such as crypto/internal/boring, even though
+      IsInternalPath treats them as non-importable. The implementation is
+      protected by normalizeEntries, but the real-SDK regression assertion
+      does not cover the full AC1 internal-path rule.
+    suggested_action: |
+      Use stdlibmap.IsInternalPath on the extracted package path for both
+      symbol and init checks, and keep the exact package-pair comparison.
+    source: built-in
+  - severity: suggestion
+    category: tests
+    file: go/internal/stdlibmap/inventory_test.go
+    line: 156
+    title: "Foreign-alias test does not isolate the alias contribution"
+    details: |
+      TestBuildInventoryForeignAliasMethods includes both the alias package
+      and foreignpkg in the inventory and explicitly allows foreignpkg's
+      method ID at inventory_test.go:161-185. A pre-fix implementation that
+      incorrectly contributed the foreign method while walking the alias
+      package would still produce the same global ID because foreignpkg is
+      independently inventoried. The production same-package guard is
+      correct, but this regression test does not prove the claimed ownership
+      boundary.
+    suggested_action: |
+      Keep the foreign source available to the fixture importer but request
+      only the alias package in BuildInventory, then assert the foreign
+      method ID is absent from the resulting inventory.
+    source: built-in
+  - severity: suggestion
+    category: acceptance_criteria
+    file: go/internal/stdlibmap/stdlibmap.go
+    line: 198
+    title: "Native list parsing is not fully whitespace portable"
+    details: |
+      NativeStdPackageList documents whitespace-separated output but splits
+      only on space and newline at stdlibmap.go:198. A tab or CRLF output
+      leaves a carriage return attached to a package path and then fails path
+      validation. Go tool output is normally one path per line, but this is a
+      portability edge in the native discovery seam.
+    suggested_action: |
+      Use strings.Fields for the go list output (or include all whitespace
+      runes in the splitter) and add a CRLF/tab parser case.
+    source: built-in
+
+ecosystem_reviews: []

@@ -1,0 +1,319 @@
+review:
+  task_file: .agents/tasks/2026-08-04-compositional-component-analysis/step04/task-02-inventory-sdk-and-derive-map-key.code-task.md
+  change_id: pukskpntxlmtvsnrusynwonwluooysnm
+  reviewed_at: "2026-09-04T23:31:20Z"
+  verdict: changes_requested
+  schema_version: 2
+  lsp_coverage: unavailable
+
+merge_request:
+  title: "feat(stdlibmap): add deterministic SDK inventory and target key [Compositional Analysis: Step 04/Task 02]"
+  body: |
+    Reviews the complete ordered eight-change series from the supplied base:
+    the generation shell and package oracle, go/types inventory and collision
+    handling, formatting, SDK-key/classifier hashing, component manifests and
+    symbol-surface widening, real-SDK/unsafe-builtin coverage, integration
+    gating for native toolchain seams, and Bazel-hermetic fixture cleanup.
+    The review includes the related change to go/internal/symbol/component.textproto.
+
+summary: |
+  The series implements the stdlibmap shell, typed inventory, SDK-key/hash
+  derivation, component wiring, unsafe-builtin handling, and real-toolchain
+  tests; focused unit and integration tests plus vet pass, and the recorded
+  full CI gate is green. Changes are requested because package discovery and
+  inventory can bypass canonical normalization, external aliases can add
+  foreign methods, Capslock normalization context is not exposed, and native
+  target discovery/loading does not reliably preserve the requested target
+  environment. A native toolchain cancellation test was dropped without an
+  equivalent, the work log has no auditable RED-to-GREEN entries, and LSP
+  diagnostics were unavailable.
+
+acceptance_criteria:
+  - text: |
+      1. **The package oracle is total and deterministic**
+         - Given unsorted or repeated native/Bazel package-list output containing public and `internal` paths
+         - When discovery runs
+         - Then every unique path is emitted in canonical order, internal-segment packages are retained as non-importable, and malformed paths fail generation.
+    status: partial
+    evidence: |
+      NormalizePackageList at go/internal/stdlibmap/stdlibmap.go:104-125
+      deduplicates, sorts, and marks internal paths non-importable; the unit
+      cases are at go/internal/stdlibmap/stdlibmap_test.go:9-80, and native
+      discovery calls the normalizer at stdlibmap.go:152-165. However,
+      ExplicitPackageList returns the raw order and duplicates at
+      stdlibmap.go:89-101, BuildInventory only sorts its entries, and
+      validatePackagePath accepts several invalid import-path spellings. The
+      production boundary therefore does not guarantee the complete criterion
+      for an explicit Bazel list.
+  - text: |
+      2. **Every externally referencable declaration is inventoried**
+         - Given typed fixture packages containing exported funcs, vars, consts, named and alias types, exported methods, fields, interface specs, and generics
+         - When inventory runs
+         - Then canonical IDs cover exactly the design's persisted symbol set plus one aggregate init, with no duplicate, promoted, instantiated, field, or interface-method-only IDs.
+    status: partial
+    evidence: |
+      The hermetic fixture and exact 15-ID assertion are at
+      go/internal/stdlibmap/inventory_test.go:21-75 and :125-162, with
+      exclusions for fields, promoted members, interface specs, and
+      instantiations at :164-190. packageSymbols uses FromObject and scans
+      named/alias methods at inventory.go:135-180. It does not restrict an
+      alias's unaliased named target to the current package, so an exported
+      alias of a foreign named type can add foreign method IDs to the
+      inventory, contrary to the design's cross-package alias rule.
+  - text: |
+      3. **Inventory failure cannot become partial output**
+         - Given a package load error, type error, ambiguous symbol normalization, or canonical-ID collision
+         - When inventory runs
+         - Then it returns an actionable error and no usable partial inventory.
+    status: partial
+    evidence: |
+      BuildInventory returns nil on loader errors, missing package results,
+      object-conversion errors, and merge collisions at
+      go/internal/stdlibmap/inventory.go:64-112 and :232-247; the focused
+      failure tests are at inventory_test.go:210-276. The returned Inventory
+      contains only Packages, Symbols, and Inits at inventory.go:29-45 and
+      does not implement the symbol.CapslockInventory context contract
+      (symbol/capslock.go:62-81), so this task has no inventory-backed
+      ambiguous/unresolved Capslock normalization failure path. In addition,
+      unnormalized duplicate or inconsistent PackageEntry inputs can create
+      duplicate init records or load internal packages.
+  - text: |
+      4. **SDK keys describe the target configuration**
+         - Given linux/amd64 with cgo on and off and a cross-compiled target with another GOOS
+         - When keys are derived on the same host
+         - Then all configurations have distinct deterministic keys, build tags are sorted, and repeated derivation is byte-for-byte stable.
+    status: pass
+    evidence: |
+      DeriveSDKKey copies and sorts build tags and stamps all target fields,
+      the classifier hash, and map format version at
+      go/internal/stdlibmap/sdkkey.go:101-118. Distinct cgo/platform,
+      sorting, stability, and target-not-host assertions are at
+      go/internal/stdlibmap/sdkkey_test.go:35-71 and :128-142.
+  - text: |
+      5. **Classifier drift changes the key**
+         - Given unchanged SDK fields but a changed classifier text, minting rule, variable rule version, or map format version
+         - When `classifier_hash` and the key are derived
+         - Then the hash/key changes; non-semantic iteration order does not.
+    status: pass
+    evidence: |
+      CanonicalClassifierText sorts rule names and rejects duplicate names at
+      go/internal/stdlibmap/sdkkey.go:46-63; ClassifierHash hashes the
+      classifier text and explicit rule version at :85-98, and DeriveSDKKey
+      includes the format version at :101-118. Drift and order-invariance
+      tests are at go/internal/stdlibmap/sdkkey_test.go:73-126.
+  - text: |
+      6. **Real SDK enumeration is covered**
+         - Given the local Go toolchain
+         - When the integration inventory test runs
+         - Then every `go list std` package is represented and all inventoried IDs parse canonically without relying on network access.
+    status: pass
+    evidence: |
+      The integration-tagged tests exercise NativeStdPackageList,
+      NativeLoader, full BuildInventory, one init per importable package, and
+      SymbolID.Parse for every symbol at
+      go/internal/stdlibmap/integration_test.go:15-67 and :69-137. The
+      recorded integration run is in the task work log at :96-112, and an
+      uncached integration run also passed during this review.
+  - text: |
+      7. **Integration remains green**
+         - Given SDK discovery and inventory are additive
+         - When `just ci` runs
+         - Then all existing checks pass and no map has yet been consumed by component analysis.
+    status: pass
+    evidence: |
+      The task work log records the full just ci/self-check/Bazel gate and an
+      additive-consumer grep at work.log:113-129; progress.md:23-25 and :51
+      record exit 0. The current range adds discovery and inventory only; no
+      non-test consumer was introduced under go/cmd/arcc, go/internal/goanalysis,
+      or go/internal/checker.
+
+findings:
+  - severity: critical
+    category: tests
+    file: go/internal/stdlibmap/stdlibmap_test.go
+    line: null
+    title: "Native toolchain cancellation test was dropped"
+    details: |
+      The rqytxpoynoyspmtquqrsulqntonoxovw change removes
+      TestNativeToolchainVersionError from stdlibmap_test.go. The current
+      integration_test.go has a successful version assertion and loader error
+      coverage, but no equivalent canceled-context assertion for
+      NativeToolchainVersion. progress.md:23-25 only explains moving native
+      toolchain tests under the integration tag; this particular error-path
+      test is neither moved nor replaced, and work.log contains no evidence
+      for it. This narrows the error handling coverage in the produced series.
+    suggested_action: |
+      Restore the canceled-context test under the integration tag, or replace
+      the hard-coded command with an injectable seam and test the same wrapped
+      context-cancellation error path. Record a genuine failing and passing
+      run for the restored regression.
+    source: built-in
+  - severity: important
+    category: tests
+    file: .agents/scratchpad/2026-08-04-compositional-component-analysis/step04/task-02-inventory-sdk-and-derive-map-key/work.log
+    line: 20
+    title: "TDD RED evidence is absent from the work log"
+    details: |
+      The Oracle, Inventory, SDKKey, and Integration sections at work.log:20-129
+      record repository state or passing runs, but no failing focused test
+      preceding the claimed GREEN result. The two failures at work.log:72-74
+      and :93-95 are incorrect cd go working-directory commands, not RED
+      behavioral tests. progress.md:13-25 claims several RED-to-GREEN cycles,
+      but the required auditable command/output evidence is absent from
+      work.log, so the TDD claims for the main requirements cannot be verified.
+    suggested_action: |
+      Add correctly rooted RED entries for the oracle, inventory, SDK-key, and
+      integration requirements, followed by the corresponding GREEN commands
+      and outputs. Keep environment/setup failures separate from behavioral
+      RED evidence.
+    source: built-in
+  - severity: important
+    category: acceptance_criteria
+    file: go/internal/stdlibmap/inventory.go
+    line: 33
+    title: "Inventory does not expose Capslock normalization context"
+    details: |
+      Inventory only retains Packages, Symbols, and Inits at inventory.go:29-45.
+      It has no implementation of symbol.CapslockInventory, whose
+      KnownPackage, Declares, and MethodOwner operations are required by
+      ParseCapslockFunction at symbol/capslock.go:62-81. BuildInventory also
+      discards the loaded typed packages, so an unresolved or ambiguous
+      Capslock root cannot be rejected from this result without reconstructing
+      type ownership or loading the SDK again. The task's AC3 and technical
+      requirement 6 explicitly include this fail-closed normalization context;
+      deferring all of it to Task 3 leaves the advertised Task 2 inventory
+      contract incomplete.
+    suggested_action: |
+      Return or attach an inventory-backed normalization context that
+      implements KnownPackage, Declares, and MethodOwner, retaining enough
+      method-owner information for interface specs and aliases. Add positive
+      and negative normalization tests proving ambiguous and unresolved names
+      return errors before any map output is usable.
+    source: built-in
+  - severity: important
+    category: acceptance_criteria
+    file: go/internal/stdlibmap/inventory.go
+    line: 64
+    title: "BuildInventory accepts unnormalized package entries"
+    details: |
+      BuildInventory filters on the caller-supplied Importable flag and calls
+      sortedEntries, which only sorts, at inventory.go:68-109 and :255-258.
+      It does not validate paths, recompute internal status, or deduplicate
+      entries. A duplicate importable path therefore appends duplicate
+      pkg.init IDs; an internal path marked Importable:true is loaded and
+      inventoried; and a malformed entry marked false bypasses initID
+      validation. ExplicitPackageList returns exactly this raw input at
+      stdlibmap.go:89-101, so correctness depends on every caller manually
+      invoking the separate normalizer.
+    suggested_action: |
+      Put one normalization/validation boundary between every PackageOracle
+      and BuildInventory, or make BuildInventory itself accept raw paths and
+      normalize them. Reject inconsistent Importable flags and duplicate
+      paths, and add direct tests for duplicate, malformed, and internal-true
+      inputs.
+    source: built-in
+  - severity: important
+    category: acceptance_criteria
+    file: go/internal/stdlibmap/inventory.go
+    line: 190
+    title: "External aliases contribute foreign methods"
+    details: |
+      methodScanTarget unaliases every exported TypeName and returns any
+      resulting *types.Named at inventory.go:190-197. packageSymbols then
+      walks that target's methods at :169-180 without checking that the target
+      package equals the package being inventoried. For type Alias = other.T,
+      this emits (other.T).M while processing the alias's package. The
+      design's alias rule expands same-package targets only and explicitly
+      says a cross-package target is not claimed; the current behavior can
+      duplicate or introduce symbols from an omitted or non-importable
+      package, violating the exact AC2 inventory.
+    suggested_action: |
+      Restrict method scanning to named targets whose declaring package is the
+      current package, while retaining same-package alias target expansion.
+      Add a two-package fixture with an exported alias of a foreign type and
+      assert that only the alias package's ID is added by that package.
+    source: built-in
+  - severity: important
+    category: acceptance_criteria
+    file: go/internal/stdlibmap/nativeloader.go
+    line: 15
+    title: "TargetEnv drops the host environment and build tags"
+    details: |
+      TargetEnv returns only target overrides at nativeloader.go:15-25, but
+      NativeLoader passes l.Env directly as packages.Config.Env at :52-57.
+      A non-nil go/packages Env is a complete environment and is expected to
+      be formed by appending overrides to the current environment; the current
+      path can therefore drop PATH, GOROOT, and other toolchain state. It also
+      appends one GOFLAGS entry per build tag. Duplicate environment keys use
+      the last value, so multiple requested tags do not reliably reach the
+      toolchain. The loaded inventory consequently need not describe the
+      requested target configuration.
+    suggested_action: |
+      Merge TargetEnv overrides into a copy of os.Environ before constructing
+      packages.Config, and represent all build tags in one canonical GOFLAGS
+      value or through go/packages BuildFlags. Add a multi-tag test and a
+      cross-target loader test that verifies the requested environment is
+      actually observed.
+    source: built-in
+  - severity: important
+    category: acceptance_criteria
+    file: go/internal/stdlibmap/stdlibmap.go
+    line: 133
+    title: "Package-path validation accepts noncanonical spellings"
+    details: |
+      validatePackagePath rejects whitespace, separators, dot segments, and
+      backslashes, but accepts invalid import-path characters and spellings
+      such as a:b and example..com/pkg. It also does not consult
+      hostpolicy.ValidateStdlibPaths. As a result NormalizePackageList can
+      return a path that canonical SymbolID parsing will later reject, and
+      initID at inventory.go:224 constructs its ID from the raw path while
+      object IDs pass through hostpolicy.CanonicalizePath. This violates the
+      AC1/technical-requirement demand that malformed and noncanonical paths
+      fail before inventory generation.
+    suggested_action: |
+      Reuse the repository's canonical package-path policy and validate the
+      host-policy fixed-point invariant for every discovered stdlib path.
+      Strengthen the import-path grammar check and add cases for invalid
+      characters, repeated dots, host-policy rewrites, and malformed internal
+      paths.
+    source: built-in
+  - severity: important
+    category: acceptance_criteria
+    file: go/internal/stdlibmap/stdlibmap.go
+    line: 156
+    title: "Native package discovery ignores the target configuration"
+    details: |
+      NativeStdPackageList always executes go list std with
+      exec.CommandContext and no TargetConfig or target environment at
+      stdlibmap.go:152-165. NativeLoader can be given target overrides, but
+      the package list fed to it is still the host list. The local toolchain
+      produces different lists for linux/amd64 and js/wasm, so a cross-target
+      map can omit target-only packages or attempt to load host-only ones.
+      This violates the requirement that the loaded inventory, not only the
+      key, describe the target.
+    suggested_action: |
+      Make native package discovery accept the target configuration or an
+      injected complete environment and pass the same GOOS, GOARCH,
+      CGO_ENABLED, GOEXPERIMENT, and build-tag settings used by NativeLoader.
+      Add a hermetic test that compares discovery under two target
+      configurations.
+    source: built-in
+  - severity: suggestion
+    category: tests
+    file: go/internal/stdlibmap/integration_test.go
+    line: 94
+    title: "Integration package-set assertion is incomplete"
+    details: |
+      TestRealSDKInventory builds an enumerated map at integration_test.go:94-97
+      but never reads it. The only package assertion is a length comparison,
+      while BuildInventory currently copies the input entries; the comment
+      claiming every non-importable package is excluded from symbols is also
+      not asserted. This leaves the real-SDK test weaker than its stated
+      representation guarantee.
+    suggested_action: |
+      Compare the exact path/importable pairs in inv.Packages with the
+      enumerated map and explicitly assert that no symbol or init belongs to
+      an internal package.
+    source: built-in
+
+ecosystem_reviews: []

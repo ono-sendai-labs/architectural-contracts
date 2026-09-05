@@ -1,0 +1,139 @@
+result:
+  task_file: .agents/tasks/2026-08-04-compositional-component-analysis/step04/task-02-inventory-sdk-and-derive-map-key.code-task.md
+  change_id: qvtrrntyszpm
+  status: completed
+  schema_version: 2
+  produced_at: 2026-09-04T19:20:00Z
+
+acceptance_criteria:
+  - text: |
+      1. **The package oracle is total and deterministic**
+         - Given unsorted or repeated native/Bazel package-list output containing public and `internal` paths
+         - When discovery runs
+         - Then every unique path is emitted in canonical order, internal-segment packages are retained as non-importable, and malformed paths fail generation.
+    addressed: yes
+    evidence: |
+      NormalizePackageList (stdlibmap.go) dedupes/sorts/marks internal paths
+      non-importable and rejects malformed spellings via the strengthened
+      validatePackagePath (import-path character grammar, ".."-in-segment,
+      whitespace/backslash, hostpolicy.ValidateCanonicalPath) plus
+      hostpolicy.ValidateStdlibPaths; BuildInventory normalizes raw entries
+      itself (normalizeEntries: duplicate rejection, flag consistency).
+      Round-2: NativeStdPackageList parses `go list` output via
+      parseGoListOutput/strings.Fields, unit-pinned for CRLF/tab/duplicate
+      separators (TestParseGoListOutputWhitespacePortable). Tests:
+      TestNormalizePackageList(Malformed), TestIsInternalPath,
+      TestExplicitPackageList, TestBuildInventoryRejectsRawEntries,
+      TestNativeDiscoveryCrossTarget.
+  - text: |
+      2. **Every externally referencable declaration is inventoried**
+         - Given typed fixture packages containing exported funcs, vars, consts, named and alias types, exported methods, fields, interface specs, and generics
+         - When inventory runs
+         - Then canonical IDs cover exactly the design's persisted symbol set plus one aggregate init, with no duplicate, promoted, instantiated, field, or interface-method-only IDs.
+    addressed: yes
+    evidence: |
+      packageSymbols walks each importable package scope through
+      symbol.FromObject with same-package-only method scanning. Round-2: the
+      foreign-alias regression test now inventories only the alias package
+      while keeping the foreign fixture resolvable, asserting the alias
+      package contributes exactly {example.com/inventory.A} and that the
+      foreign method (example.com/foreignpkg.B).M never leaks
+      (TestBuildInventoryForeignAliasMethods). Exact-set, exclusion, and
+      unsafe-builtin coverage unchanged (TestBuildInventoryFullDeclarationSet,
+      TestBuildInventoryExcludesNonPersistedMembers); full std coverage in
+      TestRealSDKInventory.
+  - text: |
+      3. **Inventory failure cannot become partial output**
+         - Given a package load error, type error, ambiguous symbol normalization, or canonical-ID collision
+         - When inventory runs
+         - Then it returns an actionable error and no usable partial inventory.
+    addressed: yes
+    evidence: |
+      BuildInventory returns (nil, err) on load/type errors, incomplete loader
+      results, raw-entry normalization failures, and merge collisions;
+      *Inventory implements symbol.CapslockInventory so unresolved/ambiguous
+      Capslock names fail closed (interface specs resolve to their declaring
+      interface, aliases to the declaring target type; unexported helpers and
+      unknown symbols/packages rejected). Tests:
+      TestInventoryImplementsCapslockInventory, TestBuildInventoryLoadError,
+      TestBuildInventoryMissingPackageInResult, TestBuildInventoryTypeError,
+      TestBuildInventoryNilLoader, TestMergeObservedRejectsCollision.
+  - text: |
+      4. **SDK keys describe the target configuration**
+         - Given linux/amd64 with cgo on and off and a cross-compiled target with another GOOS
+         - When keys are derived on the same host
+         - Then all configurations have distinct deterministic keys, build tags are sorted, and repeated derivation is byte-for-byte stable.
+    addressed: yes
+    evidence: |
+      DeriveSDKKey sorts BuildTags and stamps classifier_hash + format version;
+      NativeLoader merges TargetEnv onto the host environment (one canonical
+      GOFLAGS entry for all tags) and NativeStdPackageList takes the complete
+      target environment. Tests: TestDeriveSDKKeyDistinctPerConfiguration,
+      TestDeriveSDKKeySortsBuildTags, TestDeriveSDKKeyByteStable,
+      TestDeriveSDKKeyDescribesTargetNotHost, TestNativeLoaderEnvironmentMerged,
+      TestNativeLoaderCrossTarget (darwin vs linux syscall declarations).
+  - text: |
+      5. **Classifier drift changes the key**
+         - Given unchanged SDK fields but a changed classifier text, minting rule, variable rule version, or map format version
+         - When `classifier_hash` and the key are derived
+         - Then the hash/key changes; non-semantic iteration order does not.
+    addressed: yes
+    evidence: |
+      ClassifierHash = SHA-256 over classifier text + "\0" + rule version;
+      CanonicalClassifierText is name-sorted and duplicate-rejecting. Tests:
+      TestClassifierHashDrift, TestCanonicalClassifierTextOrderInvariant,
+      TestCanonicalClassifierTextRejectsDuplicateNames.
+  - text: |
+      6. **Real SDK enumeration is covered**
+         - Given the local Go toolchain
+         - When the integration inventory test runs
+         - Then every `go list std` package is represented and all inventoried IDs parse canonically without relying on network access.
+    addressed: yes
+    evidence: |
+      TestRealSDKInventory (-tags=integration; tag restored this round): full
+      360-package enumeration, exact path/importable pair comparison, one init
+      per importable package, symbol.Parse on every ID, internal exclusion now
+      via stdlibmap.IsInternalPath (nested segments covered), byte-identical
+      re-runs. Native seams covered by TestNativeOracleAgainstLocalToolchain,
+      TestNativeToolchainVersionCanceledContext, TestNativeDiscoveryCrossTarget,
+      TestNativeLoaderCrossTarget, TestNativeLoaderLoadsHostPackages — all
+      gated behind the integration tag, so the unit leg is hermetic again.
+  - text: |
+      7. **Integration remains green**
+         - Given SDK discovery and inventory are additive
+         - When `just ci` runs
+         - Then all existing checks pass and no map has yet been consumed by component analysis.
+    addressed: yes
+    evidence: |
+      `just ci` exit 0 after round 2 (go build/vet/fmt, hermetic unit leg,
+      integration leg, native selfcheck incl. arcc check of the stdlibmap and
+      symbol manifests, bazel build + 84 passing tests). No non-test consumer
+      of stdlibmap exists under cmd/arcc, goanalysis or checker.
+
+artifacts:
+  scratchpad_dir: .agents/scratchpad/2026-08-04-compositional-component-analysis/step04/task-02-inventory-sdk-and-derive-map-key
+  files:
+    - go/internal/stdlibmap/stdlibmap.go
+    - go/internal/stdlibmap/inventory.go
+    - go/internal/stdlibmap/sdkkey.go
+    - go/internal/stdlibmap/nativeloader.go
+    - go/internal/stdlibmap/stdlibmap_test.go
+    - go/internal/stdlibmap/inventory_test.go
+    - go/internal/stdlibmap/sdkkey_test.go
+    - go/internal/stdlibmap/integration_test.go
+    - go/internal/stdlibmap/component.textproto
+    - go/internal/stdlibmap/BUILD.bazel
+    - go/internal/symbol/component.textproto
+
+notes: >
+  Round 2 rework: one fresh child change (qvtrrntyszpmzmoqumoqqwmxwqvxppst),
+  nothing amended or rewritten. Both important findings were addressed: the
+  //go:build integration tag lost in round 1 is restored (the unit leg is
+  hermetic again, with the regression's failing behavior recorded as RED
+  evidence), and the work-log record was corrected — the round-1 claim of
+  behavioral RED entries was inaccurate (only compile RED had been captured),
+  which the log now states explicitly, with fresh RED/GREEN command output
+  for this round's changes. All three suggestions were adopted:
+  whitespace-portable `go list` parsing with a CRLF/tab unit test, nested
+  internal-segment exclusion via IsInternalPath in the real-SDK test, and an
+  alias-isolated foreign-alias regression test. `just ci` exits 0.
