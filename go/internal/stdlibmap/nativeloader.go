@@ -14,18 +14,22 @@ import (
 // GOARCH, CGO_ENABLED and GOEXPERIMENT replace the host's values so every
 // toolchain invocation underneath the loader and oracle describes the
 // target. Every requested build tag is carried in one canonical GOFLAGS
-// value, so multiple tags reach the toolchain reliably. The result is
+// value. GOFLAGS is ALWAYS overridden — to the tags when any are requested,
+// otherwise cleared — so inherited host GOFLAGS can never change which
+// packages and symbols are analyzed while the SDK key still reports
+// build_tags: [] (fail-closed identity; review finding). The result is
 // override pairs, not a complete environment; NativeLoader.Environment
-// merges them onto the host environment.
+// and NativeEnvironment merge them onto the host environment.
 func TargetEnv(t TargetConfig) []string {
 	env := []string{
 		"GOOS=" + t.GOOS,
 		"GOARCH=" + t.GOARCH,
 		"CGO_ENABLED=" + bool01(t.CgoEnabled),
 		"GOEXPERIMENT=" + t.GOEXPERIMENT,
+		"GOFLAGS=",
 	}
 	if len(t.BuildTags) > 0 {
-		env = append(env, "GOFLAGS=-tags="+strings.Join(t.BuildTags, ","))
+		env[len(env)-1] = "GOFLAGS=-tags=" + strings.Join(t.BuildTags, ",")
 	}
 	return env
 }

@@ -154,3 +154,36 @@ func TestTargetEnv(t *testing.T) {
 		}
 	}
 }
+
+// TestTargetEnvReplacesHostGOFLAGS pins the fail-closed identity rule (review
+// finding): an inherited host GOFLAGS with build tags must not survive the
+// override merge when the target configuration names no tags — otherwise the
+// host tags would change the analyzed packages and symbols while the SDK key
+// and cache identity still report build_tags: [].
+func TestTargetEnvReplacesHostGOFLAGS(t *testing.T) {
+	host := []string{"PATH=/bin", "GOFLAGS=-tags=inherited-secret -mod=mod"}
+	// No requested tags: the host GOFLAGS is cleared.
+	noTags := TargetEnv(TargetConfig{GOOS: "linux", GOARCH: "amd64"})
+	merged := mergeEnv(host, noTags)
+	envOf := func(kv []string) map[string]string {
+		m := map[string]string{}
+		for _, e := range kv {
+			k, v, _ := strings.Cut(e, "=")
+			m[k] = v
+		}
+		return m
+	}
+	if got := envOf(merged)["GOFLAGS"]; got != "" {
+		t.Fatalf("merged GOFLAGS = %q; want cleared (host tags must not reach the analysis)", got)
+	}
+	// Requested tags replace the host value with the canonical one.
+	withTags := TargetEnv(TargetConfig{GOOS: "linux", GOARCH: "amd64", BuildTags: []string{"a", "b"}})
+	merged = mergeEnv(host, withTags)
+	if got := envOf(merged)["GOFLAGS"]; got != "-tags=a,b" {
+		t.Fatalf("merged GOFLAGS = %q; want the target's canonical -tags=a,b", got)
+	}
+	// Other host variables pass through untouched.
+	if got := envOf(merged)["PATH"]; got != "/bin" {
+		t.Fatalf("merged PATH = %q; want it preserved", got)
+	}
+}

@@ -37,7 +37,8 @@
 //     CanonicalClassifierText, ClassifierHash, DeriveSDKKey,
 //     GenerationClassifierRules, RuleVersion, FindingSource(Func),
 //     GeneratedMap, Generate, BuildAuthorityMap, the Provenance vocabulary,
-//     NativeToolchainVersion, NativeTargetConfig, TargetEnv, NativeLoader,
+//     NativeToolchainVersion, NativeTargetConfig, TargetEnv,
+//     NativeEnvironment, NativeLoader,
 //     CacheKeyDigest, DefaultCacheRoot, CacheSeams, CachedMapInput, and
 //     OpenCachedMap.
 //   - Ambient Authority: This is a shell generation component. It holds FILES
