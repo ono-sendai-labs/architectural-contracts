@@ -52,12 +52,11 @@ func TestMintingAuthority(t *testing.T) {
 		if !ok {
 			t.Fatalf("reclassified method %q is not a pointer-receiver spelling", m)
 		}
-		recv = strings.TrimSuffix(recv, ")")
-		dot := strings.LastIndexByte(recv, '.')
-		if dot < 0 {
-			t.Fatalf("reclassified method %q has no package-qualified receiver", m)
+		end := strings.IndexByte(recv, ')')
+		if end < 0 {
+			t.Fatalf("reclassified method %q has no closing receiver bracket", m)
 		}
-		recv = recv[:dot]
+		recv = recv[:end]
 		if _, ok := minting[recv]; !ok {
 			t.Fatalf("reclassified method %q names receiver %q, absent from MintingAuthority %v", m, recv, minting)
 		}
