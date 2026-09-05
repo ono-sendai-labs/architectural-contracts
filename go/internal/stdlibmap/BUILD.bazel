@@ -9,6 +9,7 @@ load("@rules_go//go:def.bzl", "go_library", "go_test")
 go_library(
     name = "stdlibmap",
     srcs = [
+        "cache.go",
         "generate.go",
         "inventory.go",
         "nativeloader.go",
@@ -33,6 +34,7 @@ go_test(
     name = "stdlibmap_test",
     size = "small",
     srcs = [
+        "cache_test.go",
         "generate_test.go",
         "inventory_test.go",
         "sdkkey_test.go",

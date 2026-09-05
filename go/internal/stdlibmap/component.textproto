@@ -1,6 +1,19 @@
 name: "stdlibmap"
-interface_style: INTERFACE_STYLE_PACKAGE_SURFACE
-# Package-surface component: the SDK enumeration oracle and its loader
+# Generation shell component: the SDK enumeration oracle, the go/types
+# inventory, the Capslock-backed generator, and the native SDK-keyed cache.
+# Declared-interface style: its exported API is the contract consumers (the
+# cli component) prune at. It is deliberately not declared as a go_component
+# under Bazel — like capslockadapter, its closure (golang.org/x/tools/go/
+# packages) pulls in cgo-built packages and component.bzl fails closed on cgo
+# closures; native coverage is via the FR10 contract above and the Bazel
+# arcc_stdlib_map rule consumes its artifacts rather than running this
+# component inside a checked action.
+interface_files: "cache.go"
+interface_files: "generate.go"
+interface_files: "inventory.go"
+interface_files: "nativeloader.go"
+interface_files: "sdkkey.go"
+interface_files: "stdlibmap.go"
 members: "github.com/ono-sendai-labs/architectural-contracts/go/internal/stdlibmap"
 members: "github.com/ono-sendai-labs/architectural-contracts/go/internal/hostpolicy"
 members: "golang.org/x/tools/go/packages"

@@ -1,10 +1,9 @@
 // Package stdlibmap is the generation-side shell for the standard-library
 // authority map (design §Components "New: stdlibmap"): deterministic SDK
 // package discovery, the independent go/types inventory oracle the map is
-// reconciled against, and the target-specific SDK key with its classifier
-// fingerprint (design DR-05, DR-09, I3). Full Capslock classification and map
-// emission are the follow-on generation tasks; this package owns the
-// discovery, inventory, and key-derivation substrate they consume.
+// reconciled against, the target-specific SDK key with its classifier
+// fingerprint, total-map Capslock classification and emission, and the
+// native SDK-keyed on-demand cache (design DR-05, DR-09, I3).
 //
 // Component Contract (FR10):
 //   - What it does: Discovers the SDK's standard-library package list behind an
@@ -14,13 +13,20 @@
 //     path segment ⇒ non-importable), inventories every externally referencable
 //     exported declaration of every importable package via go/types under the
 //     declaring-object rule (including one aggregate pkg.init per importable
-//     package), and derives the target-configuration SDKKey with a
-//     deterministic classifier_hash.
+//     package), derives the target-configuration SDKKey with a
+//     deterministic classifier_hash, generates the total authority map
+//     (Generate), and opens it from the native cache on demand
+//     (OpenCachedMap): a digest of the complete SDKKey names the cache
+//     entry, every hit is revalidated against the requested key, corrupt or
+//     mismatched content is regenerated, and fresh bytes are written
+//     atomically so a failed generation leaves the previous artifact intact.
 //   - What it requires: A package oracle, a batch package Loader for the target
 //     configuration, the target toolchain version and build environment, and
 //     the generation classifier text plus an explicit rule-version string.
 //     Every inventoried identifier must be grammar-valid under the canonical
-//     SymbolID constructors.
+//     SymbolID constructors. Cache operations take injectable seams (cache
+//     root, filesystem reads, atomic writes, generation) so tests neither
+//     mutate the real user cache nor run a full SDK analysis.
 //   - What it provides: PackageEntry, PackageOracle, NormalizePackageList,
 //     ExplicitPackageList, NativeStdPackageList (target-environment aware),
 //     IsInternalPath, Loader, BuildInventory with its total Inventory
@@ -29,18 +35,23 @@
 //     symbol.CapslockInventory — for the generator's reconciliation),
 //     TargetConfig, GenerationDescriptor, ClassifierRule,
 //     CanonicalClassifierText, ClassifierHash, DeriveSDKKey,
-//     GenerationClassifierRules, FindingSource(Func), GeneratedMap, Generate,
-//     BuildAuthorityMap, the Provenance vocabulary,
-//     NativeToolchainVersion, TargetEnv and NativeLoader.
+//     GenerationClassifierRules, RuleVersion, FindingSource(Func),
+//     GeneratedMap, Generate, BuildAuthorityMap, the Provenance vocabulary,
+//     NativeToolchainVersion, NativeTargetConfig, TargetEnv, NativeLoader,
+//     CacheKeyDigest, DefaultCacheRoot, CacheSeams, CachedMapInput, and
+//     OpenCachedMap.
 //   - Ambient Authority: This is a shell generation component. It holds FILES
-//     (reads SDK sources and export data through the loader), EXEC and
+//     (reads SDK sources and export data through the loader; reads and
+//     atomically writes the native cache artifacts under the user cache
+//     directory's arcc subtree), EXEC and
 //     READ_SYSTEM_STATE (runs the toolchain: `go list std`, `go env
 //     GOVERSION`), OPERATING_SYSTEM and MODIFY_SYSTEM_STATE/ENV (build
-//     environment discovery and the target build environment it constructs),
+//     environment discovery and the target build environment it constructs;
+//     creating cache directories and replacing cache files atomically),
 //     REFLECT and RUNTIME (go/packages and go/types type loading), and it is
-//     the substrate on which Capslock map generation (a follow-on
-//     responsibility of this component) runs. No global logging or network
-//     access; all discovery, version, and loading seams are injectable.
+//     the substrate on which Capslock map generation runs. No global logging
+//     or network access; all discovery, version, cache, and loading seams
+//     are injectable.
 package stdlibmap
 
 import (

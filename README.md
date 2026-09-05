@@ -227,8 +227,26 @@ arcc checks Go architectural component contracts.
 
 Usage:
   arcc check <manifest>
+  arcc stdlibmap generate --output=<path> [--toolchain=<version>] [--goos=<os>] [--goarch=<arch>] [--cgo] [--tags=<t1,t2>] [--goexperiment=<exp>]
+  arcc stdlibmap inspect <artifact> [--expect-key=<field=value,...>] [summary | symbol <id> | init <pkg>]...
   arcc --version
 ```
+
+`arcc stdlibmap generate` produces the canonical standard-library authority
+map for a target configuration: by default the current toolchain (`go env`
+and `go list std`), or an explicit target (`--toolchain`, `--goos`,
+`--goarch`, `--cgo`, `--tags`, `--goexperiment`) for cross-compilation and
+the later Bazel rule. The output is written atomically; two runs over the
+same configuration produce byte-identical artifacts. Native users can also
+rely on the on-demand cache: it is keyed by a digest of the complete SDK key
+under the user cache directory's `arcc` subtree, revalidates every hit
+against the requested key, and regenerates corrupt or mismatched entries.
+
+`arcc stdlibmap inspect` validates an artifact and answers deterministic
+queries: the summary (with the full SDK key) when no query is given,
+`symbol <id>` for a symbol's exact classification and ordered evidence, and
+`init <pkg>` for a package's aggregate init classification. Unknown
+packages/symbols and a `--expect-key` mismatch are tool errors.
 
 ### Exit Codes
 The `arcc` command adheres to a deterministic three-way exit code structure:

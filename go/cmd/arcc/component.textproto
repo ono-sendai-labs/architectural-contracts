@@ -29,6 +29,18 @@ component_dependencies {
   name: "report"
   manifest: "../../internal/report/component.textproto"
 }
+component_dependencies {
+  name: "stdlibmap"
+  manifest: "../../internal/stdlibmap/component.textproto"
+}
+component_dependencies {
+  name: "stdlibauthority"
+  manifest: "../../internal/stdlibauthority/component.textproto"
+}
+component_dependencies {
+  name: "schema"
+  manifest: "../../internal/schema/component.textproto"
+}
 declared_authority: "FILES"
 declared_authority: "REFLECT"
 declared_authority: "READ_SYSTEM_STATE"

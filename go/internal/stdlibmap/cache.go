@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -15,6 +16,7 @@ import (
 	"strings"
 
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/artifactio"
+	"github.com/ono-sendai-labs/architectural-contracts/go/internal/schema/gen"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/stdlibauthority"
 )
 
@@ -207,6 +209,25 @@ func OpenCachedMap(in CachedMapInput) (stdlibauthority.StdlibAuthority, error) {
 	return auth, nil
 }
 
+// WriteArtifactAtomic replaces path with persisted stdlib-map artifact bytes
+// using the artifact I/O boundary's atomic-write semantics (Step 3): a synced
+// temporary sibling renamed over the target, so an interrupted write leaves
+// the previous bytes intact. This re-export exists because the cli component
+// consumes the map workflow through this component: artifactio is a
+// package-surface wrapper over foreign protobuf-runtime members, which the
+// legacy native dependency resolution cannot load beneath another component's
+// root (design §schema, migration interval).
+func WriteArtifactAtomic(path string, data []byte, mode os.FileMode) error {
+	return artifactio.WriteFileAtomic(path, data, mode, nil)
+}
+
+// DecodeMapArtifact reads and validates a persisted stdlib map from r: the
+// bounded decode, the semantic invariants, and the format-version check, in
+// one call (same re-export rationale as WriteArtifactAtomic).
+func DecodeMapArtifact(r io.Reader) (*gen.StdlibMap, error) {
+	return artifactio.DecodeMap(r)
+}
+
 // NativeTargetConfig discovers the host toolchain's current target
 // configuration for native map generation (task req 5's default native
 // discovery): the toolchain version via `go env GOVERSION` and GOOS, GOARCH,
@@ -223,14 +244,18 @@ func NativeTargetConfig() (TargetConfig, error) {
 		return TargetConfig{}, fmt.Errorf("discovering the target build configuration with `go env`: %w", err)
 	}
 	fields := strings.Fields(string(out))
-	if len(fields) != 4 {
-		return TargetConfig{}, fmt.Errorf("discovering the target build configuration: `go env` returned %d values, want 4 (GOOS, GOARCH, CGO_ENABLED, GOEXPERIMENT)", len(fields))
+	if len(fields) != 3 && len(fields) != 4 {
+		return TargetConfig{}, fmt.Errorf("discovering the target build configuration: `go env` returned %d values, want GOOS, GOARCH, CGO_ENABLED and GOEXPERIMENT", len(fields))
+	}
+	goexperiment := ""
+	if len(fields) == 4 {
+		goexperiment = fields[3]
 	}
 	return TargetConfig{
 		ToolchainVersion: version,
 		GOOS:             fields[0],
 		GOARCH:           fields[1],
 		CgoEnabled:       fields[2] == "1",
-		GOEXPERIMENT:     fields[3],
+		GOEXPERIMENT:     goexperiment,
 	}, nil
 }

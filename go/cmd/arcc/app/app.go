@@ -57,6 +57,10 @@ func (r *Runner) run(args []string, stdout, stderr io.Writer) int {
 		return 0
 	}
 
+	if args[0] == "stdlibmap" {
+		return r.runStdlibmap(args[1:], stdout, stderr)
+	}
+
 	if args[0] != "check" {
 		fmt.Fprintf(stderr, "unknown command: %s\n", args[0])
 		printUsage(stderr)
@@ -278,5 +282,7 @@ func printUsage(w io.Writer) {
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "Usage:")
 	fmt.Fprintln(w, "  arcc check <manifest> [--package-layout=<layout>] [--format=json]")
+	fmt.Fprintln(w, "  arcc stdlibmap generate --output=<path> [--toolchain=<version>] [--goos=<os>] [--goarch=<arch>] [--cgo] [--tags=<t1,t2>] [--goexperiment=<exp>]")
+	fmt.Fprintln(w, "  arcc stdlibmap inspect <artifact> [--expect-key=<field=value,...>] [summary | symbol <id> | init <pkg>]...")
 	fmt.Fprintln(w, "  arcc --version")
 }
