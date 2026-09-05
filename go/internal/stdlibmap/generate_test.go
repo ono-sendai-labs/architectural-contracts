@@ -53,6 +53,10 @@ type Plain struct{ X int }
 
 type Reader interface{ Read() }
 
+type Box[T any] struct{ V T }
+
+func (b *Box[T]) Get() T { var z T; return z }
+
 var Count int
 var Client Reader
 
@@ -734,5 +738,74 @@ func TestMalformedBracketedRootFailsClosed(t *testing.T) {
 		if _, err := BuildAuthorityMap(genInventory(t), findings, classifierCuratedSafe()); err == nil {
 			t.Fatalf("BuildAuthorityMap(%q): want a fail-closed error for the malformed bracketed root", name)
 		}
+	}
+}
+
+// --- round-4: instantiation roots validate through the Step 3 parser ------------
+
+// TestGenericMethodInstantiationRootIsDroppedNotMerged covers a receiver
+// instantiation spelling: the Step 3 parser validates the type arguments and
+// confirms the uninstantiated declaration through the inventory, and the
+// validated instantiation is discarded without merging its findings — the
+// generic method Get stays SAFE from its own (empty) findings alone.
+func TestGenericMethodInstantiationRootIsDroppedNotMerged(t *testing.T) {
+	findings := append(genFindings(), capslockadapter.GenerationFinding{
+		RootName: "(*example.com/genpkg.Box[int]).Get", RootPackage: "example.com/genpkg", Capability: "NETWORK",
+		Path: []stdlibauthority.Frame{{Function: "(*example.com/genpkg.Box[int]).Get", File: "x.go", Line: 9}},
+	})
+	m, err := buildFixtureMapCurated(t, findings, classifierCuratedSafe())
+	if err != nil {
+		t.Fatalf("BuildAuthorityMap: %v", err)
+	}
+	get := recordOf(t, m, "example.com/genpkg", "(example.com/genpkg.Box).Get")
+	if get.Classification != gen.Classification_SAFE {
+		t.Fatalf("(genpkg.Box).Get = %+v; want SAFE with the instantiation root discarded", get)
+	}
+	for _, e := range m.Evidence {
+		if e.SymbolId == "(example.com/genpkg.Box).Get" && e.Capability == "NETWORK" {
+			t.Fatalf("the discarded instantiation's NETWORK capability leaked into the origin record")
+		}
+	}
+}
+
+// TestInvalidTypeArgumentRootFailsClosed pins the Step 3 type-argument
+// grammar: empty and non-type bracket contents fail generation instead of
+// being silently dropped as instantiations.
+func TestInvalidTypeArgumentRootFailsClosed(t *testing.T) {
+	for _, name := range []string{"example.com/genpkg.Load[]", "example.com/genpkg.Load[not a type]"} {
+		findings := append(genFindings(), capslockadapter.GenerationFinding{
+			RootName: name, RootPackage: "example.com/genpkg", Capability: "NETWORK",
+		})
+		if _, err := BuildAuthorityMap(genInventory(t), findings, classifierCuratedSafe()); err == nil {
+			t.Fatalf("BuildAuthorityMap(%q): want a fail-closed error for the invalid type argument", name)
+		}
+	}
+}
+
+// TestUnknownExportedGenericRootFailsClosed pins the inventory confirmation:
+// an exported generic origin the inventory cannot confirm fails generation
+// instead of being dropped as an instantiation.
+func TestUnknownExportedGenericRootFailsClosed(t *testing.T) {
+	findings := append(genFindings(), capslockadapter.GenerationFinding{
+		RootName: "example.com/genpkg.Missing[int]", RootPackage: "example.com/genpkg", Capability: "NETWORK",
+	})
+	_, err := BuildAuthorityMap(genInventory(t), findings, classifierCuratedSafe())
+	if err == nil {
+		t.Fatalf("BuildAuthorityMap: want a fail-closed error for the unknown exported generic root")
+	}
+	if !strings.Contains(err.Error(), "example.com/genpkg.Missing") {
+		t.Fatalf("error %v: want it to name the unconfirmable origin", err)
+	}
+}
+
+// TestUnexportedGenericOriginRootIsDropped pins the one sanctioned drop for a
+// bracketed spelling: an unexported generic origin is a helper folded into
+// its exported callers.
+func TestUnexportedGenericOriginRootIsDropped(t *testing.T) {
+	findings := append(genFindings(), capslockadapter.GenerationFinding{
+		RootName: "example.com/genpkg.load[int]", RootPackage: "example.com/genpkg", Capability: "NETWORK",
+	})
+	if _, err := BuildAuthorityMap(genInventory(t), findings, classifierCuratedSafe()); err != nil {
+		t.Fatalf("BuildAuthorityMap: %v", err)
 	}
 }
