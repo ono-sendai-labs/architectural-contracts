@@ -130,3 +130,11 @@ func GenerationFindings(packagePaths []string) ([]GenerationFinding, error) {
 	}
 	return out, nil
 }
+
+// ReclassifiedHandleUseMethods returns the method keys the minting-site rule
+// reclassifies CAPABILITY_SAFE, in the classifier's spelling ("(*os.File).Read").
+// It is the source material for the generation rule descriptor and for the
+// map's project-override provenance.
+func ReclassifiedHandleUseMethods() []string {
+	return append([]string(nil), fileHandleUseMethods...)
+}
