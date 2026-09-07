@@ -2,33 +2,45 @@
 // authority map (design §Components "New: stdlibmap"): deterministic SDK
 // package discovery, the independent go/types inventory oracle the map is
 // reconciled against, the target-specific SDK key with its classifier
-// fingerprint, total-map Capslock classification and emission, and the
-// native SDK-keyed on-demand cache (design DR-05, DR-09, I3).
+// fingerprint, total-map Capslock classification and emission, the
+// native SDK-keyed on-demand cache (design DR-05, DR-09, I3), and the
+// explicit-input mode's layout-backed loading through the packagelayout
+// driver (design I5).
 //
 // Component Contract (FR10):
 //   - What it does: Discovers the SDK's standard-library package list behind an
 //     injectable oracle (native `go list std` or an explicit Bazel-supplied
 //     toolchain package list), normalizes it into a total, deduplicated,
 //     canonically sorted PackageEntry list with importable flags (any internal
-//     path segment ⇒ non-importable), inventories every externally referencable
-//     exported declaration of every importable package via go/types under the
-//     declaring-object rule (including one aggregate pkg.init per importable
-//     package), derives the target-configuration SDKKey with a
-//     deterministic classifier_hash, generates the total authority map
-//     (Generate), and opens it from the native cache on demand
-//     (OpenCachedMap): a digest of the complete SDKKey names the cache
+//     path segment ⇒ non-importable), reconciles the explicit oracle against
+//     the layout's discovery (ReconcilePackageList), inventories every
+//     externally referencable exported declaration of every importable
+//     package via go/types under the declaring-object rule (including one
+//     aggregate pkg.init per importable package), derives the
+//     target-configuration SDKKey with a deterministic classifier_hash,
+//     generates the total authority map (Generate; GenerateViaLayout serves
+//     every load through the packagelayout layout driver; GenerateExplicit is
+//     the CLI-facing explicit-input entry point), parses and renders the
+//     deterministic key=value target-configuration file
+//     (ParseTargetConfig/RenderTargetConfig) and toolchain package-list file
+//     (ReadToolchainPackageList), and opens it from the native cache on
+//     demand (OpenCachedMap): a digest of the complete SDKKey names the cache
 //     entry, every hit is revalidated against the requested key, corrupt or
 //     mismatched content is regenerated, and fresh bytes are written
 //     atomically so a failed generation leaves the previous artifact intact.
-//   - What it requires: A package oracle, a batch package Loader for the target
-//     configuration, the target toolchain version and build environment, and
-//     the generation classifier text plus an explicit rule-version string.
-//     Every inventoried identifier must be grammar-valid under the canonical
-//     SymbolID constructors. Cache operations take injectable seams (cache
-//     root, filesystem reads, atomic writes, generation) so tests neither
-//     mutate the real user cache nor run a full SDK analysis.
+//   - What it requires: A package oracle, a batch package Loader for the
+//     target configuration (native: the toolchain via go/packages; explicit:
+//     LayoutLoader through the self-exec driver), the target toolchain
+//     version and build environment, and the generation classifier text plus
+//     an explicit rule-version string. Every inventoried identifier must be
+//     grammar-valid under the canonical SymbolID constructors. Cache
+//     operations take injectable seams (cache root, filesystem reads, atomic
+//     writes, generation) so tests neither mutate the real user cache nor run
+//     a full SDK analysis.
 //   - What it provides: PackageEntry, PackageOracle, NormalizePackageList,
 //     ExplicitPackageList, NativeStdPackageList (target-environment aware),
+//     ReconcilePackageList, ReadToolchainPackageList, ParseTargetConfig,
+//     RenderTargetConfig, GenerateExplicit, GenerateViaLayout, LayoutLoader,
 //     IsInternalPath, Loader, BuildInventory with its total Inventory
 //     (Packages/Symbols/Inits, sorted and duplicate-free; the Inventory is
 //     also the inventory-backed Capslock normalization context —
@@ -45,14 +57,16 @@
 //     (reads SDK sources and export data through the loader; reads and
 //     atomically writes the native cache artifacts under the user cache
 //     directory's arcc subtree), EXEC and
-//     READ_SYSTEM_STATE (runs the toolchain: `go list std`, `go env
-//     GOVERSION`), OPERATING_SYSTEM and MODIFY_SYSTEM_STATE/ENV (build
-//     environment discovery and the target build environment it constructs;
-//     creating cache directories and replacing cache files atomically),
-//     REFLECT and RUNTIME (go/packages and go/types type loading), and it is
-//     the substrate on which Capslock map generation runs. No global logging
-//     or network access; all discovery, version, cache, and loading seams
-//     are injectable.
+//     READ_SYSTEM_STATE (native mode runs the toolchain: `go list std`, `go
+//     env GOVERSION`; explicit-input mode adds no EXEC beyond arcc's own
+//     self-exec layout driver and reads only the declared SDK root, config
+//     file and package-list file), OPERATING_SYSTEM and
+//     MODIFY_SYSTEM_STATE/ENV (build environment discovery and the target
+//     build environment it constructs; creating cache directories and
+//     replacing cache files atomically), REFLECT and RUNTIME (go/packages and
+//     go/types type loading), and it is the substrate on which Capslock map
+//     generation runs. No global logging or network access; all discovery,
+//     version, cache, and loading seams are injectable.
 package stdlibmap
 
 import (

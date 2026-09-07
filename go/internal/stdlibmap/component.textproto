@@ -9,6 +9,8 @@ name: "stdlibmap"
 # arcc_stdlib_map rule consumes its artifacts rather than running this
 # component inside a checked action.
 interface_files: "cache.go"
+interface_files: "explicit.go"
+interface_files: "layoutloader.go"
 interface_files: "generate.go"
 interface_files: "inventory.go"
 interface_files: "nativeloader.go"

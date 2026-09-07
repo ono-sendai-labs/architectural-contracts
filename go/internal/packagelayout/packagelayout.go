@@ -1,5 +1,39 @@
 // Package packagelayout defines the schema, validation, and driver protocol
 // for arcc's hermetic package-layout loader.
+//
+// Component Contract (FR10):
+//   - What it does: Defines the layout schema (whole package graph, target
+//     platform block with goos/goarch/build_tags/cgo_enabled and the pinned
+//     toolchain_version/goexperiment), validates and resolves it (build
+//     constraints for the declared target, source existence, transitively
+//     complete import graph, GOROOT vendor resolution), discovers the
+//     standard library from an SDK root exactly as `go list std` does
+//     (discoverStdlib tree walk, no-Go source-less nodes), computes a
+//     validated whole-stdlib layout for a pinned target (StdlibLayout), and
+//     serves validated layouts through the GOPACKAGESDRIVER self-exec
+//     protocol (HandleDriverRequest/RunDriver, with the target GOARCH as the
+//     response Arch).
+//   - What it requires: A validated layout file (or SDK root plus platform
+//     for StdlibLayout), a workspace directory for emitter-listed sources,
+//     and the ARCC_PACKAGE_LAYOUT/ARCC_DRIVER_MODE environment markers set
+//     by WithDriverEnv/WithTemporaryLayout when invoked as the driver
+//     subprocess.
+//   - What it provides: Layout/Platform, Parse, MarshalJSON/UnmarshalJSON,
+//     ValidateAndResolve, BuildContextForLayout (target-derived release and
+//     tool tags), FileMatchesBuildConstraints(Context), SurvivingSourceFiles,
+//     discoverStdlibWithContext, StdlibLayout, IsStdlibPackage,
+//     HandleDriverRequest, RunDriver, WithTemporaryLayout, WithDriverEnv,
+//     IsLayoutMode/GetActiveLayout, and CheckMu.
+//   - Ambient Authority: This is a shell component serving package loading.
+//     It holds FILES (reads the layout file and every declared SDK source
+//     file — the layout builder reads only the SDK root), EXEC (the driver
+//     subprocess re-executes arcc's own binary; no toolchain binary), READ_
+//     SYSTEM_STATE (walking the SDK tree and reading build constraint
+//     headers), OPERATING_SYSTEM and MODIFY_SYSTEM_STATE/ENV (WithDriverEnv/
+//     WithTemporaryLayout set and restore process environment variables), and
+//     REFLECT/RUNTIME (go/packages and go/types type loading). No global
+//     logging or network access. Explicit-input consumers therefore add no
+//     EXEC beyond arcc's own self-exec driver (design I5).
 package packagelayout
 
 import (

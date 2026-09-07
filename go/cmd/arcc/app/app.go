@@ -1,10 +1,10 @@
 // Package app implements CLI orchestration and formatting of architectural checks.
 //
 // Component Contract (FR10):
-// - What it does: Orchestrates manifest parsing, fact loading, capability analysis, checker execution, and report rendering.
-// - What it requires: Command-line arguments specifying the check path and output format, as well as an environment for stdout/stderr output.
+// - What it does: Orchestrates manifest parsing, fact loading, capability analysis, checker execution, report rendering, and the stdlibmap subcommands (generate native and explicit-input mode, inspect).
+// - What it requires: Command-line arguments specifying the check path and output format, as well as an environment for stdout/stderr output. Explicit-input `stdlibmap generate` declares its whole target (package list, config file, SDK root) and performs no host discovery.
 // - What it provides: Actionable conformance reports and deterministic exit codes.
-// - Ambient Authority: This component is a shell component and holds FILES, REFLECT, READ_SYSTEM_STATE, and UNSAFE_POINTER.
+// - Ambient Authority: This component is a shell component and holds FILES, REFLECT, READ_SYSTEM_STATE, and UNSAFE_POINTER. Explicit-input map generation adds no EXEC beyond arcc's own self-exec layout driver: it never runs the toolchain (`go env`, `go list`), while native mode runs the host toolchain.
 package app
 
 import (
