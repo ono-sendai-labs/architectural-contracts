@@ -283,6 +283,7 @@ func printUsage(w io.Writer) {
 	fmt.Fprintln(w, "Usage:")
 	fmt.Fprintln(w, "  arcc check <manifest> [--package-layout=<layout>] [--format=json]")
 	fmt.Fprintln(w, "  arcc stdlibmap generate --output=<path> [--toolchain=<version>] [--goos=<os>] [--goarch=<arch>] [--cgo] [--tags=<t1,t2>] [--goexperiment=<exp>]")
+	fmt.Fprintln(w, "  arcc stdlibmap generate --output=<path> --package-list=<file> --config-file=<file> --sdk-root=<dir>  (explicit-input mode)")
 	fmt.Fprintln(w, "  arcc stdlibmap inspect <artifact> [--expect-key=<field=value,...>] [summary | symbol <id> | init <pkg>]...")
 	fmt.Fprintln(w, "  arcc --version")
 }

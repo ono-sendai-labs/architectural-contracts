@@ -37,8 +37,10 @@ func (r *Runner) runStdlibmap(args []string, stdout, stderr io.Writer) int {
 }
 
 // stdlibmapGenerateOptions carries the parsed `stdlibmap generate` inputs
-// (task req 5): the explicit output path and the target-configuration
-// overrides over the native default discovery.
+// (task req 5): the explicit output path, the target-configuration overrides
+// over the native default discovery, and — in explicit-input mode (task req
+// 7) — the three declared inputs: a toolchain package-list file, a
+// deterministic key=value target-configuration file, and the SDK root.
 type stdlibmapGenerateOptions struct {
 	output       string
 	toolchain    string
@@ -47,13 +49,29 @@ type stdlibmapGenerateOptions struct {
 	cgo          bool
 	buildTags    []string
 	goexperiment string
+
+	packageList string
+	configFile  string
+	sdkRoot     string
+	explicit    bool
 }
 
 // parseStdlibmapGenerate parses the generate subcommand's arguments. Every
-// usage error exits 2 (task req 7).
+// usage error exits 2 (task req 7). The three explicit-input flags are
+// all-or-nothing and single-occurrence; a partial set, a duplicate, or any
+// native-discovery flag alongside them is a usage error.
 func parseStdlibmapGenerate(args []string) (*stdlibmapGenerateOptions, error) {
 	opts := &stdlibmapGenerateOptions{}
 	var hasOutput bool
+	explicit := map[string]int{"--package-list": 0, "--config-file": 0, "--sdk-root": 0}
+	isNativeFlag := func(arg string) bool {
+		for _, prefix := range []string{"--toolchain=", "--goos=", "--goarch=", "--tags=", "--goexperiment="} {
+			if strings.HasPrefix(arg, prefix) {
+				return true
+			}
+		}
+		return arg == "--cgo"
+	}
 	for _, arg := range args {
 		switch {
 		case strings.HasPrefix(arg, "--output="):
@@ -65,6 +83,24 @@ func parseStdlibmapGenerate(args []string) (*stdlibmapGenerateOptions, error) {
 				return nil, fmt.Errorf("empty output value")
 			}
 			hasOutput = true
+		case strings.HasPrefix(arg, "--package-list="):
+			if explicit["--package-list"] > 0 {
+				return nil, fmt.Errorf("duplicate option: --package-list")
+			}
+			explicit["--package-list"]++
+			opts.packageList = strings.TrimPrefix(arg, "--package-list=")
+		case strings.HasPrefix(arg, "--config-file="):
+			if explicit["--config-file"] > 0 {
+				return nil, fmt.Errorf("duplicate option: --config-file")
+			}
+			explicit["--config-file"]++
+			opts.configFile = strings.TrimPrefix(arg, "--config-file=")
+		case strings.HasPrefix(arg, "--sdk-root="):
+			if explicit["--sdk-root"] > 0 {
+				return nil, fmt.Errorf("duplicate option: --sdk-root")
+			}
+			explicit["--sdk-root"]++
+			opts.sdkRoot = strings.TrimPrefix(arg, "--sdk-root=")
 		case strings.HasPrefix(arg, "--toolchain="):
 			opts.toolchain = strings.TrimPrefix(arg, "--toolchain=")
 		case strings.HasPrefix(arg, "--goos="):
@@ -84,10 +120,31 @@ func parseStdlibmapGenerate(args []string) (*stdlibmapGenerateOptions, error) {
 			return nil, fmt.Errorf("unknown option: %s", arg)
 		}
 	}
+	given := 0
+	for _, flag := range []string{"--package-list", "--config-file", "--sdk-root"} {
+		given += explicit[flag]
+	}
+	switch {
+	case given == 0:
+	case given == len(explicit):
+		opts.explicit = true
+		for _, arg := range args {
+			if isNativeFlag(arg) {
+				return nil, fmt.Errorf("explicit-input mode (--package-list, --config-file, --sdk-root) declares its whole target; the native-discovery flag %s is not allowed alongside it", arg)
+			}
+		}
+	default:
+		return nil, fmt.Errorf("explicit-input flags are all-or-nothing: --package-list, --config-file and --sdk-root must be given together (got %d of 3)", given)
+	}
 	if !hasOutput {
 		return nil, fmt.Errorf("generate requires --output=<path>")
 	}
 	return opts, nil
+}
+
+// explicitSet reports whether any explicit-input flag has been seen so far.
+func (o *stdlibmapGenerateOptions) explicitSet() bool {
+	return o.packageList != "" || o.configFile != "" || o.sdkRoot != ""
 }
 
 // runStdlibmapGenerate implements `arcc stdlibmap generate` (task req 5,
@@ -101,6 +158,42 @@ func (r *Runner) runStdlibmapGenerate(args []string, stdout, stderr io.Writer) i
 		fmt.Fprintf(stderr, "error: %v\n", err)
 		printUsage(stderr)
 		return 2
+	}
+
+	// Explicit-input mode (task reqs 7–8, design I5): every target input is
+	// declared — no NativeTargetConfig, no `go env`, no `go list std`, no
+	// host discovery — and the standard library is loaded from the SDK root
+	// through the layout driver. Usage errors above already exited 2; the
+	// explicit path re-parses nothing from the host.
+	if opts.explicit {
+		f, err := os.Open(opts.configFile)
+		if err != nil {
+			fmt.Fprintf(stderr, "error: opening the target config file: %v\n", err)
+			return 2
+		}
+		target, err := stdlibmap.ParseTargetConfig(f)
+		f.Close()
+		if err != nil {
+			fmt.Fprintf(stderr, "error: %v\n", err)
+			return 2
+		}
+		lf, err := os.Open(opts.packageList)
+		if err != nil {
+			fmt.Fprintf(stderr, "error: opening the toolchain package list file: %v\n", err)
+			return 2
+		}
+		paths, err := stdlibmap.ReadToolchainPackageList(lf)
+		lf.Close()
+		if err != nil {
+			fmt.Fprintf(stderr, "error: %v\n", err)
+			return 2
+		}
+		out, err := stdlibmap.GenerateExplicit(*target, paths, opts.sdkRoot)
+		if err != nil {
+			fmt.Fprintf(stderr, "error: %v\n", err)
+			return 2
+		}
+		return writeGeneratedMap(opts.output, out, stdout, stderr)
 	}
 
 	// Target configuration: the native default is the current toolchain
@@ -154,7 +247,14 @@ func (r *Runner) runStdlibmapGenerate(args []string, stdout, stderr io.Writer) i
 		fmt.Fprintf(stderr, "error: %v\n", err)
 		return 2
 	}
-	if err := stdlibmap.WriteArtifactAtomic(opts.output, out.Bytes, 0o644); err != nil {
+	return writeGeneratedMap(opts.output, out, stdout, stderr)
+}
+
+// writeGeneratedMap writes the generation's canonical bytes atomically to
+// outputPath and prints the deterministic summary (written path, digest, SDK
+// key, inventory shape). Errors exit 2.
+func writeGeneratedMap(outputPath string, out *stdlibmap.GeneratedMap, stdout, stderr io.Writer) int {
+	if err := stdlibmap.WriteArtifactAtomic(outputPath, out.Bytes, 0o644); err != nil {
 		fmt.Fprintf(stderr, "error: %v\n", err)
 		return 2
 	}
@@ -172,7 +272,7 @@ func (r *Runner) runStdlibmapGenerate(args []string, stdout, stderr io.Writer) i
 		fmt.Fprintf(stderr, "error: %v\n", err)
 		return 2
 	}
-	fmt.Fprintf(stdout, "wrote %s\n", opts.output)
+	fmt.Fprintf(stdout, "wrote %s\n", outputPath)
 	fmt.Fprintf(stdout, "digest: %s\n", out.Digest)
 	fmt.Fprintf(stdout, "sdk key: %s\n", key)
 	fmt.Fprintf(stdout, "packages: %d (importable %d)\n", len(out.Map.Packages), importable)
@@ -341,15 +441,25 @@ func parseExpectKey(specs []string) (*expectedKey, error) {
 		return nil, nil
 	}
 	key := &stdlibauthority.SDKKey{}
+	seenRaw := map[string]bool{}
 	checkedMap := map[string]bool{}
 	var checked []string
 	note := func(field string) error {
-		if field != "tag" && checkedMap[field] {
+		// `tag=<value>` entries supply the build_tags field: repeats of the
+		// tag alias are legal (one per tag), but the checked-field list must
+		// record the field's canonical name so a mismatch is reported — and
+		// matched — as build_tags, not the tag alias.
+		if field != "tag" && seenRaw[field] {
 			return fmt.Errorf("expected-key field %q is given twice", field)
 		}
-		if !checkedMap[field] {
-			checkedMap[field] = true
-			checked = append(checked, field)
+		seenRaw[field] = true
+		canonical := field
+		if canonical == "tag" {
+			canonical = "build_tags"
+		}
+		if !checkedMap[canonical] {
+			checkedMap[canonical] = true
+			checked = append(checked, canonical)
 		}
 		return nil
 	}
