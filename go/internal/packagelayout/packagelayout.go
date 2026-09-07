@@ -72,6 +72,17 @@ type Platform struct {
 	BuildTags []string `json:"build_tags"`
 	// CgoEnabled controls whether files guarded by the cgo tag are selected.
 	CgoEnabled bool `json:"cgo_enabled"`
+	// ToolchainVersion is the pinned toolchain's version in the `go1.N.M`
+	// spelling, when the layout pins one. When present, the build context's
+	// release tags derive from it (go1.1 … go1.N) instead of being copied from
+	// build.Default, so constraints describe the pinned target rather than the
+	// binary that produced the layout. Absent leaves the default behaviour.
+	ToolchainVersion string `json:"toolchain_version,omitempty"`
+	// GOEXPERIMENT is the target's enabled Go experiments, comma-separated,
+	// as the toolchain's GOEXPERIMENT setting spells them. When present, the
+	// build context's tool tags derive `goexperiment.<name>` entries from it
+	// instead of copying build.Default. Absent leaves the default behaviour.
+	GOEXPERIMENT string `json:"goexperiment,omitempty"`
 }
 
 // IsStdlibPackage reports the validated standard-library provenance for a
@@ -185,7 +196,97 @@ func BuildContextForLayout(l *Layout) (build.Context, error) {
 	bctx.GOARCH = platform.GOARCH
 	bctx.BuildTags = append([]string(nil), platform.BuildTags...)
 	bctx.CgoEnabled = platform.CgoEnabled
+
+	// A platform block describes a pinned target, so the tool-derived tags
+	// derive from the target instead of the binary that produced the layout.
+	// Release tags come from the pinned toolchain version; tool tags are the
+	// target GOARCH's default feature tags plus the declared experiments' tags.
+	// A non-default arch feature level (GOAMD64=v2+, GOARM64=v9, …) is out of
+	// scope and must not be silently taken from the host.
+	if platform.ToolchainVersion != "" {
+		tags, err := releaseTagsForVersion(platform.ToolchainVersion)
+		if err != nil {
+			return build.Context{}, err
+		}
+		bctx.ReleaseTags = tags
+	}
+	bctx.ToolTags = defaultArchToolTags(platform.GOARCH)
+	for _, exp := range strings.Split(platform.GOEXPERIMENT, ",") {
+		exp = strings.TrimSpace(exp)
+		if exp == "" {
+			continue
+		}
+		if !isGoIdentifier(exp) {
+			return build.Context{}, fmt.Errorf("platform.goexperiment has invalid experiment name %q", exp)
+		}
+		bctx.ToolTags = append(bctx.ToolTags, "goexperiment."+exp)
+	}
+	sort.Strings(bctx.ToolTags)
 	return bctx, nil
+}
+
+// releaseTagsForVersion derives the release tags a `go1.N(.M)` toolchain
+// version enables: `go1.1` … `go1.N` (the last element is the current release).
+func releaseTagsForVersion(version string) ([]string, error) {
+	major, ok := strings.CutPrefix(version, "go1.")
+	if !ok {
+		return nil, fmt.Errorf("platform.toolchain_version %q is not a go1.N(.M) toolchain version", version)
+	}
+	major, _, _ = strings.Cut(major, ".")
+	n, err := strconv.Atoi(major)
+	if err != nil || n < 1 {
+		return nil, fmt.Errorf("platform.toolchain_version %q is not a go1.N(.M) toolchain version", version)
+	}
+	tags := make([]string, n)
+	for i := range tags {
+		tags[i] = "go1." + strconv.Itoa(i+1)
+	}
+	return tags, nil
+}
+
+// isGoIdentifier reports whether name is a valid Go identifier (used for
+// experiment names, which are identifiers).
+func isGoIdentifier(name string) bool {
+	if name == "" {
+		return false
+	}
+	for i := 0; i < len(name); i++ {
+		c := name[i]
+		switch {
+		case c >= 'a' && c <= 'z', c >= 'A' && c <= 'Z', c == '_':
+		case c >= '0' && c <= '9' && i > 0:
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+// defaultArchToolTags returns the arch feature tool tags the Go toolchain
+// enables by default for the target GOARCH — the same tags
+// internal/buildcfg's gogoarchTags derives for a target configuration with no
+// GO$GOARCH override, mirrored here because buildcfg is internal to the
+// toolchain and a layout must describe a foreign target. The host's
+// (possibly non-default) feature levels are never copied.
+func defaultArchToolTags(goarch string) []string {
+	switch goarch {
+	case "386":
+		return []string{"386.sse2"}
+	case "amd64":
+		return []string{"amd64.v1"}
+	case "arm":
+		return []string{"arm.5", "arm.6", "arm.7"}
+	case "arm64":
+		return []string{"arm64.v8.0"}
+	case "mips", "mipsle", "mips64", "mips64le":
+		return []string{goarch + ".hardfloat"}
+	case "ppc64", "ppc64le":
+		return []string{goarch + ".power8"}
+	case "riscv64":
+		return []string{"riscv64.rva20u64"}
+	default:
+		return nil
+	}
 }
 
 func discoverStdlibWithContext(sdkRoot string, bctx build.Context) ([]*packages.Package, error) {
@@ -985,13 +1086,67 @@ func HandleDriverRequest(l *Layout, req *packages.DriverRequest, patterns []stri
 		return pkgsCopy[i].ID < pkgsCopy[j].ID
 	})
 
+	// The driver response's Arch becomes go/packages' types.Sizes target. A
+	// layout that pins a platform describes that target, not the binary
+	// serving the layout, so the platform's GOARCH wins; layouts without a
+	// platform block keep the running binary's arch.
+	arch := runtime.GOARCH
+	if l.Platform != nil {
+		arch = l.Platform.GOARCH
+	}
 	resp := &packages.DriverResponse{
 		Compiler: "gc",
-		Arch:     runtime.GOARCH,
+		Arch:     arch,
 		Roots:    roots,
 		Packages: pkgsCopy,
 	}
 	return resp, nil
+}
+
+// StdlibLayout computes the whole-standard-library layout for sdkRoot under
+// the pinned target platform: the packages are the standard library as
+// discovered with go/build (mirroring `go list std`'s exclusions, resolving
+// the GOROOT vendor tree, synthesising unsafe only when the tree omits it),
+// every package is marked standard library, the roots are the discovered
+// (importable) packages, and the layout is validated and resolved — source
+// files are absolute under sdkRoot and the import graph is transitively
+// complete — so it can be served through the driver directly.
+func StdlibLayout(sdkRoot string, platform *Platform) (*Layout, error) {
+	if platform == nil {
+		return nil, errors.New("computing the whole-stdlib layout: a target platform is required")
+	}
+	pseudo := &Layout{GoSDKRoot: sdkRoot, Platform: platform}
+	bctx, err := BuildContextForLayout(pseudo)
+	if err != nil {
+		return nil, fmt.Errorf("computing the whole-stdlib layout: %w", err)
+	}
+	bctx.GOROOT = filepath.Dir(sdkRoot)
+	pkgs, err := discoverStdlibWithContext(sdkRoot, bctx)
+	if err != nil {
+		return nil, fmt.Errorf("computing the whole-stdlib layout: %w", err)
+	}
+	l := &Layout{
+		GoSDKRoot: sdkRoot,
+		Platform:  platform,
+		Roots:     make([]string, 0, len(pkgs)),
+		Packages:  pkgs,
+	}
+	for _, p := range pkgs {
+		l.Roots = append(l.Roots, p.ID)
+	}
+	sort.Strings(l.Roots)
+	l.stdlibByID = make(map[string]bool, len(pkgs))
+	l.stdlibByPath = make(map[string]bool, len(pkgs))
+	l.emittedPackageID = make(map[string]bool, len(pkgs))
+	for _, p := range pkgs {
+		l.stdlibByID[p.ID] = true
+		l.stdlibByPath[p.PkgPath] = true
+		l.emittedPackageID[p.ID] = true
+	}
+	if err := ValidateAndResolve(l, ""); err != nil {
+		return nil, fmt.Errorf("computing the whole-stdlib layout: %w", err)
+	}
+	return l, nil
 }
 
 // RunDriver executes the complete GOPACKAGESDRIVER protocol logic. It reads

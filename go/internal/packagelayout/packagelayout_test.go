@@ -12,6 +12,7 @@ import (
 	"reflect"
 	"runtime"
 	"sort"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -2569,4 +2570,278 @@ func TestPlatformJSONRoundTripIsDeterministic(t *testing.T) {
 
 func slicesEqual(a, b []string) bool {
 	return reflect.DeepEqual(a, b)
+}
+
+// --- task-05 (layout-backed stdlib loader): platform fidelity tests ------------
+
+// fixtureStdlibSDKLayout builds a small fixture SDK tree and returns its
+// whole-stdlib layout as StdlibLayout computes it: a fmt package importing
+// strings, a strings package, unsafe, and a pinned package whose files are
+// constrained by a future release tag, an experiment tag and a non-target
+// GOARCH suffix respectively.
+func fixtureStdlibSDKLayout(t *testing.T) *Layout {
+	t.Helper()
+	root := t.TempDir()
+	sdkRoot := filepath.Join(root, "sdk", "src")
+	write := func(rel, content string) {
+		path := filepath.Join(sdkRoot, rel)
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("fmt/format.go", "package fmt\n\nfunc Println(s string) {}\n")
+	write("strings/strings.go", "package strings\n\nfunc Trim(s string) string { return s }\n")
+	write("unsafe/unsafe.go", "package unsafe\n")
+	write("pinned/future.go", "//go:build go1.27\n\npackage pinned\n")
+	write("pinned/experiment.go", "//go:build goexperiment.greenteagc\n\npackage pinned\n")
+	write("pinned/hostarch_amd64.go", "package pinned\n")
+	layout, err := StdlibLayout(sdkRoot, &Platform{GOOS: "linux", GOARCH: "arm64", ToolchainVersion: "go1.26.4", GOEXPERIMENT: "greenteagc"})
+	if err != nil {
+		t.Fatalf("StdlibLayout() error = %v", err)
+	}
+	return layout
+}
+
+func TestStdlibLayoutBuilder(t *testing.T) {
+	layout := fixtureStdlibSDKLayout(t)
+	if layout.Platform == nil || layout.Platform.GOARCH != "arm64" {
+		t.Fatalf("layout lost the platform block: %+v", layout.Platform)
+	}
+	paths := map[string]bool{}
+	for _, p := range layout.Packages {
+		paths[p.PkgPath] = true
+	}
+	for _, want := range []string{"fmt", "strings", "unsafe", "pinned"} {
+		if !paths[want] {
+			t.Fatalf("stdlib layout is missing discovered package %q (have %v)", want, paths)
+		}
+	}
+	if len(layout.Roots) == 0 || !slicesEqual(layout.Roots, sortedCopy(layout.Roots)) {
+		t.Fatalf("roots %v are empty or not sorted", layout.Roots)
+	}
+	if len(layout.Roots) != len(layout.Packages) {
+		t.Fatalf("roots %v do not cover every discovered package (%d packages)", layout.Roots, len(layout.Packages))
+	}
+	for _, p := range layout.Packages {
+		if !layout.IsStdlibPackage(p) {
+			t.Errorf("package %q is not marked stdlib", p.PkgPath)
+		}
+		if p.PkgPath == "fmt" {
+			want := filepath.Join(layout.GoSDKRoot, "fmt", "format.go")
+			if len(p.GoFiles) != 1 || p.GoFiles[0] != want {
+				t.Errorf("fmt files %v, want resolved under the SDK root at %q", p.GoFiles, want)
+			}
+		}
+	}
+	// The build-excluded pinned package contributes no roots/files issue: its
+	// files are all excluded for the target, so discovery omits its sources
+	// but keeps the graph valid. ValidateAndResolve already ran inside the
+	// builder; assert the import graph is complete by re-validating.
+	if err := ValidateAndResolve(layout, ""); err != nil {
+		t.Fatalf("the built layout does not re-validate: %v", err)
+	}
+	// The excluded-constraint file must not survive into the package's files.
+	pinned := packageByID(layout.Packages, "pinned")
+	if pinned != nil {
+		for _, f := range append(append([]string{}, pinned.GoFiles...), pinned.CompiledGoFiles...) {
+			if strings.HasSuffix(f, "future.go") || strings.HasSuffix(f, "hostarch_amd64.go") {
+				t.Errorf("excluded file %q survived in the layout", f)
+			}
+		}
+	}
+}
+
+func TestPlatformToolchainVersionDerivesReleaseTags(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		version  string
+		wantLast string
+		wantErr  string
+	}{
+		{name: "patch release", version: "go1.26.4", wantLast: "go1.26"},
+		{name: "plain major", version: "go1.26", wantLast: "go1.26"},
+		{name: "go1.1", version: "go1.1", wantLast: "go1.1"},
+		{name: "devel", version: "devel", wantErr: "platform.toolchain_version"},
+		{name: "empty", version: "", wantErr: ""}, // optional for hand-written layouts: absence keeps the defaults
+		{name: "not a go version", version: "1.26.4", wantErr: "platform.toolchain_version"},
+		{name: "go0.9", version: "go0.9", wantErr: "platform.toolchain_version"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			layout := &Layout{Platform: &Platform{GOOS: "linux", GOARCH: "amd64", ToolchainVersion: tc.version}}
+			ctx, err := BuildContextForLayout(layout)
+			if tc.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
+					t.Fatalf("BuildContextForLayout() error = %v, want containing %q", err, tc.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("BuildContextForLayout() error = %v", err)
+			}
+			if tc.version == "" {
+				// Absent toolchain_version keeps the host's release tags.
+				if !slicesEqual(ctx.ReleaseTags, build.Default.ReleaseTags) {
+					t.Fatalf("empty toolchain_version changed release tags: %v", ctx.ReleaseTags)
+				}
+				return
+			}
+			if got := ctx.ReleaseTags[len(ctx.ReleaseTags)-1]; got != tc.wantLast {
+				t.Fatalf("last release tag = %q, want %q (all: %v)", got, tc.wantLast, ctx.ReleaseTags)
+			}
+			if len(ctx.ReleaseTags) < 1 || ctx.ReleaseTags[0] != "go1.1" {
+				t.Fatalf("release tags do not start at go1.1: %v", ctx.ReleaseTags)
+			}
+			for i, tag := range ctx.ReleaseTags {
+				if want := "go1." + strconv.Itoa(i+1); tag != want {
+					t.Fatalf("release tag %d = %q, want %q", i, tag, want)
+				}
+			}
+		})
+	}
+}
+
+func TestPlatformGoexperimentDerivesToolTags(t *testing.T) {
+	layout := &Layout{Platform: &Platform{
+		GOOS:             "linux",
+		GOARCH:           "amd64",
+		GOEXPERIMENT:     "greenteagc,arenayaslicit",
+		ToolchainVersion: "go1.26.4",
+	}}
+	ctx, err := BuildContextForLayout(layout)
+	if err != nil {
+		t.Fatalf("BuildContextForLayout() error = %v", err)
+	}
+	for _, want := range []string{"goexperiment.greenteagc", "goexperiment.arenayaslicit"} {
+		if !slicesEqual(ctx.ToolTags, appendUnique(ctx.ToolTags, want)) && !containsTag(ctx.ToolTags, want) {
+			t.Fatalf("tool tags %v do not contain %q", ctx.ToolTags, want)
+		}
+	}
+	// Deterministic serialisation: sorted experiment tags.
+	if !sort.StringsAreSorted(experimentToolTagsOnly(ctx.ToolTags)) {
+		t.Fatalf("experiment tool tags are not sorted: %v", experimentToolTagsOnly(ctx.ToolTags))
+	}
+	// The target arch's default feature tag is present; a non-default host
+	// level must not leak through.
+	if !containsTag(ctx.ToolTags, "amd64.v1") {
+		t.Fatalf("tool tags %v do not contain the amd64 default feature tag amd64.v1", ctx.ToolTags)
+	}
+	if containsTag(ctx.ToolTags, "amd64.v2") || containsTag(ctx.ToolTags, "amd64.v3") || containsTag(ctx.ToolTags, "amd64.v4") {
+		t.Fatalf("tool tags %v leak a non-default host arch level", ctx.ToolTags)
+	}
+	for _, tag := range ctx.ToolTags {
+		if tag == "goexperiment.fakexperiment" {
+			t.Fatalf("host experiment tag leaked: %v", ctx.ToolTags)
+		}
+	}
+
+	t.Run("no goexperiment keeps only arch defaults", func(t *testing.T) {
+		ctx, err := BuildContextForLayout(&Layout{Platform: &Platform{GOOS: "linux", GOARCH: "amd64"}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := experimentToolTagsOnly(ctx.ToolTags); len(got) != 0 {
+			t.Fatalf("platform without goexperiment derived experiment tags %v", got)
+		}
+	})
+	t.Run("empty goexperiment never regresses to host tags", func(t *testing.T) {
+		// A platform block with an empty GOEXPERIMENT must still not copy the
+		// host's ToolTags (fidelity requirement): the derived tags are the
+		// target arch defaults only.
+		ctx, err := BuildContextForLayout(&Layout{Platform: &Platform{GOOS: "linux", GOARCH: "amd64"}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		host, err := BuildContextForLayout(&Layout{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if slicesEqual(ctx.ToolTags, host.ToolTags) && len(host.ToolTags) > 0 {
+			t.Fatalf("platform-backed context copied host ToolTags %v", host.ToolTags)
+		}
+	})
+}
+
+func TestDriverArchReportsPlatformGOARCH(t *testing.T) {
+	req := &packages.DriverRequest{Mode: packages.NeedName}
+	layout := fixtureStdlibSDKLayout(t)
+	layout.Platform = &Platform{GOOS: "linux", GOARCH: "arm64", ToolchainVersion: "go1.26.4"}
+	resp, err := HandleDriverRequest(layout, req, []string{"fmt"})
+	if err != nil {
+		t.Fatalf("HandleDriverRequest() error = %v", err)
+	}
+	if resp.Arch != "arm64" {
+		t.Fatalf("driver Arch = %q, want the platform's arm64", resp.Arch)
+	}
+
+	// Without a platform block the response reports the running binary's arch.
+	hostFixture := fixtureStdlibSDKLayout(t)
+	hostFixture.Platform = nil
+	resp, err = HandleDriverRequest(hostFixture, req, []string{"fmt"})
+	if err != nil {
+		t.Fatalf("HandleDriverRequest() error = %v", err)
+	}
+	if resp.Arch != runtime.GOARCH {
+		t.Fatalf("driver Arch = %q, want the host arch %q", resp.Arch, runtime.GOARCH)
+	}
+}
+
+func TestPlatformFidelityThroughFixtureFiles(t *testing.T) {
+	sdk := fixtureStdlibSDKLayout(t)
+	sdk.Platform = &Platform{
+		GOOS:             "linux",
+		GOARCH:           "arm64",
+		GOEXPERIMENT:     "greenteagc",
+		ToolchainVersion: "go1.26.4",
+	}
+	ctx, err := BuildContextForLayout(sdk)
+	if err != nil {
+		t.Fatal(err)
+	}
+	match := func(rel string) bool {
+		return FileMatchesBuildConstraintsWithContext(filepath.Join(sdk.GoSDKRoot, "pinned", rel), ctx)
+	}
+	if match("future.go") {
+		t.Error("a file constrained to go1.27 must be excluded by a go1.26 toolchain")
+	}
+	if !match("experiment.go") {
+		t.Error("a file constrained to the enabled experiment must be included")
+	}
+	if match("hostarch_amd64.go") {
+		t.Error("a file constrained to a non-target arch (amd64 suffix) must be excluded on arm64")
+	}
+}
+
+func containsTag(tags []string, want string) bool {
+	for _, tag := range tags {
+		if tag == want {
+			return true
+		}
+	}
+	return false
+}
+
+func appendUnique(tags []string, want string) []string {
+	if containsTag(tags, want) {
+		return tags
+	}
+	return append(append([]string{}, tags...), want)
+}
+
+func experimentToolTagsOnly(tags []string) []string {
+	var out []string
+	for _, tag := range tags {
+		if strings.HasPrefix(tag, "goexperiment.") {
+			out = append(out, tag)
+		}
+	}
+	return out
+}
+
+func sortedCopy(s []string) []string {
+	out := append([]string{}, s...)
+	sort.Strings(out)
+	return out
 }
