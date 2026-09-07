@@ -2737,29 +2737,39 @@ func TestPlatformGoexperimentDerivesToolTags(t *testing.T) {
 		}
 	}
 
-	t.Run("no goexperiment keeps only arch defaults", func(t *testing.T) {
+	t.Run("no goexperiment keeps the toolchain baseline", func(t *testing.T) {
 		ctx, err := BuildContextForLayout(&Layout{Platform: &Platform{GOOS: "linux", GOARCH: "amd64"}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		// The toolchain's default-enabled experiments (internal/buildcfg's
+		// baseline) apply even without a GOEXPERIMENT override — the same
+		// files `go list` compiles.
+		for _, want := range []string{"goexperiment.greenteagc", "goexperiment.regabiwrappers", "goexperiment.dwarf5"} {
+			if !containsTag(ctx.ToolTags, want) {
+				t.Fatalf("tool tags %v do not contain the baseline experiment tag %q", ctx.ToolTags, want)
+			}
+		}
+	})
+	t.Run("goexperiment=none disables every experiment", func(t *testing.T) {
+		ctx, err := BuildContextForLayout(&Layout{Platform: &Platform{GOOS: "linux", GOARCH: "amd64", GOEXPERIMENT: "none"}})
 		if err != nil {
 			t.Fatal(err)
 		}
 		if got := experimentToolTagsOnly(ctx.ToolTags); len(got) != 0 {
-			t.Fatalf("platform without goexperiment derived experiment tags %v", got)
+			t.Fatalf("goexperiment=none derived experiment tags %v", got)
 		}
 	})
-	t.Run("empty goexperiment never regresses to host tags", func(t *testing.T) {
-		// A platform block with an empty GOEXPERIMENT must still not copy the
-		// host's ToolTags (fidelity requirement): the derived tags are the
-		// target arch defaults only.
-		ctx, err := BuildContextForLayout(&Layout{Platform: &Platform{GOOS: "linux", GOARCH: "amd64"}})
+	t.Run("no-prefixed override disables a baseline experiment", func(t *testing.T) {
+		ctx, err := BuildContextForLayout(&Layout{Platform: &Platform{GOOS: "linux", GOARCH: "amd64", GOEXPERIMENT: "nogreenteagc"}})
 		if err != nil {
 			t.Fatal(err)
 		}
-		host, err := BuildContextForLayout(&Layout{})
-		if err != nil {
-			t.Fatal(err)
+		if containsTag(ctx.ToolTags, "goexperiment.greenteagc") {
+			t.Fatalf("nogreenteagc did not disable the baseline: %v", ctx.ToolTags)
 		}
-		if slicesEqual(ctx.ToolTags, host.ToolTags) && len(host.ToolTags) > 0 {
-			t.Fatalf("platform-backed context copied host ToolTags %v", host.ToolTags)
+		if !containsTag(ctx.ToolTags, "goexperiment.regabiwrappers") {
+			t.Fatalf("nogreenteagc disabled unrelated baseline experiments: %v", ctx.ToolTags)
 		}
 	})
 }

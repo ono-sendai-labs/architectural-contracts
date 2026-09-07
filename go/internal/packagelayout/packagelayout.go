@@ -211,18 +211,66 @@ func BuildContextForLayout(l *Layout) (build.Context, error) {
 		bctx.ReleaseTags = tags
 	}
 	bctx.ToolTags = defaultArchToolTags(platform.GOARCH)
-	for _, exp := range strings.Split(platform.GOEXPERIMENT, ",") {
-		exp = strings.TrimSpace(exp)
-		if exp == "" {
-			continue
-		}
-		if !isGoIdentifier(exp) {
-			return build.Context{}, fmt.Errorf("platform.goexperiment has invalid experiment name %q", exp)
-		}
-		bctx.ToolTags = append(bctx.ToolTags, "goexperiment."+exp)
-	}
+	bctx.ToolTags = append(bctx.ToolTags, effectiveExperimentTags(platform.GOOS, platform.GOARCH, platform.GOEXPERIMENT)...)
 	sort.Strings(bctx.ToolTags)
 	return bctx, nil
+}
+
+// baselineExperimentTags mirrors internal/buildcfg's baseline experiment
+// configuration for this module's Go toolchain version (the experiments
+// enabled by default for a target configuration, before any GOEXPERIMENT
+// override): regabi wrappers/args on the register-ABI ports, DWARF5 where the
+// platform's debug tooling supports it, and the always-on experiments. Keep
+// this synchronized with the toolchain this module pins (see
+// supportedGoTargets).
+func baselineExperimentTags(goos, goarch string) []string {
+	var tags []string
+	switch goarch {
+	case "amd64", "arm64", "loong64", "ppc64", "ppc64le", "riscv64":
+		tags = append(tags, "goexperiment.regabiwrappers", "goexperiment.regabiargs")
+	}
+	switch goos {
+	case "darwin", "ios", "aix":
+	default:
+		tags = append(tags, "goexperiment.dwarf5")
+	}
+	tags = append(tags, "goexperiment.randomizedheapbase64", "goexperiment.greenteagc")
+	return tags
+}
+
+// effectiveExperimentTags derives the `goexperiment.<name>` tool tags of a
+// target configuration: the baseline experiments for the target plus the
+// GOEXPERIMENT value's overrides, using the toolchain's own semantics — a
+// comma-separated list where `none` disables every experiment and a `no`
+// prefix disables a single one. The result is sorted.
+func effectiveExperimentTags(goos, goarch, goexperiment string) []string {
+	enabled := map[string]bool{}
+	for _, tag := range baselineExperimentTags(goos, goarch) {
+		enabled[strings.TrimPrefix(tag, "goexperiment.")] = true
+	}
+	for _, f := range strings.Split(goexperiment, ",") {
+		f = strings.TrimSpace(f)
+		if f == "" {
+			continue
+		}
+		if f == "none" {
+			enabled = map[string]bool{}
+			continue
+		}
+		name, on := f, true
+		if off, ok := strings.CutPrefix(f, "no"); ok {
+			name, on = off, false
+		}
+		enabled[name] = on
+	}
+	var tags []string
+	for name, on := range enabled {
+		if on {
+			tags = append(tags, "goexperiment."+name)
+		}
+	}
+	sort.Strings(tags)
+	return tags
 }
 
 // releaseTagsForVersion derives the release tags a `go1.N(.M)` toolchain
@@ -290,16 +338,28 @@ func defaultArchToolTags(goarch string) []string {
 }
 
 func discoverStdlibWithContext(sdkRoot string, bctx build.Context) ([]*packages.Package, error) {
+	pkgs, _, err := discoverStdlibTree(sdkRoot, bctx)
+	return pkgs, err
+}
+
+// discoverStdlibTree walks the standard library source tree rooted at sdkRoot
+// and classifies every directory under the go/build rules for bctx: pkgs are
+// the discovered packages (sorted, with the resolved import graph), noGoDirs
+// the directories that exist but whose every Go file the target's build
+// constraints exclude or that carry no Go sources at all (`go list std` still
+// lists such packages, with no files).
+func discoverStdlibTree(sdkRoot string, bctx build.Context) ([]*packages.Package, []string, error) {
 
 	fi, err := os.Stat(sdkRoot)
 	if err != nil {
-		return nil, fmt.Errorf("accessing SDK root %q: %w", sdkRoot, err)
+		return nil, nil, fmt.Errorf("accessing SDK root %q: %w", sdkRoot, err)
 	}
 	if !fi.IsDir() {
-		return nil, fmt.Errorf("SDK root %q is not a directory", sdkRoot)
+		return nil, nil, fmt.Errorf("SDK root %q is not a directory", sdkRoot)
 	}
 
 	var packageDirs []string
+	var noGoDirs []string
 	err = filepath.Walk(sdkRoot, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return fmt.Errorf("walking SDK root at %s: %w", path, err)
@@ -315,11 +375,25 @@ func discoverStdlibWithContext(sdkRoot string, bctx build.Context) ([]*packages.
 				return nil
 			}
 
-			// go list std excludes the top-level cmd tree and every testdata
-			// directory, but includes the GOROOT-level vendor tree.
-			if importPath == "cmd" || importPath == "testdata" ||
+			// go list std excludes the top-level cmd tree, every testdata
+			// directory, tool-scratch directories (segments beginning with
+			// `_` or `.`), nested modules (a directory carrying go.mod roots
+			// a separate module the std pattern does not enumerate), and the
+			// non-importable builtin package — but includes the GOROOT-level
+			// vendor tree.
+			if importPath == "cmd" || importPath == "testdata" || importPath == "builtin" ||
 				strings.HasPrefix(importPath, "cmd/") || strings.HasSuffix(importPath, "/testdata") ||
-				strings.Contains(importPath, "/testdata/") {
+				strings.Contains(importPath, "/testdata/") ||
+				hasToolScratchSegment(importPath) {
+				return filepath.SkipDir
+			}
+			if fi, err := os.Stat(filepath.Join(path, "go.mod")); err == nil && !fi.IsDir() {
+				return filepath.SkipDir
+			}
+			// With cgo disabled, the go tool's std-package walk ignores the
+			// runtime/cgo directory entirely (its non-cgo Go files would
+			// otherwise make the package look buildable).
+			if importPath == "runtime/cgo" && !bctx.CgoEnabled {
 				return filepath.SkipDir
 			}
 			packageDirs = append(packageDirs, path)
@@ -328,10 +402,11 @@ func discoverStdlibWithContext(sdkRoot string, bctx build.Context) ([]*packages.
 	})
 
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	sort.Strings(packageDirs)
+	sort.Strings(noGoDirs)
 
 	type discoveredPackage struct {
 		pkg     *packages.Package
@@ -344,9 +419,10 @@ func discoverStdlibWithContext(sdkRoot string, bctx build.Context) ([]*packages.
 		if err != nil {
 			var noGoErr *build.NoGoError
 			if errors.As(err, &noGoErr) {
+				noGoDirs = append(noGoDirs, path)
 				continue
 			}
-			return nil, fmt.Errorf("inspecting standard-library package at %q: %w", path, err)
+			return nil, nil, fmt.Errorf("inspecting standard-library package at %q: %w", path, err)
 		}
 
 		if bpkg.Name == "main" {
@@ -355,7 +431,7 @@ func discoverStdlibWithContext(sdkRoot string, bctx build.Context) ([]*packages.
 
 		rel, err := filepath.Rel(sdkRoot, path)
 		if err != nil {
-			return nil, fmt.Errorf("failed to compute relative path of %s from SDK root: %w", path, err)
+			return nil, nil, fmt.Errorf("failed to compute relative path of %s from SDK root: %w", path, err)
 		}
 		importPath := filepath.ToSlash(rel)
 		goFiles := append([]string{}, bpkg.GoFiles...)
@@ -397,7 +473,7 @@ func discoverStdlibWithContext(sdkRoot string, bctx build.Context) ([]*packages.
 	}
 
 	if len(discovered) <= 1 {
-		return nil, fmt.Errorf("invalid SDK root %q: structurally invalid (no standard-library packages discovered)", sdkRoot)
+		return nil, nil, fmt.Errorf("invalid SDK root %q: structurally invalid (no standard-library packages discovered)", sdkRoot)
 	}
 
 	known := make(map[string]bool, len(discovered))
@@ -427,7 +503,7 @@ func discoverStdlibWithContext(sdkRoot string, bctx build.Context) ([]*packages.
 		}
 	}
 
-	pkgs := make([]*packages.Package, 0, len(discovered))
+	pkgs := make([]*packages.Package, 0, len(discovered)+len(noGoDirs))
 	for _, item := range discovered {
 		pkgs = append(pkgs, item.pkg)
 	}
@@ -435,7 +511,63 @@ func discoverStdlibWithContext(sdkRoot string, bctx build.Context) ([]*packages.
 		return pkgs[i].ID < pkgs[j].ID
 	})
 
-	return pkgs, nil
+	return pkgs, noGoDirs, nil
+}
+
+// hasToolScratchSegment reports whether any import-path segment begins with
+// `_` or `.` — directories the go tool ignores for package resolution.
+func hasToolScratchSegment(importPath string) bool {
+	for _, seg := range strings.Split(importPath, "/") {
+		if strings.HasPrefix(seg, "_") || strings.HasPrefix(seg, ".") {
+			return true
+		}
+	}
+	return false
+}
+
+// noGoPackageName reports the package name a source-less standard-library
+// directory declares: the package clause of its first parseable .go file,
+// reading the files the way `go list` does when it names a package whose
+// every file the target's constraints exclude. ok=false when no file
+// declares a package clause.
+func noGoPackageName(dir string) (string, bool) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return "", false
+	}
+	for _, entry := range entries {
+		name := entry.Name()
+		if entry.IsDir() || !strings.HasSuffix(name, ".go") {
+			continue
+		}
+		f, err := parser.ParseFile(token.NewFileSet(), filepath.Join(dir, name), nil, parser.PackageClauseOnly)
+		if err != nil || f == nil || f.Name == nil {
+			continue
+		}
+		return f.Name.Name, true
+	}
+	return "", false
+}
+
+// hasNonTestGoSource reports whether dir contains any non-test .go file.
+// `go list std` omits a package whose every non-test file the target's
+// constraints exclude, but it still names a test-only package (one whose
+// every .go file is a _test.go file), so only the latter becomes a node.
+func hasNonTestGoSource(dir string) bool {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return false
+	}
+	for _, entry := range entries {
+		name := entry.Name()
+		if entry.IsDir() || !strings.HasSuffix(name, ".go") {
+			continue
+		}
+		if !strings.HasSuffix(name, "_test.go") {
+			return true
+		}
+	}
+	return false
 }
 
 // Parse parses a Layout from JSON data and requires EOF after the decoded layout to prevent trailing garbage.
@@ -1121,9 +1253,35 @@ func StdlibLayout(sdkRoot string, platform *Platform) (*Layout, error) {
 		return nil, fmt.Errorf("computing the whole-stdlib layout: %w", err)
 	}
 	bctx.GOROOT = filepath.Dir(sdkRoot)
-	pkgs, err := discoverStdlibWithContext(sdkRoot, bctx)
+	pkgs, noGoDirs, err := discoverStdlibTree(sdkRoot, bctx)
 	if err != nil {
 		return nil, fmt.Errorf("computing the whole-stdlib layout: %w", err)
+	}
+	// Retain the standard library's source-less directories as package nodes:
+	// `go list std` still lists a package whose every Go file the target's
+	// constraints exclude (crypto/internal/fips140test, runtime/cgo with cgo
+	// off, arena without its experiment), so the driver must be able to serve
+	// its pattern — with no files, exactly as go list reports it.
+	for _, dir := range noGoDirs {
+		if hasNonTestGoSource(dir) {
+			// A non-test directory whose every file the target's constraints
+			// exclude is not listed by `go list std`; no node.
+			continue
+		}
+		name, ok := noGoPackageName(dir)
+		if !ok {
+			continue
+		}
+		rel, err := filepath.Rel(sdkRoot, dir)
+		if err != nil {
+			return nil, fmt.Errorf("computing the whole-stdlib layout: %w", err)
+		}
+		pkgs = append(pkgs, &packages.Package{
+			ID:      filepath.ToSlash(rel),
+			Name:    name,
+			PkgPath: filepath.ToSlash(rel),
+			Imports: make(map[string]*packages.Package),
+		})
 	}
 	l := &Layout{
 		GoSDKRoot: sdkRoot,
@@ -1131,8 +1289,12 @@ func StdlibLayout(sdkRoot string, platform *Platform) (*Layout, error) {
 		Roots:     make([]string, 0, len(pkgs)),
 		Packages:  pkgs,
 	}
+	// Roots are the importable packages: a source-less node is enumerated but
+	// cannot be loaded or inventoried, so it is not a root.
 	for _, p := range pkgs {
-		l.Roots = append(l.Roots, p.ID)
+		if len(p.GoFiles) > 0 || len(p.CompiledGoFiles) > 0 {
+			l.Roots = append(l.Roots, p.ID)
+		}
 	}
 	sort.Strings(l.Roots)
 	l.stdlibByID = make(map[string]bool, len(pkgs))
