@@ -21,7 +21,7 @@ roles:
   reviewer:
     agent: codex
     model: gpt-5.6-luna
-    effort: max
+    effort: xhigh
 
   # §5.2 — implementation-review at step scope, in a fresh session.
   # Wide-scope and judgement-heavy; this is where capability is worth paying for.
