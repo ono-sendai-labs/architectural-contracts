@@ -10,7 +10,9 @@ go_library(
     name = "stdlibmap",
     srcs = [
         "cache.go",
+        "explicit.go",
         "generate.go",
+        "layoutloader.go",
         "inventory.go",
         "nativeloader.go",
         "sdkkey.go",
@@ -22,6 +24,7 @@ go_library(
         "//go/internal/artifactio",
         "//go/internal/capslockadapter",
         "//go/internal/hostpolicy",
+        "//go/internal/packagelayout",
         "//go/internal/schema",
         "//go/internal/schema/gen",
         "//go/internal/stdlibauthority",
@@ -35,8 +38,10 @@ go_test(
     size = "small",
     srcs = [
         "cache_test.go",
+        "explicit_test.go",
         "generate_test.go",
         "inventory_test.go",
+        "layoutloader_test.go",
         "sdkkey_test.go",
         "stdlibmap_test.go",
     ],
@@ -44,8 +49,10 @@ go_test(
     deps = [
         "//go/internal/artifactio",
         "//go/internal/capslockadapter",
+        "//go/internal/packagelayout",
         "//go/internal/schema/gen",
         "//go/internal/stdlibauthority",
         "@org_golang_google_protobuf//proto",
+        "@org_golang_x_tools//go/packages",
     ],
 )
