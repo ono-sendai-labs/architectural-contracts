@@ -1,6 +1,7 @@
 # Detailed design — compositional component analysis
 
-**Date:** 2026-08-04 · **Revised:** 2026-09-02 (post design review)
+**Date:** 2026-08-04 · **Revised:** 2026-09-02 (post design review); 2026-09-07
+(hermetic map generation through the layout driver; cgo scoping — see I5)
 **Status:** design complete; implementation not started.
 **Baseline:** `dev-exp-go-bazel-mvp` @ `5011b726` (code unchanged through `cca66212`)
 **Inputs:** [`../rough-idea.md`](../rough-idea.md), [`../idea-honing.md`](../idea-honing.md),
@@ -154,12 +155,29 @@ response; Q-numbers cite the decision record, DR-numbers the review.
   The check-time adapter's `ClassifierExcludingUnanalyzed` wrapper turns unanalysable
   stdlib bodies into silent purity (spike finding 5) and MUST NOT be reused for
   generation.
+- **I5 (hermeticity).** An arcc Bazel action — the component analysis action and
+  `arcc_stdlib_map` alike — reads only its declared inputs and **executes no toolchain
+  binary**. `go/packages` is served in-process by the `packagelayout` driver
+  (`GOPACKAGESDRIVER` self-exec) from a layout computed from declared files; the pinned
+  SDK's `go` binary, its tool binaries, build caches and the network are never action
+  inputs. Native mode is the only place arcc runs `go`. (DR-07; step 4 task 05
+  escalation, 2026-09-07.)
 
 ### Explicitly out of scope
 
 Transitive/whole-tree authority predicates and the `UNKNOWN` approval predicate (Q10,
 Q7); a bootstrap CLI for wrapper components (Q7); dep-vs-dep declaration *divergence*
 checking across a tree (Q11 — direct overlap is in scope, R14).
+
+Hermetic generation of stdlib maps for **cgo-enabled target configurations**. Such a map
+needs the SDK's cgo packages preprocessed by a C toolchain, and this design defines no
+C-toolchain seam. In Bazel, `arcc_stdlib_map` rejects a cgo-enabled target configuration
+at analysis time (see *Error Handling*); a cgo-off map is never served to a cgo-on
+configuration, because the SDK key differs (N3). Member-code cgo stays an
+`AnalysisDefeating` finding in both modes (DR-11), and the Bazel rules keep rejecting cgo
+packages in a component's closure. Native generation is unaffected: the host toolchain
+preprocesses cgo itself when a C compiler exists and fails closed when none does. A
+future design may add the seam.
 
 ---
 
@@ -453,7 +471,9 @@ axes on `DependencyBoundary`.
 `go_component` gains the analysis action and asserted-surface write; `ArccComponentInfo`
 gains `surface`, `report`, `provenance` (`"checked"`/`"asserted"`); `check.bzl`'s three
 test rules assert over the report artifact; a new `arcc_stdlib_map` rule builds the map
-from the pinned SDK sources and toolchain; the aspect collects `export_file` per package.
+from the pinned SDK sources and the toolchain's package list, executing no toolchain
+binary (I5), and fails analysis for a cgo-enabled target configuration; the aspect
+collects `export_file` per package.
 The CLI gains `--report-out`, `--surface-out`, and `--report-verdict-only` (exit 0 when
 analysis ran, for the Bazel action). `arcc stdlibmap generate|inspect` is added.
 
@@ -464,7 +484,8 @@ change: `manifest` loses three fields and consumes the schema-owned capability
 vocabulary; `report` gains kinds and status axes;
 `hostpolicy` gains `NamespaceID` and `IsCanonicalPath` and loses `IsStdlibPath`'s
 classification role; `packagelayout` gains `export_file`, `goexperiment`, dependency
-surface/report paths and closure validation.
+surface/report paths, closure validation, a whole-stdlib layout builder for map
+generation, toolchain-derived release/tool tags and a target-arch driver response (I5).
 
 ---
 
@@ -590,8 +611,25 @@ Inventory and classification rules (validated by the spike):
 - **Curated `CAPABILITY_SAFE`** from Capslock (`os.Exit`, `runtime.*`) records
   `provenance: capslock-curated` per entry so the trust boundary is visible.
 - **Oracle:** natively `go list std` for the target toolchain; in Bazel the toolchain's
-  stdlib package list. `internal/…` packages are enumerated with `importable: false`
-  and no symbol inventory.
+  stdlib package list (a declared file). `internal/…` packages are enumerated with
+  `importable: false` and no symbol inventory. A package the oracle lists whose files
+  are all excluded by the target's build constraints (`runtime/cgo` with cgo off, `arena`
+  without its experiment) is enumerated `importable: false`; any other discrepancy
+  between the oracle and the loader's enumeration fails generation (I3).
+- **Loading (I5):** generation loads SDK packages through `go/packages` in both modes,
+  but the driver differs. Natively, `go/packages` runs the host toolchain's `go list`.
+  In Bazel, the generator computes a **layout of the whole standard library** from the
+  declared SDK sources — `packagelayout`'s `go/build`-based stdlib discovery, which
+  already mirrors `go list std`'s exclusions and the GOROOT `vendor/` resolution — and
+  serves it to `go/packages`, and thereby to the `go/types` inventory and to Capslock,
+  through the `GOPACKAGESDRIVER` self-exec driver, exactly as the Bazel check loads its
+  closure today. No `go` binary, tool binary, build cache or network is an input of the
+  action. For the layout to be faithful to the *target* configuration, `packagelayout`
+  derives **release tags from the pinned toolchain version** and **tool tags from
+  GOEXPERIMENT** instead of copying `build.Default`, the layout `platform` block carries
+  `goexperiment`, and the driver response reports the **target** GOARCH (which
+  `go/packages` turns into `types.Sizes`) rather than the host's. These corrections apply
+  to the check's driver too; it is the same code.
 
 `classifier_hash` covers the generation classifier text (Capslock builtins plus the
 minting-site reclassification and the var/handle rule), so generation-time and
@@ -644,6 +682,7 @@ produced under another rewrite is a silent mismatch. Therefore:
 | Two direct dependencies claim one package | Tool error `DEPENDENCY_OVERLAP`, exit 2 | Order-dependent verdicts otherwise (R14) |
 | Reference to an unowned package with type data present | `UNDECLARED_DEPENDENCY` violation | Same as any undeclared edge |
 | `//go:linkname`, assembly, cgo in member code | `AnalysisDefeating` capability finding → violation by default; `ANALYSIS_LIMITATION` only after explicit policy downgrade | Bypasses the map; must be consciously accepted (DR-11) |
+| cgo-enabled target configuration for `arcc_stdlib_map` (Bazel) | Analysis-time failure naming the target and the pure-mode flag | Hermetic cgo generation needs a C-toolchain seam this design does not define; serving a cgo-off map instead would launder cgo-reaching stdlib symbols as analysed (*Out of scope*) |
 | Member declares authority it never uses | `UNUSED_AUTHORITY` warning (R12) | Keeps declarations tight for future bounds |
 | Dependency is `authority: UNKNOWN` | `untrusted` boundary annotation | Visible, not silent |
 | Manifest carries `absorbed_dependencies`, pattern members, `own_check_runs`, or `UNKNOWN` with non-empty `declared_authority` | Parse error, exit 2 | Removed or contradictory fields must not be silently ignored |
@@ -699,11 +738,11 @@ site and the site count; JSON carries all sites, the map's evidence frames for
 | Typed scan | Fixture 5 table | 6 |
 | Imports | Fixture 6 table | 6 |
 | Stdlib map | Every `go list std` package and every inventoried symbol has a terminal classification; generation fails on a gap | 4 |
-| Map key | Two target configurations under one host, including a cross-compile, select distinct maps; cgo/tag changes change the key | 4 |
+| Map key | Two target configurations under one host, including a cross-compile, select distinct maps; cgo/tag changes change the key; a cgo-enabled target configuration fails `arcc_stdlib_map` analysis with an error naming the target | 4 |
 | Freshness | Bazel is `BUILD_GRAPH`; native is `VERIFIED`/`STALE` when readable and `UNKNOWN` when not, without parsing | 7 |
 | Analysis defeating | linkname/asm/cgo fixture is a violation by default and a warning only with policy | 6 |
 | Performance | Fixed member source with dependency depth 1, 4, 16: no dependency parse/type-check/SSA; export-data input count and load time recorded | 13 |
-| Hermeticity | Bazel checks pass in a clean sandbox with no native cache and no `go` binary | 4, 13 |
+| Hermeticity | Bazel checks and map generation pass in a clean sandbox with no native cache and no `go` binary; the map action's inputs contain no toolchain binary or build cache (I5) | 4, 13 |
 | Determinism | Maps, surfaces, reports byte-identical for identical inputs; corrupt and concurrent cache writes recover | 3, 4 |
 
 ### Golden restructure
@@ -888,3 +927,12 @@ I1 split into enforced and governance halves (DR-13).
 
 **Sparse symbol table with an inventory digest.** Rejected: the inventory is small enough
 to persist in full, and full persistence is the simpler guarantee (DR-05).
+
+**Running the pinned toolchain's `go list` inside the Bazel map action.** Considered when
+step 4 task 05 escalated (2026-09-07): the sandboxed action would exec the declared SDK's
+`go` binary as `go/packages`' driver, which is hermetic in Bazel's sense (declared inputs
+only). Rejected in favour of the layout driver: the check already loads its whole closure,
+stdlib included, without a `go` binary; reusing that driver keeps one loading mechanism
+under Bazel, removes toolchain binaries, build caches and network denial from the action's
+concerns entirely, and keeps the plan's "no `go` binary in Bazel actions" premise literally
+true (I5). A pinned-toolchain exec remains the *native* mechanism.

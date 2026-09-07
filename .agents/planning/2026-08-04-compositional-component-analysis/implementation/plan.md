@@ -1,6 +1,7 @@
 # Implementation plan — compositional component analysis
 
-**Date:** 2026-08-04 · **Revised:** 2026-09-02 (post design review)
+**Date:** 2026-08-04 · **Revised:** 2026-09-02 (post design review); 2026-09-07 (Step 4:
+layout-driver map generation and cgo scoping, design I5)
 **Design:** [`../design/detailed-design.md`](../design/detailed-design.md)
 **Decision record:** [`../idea-honing.md`](../idea-honing.md),
 [`../2026-09-02-design-review-response.md`](../2026-09-02-design-review-response.md)
@@ -177,10 +178,20 @@ modes before anything depends on it (R5, R6, N3, Q13, DR-05, DR-07, DR-09).
 - `SDKKey` from the layout `platform` block plus toolchain version and GOEXPERIMENT;
   `classifier_hash` over the generation classifier text and rule version.
 - Oracle: `go list std` natively; toolchain package list in Bazel. Enumerate `internal/…`
-  with `importable: false`.
+  with `importable: false`; a listed package whose files are all excluded by the target's
+  build constraints is `importable: false`, any other oracle/loader discrepancy fails.
+- Loading (design I5): natively through `go/packages`' `go list` driver; in Bazel through
+  `packagelayout`'s `GOPACKAGESDRIVER` self-exec driver over a whole-stdlib layout the
+  generator computes from the declared SDK sources — the mechanism the Bazel check
+  already uses for its closure. No Bazel action executes a toolchain binary. Extend
+  `packagelayout` first: `goexperiment` on `platform`; release tags from the toolchain
+  version and tool tags from GOEXPERIMENT in `BuildContextForLayout` instead of
+  `build.Default`; the target GOARCH in the driver response.
 - Bazel: `arcc_stdlib_map` rule taking SDK sources (via the existing `go_sdk_srcs`
-  seam) and the toolchain, producing the map for the target configuration; wire it as
-  the default `_stdlib_map` attr of the analysis action (Step 5). Native: on-demand
+  seam), the toolchain's package list and the target configuration — no toolchain
+  binary — producing the map for the target configuration; it fails at analysis time,
+  naming the target, for a cgo-enabled target configuration (design §Out of scope); wire
+  it as the default `_stdlib_map` attr of the analysis action (Step 5). Native: on-demand
   generate-and-cache under the user cache dir keyed by `SDKKey`, with atomic writes and
   corrupt-cache regeneration.
 - `arcc stdlibmap generate|inspect` subcommands.
@@ -195,10 +206,13 @@ modes before anything depends on it (R5, R6, N3, Q13, DR-05, DR-07, DR-09).
   every importable package has an entry; deleting one entry from a map makes lookup
   return the inventory-gap error.
 - Determinism: two generations are byte-identical.
-- Keying: two target configurations under one host (linux/amd64 cgo on vs off, and a
-  cross-compile to another GOOS) produce distinct keys and maps; lookup with a
-  mismatched `classifier_hash` or format version fails closed.
-- Bazel: the map builds in a sandbox with no network and no host `go` binary.
+- Keying: two target configurations under one host (cgo on vs off at the key level, and
+  in Bazel a cross-compile to another GOOS plus a build-tag variant) produce distinct keys
+  and maps; a cgo-enabled target configuration fails `arcc_stdlib_map` analysis with an
+  error naming the target; lookup with a mismatched `classifier_hash` or format version
+  fails closed.
+- Bazel: the map builds in a sandbox with no network and no `go` binary at all; an
+  analysis test asserts the action's inputs contain no toolchain binary or build cache.
 
 **Integration.** Nothing consumes the port yet.
 
@@ -341,7 +355,8 @@ data, no dependency source in the action (DR-02, DR-18).
 
 **Guidance.**
 - Layout schema: per-package `export_file` for every non-member package (deps and
-  stdlib); keep the full transitive import graph; add `goexperiment` to `platform`.
+  stdlib); keep the full transitive import graph (`goexperiment` on `platform` landed in
+  Step 4).
   Validate closure completeness and export-file presence before `packages.Load`,
   returning a tool error rather than letting `go/packages` panic.
 - Driver: return `GoFiles`/`CompiledGoFiles` only for members; `ExportFile` for all
