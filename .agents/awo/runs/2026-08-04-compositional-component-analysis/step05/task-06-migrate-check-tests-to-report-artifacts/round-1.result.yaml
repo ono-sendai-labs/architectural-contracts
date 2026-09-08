@@ -1,0 +1,92 @@
+result:
+  task_file: .agents/tasks/2026-08-04-compositional-component-analysis/step05/task-06-migrate-check-tests-to-report-artifacts.code-task.md
+  change_id: otqyumzvrxrqntsmtoxuvllmtwqyyuvo
+  status: completed
+  schema_version: 2
+  produced_at: 2026-09-08T19:05:00Z
+
+acceptance_criteria:
+  - text: |
+      Normal and expected-violation tests assert recorded verdicts
+      - Given passing and failing checked reports
+      - When `.check` runs with `expect_violation` false and true
+      - Then it invokes `arcc verdict` with `pass` and `fail` respectively and never reruns `arcc check`.
+    addressed: yes
+    evidence: |
+      check.bzl:320-357 (arcc_verdict_argv, --expect=pass|fail); report_assertion_tests.bzl
+      check_asserts_recorded_verdict_test and grep_negative_expects_fail_test ('--expect=fail');
+      regression_hazard_passing_test, violation_component_check_fails_test,
+      funcvalue_component_check_fails_test all PASSED (bazel test //bazel_rules/go/tests/... 91/91).
+  - text: |
+      Grep and golden tests consume the same report
+      - Given a component report, fixed-string expectations, and a canonical report golden
+      - When the two assertion rules run
+      - Then both read the exact `ArccComponentInfo.report`; missing strings or byte differences produce actionable failures.
+    addressed: yes
+    evidence: |
+      check.bzl _launcher_content_with_grep (verdict + `grep -F --` per string, missing-string diagnostic
+      with report dump) and _launcher_content_with_golden (diff -u golden report); grep/golden targets and
+      grep_asserts_verdict_and_strings_test/_golden_diffs_provider_report_test PASSED.
+  - text: |
+      Assertion runfiles are minimal
+      - Given any of the three check rules
+      - When its runfiles/action inputs are inspected
+      - Then they contain only the report and the assertion-specific arcc/golden files, with no SDK sources, manifest/layout, or component source closure added by the test.
+    addressed: yes
+    evidence: |
+      Exact runfile sets asserted in report_assertion_tests.bzl (check/grep: report+arcc+launcher; golden:
+      report+golden+launcher); implementations stage only info.report (+arcc/golden).
+  - text: |
+      Producers run once through the build graph
+      - Given component B depends on component A
+      - When B's `.check` is tested
+      - Then Bazel builds A's and B's ordinary analysis actions and the test only asserts B's report; no duplicate analysis command exists.
+    addressed: yes
+    evidence: |
+      dependent_builds_producer_chain_once_test: exactly one ArccCheck on consumer_component whose inputs
+      include runtime_component.report.json/.surface.json; staging info.report builds the chain; PASSED.
+  - text: |
+      Asserted surfaces cannot satisfy check tests
+      - Given an asserted manual component with no report
+      - When a check assertion is attached or explicitly requested
+      - Then analysis fails with a clear checked-report requirement rather than passing or invoking a new analysis.
+    addressed: yes
+    evidence: |
+      _require_checked_component in all three impls; manual-tagged rejection targets for all three rules with
+      expect_failure analysis tests (_asserted_grep_rejected_test/_asserted_golden_rejected_test + the
+      pre-existing check one); all PASSED.
+  - text: |
+      Default builds do not schedule analysis
+      - Given `bazel build //...` without the `arcc` output group
+      - When the action graph is inspected
+      - Then no component analysis action is requested; `bazel test` of a `.check` or an explicit `--output_groups=+arcc` request does schedule it.
+    addressed: yes
+    evidence: |
+      checked_artifacts_stay_lazy_test (default outputs = manifest+layout; OutputGroupInfo['arcc'] =
+      report+surface) PASSED; `bazel build //...` runs no ArccCheck (just ci bazel leg green).
+  - text: |
+      Integration remains green
+      - Given existing pass, expected-violation, grep, and golden fixtures after their minimal report-artifact migration
+      - When `just ci` runs
+      - Then every suite passes and check verdict behavior is unchanged.
+    addressed: yes
+    evidence: |
+      `just ci` exit 0 after the rework commit; bazel leg 124 tests pass including all migrated fixtures.
+
+artifacts:
+  scratchpad_dir: .agents/scratchpad/2026-08-04-compositional-component-analysis/step05/task-06-migrate-check-tests-to-report-artifacts/
+  files:
+    - context.md
+    - plan.md
+    - progress.md
+    - review.yaml
+    - work.log
+    - result.yaml
+
+notes: |
+  Rework round 1 addressed the reviewer's three findings as a fresh child commit (otqyumzv, parent ttynupvl
+  untouched): the grep launcher's missing-string diagnostic now emits the expected string as printf data and the
+  grep uses `grep -F --` (with a manual hostile-string probe target whose execution failure prints the string
+  literally, plus the hostile_grep_strings_stay_data_test launcher analysis test), command.bzl's module doc no
+  longer claims the golden rule builds the verdict argv, and the consumer report golden's mode was restored to
+  0644. All bazel_rules suites (91) and `just ci` are green.

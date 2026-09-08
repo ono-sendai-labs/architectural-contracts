@@ -1,0 +1,103 @@
+result:
+  task_file: .agents/tasks/2026-08-04-compositional-component-analysis/step05/task-06-migrate-check-tests-to-report-artifacts.code-task.md
+  change_id: ttynupvlpyqumtpywmumynqpzwknuoks
+  status: completed
+  schema_version: 2
+  produced_at: 2026-09-08T12:05:00Z
+
+acceptance_criteria:
+  - text: |
+      Normal and expected-violation tests assert recorded verdicts
+      - Given passing and failing checked reports
+      - When `.check` runs with `expect_violation` false and true
+      - Then it invokes `arcc verdict` with `pass` and `fail` respectively and never reruns `arcc check`.
+    addressed: yes
+    evidence: |
+      bazel_rules/go/private/check.bzl:320-357 (_arcc_check_impl builds command.bzl's arcc_verdict_argv with
+      expect = fail|pass and stages only info.report). Behavioral: bazel test //bazel_rules/go/tests/... —
+      regression_hazard_passing_test (pass), violation_component_check_fails_test and
+      funcvalue_component_check_fails_test (expect_violation=True -> --expect=fail) all PASSED;
+      report_assertion_tests.bzl:59-77 asserts the launcher contains 'verdict'/'--expect=pass' and no
+      'check'/'--package-layout'/'--report-out'.
+  - text: |
+      Grep and golden tests consume the same report
+      - Given a component report, fixed-string expectations, and a canonical report golden
+      - When the two assertion rules run
+      - Then both read the exact `ArccComponentInfo.report`; missing strings or byte differences produce actionable failures.
+    addressed: yes
+    evidence: |
+      check.bzl _launcher_content_with_grep (verdict assert + per-string `grep -F` naming the string and cat-ing
+      the report) and _launcher_content_with_golden (diff -u golden report). report_assertion_tests.bzl
+      _grep_asserts_verdict_and_strings_impl / _golden_diffs_provider_report_impl; live targets
+      api_component_grep_report_test, undeclared_member_dep_fails_test, regression_hazard_failing_test,
+      api_component_*_report_golden_test, reportboundary_consumer_report_golden_test all PASSED.
+  - text: |
+      Assertion runfiles are minimal
+      - Given any of the three check rules
+      - When its runfiles/action inputs are inspected
+      - Then they contain only the report and the assertion-specific arcc/golden files, with no SDK sources, manifest/layout, or component source closure added by the test.
+    addressed: yes
+    evidence: |
+      report_assertion_tests.bzl asserts exact runfile sets: check/grep = {report.json, arcc, launcher}, golden =
+      {report.json, golden, launcher}; and _assert_absent guards against '--package-layout' in launchers.
+      check.bzl no longer merges go_sdk_srcs or the component's default_runfiles into the three rules.
+  - text: |
+      Producers run once through the build graph
+      - Given component B depends on component A
+      - When B's `.check` is tested
+      - Then Bazel builds A's and B's ordinary analysis actions and the test only asserts B's report; no duplicate analysis command exists.
+    addressed: yes
+    evidence: |
+      report_assertion_tests.bzl _dependent_builds_producer_chain_once_test (consumer_component): exactly one
+      ArccCheck action whose inputs include runtime_component.report.json/.surface.json; staging info.report as a
+      runfile is what builds the chain. PASSED; component_tests.bzl negative/golden staging tests updated to the
+      same contract.
+  - text: |
+      Asserted surfaces cannot satisfy check tests
+      - Given an asserted manual component with no report
+      - When a check assertion is attached or explicitly requested
+      - Then analysis fails with a clear checked-report requirement rather than passing or invoking a new analysis.
+    addressed: yes
+    evidence: |
+      _require_checked_component fails analysis naming rule/label/provenance for all three rules. New targets
+      asserted_component_grep_rejected_test and asserted_component_golden_rejected_test (manual-tagged) plus
+      expect_failure analysis tests _asserted_grep_rejected_test/_asserted_golden_rejected_test; all PASSED.
+  - text: |
+      Default builds do not schedule analysis
+      - Given `bazel build //...` without the `arcc` output group
+      - When the action graph is inspected
+      - Then no component analysis action is requested; `bazel test` of a `.check` or an explicit `--output_groups=+arcc` request does schedule it.
+    addressed: yes
+    evidence: |
+      report_assertion_tests.bzl _checked_artifacts_stay_lazy_test: api_component default outputs stay
+      manifest+layout; OutputGroupInfo['arcc'] = exactly report+surface. Ad-hoc: `bazel build //...` completed with
+      internal actions only (no ArccCheck); explicit `--output_groups=+arcc` builds of api_component and
+      consumer_component ran their ArccCheck actions; `just ci` bazel leg (which includes `bazel build //...` and
+      the malformed-fixture negative) green.
+  - text: |
+      Integration remains green
+      - Given existing pass, expected-violation, grep, and golden fixtures after their minimal report-artifact migration
+      - When `just ci` runs
+      - Then every suite passes and check verdict behavior is unchanged.
+    addressed: yes
+    evidence: |
+      `just ci` exit 0 (Go legs, selfcheck, bazel build/test //... with 124 tests passing, label/shape validation
+      scripts, and the malformed-fixture --output_groups negative).
+
+artifacts:
+  scratchpad_dir: .agents/scratchpad/2026-08-04-compositional-component-analysis/step05/task-06-migrate-check-tests-to-report-artifacts/
+  files:
+    - context.md
+    - plan.md
+    - progress.md
+    - work.log
+    - result.yaml
+
+notes: |
+  Migrated all three check assertion rules to consume the provider's canonical report: arcc_check_test runs
+  `arcc verdict`, grep asserts the verdict then fixed-string-greps the report, and the golden rule diffs the
+  persisted report.json (text/display goldens regenerated into persisted JSON goldens). Runfiles were reduced to
+  report + arcc/golden, task-05's output-group staging assertions were repurposed, and a new analysis-test suite
+  pins the launcher argv, minimal runfiles, exactly-once producer chain, default-build laziness, and
+  asserted-provider rejection. Two incremental commits were produced (wuzvtynw implementation, ttynupvl docs);
+  the last one, at @-, is reported as the task change.

@@ -1,0 +1,143 @@
+review:
+  task_file: .agents/tasks/2026-08-04-compositional-component-analysis/step05/task-06-migrate-check-tests-to-report-artifacts.code-task.md
+  change_id: otqyumzvrxrqntsmtoxuvllmtwqyyuvo
+  reviewed_at: 2026-09-08T18:42:48Z
+  verdict: approved
+  schema_version: 2
+  lsp_coverage: unavailable
+
+merge_request:
+  title: "test(rules): migrate check assertions to canonical reports [Compositional Analysis: Step 05/Task 06]"
+  body: |
+    Reviews the complete ordered series from the Step 5 task base: the initial
+    implementation migrated all three check rules to provider report artifacts,
+    added report-topology tests, and replaced display-format goldens with
+    persisted report goldens. The documentation follow-up described the new
+    topology, and rework round 1 hardened grep launcher quoting, added a hostile
+    string probe, corrected the command documentation, and restored the golden
+    file mode.
+
+summary: |
+  Re-review confirms that the prior important shell-safety finding is resolved:
+  grep now uses `--`, diagnostics pass expected strings through `printf` data,
+  and the hostile probe prints `$(whoami)` literally; the prior golden-mode and
+  module-documentation findings are also corrected. All seven acceptance
+  criteria pass, including direct report consumption by all three converted
+  rules, and the persisted JSON goldens preserve the prior component/dependency
+  assertions while adding explicit format and verdict coverage. One residual
+  function-level documentation sentence still overstates which rules use the
+  verdict argv, but it is non-blocking; no new critical or important findings
+  were introduced.
+
+acceptance_criteria:
+  - text: |
+      1. **Normal and expected-violation tests assert recorded verdicts**
+         - Given passing and failing checked reports
+         - When `.check` runs with `expect_violation` false and true
+         - Then it invokes `arcc verdict` with `pass` and `fail` respectively and never reruns `arcc check`.
+    status: pass
+    evidence: |
+      `bazel_rules/go/private/check.bzl:259-285` maps `expect_violation` to
+      `arcc_verdict_argv` with `--expect=pass|fail` and stages `info.report`.
+      The normal launcher is structurally checked at
+      `bazel_rules/go/tests/report_assertion_tests.bzl:44-71`; the expected-
+      violation targets are defined at `bazel_rules/go/tests/BUILD.bazel:250-276`.
+      The rework regression suite passed 91/91 as recorded in
+      `.agents/scratchpad/2026-08-04-compositional-component-analysis/step05/task-06-migrate-check-tests-to-report-artifacts/work.log:78-82`.
+  - text: |
+      2. **Grep and golden tests consume the same report**
+         - Given a component report, fixed-string expectations, and a canonical report golden
+         - When the two assertion rules run
+         - Then both read the exact `ArccComponentInfo.report`; missing strings or byte differences produce actionable failures.
+    status: pass
+    evidence: |
+      `bazel_rules/go/private/check.bzl:314-360` runs verdict and fixed-string
+      grep against the same `report_path`, with a report dump on a missing
+      string; `:427-472` diffs the provider report directly and reports byte
+      differences. The exact-report launcher tests are at
+      `bazel_rules/go/tests/report_assertion_tests.bzl:73-147`. The rework's
+      safe diagnostic is exercised by the hostile probe and recorded literally
+      in `.agents/scratchpad/2026-08-04-compositional-component-analysis/step05/task-06-migrate-check-tests-to-report-artifacts/work.log:72-76`.
+  - text: |
+      3. **Assertion runfiles are minimal**
+         - Given any of the three check rules
+         - When its runfiles/action inputs are inspected
+         - Then they contain only the report and the assertion-specific arcc/golden files, with no SDK sources, manifest/layout, or component source closure added by the test.
+    status: pass
+    evidence: |
+      The check and grep implementations stage only the report plus arcc at
+      `bazel_rules/go/private/check.bzl:277-284` and `:388-394`; the golden
+      implementation stages only report plus golden at `:468-472`. Exact sets
+      are asserted at `bazel_rules/go/tests/report_assertion_tests.bzl:65-71`,
+      `:91-95`, and `:132-147`.
+  - text: |
+      4. **Producers run once through the build graph**
+         - Given component B depends on component A
+         - When B's `.check` is tested
+         - Then Bazel builds A's and B's ordinary analysis actions and the test only asserts B's report; no duplicate analysis command exists.
+    status: pass
+    evidence: |
+      `bazel_rules/go/tests/report_assertion_tests.bzl:149-175` verifies one
+      `ArccCheck` on the dependent and the direct dependency's report/surface
+      inputs. The producer declares those inputs at
+      `bazel_rules/go/private/component.bzl:538-552`, while B's assertion
+      stages only its own report at `bazel_rules/go/private/check.bzl:277-284`.
+      The launcher assertions exclude `arcc check`.
+  - text: |
+      5. **Asserted surfaces cannot satisfy check tests**
+         - Given an asserted manual component with no report
+         - When a check assertion is attached or explicitly requested
+         - Then analysis fails with a clear checked-report requirement rather than passing or invoking a new analysis.
+    status: pass
+    evidence: |
+      `_require_checked_component` rejects a missing report at
+      `bazel_rules/go/private/check.bzl:77-95`, and all three rule implementations
+      invoke it before creating launchers or runfiles (`:259-262`, `:364-366`,
+      `:454-456`). The asserted grep/golden rejection targets are in
+      `bazel_rules/go/tests/BUILD.bazel:114-148` and their expected failures are
+      checked at `bazel_rules/go/tests/report_assertion_tests.bzl:202-230`.
+  - text: |
+      6. **Default builds do not schedule analysis**
+         - Given `bazel build //...` without the `arcc` output group
+         - When the action graph is inspected
+         - Then no component analysis action is requested; `bazel test` of a `.check` or an explicit `--output_groups=+arcc` request does schedule it.
+    status: pass
+    evidence: |
+      `bazel_rules/go/private/component.bzl:646-657` keeps report and surface
+      out of default outputs and places them in `OutputGroupInfo(arcc)`.
+      `bazel_rules/go/tests/report_assertion_tests.bzl:177-200` pins the output
+      shape, and the default-build plus `just ci` evidence is recorded at
+      `.agents/scratchpad/2026-08-04-compositional-component-analysis/step05/task-06-migrate-check-tests-to-report-artifacts/work.log:63-71`.
+  - text: |
+      7. **Integration remains green**
+         - Given existing pass, expected-violation, grep, and golden fixtures after their minimal report-artifact migration
+         - When `just ci` runs
+         - Then every suite passes and check verdict behavior is unchanged.
+    status: pass
+    evidence: |
+      The rework log records `just ci` exiting 0 at
+      `.agents/scratchpad/2026-08-04-compositional-component-analysis/step05/task-06-migrate-check-tests-to-report-artifacts/work.log:83-86`.
+      It also records 91/91 Bazel tests at `:78-82`, including the migrated
+      pass, expected-violation, grep, and golden fixtures.
+
+findings:
+  - severity: suggestion
+    category: style
+    file: bazel_rules/go/private/command.bzl
+    line: 64
+    title: "Function docs still include golden in verdict argv"
+    details: |
+      The prior module-level documentation finding was corrected at
+      `bazel_rules/go/private/command.bzl:8-12`, but the function-level doc still
+      says at `:64-65` that the `.check`, grep, and golden rules consume the
+      provider report through `arcc_verdict_argv`. The golden implementation
+      correctly uses a direct diff and does not call that helper
+      (`bazel_rules/go/private/check.bzl:427-472`), so this residual sentence is
+      misleading though it does not affect behavior.
+    suggested_action: |
+      Update the function-level doc to say that `.check` and grep use
+      `arcc_verdict_argv`, while the golden rule directly compares the provider
+      report.
+    source: built-in
+
+ecosystem_reviews: []

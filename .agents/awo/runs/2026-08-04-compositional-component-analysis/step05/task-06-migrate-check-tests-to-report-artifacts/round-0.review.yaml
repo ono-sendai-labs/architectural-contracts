@@ -1,0 +1,174 @@
+review:
+  task_file: .agents/tasks/2026-08-04-compositional-component-analysis/step05/task-06-migrate-check-tests-to-report-artifacts.code-task.md
+  change_id: ttynupvlpyqumtpywmumynqpzwknuoks
+  reviewed_at: 2026-09-08T18:34:35Z
+  verdict: changes_requested
+  schema_version: 2
+  lsp_coverage: unavailable
+
+merge_request:
+  title: "test(rules): migrate check assertions to canonical reports [Compositional Analysis: Step 05/Task 06]"
+  body: |
+    Reviews the complete ordered series: the initial implementation migrated the
+    three check rules to provider report assertions, added launcher/runfile and
+    producer-topology analysis tests, and replaced the display-format goldens
+    with persisted report JSON goldens. The follow-up change updates the public
+    and private rule documentation to describe the report-assertion topology.
+
+summary: |
+  The two-change series satisfies all seven acceptance criteria: each converted
+  rule stages and reads the provider's canonical report, the producer chain stays
+  in the build graph, and the persisted JSON goldens preserve the component and
+  dependency assertions while strengthening them with format and verdict fields.
+  The planned Step 5 check/emission divergence remains intact; no surface
+  consumer or implements-closure behavior was pulled forward. One important
+  shell-generation issue remains in the grep failure diagnostic, so this review
+  requests changes.
+
+acceptance_criteria:
+  - text: |
+      1. **Normal and expected-violation tests assert recorded verdicts**
+        - Given passing and failing checked reports
+        - When `.check` runs with `expect_violation` false and true
+        - Then it invokes `arcc verdict` with `pass` and `fail` respectively and never reruns `arcc check`.
+    status: pass
+    evidence: |
+      `bazel_rules/go/private/check.bzl:259-285` maps `expect_violation` to
+      `arcc_verdict_argv` with `--expect=pass|fail` and stages only `info.report`.
+      The launcher contract is checked at
+      `bazel_rules/go/tests/report_assertion_tests.bzl:44-71`; the passing and
+      expected-violation targets are defined at
+      `bazel_rules/go/tests/BUILD.bazel:250-276`, and the implementation log
+      records `bazel test //bazel_rules/go/tests/...` passing at
+      `.agents/scratchpad/2026-08-04-compositional-component-analysis/step05/task-06-migrate-check-tests-to-report-artifacts/work.log:33-38`.
+  - text: |
+      2. **Grep and golden tests consume the same report**
+        - Given a component report, fixed-string expectations, and a canonical report golden
+        - When the two assertion rules run
+        - Then both read the exact `ArccComponentInfo.report`; missing strings or byte differences produce actionable failures.
+    status: pass
+    evidence: |
+      `bazel_rules/go/private/check.bzl:314-355` runs `arcc verdict` and
+      `grep -F` against the same `report_path`, with a missing-string message and
+      report dump; `:427-472` diffs `info.report` directly against the golden and
+      reports byte differences. Structural tests at
+      `bazel_rules/go/tests/report_assertion_tests.bzl:73-147` verify both
+      launcher forms and their report runfiles. The current goldens at
+      `bazel_rules/go/tests/goldens/api_component.report.json:1-14` and
+      `bazel_rules/go/tests/goldens/reportboundary_consumer.report.json:1-16`
+      are the persisted artifact shape.
+  - text: |
+      3. **Assertion runfiles are minimal**
+        - Given any of the three check rules
+        - When its runfiles/action inputs are inspected
+        - Then they contain only the report and the assertion-specific arcc/golden files, with no SDK sources, manifest/layout, or component source closure added by the test.
+    status: pass
+    evidence: |
+      The implementations use only `info.report` plus the arcc runfiles for
+      verdict rules at `bazel_rules/go/private/check.bzl:277-284` and
+      `:388-394`, or `info.report` plus the golden at `:468-472`. Exact runfile
+      sets are asserted at
+      `bazel_rules/go/tests/report_assertion_tests.bzl:65-71`, `:91-95`, and
+      `:132-147`; no source, manifest, layout, or SDK merge remains in these
+      three implementations.
+  - text: |
+      4. **Producers run once through the build graph**
+        - Given component B depends on component A
+        - When B's `.check` is tested
+        - Then Bazel builds A's and B's ordinary analysis actions and the test only asserts B's report; no duplicate analysis command exists.
+    status: pass
+    evidence: |
+      `bazel_rules/go/tests/report_assertion_tests.bzl:149-175` verifies one
+      `ArccCheck` on the dependent and report/surface inputs from
+      `runtime_component`; `bazel_rules/go/private/check.bzl:277-284` stages B's
+      report, which is the output of that action, and the launcher contains no
+      `arcc check`. The producer declares direct dependency report/surface
+      artifacts at `bazel_rules/go/private/component.bzl:538-552`.
+  - text: |
+      5. **Asserted surfaces cannot satisfy check tests**
+        - Given an asserted manual component with no report
+        - When a check assertion is attached or explicitly requested
+        - Then analysis fails with a clear checked-report requirement rather than passing or invoking a new analysis.
+    status: pass
+    evidence: |
+      All three implementations call `_require_checked_component` before
+      constructing launchers or runfiles (`bazel_rules/go/private/check.bzl:77-95`,
+      `:259-262`, `:359-362`, and `:454-456`). The explicit asserted grep and
+      golden targets are in `bazel_rules/go/tests/BUILD.bazel:114-128`, and their
+      expected analysis failures are tested at
+      `bazel_rules/go/tests/report_assertion_tests.bzl:202-230`.
+  - text: |
+      6. **Default builds do not schedule analysis**
+        - Given `bazel build //...` without the `arcc` output group
+        - When the action graph is inspected
+        - Then no component analysis action is requested; `bazel test` of a `.check` or an explicit `--output_groups=+arcc` request does schedule it.
+    status: pass
+    evidence: |
+      `bazel_rules/go/private/component.bzl:646-657` places report and surface
+      only in `OutputGroupInfo(arcc)`, while default outputs remain manifest and
+      layout. The analysis test at
+      `bazel_rules/go/tests/report_assertion_tests.bzl:177-200` pins that shape;
+      the recorded default-build and `just ci` evidence is at
+      `.agents/scratchpad/2026-08-04-compositional-component-analysis/step05/task-06-migrate-check-tests-to-report-artifacts/work.log:63-71`.
+  - text: |
+      7. **Integration remains green**
+        - Given existing pass, expected-violation, grep, and golden fixtures after their minimal report-artifact migration
+        - When `just ci` runs
+        - Then every suite passes and check verdict behavior is unchanged.
+    status: pass
+    evidence: |
+      `.agents/scratchpad/2026-08-04-compositional-component-analysis/step05/task-06-migrate-check-tests-to-report-artifacts/work.log:68-71`
+      records `just ci` exiting 0; the task result records the Bazel, Go,
+      self-check, label/shape, and malformed-fixture legs at
+      `.agents/scratchpad/2026-08-04-compositional-component-analysis/step05/task-06-migrate-check-tests-to-report-artifacts/result.yaml:77-85`.
+
+findings:
+  - severity: important
+    category: security
+    file: bazel_rules/go/private/check.bzl
+    line: 349
+    title: "Expected strings are interpolated into shell diagnostics"
+    details: |
+      The `grep -F` operand at line 348 is quoted, but `s` is interpolated raw
+      into the generated double-quoted `echo` command at line 349. A missing
+      expected string containing `$(...)`, shell quotes, or a newline can execute
+      command substitution or corrupt the launcher when the assertion fails;
+      strings beginning with `-` are also not protected from grep option parsing
+      because the command lacks `--`. This violates the task's safe-shell-
+      quoting requirement and can make the promised missing-string diagnostic
+      non-actionable.
+    suggested_action: |
+      Emit the diagnostic with a shell-quoted value passed as data (for example,
+      a quoted `printf` argument), and use `grep -F --` before the quoted
+      pattern. Add a launcher-generation test with quotes, shell substitution,
+      newlines, and a leading dash in an expected string.
+    source: built-in
+  - severity: suggestion
+    category: style
+    file: bazel_rules/go/private/command.bzl
+    line: 8
+    title: "Command docs incorrectly include golden in verdict argv"
+    details: |
+      The module documentation says `.check`, grep, and golden rules consume the
+      report through `arcc_verdict_argv`, but the golden implementation correctly
+      uses a direct `diff` and does not call that helper
+      (`bazel_rules/go/private/check.bzl:427-472`). The statement is misleading
+      in the documentation added by the follow-up change.
+    suggested_action: |
+      Say that `.check` and grep use `arcc_verdict_argv`, while the golden rule
+      directly compares the provider report.
+    source: built-in
+  - severity: nit
+    category: style
+    file: bazel_rules/go/tests/goldens/reportboundary_consumer.report.json
+    line: null
+    title: "Report golden has executable source mode"
+    details: |
+      The complete diff records this migrated JSON golden changing from mode
+      `100644` to `100755`. It is test data, not a launcher, and the executable
+      bit is an unintended repository-mode change.
+    suggested_action: |
+      Restore the golden to non-executable mode `0644`.
+    source: built-in
+
+ecosystem_reviews: []
