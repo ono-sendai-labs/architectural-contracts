@@ -1,0 +1,56 @@
+load("@rules_arcc//bazel_rules/go:defs.bzl", "go_component")
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "surface",
+    srcs = [
+        "derive.go",
+        "digest.go",
+    ],
+    importpath = "github.com/ono-sendai-labs/architectural-contracts/go/internal/surface",
+    # Like hostpolicy: the go_component rule resolves member labels from the
+    # //bazel_rules rule packages, so visibility must include those too.
+    visibility = [
+        "//bazel_rules:__subpackages__",
+        "//go:__subpackages__",
+    ],
+    deps = [
+        "//go/internal/manifest",
+        "//go/internal/schema/gen",
+        "//go/internal/symbol",
+        "//go/internal/stdlibauthority",
+    ],
+)
+
+go_test(
+    name = "surface_test",
+    size = "small",
+    srcs = [
+        "derive_test.go",
+        "digest_test.go",
+    ],
+    embed = [":surface"],
+    deps = [
+        "//go/internal/artifactio",
+        "//go/internal/manifest",
+        "//go/internal/schema/gen",
+        "//go/internal/stdlibauthority",
+    ],
+)
+
+# Mirrors the checked-in surface/component.textproto: the pure surface-emission
+# data model (design §New: surface) — no authority, all filesystem reads live
+# in the artifactio shell adapter.
+go_component(
+    name = "surface_component",
+    component_deps = [
+        "//go/internal/manifest:manifest_component",
+        "//go/internal/schema:schema_component",
+        "//go/internal/symbol:symbol_component",
+        "//go/internal/stdlibauthority:stdlibauthority_component",
+    ],
+    interface = ":surface",
+    visibility = ["//go:__subpackages__"],
+)
+
+exports_files(["component.textproto"])

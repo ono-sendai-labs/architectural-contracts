@@ -1,0 +1,20 @@
+name: "surface"
+interface_files: "derive.go"
+interface_files: "digest.go"
+members: "github.com/ono-sendai-labs/architectural-contracts/go/internal/surface"
+component_dependencies {
+  name: "manifest"
+  manifest: "../manifest/component.textproto"
+}
+component_dependencies {
+  name: "schema"
+  manifest: "../schema/component.textproto"
+}
+component_dependencies {
+  name: "symbol"
+  manifest: "../symbol/component.textproto"
+}
+component_dependencies {
+  name: "stdlibauthority"
+  manifest: "../stdlibauthority/component.textproto"
+}
