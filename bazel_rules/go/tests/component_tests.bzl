@@ -582,11 +582,11 @@ def _migrated_fixture_stays_checked_impl(env, target):
         env.fail("migrated negative fixture must keep a checked surface")
 
 def _negative_rules_stage_the_checked_report_test(name):
-    # AC 4 (review round 1): the grep and golden negative-assertion rules
-    # must stage the component's checked `arcc` output group — building the
-    # test builds the component's ArccCheck producer action and its report,
-    # so the negative assertions cover a report the producer action actually
-    # generated, not only a duplicate direct CLI run.
+    # AC 4 (Step 5 task 06): the grep assertion rule stages the component's
+    # canonical report — building the test builds the component's ArccCheck
+    # producer action, so the negative assertions read a report the producer
+    # action actually generated. The staged set is minimal: the surface is no
+    # longer carried, and no source closure rides along with it.
     analysis_test(
         name = name,
         target = "//bazel_rules/go/tests:broken_checker_component_fails_test",
@@ -600,13 +600,15 @@ def _negative_rules_stage_the_checked_report_impl(env, target):
         for f in target[DefaultInfo].default_runfiles.files.to_list()
     ]
     env.expect.that_collection(runfiles).contains("broken_checker_component.report.json")
-    env.expect.that_collection(runfiles).contains("broken_checker_component.surface.json")
+    env.expect.that_collection([b for b in runfiles if b.endswith(".surface.json")]).contains_exactly([])
+    env.expect.that_collection([b for b in runfiles if b.endswith(".go")]).contains_exactly([])
 
-    golden_target = "//bazel_rules/go/tests:api_component_text_report_golden_test"
     # The golden rule is asserted through a second analysis test below; this
     # target's impl runs only for the grep rule.
 
 def _golden_rule_stages_the_checked_report_test(name):
+    # AC 4 (Step 5 task 06): the golden rule diffs the provider's canonical
+    # report directly; only the report and the golden are staged.
     analysis_test(
         name = name,
         target = "//bazel_rules/go/tests:api_component_text_report_golden_test",
@@ -620,7 +622,7 @@ def _golden_rule_stages_the_checked_report_impl(env, target):
         for f in target[DefaultInfo].default_runfiles.files.to_list()
     ]
     env.expect.that_collection(runfiles).contains("api_component.report.json")
-    env.expect.that_collection(runfiles).contains("api_component.surface.json")
+    env.expect.that_collection([b for b in runfiles if b.endswith(".surface.json")]).contains_exactly([])
 
 def go_component_test_suite(name):
     test_suite(

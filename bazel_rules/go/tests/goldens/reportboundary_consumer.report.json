@@ -2,8 +2,11 @@
   "format_version": 1,
   "verdict": "pass",
   "report": {
-    "component": "api_component",
+    "component": "consumer_component",
     "dependencies": [
+      {
+        "component": "manual_component"
+      },
       {
         "component": "shared_component"
       }

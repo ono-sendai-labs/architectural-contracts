@@ -6,6 +6,7 @@ load(":asserted_surface_tests.bzl", "asserted_surface_test_suite")
 load(":component_tests.bzl", "go_component_test_suite")
 load(":pattern_match_test.bzl", "pattern_match_test_suite")
 load(":probe.bzl", "checked_analysis_surface", "transitioned_checked_map", "transitioned_checked_surface", "transitioned_component_layout")
+load(":report_assertion_tests.bzl", "report_assertion_test_suite")
 load(":stdlib_map_probe.bzl", "darwin_arm64_stdlib_map", "default_seam_probe", "tagged_stdlib_map")
 load(":stdlib_map_tests.bzl", "stdlib_map_test_suite")
 
@@ -110,6 +111,22 @@ arcc_check_test(
     tags = ["manual"],
 )
 
+arcc_check_grep_test(
+    name = "asserted_component_grep_rejected_test",
+    size = "small",
+    component = "//bazel_rules/go/tests/testdata/reportboundary/manual:manual_component",
+    expected_strings = ["anything"],
+    tags = ["manual"],
+)
+
+arcc_check_report_golden_test(
+    name = "asserted_component_golden_rejected_test",
+    size = "small",
+    component = "//bazel_rules/go/tests/testdata/reportboundary/manual:manual_component",
+    golden = "goldens/api_component.report.json",
+    tags = ["manual"],
+)
+
 # SDK-key equality between the asserted writer's Starlark-assembled key and
 # the checked emitter's (Step 5 task 05 req 5): the mirrored constants in
 # arcc_metadata.bzl are proven against a built checked surface and the
@@ -136,6 +153,11 @@ sh_test(
 )
 
 pattern_match_test_suite(name = "pattern_match_tests")
+
+# Step 5 task 06: structural tests for the report-assertion check rules —
+# launcher/argv contract, minimal runfiles, exactly-once producer chain,
+# default-build laziness, and the asserted-provider rejection.
+report_assertion_test_suite(name = "report_assertion_tests")
 
 transitioned_component_layout(
     name = "darwin_arm64_layout",
@@ -287,18 +309,22 @@ sh_test(
     ],
 )
 
+# Report goldens pin the provider's canonical persisted report artifact
+# (Step 5 task 06): the rule diffs the analysis action's own
+# `<name>.report.json` byte-for-byte — the analysis is never rerun. The
+# display-format goldens were migrated into these artifacts; the broad
+# verdict/layout golden restructure is Step 9.
 arcc_check_report_golden_test(
     name = "api_component_text_report_golden_test",
     size = "small",
     component = "//bazel_rules/go/tests/testdata/api:api_component",
-    golden = "goldens/api_component.report.txt",
+    golden = "goldens/api_component.report.json",
 )
 
 arcc_check_report_golden_test(
     name = "api_component_json_report_golden_test",
     size = "small",
     component = "//bazel_rules/go/tests/testdata/api:api_component",
-    format_json = True,
     golden = "goldens/api_component.report.json",
 )
 
@@ -306,7 +332,7 @@ arcc_check_report_golden_test(
     name = "reportboundary_consumer_report_golden_test",
     size = "small",
     component = "//bazel_rules/go/tests/testdata/reportboundary/consumer:consumer_component",
-    golden = "goldens/reportboundary_consumer.report.txt",
+    golden = "goldens/reportboundary_consumer.report.json",
 )
 
 arcc_check_grep_test(

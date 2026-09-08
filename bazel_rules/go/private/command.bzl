@@ -1,12 +1,14 @@
 """arcc invocation, factored out so every enforcement mode builds the
 identical command (R7).
 
-`arcc_check_argv` is the single construction point: the `.check` assertion
-rules run it as `bazel test` enforcement, the component analysis action
-(`component.bzl`'s ArccCheck, via its generated frame wrapper) runs the same
-argv in always-green report-verdict-only mode, and the report-golden
-assertion rule reuses it with a text-format override. One construction site
-means the enforcement modes can never drift.
+Two argv construction points, one per contract: `arcc_check_argv` is the
+analysis argv — the component analysis action (component.bzl's ArccCheck, via
+its generated frame wrapper) runs it in always-green report-verdict-only
+mode, and `arcc_checked_analysis_test` re-executes the exact same command, so
+the analysis and its execution coverage cannot drift. `arcc_verdict_argv` is
+the report-assertion argv — the `.check`, grep, and golden assertion rules
+consume the provider's canonical report through it (Step 5 task 06) and never
+re-run the analysis.
 """
 
 def arcc_check_argv(
@@ -16,23 +18,24 @@ def arcc_check_argv(
         stdlib_map = None,
         report_out = None,
         surface_out = None,
-        verdict_only = False,
-        format_json = True):
-    """Argv for `arcc check`, shared by every enforcement mode (R7).
+        verdict_only = False):
+    """Argv for `arcc check`, the analysis argv (R7).
 
-    The `.check` test rule (assertion) and the component analysis action
-    (checked provenance) build the same command through this one function, so
-    the two can never drift.
+    The component analysis action (checked provenance) and
+    `arcc_checked_analysis_test` — its execution coverage — build the same
+    command through this one function, so the two can never drift. The report
+    assertion rules never build this argv; they consume the analysis
+    action's persisted report through `arcc_verdict_argv` instead.
 
     Every path is frame-relative to the caller's working-directory contract
-    (see paths.bzl): the test launcher runs it with the runfiles root as the
-    working directory; the analysis action recreates that frame in the
-    sandbox. Callers that emit artifacts pass `report_out`/`surface_out` (the
-    artifact destinations) and `stdlib_map` (the declared map the surface's
-    SDK key is stamped from); `verdict_only` selects the always-green
-    report-verdict-only mode the action requires (design §Build topology);
-    `format_json` selects the report encoding (False for the text-golden
-    assertion rule).
+    (see paths.bzl): the analysis action recreates that frame in the sandbox;
+    `arcc_checked_analysis_test` runs it with the runfiles root as the working
+    directory. Callers that emit artifacts pass `report_out`/`surface_out`
+    (the artifact destinations) and `stdlib_map` (the declared map the
+    surface's SDK key is stamped from); `verdict_only` selects the
+    always-green report-verdict-only mode the action requires (design §Build
+    topology). The JSON display encoding is unconditional: the persisted
+    artifact is canonical JSON regardless.
     """
     argv = [
         arcc,
@@ -49,6 +52,23 @@ def arcc_check_argv(
         argv.append("--surface-out=" + surface_out)
     if verdict_only:
         argv.append("--report-verdict-only")
-    if format_json:
-        argv.append("--format=json")
+    argv.append("--format=json")
     return argv
+
+_ARCC_VERDICTS = ("pass", "fail")
+
+def arcc_verdict_argv(arcc, report, expect):
+    """Argv for `arcc verdict <report> --expect=pass|fail`, the report-assertion argv.
+
+    The `.check`, grep, and golden assertion rules consume the provider's
+    canonical `ArccComponentInfo.report` through this one construction point
+    (Step 5 task 06): the recorded verdict is asserted, never recomputed, and
+    the argv cannot drift between the rules. `expect` must be one of the two
+    verdict constants — it is interpolated into generated shell code.
+    """
+    if expect not in _ARCC_VERDICTS:
+        fail("arcc verdict expectation must be one of %s, got %r" % (
+            ", ".join(_ARCC_VERDICTS),
+            expect,
+        ))
+    return [arcc, "verdict", report, "--expect=" + expect]

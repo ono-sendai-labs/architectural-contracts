@@ -1,5 +1,0 @@
-Component "consumer_component" conforms; does not exceed declared authority
-
-Dependencies:
-- manual_component
-- shared_component
