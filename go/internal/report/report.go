@@ -41,12 +41,31 @@ type Location struct {
 	Line int    `json:"line"`
 }
 
+// AuthoritySite is one member source site contributing to an aggregated
+// authority finding (DR-17): the component-relative file, the 1-based line,
+// and the referenced symbol's canonical identity (empty for analysis-defeating
+// constructs, which name no declaring object).
+type AuthoritySite struct {
+	File   string `json:"file"`
+	Line   int    `json:"line"`
+	Symbol string `json:"symbol,omitempty"`
+}
+
 // Finding represents a single violation or warning discovered during checker analysis.
+//
+// An aggregated authority finding (one per (capability, class), DR-17) leaves
+// Location empty and carries its full sorted site collection in Sites, the
+// classification class and the stdlib map's SDK key, with Evidence holding the
+// map's evidence frames for the first site's (symbol, capability). Boundary
+// findings keep their exact single Location and no Sites.
 type Finding struct {
-	Kind     Kind     `json:"kind"`
-	Message  string   `json:"message"`
-	Location Location `json:"location"`
-	Evidence []string `json:"evidence,omitempty"`
+	Kind     Kind            `json:"kind"`
+	Message  string          `json:"message"`
+	Location Location        `json:"location"`
+	Evidence []string        `json:"evidence,omitempty"`
+	Class    string          `json:"class,omitempty"`
+	SDKKey   string          `json:"sdk_key,omitempty"`
+	Sites    []AuthoritySite `json:"sites,omitempty"`
 }
 
 // DependencyBoundary represents a component dependency boundary annotation in a report.
@@ -95,36 +114,37 @@ func (r ConformanceReport) RenderText() string {
 	if len(r.Violations) > 0 {
 		sb.WriteString("\nViolations:\n")
 		for _, v := range r.Violations {
-			sb.WriteString(fmt.Sprintf("- [%s] %s\n", v.Kind, v.Message))
-			if v.Location.File != "" {
-				sb.WriteString(fmt.Sprintf("  at %s:%d\n", v.Location.File, v.Location.Line))
-			}
-			if len(v.Evidence) > 0 {
-				sb.WriteString("  Evidence:\n")
-				for _, ev := range v.Evidence {
-					sb.WriteString(fmt.Sprintf("    - %s\n", ev))
-				}
-			}
+			renderFinding(&sb, v)
 		}
 	}
 
 	if len(r.Warnings) > 0 {
 		sb.WriteString("\nWarnings:\n")
 		for _, w := range r.Warnings {
-			sb.WriteString(fmt.Sprintf("- [%s] %s\n", w.Kind, w.Message))
-			if w.Location.File != "" {
-				sb.WriteString(fmt.Sprintf("  at %s:%d\n", w.Location.File, w.Location.Line))
-			}
-			if len(w.Evidence) > 0 {
-				sb.WriteString("  Evidence:\n")
-				for _, ev := range w.Evidence {
-					sb.WriteString(fmt.Sprintf("    - %s\n", ev))
-				}
-			}
+			renderFinding(&sb, w)
 		}
 	}
 
 	return sb.String()
+}
+
+// renderFinding renders one finding as a single text entry. A finding with
+// sites (an aggregated authority finding, DR-17) prints the first sorted site
+// and the total site count — never one entry per site; a boundary finding
+// prints its exact location.
+func renderFinding(sb *strings.Builder, f Finding) {
+	sb.WriteString(fmt.Sprintf("- [%s] %s\n", f.Kind, f.Message))
+	if len(f.Sites) > 0 {
+		sb.WriteString(fmt.Sprintf("  at %s:%d (%d sites)\n", f.Sites[0].File, f.Sites[0].Line, len(f.Sites)))
+	} else if f.Location.File != "" {
+		sb.WriteString(fmt.Sprintf("  at %s:%d\n", f.Location.File, f.Location.Line))
+	}
+	if len(f.Evidence) > 0 {
+		sb.WriteString("  Evidence:\n")
+		for _, ev := range f.Evidence {
+			sb.WriteString(fmt.Sprintf("    - %s\n", ev))
+		}
+	}
 }
 
 func formatDependencyBoundary(dep DependencyBoundary) string {

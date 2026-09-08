@@ -2,6 +2,7 @@ package report_test
 
 import (
 	"encoding/json"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -275,5 +276,73 @@ func TestRenderText_Determinism(t *testing.T) {
 		if first != subsequent {
 			t.Fatalf("RenderText is non-deterministic at iteration %d", i)
 		}
+	}
+}
+
+func TestRenderText_AggregatedAuthorityFindingPrintsFirstSiteAndCount(t *testing.T) {
+	rep := report.ConformanceReport{
+		Component: "m",
+		Violations: []report.Finding{{
+			Kind:    report.UndeclaredAuthority,
+			Message: "use of undeclared authority \"FILES\"",
+			Class:   "TrueAuthority",
+			SDKKey:  "go1.26.4 linux amd64 map1",
+			Sites: []report.AuthoritySite{
+				{File: "member/a.go", Line: 3, Symbol: "os.ReadFile"},
+				{File: "member/b.go", Line: 7, Symbol: "os.Stdin"},
+				{File: "member/c.go", Line: 11, Symbol: "os.Create"},
+			},
+		}},
+	}
+	got := report.RenderText(rep)
+	want := "Component: m\n\nViolations:\n" +
+		"- [UNDECLARED_AUTHORITY] use of undeclared authority \"FILES\"\n" +
+		"  at member/a.go:3 (3 sites)\n"
+	if got != want {
+		t.Errorf("RenderText(aggregate) =\n%q\nwant:\n%q", got, want)
+	}
+}
+
+func TestRenderText_AggregatedWarningFinding(t *testing.T) {
+	rep := report.ConformanceReport{
+		Component: "m",
+		Warnings: []report.Finding{{
+			Kind:    report.AnalysisLimitation,
+			Message: "analysis-defeating constructs escape typed reference analysis",
+			Class:   "AnalysisDefeating",
+			SDKKey:  "go1.26.4 linux amd64 map1",
+			Sites: []report.AuthoritySite{
+				{File: "member/link.go", Line: 3},
+				{File: "member/stub.s", Line: 1},
+			},
+		}},
+	}
+	got := report.RenderText(rep)
+	if !strings.Contains(got, "  at member/link.go:3 (2 sites)\n") {
+		t.Errorf("RenderText(aggregate warning) missing first-site + count: %q", got)
+	}
+	if strings.Count(got, "member/") != 1 || strings.Contains(got, "at member/stub.s") {
+		t.Errorf("aggregated finding must render one entry for the first site only: %q", got)
+	}
+}
+
+func TestFinding_JSONSitesClassSDKKeyRoundTrip(t *testing.T) {
+	f := report.Finding{
+		Kind:    report.UndeclaredAuthority,
+		Message: "m",
+		Class:   "TrueAuthority",
+		SDKKey:  "k",
+		Sites:   []report.AuthoritySite{{File: "a.go", Line: 2, Symbol: "os.ReadFile"}},
+	}
+	data, err := json.Marshal(f)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	var got report.Finding
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if !reflect.DeepEqual(got, f) {
+		t.Errorf("round trip = %+v, want %+v", got, f)
 	}
 }
