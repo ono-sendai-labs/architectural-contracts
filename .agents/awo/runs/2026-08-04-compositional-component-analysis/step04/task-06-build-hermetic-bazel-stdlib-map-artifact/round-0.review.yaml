@@ -1,0 +1,182 @@
+review:
+  task_file: .agents/tasks/2026-08-04-compositional-component-analysis/step04/task-06-build-hermetic-bazel-stdlib-map-artifact.code-task.md
+  change_id: zkpsstlvssvqtrtqrvxkkxsyrmqwptmo
+  reviewed_at: "2026-09-08T00:56:02Z"
+  verdict: changes_requested
+  schema_version: 2
+  lsp_coverage: unavailable
+
+merge_request:
+  title: "feat(bazel): build hermetic stdlib maps [Compositional Analysis: Step 04/Task 06]"
+  body: |
+    Reviews the complete ordered series from the supplied task-05 bookkeeping
+    base: the empty scratchpad-only wplrwlkszlktutoqmqyyqxvwruxzvqnw change;
+    the lxmzwkvosvmoozpytzzzmqwouqkxuynx adapter, provider, hermetic rule,
+    public export, probes, and analysis tests; the
+    wlswoxyloqppzwtqztrqkrukkkrsyuvo cross-configuration execution test; and
+    the zkpsstlvssvqtrtqrvxkkxsyrmqwptmo restoration of the existing Bazel
+    suites plus executable test mode.
+
+summary: |
+  The implementation provides the I5 layout-driver action with SDK sources,
+  package list, analysis-time configuration, and the exec-configured arcc tool;
+  target-key, cgo-rejection, totality, and integration coverage are present, and
+  the final BUILD diff restores the temporarily dropped suites without net test
+  loss. Two important issues remain: the determinism test compares only SHA-256
+  digests rather than asserting byte equality, and work.log has no RED entry for
+  the execution-test cycle. LSP diagnostics were unavailable for the touched
+  Starlark, BUILD, and shell files.
+
+acceptance_criteria:
+  - text: |
+      1. **The Bazel artifact is hermetic**
+         - Given a clean Bazel sandbox with no `go` binary on `PATH` and empty user caches
+         - When `arcc_stdlib_map` builds
+         - Then generation succeeds using only the declared SDK sources, package list, configuration file and generator, and produces a valid canonical map.
+    status: pass
+    evidence: |
+      The generation action is a direct `ctx.actions.run` with the arcc exec tool,
+      SDK source depset, package-list file, config file, and one canonical map
+      output at `bazel_rules/go/private/stdlib_map.bzl:116-149`. It sets no
+      environment and uses `use_default_shell_env = False` at `:132-135`.
+      The built-artifact checks at
+      `bazel_rules/go/tests/stdlib_map_keys_test.sh:51-128` validate generated
+      maps and the work log records all four configurations generated in the
+      linux sandbox at `work.log:67-72`.
+  - text: |
+      2. **Action inputs are complete and minimal**
+         - Given the configured stdlib-map target
+         - When its action graph is inspected
+         - Then SDK sources, the package-list file, the configuration file and the generator are declared; no toolchain `go` or tool binary, cache path, home path, dependency-component source or unrelated workspace file is; and the action blocks network access.
+    status: pass
+    evidence: |
+      The action's declared SDK/package-list/config inputs and arcc tool are at
+      `bazel_rules/go/private/stdlib_map.bzl:116-132`; the network execution
+      requirement and disabled default environment are at `:132-135`. The
+      rules_testing tests inspect SDK/config presence and reject toolchain
+      binaries, caches, home paths, dependency sources, and unrelated workspace
+      paths at `bazel_rules/go/tests/stdlib_map_tests.bzl:58-105`, while the
+      empty action environment and explicit argv are checked at `:114-158`.
+  - text: |
+      3. **Target configurations produce distinct keyed artifacts, and cgo is rejected**
+         - Given the default configuration, a cross-compile to another GOOS/GOARCH, and a build-tag variant, all on one execution host, plus a cgo-enabled transition
+         - When all analyse and the first three build
+         - Then each built map validates against its own SDK key and rejects the others' keys, and the cgo-enabled transition fails analysis with an error naming the target and the pure-mode flag.
+    status: pass
+    evidence: |
+      The rule stamps the config-file fields and rejects cgo before creating the
+      action at `bazel_rules/go/private/stdlib_map.bzl:75-104`. Cross-compile,
+      build-tag, and cgo transition coverage is at
+      `bazel_rules/go/tests/stdlib_map_tests.bzl:223-269`. The execution test
+      accepts the default, replica, tagged, and darwin keys and exercises tag,
+      platform, and cgo mismatches at
+      `bazel_rules/go/tests/stdlib_map_keys_test.sh:45-67`; the distinct
+      configuration digests are checked at `:69-83`.
+  - text: |
+      4. **The map remains total and semantically pinned**
+         - Given a built Bazel map
+         - When it is opened through the task 01 reader
+         - Then every listed package and every inventoried importable symbol and init has a terminal classification, and the representative classifications match the design.
+    status: pass
+    evidence: |
+      `arcc stdlibmap inspect` routes through `DecodeMapArtifact` at
+      `go/cmd/arcc/app/stdlibmap.go:336-345`, and the reader validates terminal
+      records and total init/evidence inventories in
+      `go/internal/artifactio/stdlibmap.go:139-241,294-319`. The execution test
+      checks all seven required representative symbols plus an init record at
+      `bazel_rules/go/tests/stdlib_map_keys_test.sh:100-128`; the map generation
+      succeeds with the reconciled toolchain oracle recorded at `work.log:72`.
+  - text: |
+      5. **The public rule and future analysis seam are stable**
+         - Given a BUILD file loading `arcc_stdlib_map` and the existing component implementation preparing for Step 5
+         - When Bazel analysis runs
+         - Then the public rule has validated non-configurable inputs, and one private default `_stdlib_map` contract is available without introducing or running the Step 5 analysis action.
+    status: pass
+    evidence: |
+      `bazel_rules/go/defs.bzl:54-93` exports a public macro with no custom
+      configurable inputs. The private provider-constrained default seam is
+      defined at `bazel_rules/go/private/stdlib_map.bzl:42-57` and consumed by
+      the test-only probe at `bazel_rules/go/tests/stdlib_map_probe.bzl:98-115`;
+      its availability is asserted by
+      `bazel_rules/go/tests/stdlib_map_tests.bzl:207-221`. No Step 5 analysis
+      action or check-verdict implementation is changed in the reviewed range.
+  - text: |
+      6. **Repeated Bazel builds are deterministic**
+         - Given unchanged inputs
+         - When two distinct targets with identical inputs are built
+         - Then their canonical bytes and digests are identical, and the test explains why the comparison cannot be satisfied by action-cache reuse.
+    status: partial
+    evidence: |
+      The default/replica targets and action-cache rationale are documented in
+      `bazel_rules/go/tests/stdlib_map_keys_test.sh:85-94`, and the test compares
+      their SHA-256 outputs at `:95-98`. However, it does not perform a raw byte
+      comparison such as `cmp -s`; equal digests alone do not directly exercise
+      the criterion's required canonical-byte assertion. The recorded run
+      passed at `work.log:67-72`, but that evidence does not add the missing
+      assertion.
+  - text: |
+      7. **Integration remains green**
+         - Given the rule, adapter, tests and metadata
+         - When `just ci` runs
+         - Then Go and Bazel tests, generation cleanness, self-check and the existing component checks all pass, and wildcard builds attempt no cgo-enabled map.
+    status: pass
+    evidence: |
+      `work.log:73-76` records `bazel build //...`, `bazel test //...` with 96
+      passing tests, and `just ci` exit 0. The cgo path fails during analysis in
+      `bazel_rules/go/private/stdlib_map.bzl:94-99`, so no cgo map action is
+      emitted for wildcard execution. The final BUILD change restores the
+      aspect, component, pattern, and darwin layout probes at
+      `bazel_rules/go/tests/BUILD.bazel:56-65`; the net base-to-current diff is
+      additive for that file.
+
+findings:
+  - severity: important
+    category: tests
+    file: .agents/scratchpad/2026-08-04-compositional-component-analysis/step04/task-06-build-hermetic-bazel-stdlib-map-artifact/work.log
+    line: 67
+    title: "Execution test has no RED-to-GREEN evidence"
+    details: |
+      The task's implementation approach explicitly requires a RED execution
+      test before the default, replica, cross-compile, and tagged variants are
+      implemented (`task-06-build-hermetic-bazel-stdlib-map-artifact.code-task.md:49`).
+      `work.log:67-72` records only `Cycle 2 ... GREEN - passing tests (first
+      run)` and a cached pass; unlike the analysis cycle at `work.log:32-45`, it
+      contains no failing execution-test run. This leaves the requirement-driven
+      TDD evidence incomplete even though the final test currently passes.
+    suggested_action: |
+      Record the actual failing execution-test invocation and its subsequent
+      passing run in the task work log, or add the missing requirement-focused
+      RED-to-GREEN evidence before the next review.
+    source: built-in
+  - severity: important
+    category: acceptance_criteria
+    file: bazel_rules/go/tests/stdlib_map_keys_test.sh
+    line: 95
+    title: "Determinism test does not compare canonical bytes"
+    details: |
+      The AC6 assertion at `bazel_rules/go/tests/stdlib_map_keys_test.sh:95-98`
+      compares only the two `sha256sum` results. It never compares the files'
+      bytes, so the test does not directly establish the criterion's separate
+      byte-identity requirement; the comment's claim at `:93` is stronger than
+      the executable assertion. The cached passing result in `work.log:67-72`
+      cannot supply that missing check.
+    suggested_action: |
+      Add a `cmp -s "$default_map" "$replica_map"` assertion with an actionable
+      failure before or alongside the existing SHA-256 comparison, retaining
+      both checks so the test exercises canonical byte equality and digest
+      equality.
+    source: built-in
+  - severity: suggestion
+    category: style
+    file: bazel_rules/go/tests/stdlib_map_tests.bzl
+    line: 119
+    title: "Remove duplicated argv-test explanation"
+    details: |
+      The explicit-input argv test repeats the same three-line explanation at
+      `bazel_rules/go/tests/stdlib_map_tests.bzl:114-117` and `:119-121`.
+      The second copy adds no rationale and makes the analysis test noisier.
+    suggested_action: |
+      Keep one copy of the explanation and remove the duplicate comment block.
+    source: built-in
+
+ecosystem_reviews: []

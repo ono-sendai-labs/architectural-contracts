@@ -1,0 +1,135 @@
+review:
+  task_file: .agents/tasks/2026-08-04-compositional-component-analysis/step04/task-06-build-hermetic-bazel-stdlib-map-artifact.code-task.md
+  change_id: ywxzmlsnupvotvkzzvwxwxzkruxmxtnz
+  reviewed_at: "2026-09-08T01:08:55Z"
+  verdict: approved
+  schema_version: 2
+  lsp_coverage: unavailable
+
+merge_request:
+  title: "feat(bazel): build hermetic stdlib maps [Compositional Analysis: Step 04/Task 06]"
+  body: |
+    Reviews the complete ordered series from the supplied task-05 bookkeeping
+    base: the empty scratchpad-only wplrwlkszlktutoqmqyyqxvwruxzvqnw change;
+    the lxmzwkvosvmoozpytzzzmqwouqkxuynx adapter, provider, hermetic rule,
+    public export, probes, and analysis tests; the
+    wlswoxyloqppzwtqztrqkrukkkrsyuvo cross-configuration execution test; and
+    the zkpsstlvssvqtrtqrvxkkxsyrmqwptmo restoration of the existing Bazel
+    suites plus executable test mode. The fresh
+    ywxzmlsnupvotvkzzvwxwxzkruxmxtnz rework adds the raw byte comparison,
+    records RED-to-GREEN execution-test evidence, and removes the duplicate
+    argv-test comment.
+
+summary: |
+  All prior important findings and the prior partial AC6 status are resolved in
+  the fresh rework: the determinism test now compares raw bytes and digests, and
+  work.log records a failing execution-test run followed by the passing run. The
+  complete series provides the I5 layout-driver action, target-key and cgo
+  rejection coverage, totality checks, restored existing suites, and a green
+  recorded CI gate with no net test loss. LSP diagnostics were unavailable for
+  the touched Starlark, BUILD, and shell files.
+
+acceptance_criteria:
+  - text: |
+      1. **The Bazel artifact is hermetic**
+         - Given a clean Bazel sandbox with no `go` binary on `PATH` and empty user caches
+         - When `arcc_stdlib_map` builds
+         - Then generation succeeds using only the declared SDK sources, package list, configuration file and generator, and produces a valid canonical map.
+    status: pass
+    evidence: |
+      The generation action is a direct `ctx.actions.run` with the arcc exec tool,
+      SDK source depset, package-list file, config file, and one canonical map
+      output at `bazel_rules/go/private/stdlib_map.bzl:116-149`. It sets no
+      environment and uses `use_default_shell_env = False` at `:132-135`.
+      The built-artifact checks at
+      `bazel_rules/go/tests/stdlib_map_keys_test.sh:51-128` validate generated
+      maps and the work log records all four configurations generated in the
+      linux sandbox at `work.log:67-72`.
+  - text: |
+      2. **Action inputs are complete and minimal**
+         - Given the configured stdlib-map target
+         - When its action graph is inspected
+         - Then SDK sources, the package-list file, the configuration file and the generator are declared; no toolchain `go` or tool binary, cache path, home path, dependency-component source or unrelated workspace file is; and the action blocks network access.
+    status: pass
+    evidence: |
+      The action's declared SDK/package-list/config inputs and arcc tool are at
+      `bazel_rules/go/private/stdlib_map.bzl:116-132`; the network execution
+      requirement and disabled default environment are at `:132-135`. The
+      rules_testing tests inspect SDK/config presence and reject toolchain
+      binaries, caches, home paths, dependency sources, and unrelated workspace
+      paths at `bazel_rules/go/tests/stdlib_map_tests.bzl:58-105`, while the
+      empty action environment and explicit argv are checked at `:114-158`.
+  - text: |
+      3. **Target configurations produce distinct keyed artifacts, and cgo is rejected**
+         - Given the default configuration, a cross-compile to another GOOS/GOARCH, and a build-tag variant, all on one execution host, plus a cgo-enabled transition
+         - When all analyse and the first three build
+         - Then each built map validates against its own SDK key and rejects the others' keys, and the cgo-enabled transition fails analysis with an error naming the target and the pure-mode flag.
+    status: pass
+    evidence: |
+      The rule stamps the config-file fields and rejects cgo before creating the
+      action at `bazel_rules/go/private/stdlib_map.bzl:75-104`. Cross-compile,
+      build-tag, and cgo transition coverage is at
+      `bazel_rules/go/tests/stdlib_map_tests.bzl:223-269`. The execution test
+      accepts the default, replica, tagged, and darwin keys and exercises tag,
+      platform, and cgo mismatches at
+      `bazel_rules/go/tests/stdlib_map_keys_test.sh:45-67`; the distinct
+      configuration digests are checked at `:69-83`.
+  - text: |
+      4. **The map remains total and semantically pinned**
+         - Given a built Bazel map
+         - When it is opened through the task 01 reader
+         - Then every listed package and every inventoried importable symbol and init has a terminal classification, and the representative classifications match the design.
+    status: pass
+    evidence: |
+      `arcc stdlibmap inspect` routes through `DecodeMapArtifact` at
+      `go/cmd/arcc/app/stdlibmap.go:336-345`, and the reader validates terminal
+      records and total init/evidence inventories in
+      `go/internal/artifactio/stdlibmap.go:139-241,294-319`. The execution test
+      checks all seven required representative symbols plus an init record at
+      `bazel_rules/go/tests/stdlib_map_keys_test.sh:100-128`; the map generation
+      succeeds with the reconciled toolchain oracle recorded at `work.log:72`.
+  - text: |
+      5. **The public rule and future analysis seam are stable**
+         - Given a BUILD file loading `arcc_stdlib_map` and the existing component implementation preparing for Step 5
+         - When Bazel analysis runs
+         - Then the public rule has validated non-configurable inputs, and one private default `_stdlib_map` contract is available without introducing or running the Step 5 analysis action.
+    status: pass
+    evidence: |
+      `bazel_rules/go/defs.bzl:54-93` exports a public macro with no custom
+      configurable inputs. The private provider-constrained default seam is
+      defined at `bazel_rules/go/private/stdlib_map.bzl:42-57` and consumed by
+      the test-only probe at `bazel_rules/go/tests/stdlib_map_probe.bzl:98-115`;
+      its availability is asserted by
+      `bazel_rules/go/tests/stdlib_map_tests.bzl:207-221`. No Step 5 analysis
+      action or check-verdict implementation is changed in the reviewed range.
+  - text: |
+      6. **Repeated Bazel builds are deterministic**
+         - Given unchanged inputs
+         - When two distinct targets with identical inputs are built
+         - Then their canonical bytes and digests are identical, and the test explains why the comparison cannot be satisfied by action-cache reuse.
+    status: pass
+    evidence: |
+      The default/replica targets and action-cache rationale are documented in
+      `bazel_rules/go/tests/stdlib_map_keys_test.sh:85-94`. The fresh rework
+      `ywxzmlsnupvotvkzzvwxwxzkruxmxtnz` adds `cmp -s` at `:95-98` and retains
+      the SHA-256 comparison at `:100-103`, directly covering both required
+      equality checks. The rework work log records the RED and GREEN runs at
+      `work.log:97-149`, resolving the prior partial status.
+  - text: |
+      7. **Integration remains green**
+         - Given the rule, adapter, tests and metadata
+         - When `just ci` runs
+         - Then Go and Bazel tests, generation cleanness, self-check and the existing component checks all pass, and wildcard builds attempt no cgo-enabled map.
+    status: pass
+    evidence: |
+      `work.log:73-76` records `bazel build //...`, `bazel test //...` with 96
+      passing tests, and `just ci` exit 0. The cgo path fails during analysis in
+      `bazel_rules/go/private/stdlib_map.bzl:94-99`, so no cgo map action is
+      emitted for wildcard execution. The final BUILD change restores the
+      aspect, component, pattern, and darwin layout probes at
+      `bazel_rules/go/tests/BUILD.bazel:56-65`; the net base-to-current diff is
+      additive for that file.
+
+findings: []
+
+ecosystem_reviews: []
