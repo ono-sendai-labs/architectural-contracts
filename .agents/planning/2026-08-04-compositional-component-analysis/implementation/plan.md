@@ -238,7 +238,11 @@ surface yet.
   runfiles). Outputs `<name>.report.json`, `<name>.surface.json`; `OutputGroupInfo(arcc)`;
   `ArccComponentInfo` gains `surface`, `report`, `provenance`.
 - `manual`-tagged components (transitional stand-in for `UNKNOWN`) get an analysis-time
-  `ctx.actions.write` of an asserted surface and no action; `provenance = "asserted"`.
+  `ctx.actions.write` of an asserted surface and no action; `provenance = "asserted"`. This
+  asserted branch lands with the asserted-surface producer, together with the audit of every
+  current `manual` tag and the migration of the fixture-only uses; until it does, such
+  components stay on the checked path. The analysis action and the asserted branch are
+  deliberately separate pieces of work within this step.
 - `check.bzl`: the three test rules assert over the report artifact (`arcc verdict
   --expect pass|fail`, grep, golden) instead of running `arcc check` themselves.
 - Native dependency-surface location by convention (`<manifest>.surface.json`).
