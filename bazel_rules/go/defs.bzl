@@ -9,6 +9,7 @@ statement; they are equally available from their language-neutral home,
 
 load("//bazel_rules/go/private:check.bzl", "arcc_check_test")
 load("//bazel_rules/go/private:component.bzl", "go_component_rule")
+load("//bazel_rules/go/private:stdlib_map.bzl", "arcc_stdlib_map_rule")
 load(
     "//bazel_rules/go/private:go_adapter.bzl",
     "go_infra_deps",
@@ -49,6 +50,47 @@ ALL_AUTHORITIES = _ALL_AUTHORITIES
 # Exported for the test helper in bazel_rules/go/tests/testing.bzl.
 def validate_component_shape(name, kwargs):
     _validate_component_shape(name, kwargs)
+
+def _arcc_stdlib_map_impl(name, visibility, **kwargs):
+    # The rule declares no custom attributes: the SDK, toolchain and target
+    # configuration all come from the resolved toolchain, so there is nothing
+    # author-configurable to validate (task req 6). The common attributes the
+    # macro framework injects (visibility, tags, ...) are forwarded unchanged.
+    set_kwargs = {key: value for key, value in kwargs.items() if value != None}
+    arcc_stdlib_map_rule(
+        name = name,
+        visibility = visibility,
+        **set_kwargs
+    )
+
+arcc_stdlib_map = macro(
+    implementation = _arcc_stdlib_map_impl,
+    inherit_attrs = "common",
+    attrs = {},
+    doc = """Builds the standard-library authority map for the target SDK configuration.
+
+The map is generated hermetically from the resolved rules_go toolchain: the
+pinned SDK sources, the toolchain-owned stdlib package list, the
+analysis-time target-configuration file and the arcc generator are declared
+inputs of one ordinary action that runs the explicit-input generation path
+of `arcc stdlibmap generate`. The action executes no toolchain binary, sets
+no GOROOT/GOCACHE/PATH, and blocks network access (design I5): the generator
+loads the SDK through the layout driver. The output is one canonical
+`<name>.stdlib-map.json` artifact stamped with the target SDK key.
+
+The rule has no configurable attributes: a target is defined as
+
+    arcc_stdlib_map(
+        name = "arcc_stdlib_map",
+        visibility = ["//visibility:public"],
+    )
+
+and describes whichever target configuration it is analyzed under (a
+cross-compilation or build-tag transition yields a distinct, separately
+keyed map). A cgo-enabled target configuration fails analysis, naming the
+target and `--@rules_go//go/config:pure`.
+""",
+)
 
 PACKAGE_SURFACE = "PACKAGE_SURFACE"
 

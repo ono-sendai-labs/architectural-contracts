@@ -5,16 +5,52 @@ load(":aspect_tests.bzl", "arcc_deps_aspect_test_suite")
 load(":component_tests.bzl", "go_component_test_suite")
 load(":pattern_match_test.bzl", "pattern_match_test_suite")
 load(":probe.bzl", "transitioned_component_layout")
+load(":stdlib_map_probe.bzl", "darwin_arm64_stdlib_map", "default_seam_probe", "tagged_stdlib_map")
+load(":stdlib_map_tests.bzl", "stdlib_map_test_suite")
 
-arcc_deps_aspect_test_suite(name = "arcc_deps_aspect_tests")
+stdlib_map_test_suite(name = "stdlib_map_tests")
 
-go_component_test_suite(name = "go_component_tests")
+# The private default-seam probe (task req 7): the rule Step 5's analysis
+# action will mirror — it consumes the default `_stdlib_map` attribute and
+# nothing else, so the seam's availability is pinned without introducing the
+# analysis action itself.
+default_seam_probe(name = "stdlib_map_default_seam_probe")
 
-pattern_match_test_suite(name = "pattern_match_tests")
+# The same map target under distinct target configurations (Step 4 task 06
+# AC 3/6): the execution test asserts distinct, self-validating artifacts and
+# deterministic bytes for identical configurations. A cgo-enabled
+# configuration is rejected at analysis time (see the expect_failure analysis
+# test), so there is no cgo-on target to keep out of the wildcard builds —
+# AC 10 holds by construction.
+darwin_arm64_stdlib_map(
+    name = "stdlib_map_darwin_arm64",
+    map = "//:arcc_stdlib_map",
+)
 
-transitioned_component_layout(
-    name = "darwin_arm64_layout",
-    component = "//bazel_rules/go/tests/testdata/api:api_component",
+tagged_stdlib_map(
+    name = "stdlib_map_tagged",
+    map = "//:arcc_stdlib_map",
+    tag = "arcc_probe_tag",
+)
+
+sh_test(
+    name = "stdlib_map_keys_test",
+    srcs = ["stdlib_map_keys_test.sh"],
+    size = "medium",
+    data = [
+        "//:arcc",
+        "//:arcc_stdlib_map",
+        "//:arcc_stdlib_map_replica",
+        ":stdlib_map_darwin_arm64",
+        ":stdlib_map_tagged",
+    ],
+    args = [
+        "$(rootpath //:arcc)",
+        "$(rootpath //:arcc_stdlib_map)",
+        "$(rootpath //:arcc_stdlib_map_replica)",
+        "$(rootpath :stdlib_map_darwin_arm64)",
+        "$(rootpath :stdlib_map_tagged)",
+    ],
 )
 
 # Negative test for self-check dependency regression: a self-component declaration

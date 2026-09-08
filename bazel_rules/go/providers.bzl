@@ -7,3 +7,16 @@ ArccPackageInfo = provider(
                     "srcs is a tuple of File, deps a tuple of direct-dependency importpaths",
     },
 )
+
+ArccStdlibMapInfo = provider(
+    doc = "The standard-library authority map built for one target SDK configuration.",
+    fields = {
+        "map": "File — the canonical stdlib-map artifact (JSON).",
+        "toolchain_version": "string — the target toolchain version (e.g. go1.26.4).",
+        "goos": "string — the target GOOS the map describes.",
+        "goarch": "string — the target GOARCH the map describes.",
+        "cgo_enabled": "bool — the target cgo state the map describes.",
+        "build_tags": "tuple of strings — the target build tags, sorted.",
+        "goexperiment": "string — the target GOEXPERIMENT.",
+    },
+)

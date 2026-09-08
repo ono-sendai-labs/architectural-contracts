@@ -18,6 +18,7 @@ constant instead; that is conforming behavior, not a degraded fallback.
 """
 
 load("@rules_go//go:def.bzl", "GoArchive", "GoInfo")
+load("@rules_go//go/private:providers.bzl", "GoConfigInfo")
 load("//bazel_rules:providers.bzl", "ArccComponentInfo")
 load(":paths.bzl", "runfiles_path")
 
@@ -265,3 +266,71 @@ def go_sdk_srcs(ctx):
     location) may return an empty depset.
     """
     return ctx.toolchains[GO_TOOLCHAINS[0]].sdk.srcs
+
+# --- stdlib-map toolchain material (Step 4 task 06) ------------------------------
+#
+# The stdlib-map rule needs more of the toolchain than the check rule does:
+# the pinned SDK sources, the toolchain-owned stdlib package enumeration, the
+# exact toolchain version, and the target build configuration. Deliberately
+# absent: the toolchain `go` binary and the tool binaries — the map action
+# executes no toolchain binary at all (design I5); its generator loads the
+# SDK through the layout driver. Everything below reads rules_go material so
+# the layers above never load `@rules_go` (the adapter is the single seam).
+
+# Rule attributes that carry the target build configuration. Merged into a
+# rule's `attrs` by stdlib_map.bzl; the impl reads the resulting
+# GoConfigInfo through `go_target_mode`.
+GO_CONTEXT_DATA_ATTRS = {
+    "_go_context_data": attr.label(
+        default = Label("@rules_go//:go_context_data"),
+        doc = "rules_go's build-configuration collector: supplies the target " +
+              "GOOS/GOARCH/cgo/tags the stdlib map is keyed by.",
+    ),
+}
+
+def go_stdlib_toolchain(ctx):
+    """The pinned toolchain material a hermetic stdlib-map generation needs.
+
+    Returns struct(srcs, package_list, root_file, version, experiments): the
+    SDK source depset, the toolchain-owned stdlib package-list file, a file in
+    the SDK root (for locating the SDK directory), the exact SDK version, and
+    the repo-pinned GOEXPERIMENT list. All of it comes from the resolved
+    toolchain — declared inputs, never host state — and none of it is an
+    executable toolchain binary.
+    """
+    sdk = ctx.toolchains[GO_TOOLCHAINS[0]].sdk
+    experiments = sdk.experiments or []
+    if type(experiments) == type(""):
+        experiments = [e for e in experiments.split(",") if e]
+    return struct(
+        srcs = sdk.srcs,
+        package_list = sdk.package_list,
+        root_file = sdk.root_file,
+        version = sdk.version,
+        experiments = tuple(sorted(experiments)),
+    )
+
+def go_target_mode(ctx):
+    """The target build configuration the current analysis runs under.
+
+    Read from rules_go's GoConfigInfo (collected by `@rules_go//:go_context_data`
+    in this rule's configuration): goos/goarch follow toolchain resolution, so a
+    platform transition yields the target platform, not the execution host.
+    cgo_enabled = not pure mirrors `go_build_platform`'s documented
+    approximation. The toolchain version is normalized to the GOVERSION
+    spelling ("go" + version) the SDK key uses natively.
+    """
+    sdk = go_stdlib_toolchain(ctx)
+    config = ctx.attr._go_context_data[GoConfigInfo]
+    version = sdk.version or ""
+    if version and not version.startswith("go"):
+        version = "go" + version
+    tags = sorted(getattr(config, "tags", []) or [])
+    return struct(
+        toolchain_version = version,
+        goos = config.goos,
+        goarch = config.goarch,
+        cgo_enabled = not config.pure,
+        tags = tuple(tags),
+        goexperiment = ",".join(sdk.experiments),
+    )

@@ -18,3 +18,22 @@ alias(
     actual = "//go/cmd/arcc",
     visibility = ["//visibility:public"],
 )
+
+# The stdlib authority map for the target SDK configuration (Step 4 task 06):
+# generated hermetically from the resolved toolchain — no toolchain binary in
+# the action. The default target is what the Step 5 analysis action attaches
+# as `_stdlib_map`; the replica is byte-identical by construction and exists
+# so the execution test can compare two independent executions of identical
+# configurations (distinct output paths mean distinct action keys, so the
+# action cache can never serve one from the other).
+load("//bazel_rules/go:defs.bzl", "arcc_stdlib_map")
+
+arcc_stdlib_map(
+    name = "arcc_stdlib_map",
+    visibility = ["//visibility:public"],
+)
+
+arcc_stdlib_map(
+    name = "arcc_stdlib_map_replica",
+    visibility = ["//visibility:public"],
+)
