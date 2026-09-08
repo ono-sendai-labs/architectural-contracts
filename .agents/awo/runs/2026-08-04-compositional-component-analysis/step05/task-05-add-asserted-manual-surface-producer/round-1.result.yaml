@@ -1,0 +1,106 @@
+result:
+  task_file: .agents/tasks/2026-08-04-compositional-component-analysis/step05/task-05-add-asserted-manual-surface-producer.code-task.md
+  change_id: nouumpqxlnwrwnxpykwuyvtpqsrvtxwl
+  status: completed
+  schema_version: 2
+  produced_at: 2026-09-08T18:07:42Z
+
+acceptance_criteria:
+  - text: "Manual components are structurally asserted (canonical surface, report = None, provenance = asserted, no component analysis action)"
+    addressed: yes
+    evidence: >
+      bazel_rules/go/private/component.bzl asserted branch (_asserted_surface_content
+      + producer selection); bazel_rules/go/tests/asserted_surface_tests.bzl
+      _provider_is_structurally_asserted_impl asserts provenance "asserted",
+      report None, the published surface, and that target.actions contain only
+      FileWrite mnemonics (no ArccCheck).
+  - text: "Asserted surfaces carry exactly their analysis-time content (packages/namespace/SDK key/format/producer equal the checked emitter; symbols empty, digest the empty string)"
+    addressed: yes
+    evidence: >
+      asserted_surface_tests.bzl _surface_content_is_package_level_impl decodes the
+      write action's content (I6 fields, no symbols key, no digest key);
+      bazel_rules/go/tests/asserted_surface_sdk_key_test.sh proves sdkKey/
+      namespace/producerVersion/formatVersion equality with a built checked
+      surface and with the stamped map artifact (arcc_metadata.bzl drift guard).
+  - text: "A declared-interface component cannot be asserted (analysis-time failure naming the target and the I6 reason)"
+    addressed: yes
+    evidence: >
+      component.bzl I6 fail in the manual branch; fixture
+      testdata/reportboundary/manual:declared_manual_component; asserted_surface_tests.bzl
+      _declared_interface_cannot_be_asserted_test (expect_failure; message names
+      the target and states asserted surfaces are package-level).
+  - text: "Provenance is not self-asserted by the file (no checked/asserted bit in the surface schema)"
+    addressed: yes
+    evidence: >
+      asserted_surface_tests.bzl _surface_schema_has_no_provenance_bit_impl (the
+      asserted surface's key set is exactly the schema fields); work.log AC3
+      inspection: no "provenance" occurrence in proto/archcontracts/v1/surface.proto;
+      the distinction is producer/provider topology (R8, DR-01).
+  - text: "Negative fixtures remain real analyses (checked path after migration; explicit expect-violation tests still assert failing reports)"
+    addressed: yes
+    evidence: >
+      fixture BUILDs migrated to check_tags (violation, funcvalue, hazard,
+      membercomponent, nested, consumer, malformed, go/internal/checker,
+      go/internal/schema); component_tests.bzl _migrated_fixture_stays_checked_test
+      asserts provenance "checked" with report and surface; violation_component_check_fails_test,
+      funcvalue_component_check_fails_test, hazard and golden tests all pass in `just ci`.
+  - text: "An asserted component cannot masquerade as checked (explicit .check absent or fails with a clear no-checked-report diagnostic)"
+    addressed: yes
+    evidence: >
+      defs.bzl/testing.bzl macros omit the generated .check for asserted components;
+      check.bzl _require_checked_component fails analysis naming both targets;
+      asserted_surface_tests.bzl _explicit_check_of_asserted_component_fails_test on
+      tests/BUILD.bazel asserted_component_check_rejected_test.
+  - text: "Default builds remain lazy (no checked analysis; asserted artifacts not default outputs)"
+    addressed: yes
+    evidence: >
+      asserted_surface_tests.bzl _default_outputs_unchanged_impl (default outputs =
+      manifest + layout only; arcc output group = the surface only); `just ci`'s
+      wildcard `bazel build //...` green with no component analysis executed.
+
+artifacts:
+  scratchpad_dir: .agents/scratchpad/2026-08-04-compositional-component-analysis/step05/task-05-add-asserted-manual-surface-producer
+  files:
+    - bazel_rules/go/private/arcc_metadata.bzl
+    - bazel_rules/go/private/component.bzl
+    - bazel_rules/go/private/check.bzl
+    - bazel_rules/go/private/stdlib_map.bzl
+    - bazel_rules/go/providers.bzl
+    - bazel_rules/go/defs.bzl
+    - bazel_rules/go/tests/testing.bzl
+    - bazel_rules/go/tests/asserted_surface_tests.bzl
+    - bazel_rules/go/tests/asserted_surface_sdk_key_test.sh
+    - bazel_rules/go/tests/component_tests.bzl
+    - bazel_rules/go/tests/stdlib_map_tests.bzl
+    - bazel_rules/go/tests/BUILD.bazel
+    - bazel_rules/go/tests/testdata/reportboundary/manual/BUILD.bazel
+    - bazel_rules/go/tests/testdata/violation/BUILD.bazel
+    - bazel_rules/go/tests/testdata/funcvalue/BUILD.bazel
+    - bazel_rules/go/tests/testdata/hazard/BUILD.bazel
+    - bazel_rules/go/tests/testdata/nested/BUILD.bazel
+    - bazel_rules/go/tests/testdata/conflict/BUILD.bazel
+    - bazel_rules/go/tests/testdata/malformed/BUILD.bazel
+    - bazel_rules/go/tests/testdata/membercomponent/BUILD.bazel
+    - bazel_rules/go/tests/testdata/reportboundary/consumer/BUILD.bazel
+    - go/internal/checker/BUILD.bazel
+    - go/internal/schema/BUILD.bazel
+
+notes: |
+  Implemented the re-specified asserted producer per design invariant I6:
+  manual-tagged components write a canonical package-level surface at analysis
+  time (no symbols, empty digest, UNKNOWN authority, the complete SDK key
+  assembled through the once-extended ArccStdlibMapInfo seam) with provenance
+  "asserted", report None, and no analysis action; declared-interface and
+  declared-authority manual components fail analysis naming the target; the
+  generated .check is omitted and the assertion rules refuse asserted components
+  with a clear diagnostic. Every fixture-only manual tag migrated to
+  check_tags; the conflict fixture keeps its component-level tag as a
+  wildcard-build exclusion and is documented as such; the pattern-match probe
+  tag turned out to be a trivial probe rule, not a component. Because Starlark
+  has no hashing primitive, the classifier hash and version/format constants
+  are mirrored once in arcc_metadata.bzl and equality-pinned by a new sh_test
+  against both a built checked surface and the stamped map artifact (req 5).
+  Work was committed incrementally across five jj changes; `just ci` is fully
+  green (Go leg, selfcheck, wildcard build, bazel test //... 114 tests, and the
+  tool-error gate proving the malformed fixture's ArccCheck action still runs
+  and fails on the checked path).
