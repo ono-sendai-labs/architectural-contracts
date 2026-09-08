@@ -89,6 +89,23 @@ def _checked_launcher_arg(arg):
         return '"' + arg + '"'
     return _shell_quote(arg)
 
+_CHECKED_VERDICTS = ("pass", "fail")
+
+def _validated_verdict(attr_value, label):
+    """The expected report verdict, validated at analysis time.
+
+    The value is interpolated into generated shell code, so it must be one of
+    the two documented enum constants — anything else is a BUILD-authoring
+    error rejected here, never an unescaped string in the launcher.
+    """
+    if attr_value not in _CHECKED_VERDICTS:
+        fail("arcc_checked_analysis_test %s: expect_verdict must be one of %s, got %r" % (
+            label,
+            ", ".join(_CHECKED_VERDICTS),
+            attr_value,
+        ))
+    return attr_value
+
 def _checked_analysis_launcher(argv, expected_report, expected_surface, expect_verdict, map_path, arcc):
     """Launcher for `arcc_checked_analysis_test`.
 
@@ -168,6 +185,7 @@ def _checked_analysis_launcher(argv, expected_report, expected_surface, expect_v
 
 def _arcc_checked_analysis_impl(ctx):
     info = ctx.attr.component[ArccComponentInfo]
+    expect_verdict = _validated_verdict(ctx.attr.expect_verdict, ctx.label)
 
     map_file = ctx.attr._stdlib_map[ArccStdlibMapInfo].map
     argv = arcc_check_argv(
@@ -405,15 +423,12 @@ def _launcher_content_with_golden(argv, golden_file_path):
 def _arcc_check_report_golden_impl(ctx):
     info = ctx.attr.component[ArccComponentInfo]
 
-    argv = [
-        runfiles_path(ctx, ctx.executable._arcc),
-        "check",
-        runfiles_path(ctx, info.manifest),
-    ]
-    if info.layout != None:
-        argv.append("--package-layout=" + runfiles_path(ctx, info.layout))
-    if ctx.attr.format_json:
-        argv.append("--format=json")
+    argv = arcc_check_argv(
+        arcc = runfiles_path(ctx, ctx.executable._arcc),
+        manifest = runfiles_path(ctx, info.manifest),
+        layout = runfiles_path(ctx, info.layout) if info.layout != None else "",
+        format_json = ctx.attr.format_json,
+    )
 
     golden_path = runfiles_path(ctx, ctx.file.golden)
 

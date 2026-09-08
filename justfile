@@ -78,6 +78,11 @@ bazel-test:
 	bazel test //...
 	TEST_SRCDIR="$PWD" TEST_TMPDIR="${TMPDIR:-/tmp}" bazel_rules/go/tests/members_label_validation_test.sh
 	TEST_SRCDIR="$PWD" TEST_TMPDIR="${TMPDIR:-/tmp}" bazel_rules/go/tests/component_shape_validation_test.sh
+	@# Tool errors must fail the checked analysis action (AC 2): requesting the
+	@# arcc output group of the malformed fixture must fail the build, while the
+	@# wildcard default build above stayed green (the fixture is tagged manual).
+	if bazel build --output_groups=+arcc //bazel_rules/go/tests/testdata/malformed:broken_go_component >${TMPDIR:-/tmp}/broken_go_component.out 2>&1; then echo "FAIL: expected the malformed component's ArccCheck action to fail" >&2; exit 1; fi
+	grep -q "failed to load package facts" ${TMPDIR:-/tmp}/broken_go_component.out
 
 # Go-only leg: everything except selfcheck and bazel-test. Mirrors the
 # ci.yml "Go" job so the three CI jobs can run in parallel on separate

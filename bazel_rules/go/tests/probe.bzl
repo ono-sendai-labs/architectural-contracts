@@ -6,7 +6,7 @@ it. This is the smallest thing that can.
 
 load("@rules_go//go:def.bzl", "GoInfo")
 load("//bazel_rules:providers.bzl", "ArccComponentInfo")
-load("//bazel_rules/go:providers.bzl", "ArccPackageInfo")
+load("//bazel_rules/go:providers.bzl", "ArccPackageInfo", "ArccStdlibMapInfo")
 load("//bazel_rules/go/private:aspect.bzl", "arcc_deps_aspect")
 load(
     "//bazel_rules/go/private:go_adapter.bzl",
@@ -101,6 +101,29 @@ go_platform_probe = rule(
     doc = "Exposes adapter platform and infrastructure-seam results for analysis tests.",
 )
 
+def _transitioned_checked_map_impl(ctx):
+    map_published = ctx.actions.declare_file(ctx.label.name + ".stdlib-map.json")
+    ctx.actions.symlink(output = map_published, target_file = ctx.attr.map[0][ArccStdlibMapInfo].map)
+    return [
+        DefaultInfo(
+            files = depset([map_published]),
+            runfiles = ctx.runfiles(files = [map_published]),
+        ),
+    ]
+
+transitioned_checked_map = rule(
+    implementation = _transitioned_checked_map_impl,
+    attrs = {
+        "map": attr.label(
+            default = "//:arcc_stdlib_map",
+            providers = [ArccStdlibMapInfo],
+            cfg = _darwin_arm64_transition,
+            doc = "The stdlib map to build in the darwin/arm64 transition configuration.",
+        ),
+    },
+    doc = "Republishes the stdlib map of the darwin/arm64 transition configuration.",
+)
+
 def _transitioned_component_layout_impl(ctx):
     info = ctx.attr.component[0][ArccComponentInfo]
     return [
@@ -120,4 +143,56 @@ transitioned_component_layout = rule(
             doc = "The component to build in darwin/arm64 configuration.",
         ),
     },
+)
+
+def _checked_analysis_surface_impl(ctx):
+    info = ctx.attr.component[ArccComponentInfo]
+    # Republish under the wrapper's own short_path: the surfaces of different
+    # configurations share one short_path (same rule output name in different
+    # configuration trees) and runfiles collapse on short_path.
+    published = ctx.actions.declare_file(ctx.label.name + ".surface.json")
+    ctx.actions.symlink(output = published, target_file = info.surface)
+    return [
+        DefaultInfo(
+            files = depset([published]),
+            runfiles = ctx.runfiles(files = [published]),
+        ),
+    ]
+
+checked_analysis_surface = rule(
+    implementation = _checked_analysis_surface_impl,
+    attrs = {
+        "component": attr.label(
+            mandatory = True,
+            providers = [ArccComponentInfo],
+            doc = "The checked component whose surface to republish as a data label.",
+        ),
+    },
+    doc = "Republishes a component's checked surface so sh_tests can take it as data.",
+)
+
+def _transitioned_checked_surface_impl(ctx):
+    info = ctx.attr.component[0][ArccComponentInfo]
+    published = ctx.actions.declare_file(ctx.label.name + ".surface.json")
+    ctx.actions.symlink(output = published, target_file = info.surface)
+    return [
+        DefaultInfo(
+            files = depset([published]),
+            runfiles = ctx.runfiles(files = [published]),
+        ),
+    ]
+
+transitioned_checked_surface = rule(
+    implementation = _transitioned_checked_surface_impl,
+    attrs = {
+        "component": attr.label(
+            mandatory = True,
+            providers = [ArccComponentInfo],
+            cfg = _darwin_arm64_transition,
+            doc = "The component to analyze in darwin/arm64 configuration.",
+        ),
+    },
+    doc = "Republishes a transitioned component's checked surface (its ArccCheck " +
+          "action runs under the transition, with the transition's stdlib map — " +
+          "see transitioned_checked_map for that map).",
 )

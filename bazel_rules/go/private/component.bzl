@@ -190,7 +190,7 @@ def _classify(ctx, merged, effective_members, covered):
     return sorted(members)
 
 def _shell_quote(arg):
-    """Shell-quote one argv element for a `run_shell` command (see check.bzl)."""
+    """Shell-quote one argv element for the generated frame wrapper (see check.bzl)."""
     return "'" + arg.replace("'", "'\\''") + "'"
 
 def _frame_symlink_commands(files, workspace_name):
@@ -278,7 +278,10 @@ def _checked_analysis_action(ctx, manifest, layout, closure_srcs, transitive_man
 
     ctx.actions.write(
         output = wrapper,
-        content = "\n".join(["#!/bin/bash"] + _frame_symlink_commands(frame_files, ctx.workspace_name) + ["exec \"$@\"", ""]),
+        # `set -eu` fails the action immediately if a frame symlink cannot be
+        # created: the working-directory contract must fail closed, never
+        # silently continue with unresolved paths.
+        content = "\n".join(["#!/bin/bash", "set -eu"] + _frame_symlink_commands(frame_files, ctx.workspace_name) + ["exec \"$@\"", ""]),
         is_executable = True,
     )
 

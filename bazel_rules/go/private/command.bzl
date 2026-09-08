@@ -1,9 +1,12 @@
-"""arcc invocation, factored out so the test rule and a future validation
-action build the identical command (R7).
+"""arcc invocation, factored out so every enforcement mode builds the
+identical command (R7).
 
-`arcc_check_test` runs this as a `bazel test`; the planned `_arcc_validation`
-action will run the same argv to fail a `bazel build` instead. Keeping the
-command in one place means the two enforcement modes can never drift.
+`arcc_check_argv` is the single construction point: the `.check` assertion
+rules run it as `bazel test` enforcement, the component analysis action
+(`component.bzl`'s ArccCheck, via its generated frame wrapper) runs the same
+argv in always-green report-verdict-only mode, and the report-golden
+assertion rule reuses it with a text-format override. One construction site
+means the enforcement modes can never drift.
 """
 
 def arcc_check_argv(
@@ -13,7 +16,8 @@ def arcc_check_argv(
         stdlib_map = None,
         report_out = None,
         surface_out = None,
-        verdict_only = False):
+        verdict_only = False,
+        format_json = True):
     """Argv for `arcc check`, shared by every enforcement mode (R7).
 
     The `.check` test rule (assertion) and the component analysis action
@@ -26,7 +30,9 @@ def arcc_check_argv(
     sandbox. Callers that emit artifacts pass `report_out`/`surface_out` (the
     artifact destinations) and `stdlib_map` (the declared map the surface's
     SDK key is stamped from); `verdict_only` selects the always-green
-    report-verdict-only mode the action requires (design §Build topology).
+    report-verdict-only mode the action requires (design §Build topology);
+    `format_json` selects the report encoding (False for the text-golden
+    assertion rule).
     """
     argv = [
         arcc,
@@ -43,5 +49,6 @@ def arcc_check_argv(
         argv.append("--surface-out=" + surface_out)
     if verdict_only:
         argv.append("--report-verdict-only")
-    argv.append("--format=json")
+    if format_json:
+        argv.append("--format=json")
     return argv

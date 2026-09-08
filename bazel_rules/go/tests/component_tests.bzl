@@ -488,6 +488,57 @@ def _checked_action_inputs_impl(env, target):
         "api_component.surface.json",
     ])
 
+    # The transition input set is exact (AC 5): every input is either a
+    # closure source, one of the component's/dependency's manifest, layout,
+    # map or producer artifacts, or an SDK source under the layout's
+    # go_sdk_root repository. Anything else — export data, host caches,
+    # toolchain binaries, an undeclared host file — fails here.
+    sdk_frame_prefix = _sdk_repo_prefix(env, target)
+    non_sdk_inputs = [
+        f.basename
+        for f in raw.inputs.to_list()
+        if not f.short_path.startswith("../" + sdk_frame_prefix)
+    ]
+    expected_basenames = {}
+    for basename in non_sdk_inputs:
+        expected_basenames[basename] = True
+    for src in info.closure.to_list():
+        for s in src.srcs:
+            expected_basenames[s.basename] = True
+    expected_basenames["api_component.component.textproto"] = True
+    expected_basenames["api_component.package-layout.json"] = True
+    expected_basenames[_stdlib_map_path(env, raw).rsplit("/", 1)[-1]] = True
+    expected_basenames["shared_component.component.textproto"] = True
+    expected_basenames["shared_component.package-layout.json"] = True
+    expected_basenames["shared_component.report.json"] = True
+    expected_basenames["shared_component.surface.json"] = True
+
+    unexpected = [
+        basename
+        for basename in non_sdk_inputs
+        if not expected_basenames.get(basename)
+    ]
+    env.expect.that_collection(unexpected).contains_exactly([])
+
+    # Explicit negatives over the non-SDK inputs (AC 5): no export data, no
+    # host/toolchain caches, no toolchain binary in the declared inputs.
+    env.expect.that_collection([b for b in non_sdk_inputs if ".export" in b]).contains_exactly([])
+    env.expect.that_collection([b for b in non_sdk_inputs if "cache" in b]).contains_exactly([])
+    env.expect.that_collection([b for b in non_sdk_inputs if b == "go" or b.endswith(".a")]).contains_exactly([])
+
+def _sdk_repo_prefix(env, target):
+    """The runfiles-frame prefix of the SDK sources, from the emitted layout."""
+    layout_action = env.expect.that_target(target).action_generating(
+        "bazel_rules/go/tests/testdata/api/api_component.package-layout.json",
+    ).actual
+    content = layout_action.content
+    marker = "\"go_sdk_root\": \""
+    start = content.find(marker)
+    if start == -1:
+        env.fail("layout names no go_sdk_root")
+    root = content[start + len(marker):].split("\"")[0]
+    return root.split("/")[0] + "/"
+
 def go_component_test_suite(name):
     test_suite(
         name = name,

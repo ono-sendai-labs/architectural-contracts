@@ -4,7 +4,7 @@ load("//bazel_rules/go/private:check.bzl", "arcc_check_grep_test", "arcc_check_r
 load(":aspect_tests.bzl", "arcc_deps_aspect_test_suite")
 load(":component_tests.bzl", "go_component_test_suite")
 load(":pattern_match_test.bzl", "pattern_match_test_suite")
-load(":probe.bzl", "transitioned_component_layout")
+load(":probe.bzl", "checked_analysis_surface", "transitioned_checked_map", "transitioned_checked_surface", "transitioned_component_layout")
 load(":stdlib_map_probe.bzl", "darwin_arm64_stdlib_map", "default_seam_probe", "tagged_stdlib_map")
 load(":stdlib_map_tests.bzl", "stdlib_map_test_suite")
 
@@ -100,6 +100,44 @@ pattern_match_test_suite(name = "pattern_match_tests")
 transitioned_component_layout(
     name = "darwin_arm64_layout",
     component = "//bazel_rules/go/tests/testdata/api:api_component",
+)
+
+# Target-identity coherence under a non-default configuration (task req 8,
+# AC 6): the darwin/arm64, cgo-off, build-tagged analysis emits a surface
+# whose complete SDK key matches its own configuration's stdlib map and is
+# rejected by the default configuration's map.
+transitioned_checked_map(
+    name = "darwin_arm64_map",
+)
+
+transitioned_checked_surface(
+    name = "darwin_arm64_surface",
+    component = "//bazel_rules/go/tests/testdata/api:api_component",
+)
+
+checked_analysis_surface(
+    name = "default_surface",
+    component = "//bazel_rules/go/tests/testdata/api:api_component",
+)
+
+sh_test(
+    name = "transitioned_surface_sdk_key_test",
+    srcs = ["transitioned_surface_sdk_key_test.sh"],
+    size = "medium",
+    args = [
+        "$(rootpath //:arcc)",
+        "$(rootpath //:arcc_stdlib_map)",
+        "$(rootpath :darwin_arm64_map)",
+        "$(rootpath :default_surface)",
+        "$(rootpath :darwin_arm64_surface)",
+    ],
+    data = [
+        "//:arcc",
+        "//:arcc_stdlib_map",
+        ":darwin_arm64_map",
+        ":darwin_arm64_surface",
+        ":default_surface",
+    ],
 )
 
 # Negative test for self-check dependency regression: a self-component declaration
