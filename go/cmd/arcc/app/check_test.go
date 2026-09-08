@@ -283,6 +283,21 @@ func TestRunner_Check_VerdictOnlySeparatesPolicyFromExecution(t *testing.T) {
 		t.Errorf("verdict = %q, want fail", persisted.Verdict)
 	}
 
+	// A conforming component: analysis ran, so verdict-only exits 0 with a
+	// passing report.
+	conforming, recordedPass, _ := seamRunner(t, seamRunnerOpts{pkgPath: "example.com/temp/verdict"})
+	_, _, code = runRunnerFromWorkspace(t, t.TempDir(), conforming, args)
+	if code != 0 {
+		t.Fatalf("conforming verdict-only exit = %d, want 0", code)
+	}
+	passing, err := artifactio.DecodeReport(recordedPass[reportPath])
+	if err != nil {
+		t.Fatalf("decode report: %v", err)
+	}
+	if passing.Verdict != "pass" {
+		t.Errorf("verdict = %q, want pass", passing.Verdict)
+	}
+
 	// A tool error still exits 2 in verdict-only mode.
 	var called bool
 	failing, _, _ := seamRunner(t, seamRunnerOpts{pkgPath: "example.com/temp/verdict", loaderErr: errors.New("boom"), loaderCalled: &called})

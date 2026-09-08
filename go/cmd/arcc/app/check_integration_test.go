@@ -265,6 +265,26 @@ func TestCheck_EmitsArtifactsNativeMode(t *testing.T) {
 	}
 }
 
+// runRunnerStdout is runRunnerFromWorkspace2 with the stdout text returned.
+func runRunnerStdout(t *testing.T, workspace string, runner *app.Runner, args []string) (string, string, int) {
+	t.Helper()
+	originalWD, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(workspace); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := os.Chdir(originalWD); err != nil {
+			t.Errorf("restore working directory: %v", err)
+		}
+	})
+	var stdout, stderr strings.Builder
+	code := runner.Run(args, &stdout, &stderr)
+	return stdout.String(), stderr.String(), code
+}
+
 // runRunnerFromWorkspace2 is the shared workspace-chdir helper; goanalysis's
 // layout mode and native loading both resolve paths relative to the process
 // working directory, so checks run with the workspace as cwd.
@@ -315,4 +335,94 @@ func withReplaced(args []string, old, new string) []string {
 		out = append(out, a)
 	}
 	return out
+}
+
+// TestCheck_ExcludedInterfaceFileStillEmitsSurface is the mixed
+// surviving/excluded interface-file leg (review round 1, finding 3): a valid
+// component with one surviving and one build-excluded interface file emits
+// the exact surviving surface and keeps the exclusion warning in the report.
+func TestCheck_ExcludedInterfaceFileStillEmitsSurface(t *testing.T) {
+	workspace := t.TempDir()
+	if err := os.WriteFile(filepath.Join(workspace, "go.mod"), []byte("module example.com/gated\n\ngo 1.21\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	compDir := filepath.Join(workspace, "comp")
+	if err := os.MkdirAll(compDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(compDir, "api.go"), []byte("package comp\n\ntype Greeter interface{ Hello() }\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(compDir, "gated.go"), []byte("//go:build plan9\n\npackage comp\n\ntype Gated interface{ Only() }\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(compDir, "impl.go"), []byte("package comp\n\ntype greeter struct{}\n\nfunc (greeter) Hello() {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	manifestPath := filepath.Join(compDir, "component.textproto")
+	manifest := "name: \"gated\"\ninterface_files: \"api.go\"\ninterface_files: \"gated.go\"\n"
+	if err := os.WriteFile(manifestPath, []byte(manifest), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	mapPath := filepath.Join(t.TempDir(), "map.json")
+	generateNativeMap(t, mapPath)
+
+	runner := fullRunner()
+	reportPath := filepath.Join(compDir, "gated.report.json")
+	surfacePath := filepath.Join(compDir, "gated.surface.json")
+	args := []string{
+		"check", manifestPath,
+		"--report-out=" + reportPath,
+		"--surface-out=" + surfacePath,
+		"--stdlib-map=" + mapPath,
+	}
+	stdout, stderr, code := runRunnerStdout(t, workspace, runner, args)
+	if code != 0 {
+		t.Fatalf("check: exit %d, stderr: %s", code, stderr)
+	}
+	if !strings.Contains(stdout, "INTERFACE_FILE_EXCLUDED") || !strings.Contains(stdout, "gated.go") {
+		t.Errorf("stdout = %q, want the exclusion warning", stdout)
+	}
+	reportData, err := os.ReadFile(reportPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	persisted, err := artifactio.DecodeReport(reportData)
+	if err != nil {
+		t.Fatalf("decode report: %v", err)
+	}
+	found := false
+	for _, w := range persisted.Report.Warnings {
+		if w.Kind == "INTERFACE_FILE_EXCLUDED" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("report warnings = %+v, want the exclusion warning", persisted.Report.Warnings)
+	}
+
+	surfaceData, err := os.ReadFile(surfacePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	surface, err := artifactio.DecodeSurface(strings.NewReader(string(surfaceData)))
+	if err != nil {
+		t.Fatalf("decode surface: %v", err)
+	}
+	for _, sym := range surface.Symbols {
+		if strings.Contains(sym, ".Gated") {
+			t.Errorf("excluded declaration %q leaked into the surface", sym)
+		}
+	}
+	want := "example.com/gated/comp.Greeter"
+	found = false
+	for _, sym := range surface.Symbols {
+		if sym == want {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("surface symbols = %v, want %q from the surviving interface file", surface.Symbols, want)
+	}
 }

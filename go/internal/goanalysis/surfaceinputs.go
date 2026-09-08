@@ -284,6 +284,13 @@ func ActivePlatformIdentity() (PlatformIdentity, bool) {
 	}, true
 }
 
+// LayoutModeActive reports whether a package layout driver environment is
+// active for this check. It mediates the layout-mode predicate across this
+// component's interface for callers that already depend on goanalysis.
+func LayoutModeActive() bool {
+	return packagelayout.IsLayoutMode()
+}
+
 // CanonicalNamespace returns the host's canonical namespace identifier, the
 // namespace stamped into emitted surfaces. It mediates the hostpolicy value
 // across this component's interface so callers that already depend on

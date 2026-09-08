@@ -35,7 +35,10 @@ type SDKKeyRequest struct {
 	// plain values (nil/unset when the layout is unpinned or the check runs
 	// in native mode); see goanalysis.ActivePlatformIdentity.
 	LayoutPlatform *goanalysis.PlatformIdentity
-	StdlibMapPath  string
+	// InLayoutMode reports whether a package layout driver environment is
+	// active; native mode is its negation.
+	InLayoutMode  bool
+	StdlibMapPath string
 }
 
 // SDKKeyResolver resolves the target SDK identity used for surface emission.
@@ -286,7 +289,7 @@ func (r *Runner) runCheck(opts checkOptions, stdout, stderr io.Writer) int {
 	// Both artifacts are derived and encoded before either is written, so a
 	// failed key resolution or derivation publishes nothing (AC 1, 4, 5).
 	if opts.reportOut != "" || opts.surfaceOut != "" {
-		if err := r.publishArtifacts(opts, &parsedManifest, manifestBytes, componentRoot, loadedFacts, conformanceReport); err != nil {
+		if err := r.publishArtifacts(opts, &parsedManifest, manifestBytes, componentRoot, loadedFacts, interfaceExclusions, conformanceReport); err != nil {
 			fmt.Fprintf(stderr, "error: %v\n", err)
 			return 2
 		}
@@ -329,6 +332,7 @@ func (r *Runner) publishArtifacts(
 	manifestBytes []byte,
 	componentRoot string,
 	loadedFacts facts.PackageFacts,
+	interfaceExclusions []goanalysis.InterfaceFileExclusion,
 	conformanceReport report.ConformanceReport,
 ) error {
 	var sdkKey *stdlibauthority.SDKKey
@@ -339,19 +343,24 @@ func (r *Runner) publishArtifacts(
 		if identity, ok := goanalysis.ActivePlatformIdentity(); ok {
 			layoutPlatform = &identity
 		}
-		key, err := r.keyResolver()(
-			SDKKeyRequest{LayoutPlatform: layoutPlatform, StdlibMapPath: opts.stdlibMap},
-		)
+		key, err := r.keyResolver()(SDKKeyRequest{
+			LayoutPlatform: layoutPlatform,
+			InLayoutMode:   goanalysis.LayoutModeActive(),
+			StdlibMapPath:  opts.stdlibMap,
+		})
 		if err != nil {
 			return fmt.Errorf("resolving the target SDK key: %v", err)
 		}
 		sdkKey = &key
 
+		// Only the surviving interface files reach surface extraction:
+		// build-constraint exclusions are deliberate non-fatal warnings, so
+		// the excluded files are simply absent from the exact surface.
 		surf, err := r.surfaceInputsLoader()(goanalysis.LoadRequest{
 			ComponentName:  parsedManifest.Name,
 			ComponentRoot:  componentRoot,
 			Members:        parsedManifest.Members,
-			InterfaceFiles: parsedManifest.InterfaceFiles,
+			InterfaceFiles: survivingInterfaceFiles(parsedManifest.InterfaceFiles, interfaceExclusions),
 		})
 		if err != nil {
 			return fmt.Errorf("loading member packages for surface emission: %v", err)
@@ -404,6 +413,22 @@ func (r *Runner) publishArtifacts(
 		}
 	}
 	return nil
+}
+
+// survivingInterfaceFiles filters the manifest's declared interface files
+// down to those ValidateInterfaceFiles did not exclude by build constraints.
+func survivingInterfaceFiles(interfaceFiles []string, exclusions []goanalysis.InterfaceFileExclusion) []string {
+	excluded := make(map[string]bool, len(exclusions))
+	for _, e := range exclusions {
+		excluded[e.File] = true
+	}
+	var surviving []string
+	for _, f := range interfaceFiles {
+		if !excluded[filepath.ToSlash(filepath.Clean(f))] {
+			surviving = append(surviving, f)
+		}
+	}
+	return surviving
 }
 
 // producerVersion stamps the emitting tool into the surface (audit
@@ -494,9 +519,13 @@ func keyFromDeclaredMap(req SDKKeyRequest) (stdlibauthority.SDKKey, error) {
 		return stdlibauthority.SDKKey{}, fmt.Errorf("stdlib map %s was generated with classifier_hash %q but this arcc computes %q; regenerate the map", req.StdlibMapPath, key.ClassifierHash, expected.ClassifierHash)
 	}
 
-	// Target mismatch: compare the map's key against the layout's pinned
-	// target declaration (N3). Only a layout that declares a platform can be
-	// compared; an unpinned layout carries no declared target.
+	// Target mismatch (N3): compare the map's key against the target this
+	// invocation actually analyses. In layout mode the declared target is the
+	// layout's pinned platform; an unpinned layout carries no declared
+	// target, so only the map's own key is available. In native mode the
+	// target is discovered from the current toolchain, so an explicit map
+	// made for another target is rejected instead of being stamped into the
+	// surface.
 	if req.LayoutPlatform != nil {
 		expectedKey, err := deriveSDKKey(layoutTarget(req.LayoutPlatform))
 		if err != nil {
@@ -504,6 +533,18 @@ func keyFromDeclaredMap(req SDKKeyRequest) (stdlibauthority.SDKKey, error) {
 		}
 		if fields := stdlibauthority.EqualKeys(key, expectedKey); len(fields) > 0 {
 			return stdlibauthority.SDKKey{}, fmt.Errorf("stdlib map %s key does not match the declared target: mismatched %s", req.StdlibMapPath, strings.Join(fields, ", "))
+		}
+	} else if !req.InLayoutMode {
+		target, err := stdlibmap.NativeTargetConfig()
+		if err != nil {
+			return stdlibauthority.SDKKey{}, err
+		}
+		expectedKey, err := deriveSDKKey(target)
+		if err != nil {
+			return stdlibauthority.SDKKey{}, err
+		}
+		if fields := stdlibauthority.EqualKeys(key, expectedKey); len(fields) > 0 {
+			return stdlibauthority.SDKKey{}, fmt.Errorf("stdlib map %s key does not match the discovered native target: mismatched %s", req.StdlibMapPath, strings.Join(fields, ", "))
 		}
 	}
 	return key, nil

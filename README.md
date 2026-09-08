@@ -226,7 +226,7 @@ The `arcc` tool provides a streamlined command-line interface for checking manif
 arcc checks Go architectural component contracts.
 
 Usage:
-  arcc check <manifest>
+  arcc check <manifest> [--package-layout=<layout>] [--format=json]
         [--report-out=<path>] [--surface-out=<path>] [--stdlib-map=<artifact>]
         [--report-verdict-only]
   arcc verdict <report> --expect=pass|fail
@@ -256,7 +256,9 @@ consume, from one analysis invocation:
   - **Native mode**: without `--stdlib-map`, the target is discovered via the
     Step 4 services (`go env`) and the map is resolved from the on-demand
     cache (generated on a miss). Passing `--stdlib-map` in native mode uses
-    the declared artifact instead.
+    the declared artifact instead, validated against the discovered native
+    target — a map for another toolchain, GOOS, GOARCH, cgo state, or
+    build-tag set is rejected with exit 2.
 - `--report-verdict-only` requires `--report-out` and separates policy from
   execution for the Bazel analysis action: after analysis and artifact
   publication both a passing and a violating component exit 0 (the verdict is
