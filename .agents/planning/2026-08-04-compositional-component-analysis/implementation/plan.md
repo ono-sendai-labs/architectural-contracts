@@ -40,7 +40,7 @@ None of them is tagged, released, or imported; the series is consumed at its end
 - [x] **Step 1** — Baseline measurement and low-risk groundwork
 - [x] **Step 2** — Remove `absorbed_dependencies` and pattern membership
 - [x] **Step 3** — Persisted schemas, symbol grammar, and the authority lattice
-- [ ] **Step 4** — Standard-library authority map: generator, port, Bazel artifact, native cache
+- [x] **Step 4** — Standard-library authority map: generator, port, Bazel artifact, native cache
 - [ ] **Step 5** — Build topology: analysis action, providers, surface emission, CLI outputs
 - [ ] **Step 6** — Reference scan replaces the call graph *(keystone)*
 - [ ] **Step 7** — Surface consumption, status axes, overlap, namespace
