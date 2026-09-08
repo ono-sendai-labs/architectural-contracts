@@ -89,3 +89,9 @@ func stringCompare(a, b string) int {
 		return 0
 	}
 }
+
+// BypassKey is the structural identity of a bypass observation.
+type BypassKey struct {
+	Kind BypassKind
+	Site SourceSite
+}
