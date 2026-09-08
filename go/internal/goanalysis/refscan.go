@@ -60,11 +60,15 @@ func ScanReferences(
 		if !members.Contains(hostpolicy.CanonicalizePath(p.PkgPath)) {
 			continue
 		}
-		// Incomplete member type information is a fail-closed tool error, not
-		// a silent omission: a member package whose Uses/Selections/imports
-		// cannot be fully walked must never yield a partial-facts pass.
-		if p.TypesInfo == nil || p.Fset == nil || p.Syntax == nil {
-			return nil, nil, fmt.Errorf("scanning references: member package %q has incomplete type or syntax data", p.PkgPath)
+		// Incomplete member data is a fail-closed tool error, not a silent
+		// omission: a member package whose Uses/Selections maps, syntax, or
+		// import metadata cannot be fully walked must never yield a
+		// partial-facts pass — ranging a nil map would suppress facts while
+		// reporting success, and a nil Imports map cannot distinguish a
+		// resolved import from an unresolved one.
+		if p.TypesInfo == nil || p.TypesInfo.Uses == nil || p.TypesInfo.Selections == nil ||
+			p.Fset == nil || p.Syntax == nil || p.Imports == nil {
+			return nil, nil, fmt.Errorf("scanning references: member package %q has incomplete type, syntax or import data", p.PkgPath)
 		}
 		if err := scanPackage(p, members, root, refs, imports); err != nil {
 			return nil, nil, err
@@ -139,6 +143,15 @@ func scanPackage(
 		refs[siteKey(kind, fromPkg, id, site)] = struct{}{}
 	}
 
+	// Import resolution is keyed by the canonical path: the loader's import
+	// map may be spelled in a different form than the source literal, and a
+	// host that rewrites paths must still see the import resolved (and a nil
+	// entry preserved as missing type data).
+	canonicalImports := make(map[string]*packages.Package, len(p.Imports))
+	for impPath, imp := range p.Imports {
+		canonicalImports[hostpolicy.CanonicalizePath(impPath)] = imp
+	}
+
 	for _, file := range p.Syntax {
 		if file == nil {
 			continue
@@ -161,8 +174,9 @@ func scanPackage(
 				if err != nil {
 					return fmt.Errorf("scanning imports of %s: %w", fromPkg, err)
 				}
+				canonicalPath := hostpolicy.CanonicalizePath(path)
 				resolution := facts.ImportUnresolved
-				if imp, resolved := p.Imports[path]; resolved {
+				if imp, resolved := canonicalImports[canonicalPath]; resolved {
 					// A nil import-package entry means the loader knows the
 					// path but presents no type data for it: the deliberate
 					// missing-type-data state, never a resolved pass.
@@ -174,7 +188,7 @@ func scanPackage(
 				}
 				imports[facts.ImportKey{
 					ImportingPackage: fromPkg,
-					ImportPath:       hostpolicy.CanonicalizePath(path),
+					ImportPath:       canonicalPath,
 					Resolution:       resolution,
 					Site:             site,
 				}] = struct{}{}

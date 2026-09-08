@@ -12,6 +12,7 @@ import (
 
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/facts"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/goanalysis"
+	"github.com/ono-sendai-labs/architectural-contracts/go/internal/hostpolicy"
 )
 
 const refscanRoot = "testdata/refscan"
@@ -286,4 +287,80 @@ func TestScanReferences_IncompleteImportPackageData(t *testing.T) {
 		}
 	}
 	t.Fatalf("the fmt import edge of the builtins package was not observed")
+}
+
+func TestScanReferences_NilTypeInfoMaps(t *testing.T) {
+	pkgs, ms, root := loadRefScan(t)
+	for _, p := range pkgs {
+		if p.PkgPath == refscanMember+"/kinds" {
+			p.TypesInfo.Uses = nil
+		}
+	}
+	_, _, err := goanalysis.ScanReferences(pkgs, ms, root)
+	if err == nil || !strings.Contains(err.Error(), refscanMember+"/kinds") {
+		t.Errorf("expected a fail-closed error for nil Uses map, got: %v", err)
+	}
+
+	pkgs, ms, root = loadRefScan(t)
+	for _, p := range pkgs {
+		if p.PkgPath == refscanMember+"/kinds" {
+			p.TypesInfo.Selections = nil
+		}
+	}
+	_, _, err = goanalysis.ScanReferences(pkgs, ms, root)
+	if err == nil || !strings.Contains(err.Error(), refscanMember+"/kinds") {
+		t.Errorf("expected a fail-closed error for nil Selections map, got: %v", err)
+	}
+
+	// Without the loader's import metadata, a written import cannot be
+	// distinguished resolved from unresolved: fail closed.
+	pkgs, ms, root = loadRefScan(t)
+	for _, p := range pkgs {
+		if p.PkgPath == refscanMember+"/kinds" {
+			p.Imports = nil
+		}
+	}
+	_, _, err = goanalysis.ScanReferences(pkgs, ms, root)
+	if err == nil || !strings.Contains(err.Error(), refscanMember+"/kinds") {
+		t.Errorf("expected a fail-closed error for a nil Imports map, got: %v", err)
+	}
+}
+
+func TestScanReferences_ImportResolvedByCanonicalKey(t *testing.T) {
+	pkgs, ms, root := loadRefScan(t)
+	// Simulate a host whose canonical spelling differs from the source
+	// literal: the loader keys p.Imports by the canonical spelling. The
+	// written import path must resolve through the canonical form.
+	const rewrittenDispatch = "rewritten.example.com/refscan/member/dispatch"
+	const rewrittenDep = "rewritten.example.com/refscan/dep"
+	prev := hostpolicy.CanonicalizePath
+	hostpolicy.CanonicalizePath = func(p string) string {
+		switch p {
+		case refscanMember + "/dispatch":
+			return rewrittenDispatch
+		case refscanDep:
+			return rewrittenDep
+		default:
+			return p
+		}
+	}
+	defer func() { hostpolicy.CanonicalizePath = prev }()
+
+	ms, err := facts.NewMemberSet(rewrittenDispatch)
+	if err != nil {
+		t.Fatalf("invalid member set: %v", err)
+	}
+	_, imports, err := goanalysis.ScanReferences(pkgs, ms, root)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	for _, e := range imports {
+		if e.ImportingPackage == rewrittenDispatch && e.ImportPath == rewrittenDep {
+			if e.Resolution != facts.ImportResolved {
+				t.Errorf("import must resolve through the canonical loader key, got %q", e.Resolution)
+			}
+			return
+		}
+	}
+	t.Fatalf("the dispatch package's dep import edge was not observed")
 }
