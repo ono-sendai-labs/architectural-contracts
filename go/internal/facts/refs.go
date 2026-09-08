@@ -44,6 +44,11 @@ func CompareSourceSite(a, b SourceSite) int {
 // Validate checks that the site is a canonical component-relative position:
 // a non-empty relative slash path with no absolute prefix, no ".", "..",
 // empty (double-slash or trailing-slash) path elements, and a 1-based line.
+// The separator policy is slash-only (POSIX/GNU spellings, which is what
+// component-relative paths use on every platform here): any backslash —
+// leading, embedded, or in a drive-letter prefix — is rejected rather than
+// normalized, so a validated site is unambiguously a component-relative
+// slash path on every host.
 func (s SourceSite) Validate() error {
 	if s.File == "" {
 		return fmt.Errorf("source site: empty file")
@@ -51,8 +56,14 @@ func (s SourceSite) Validate() error {
 	if s.Line < 1 {
 		return fmt.Errorf("source site %q: line %d is not 1-based", s.File, s.Line)
 	}
-	if s.File == "." || strings.HasPrefix(s.File, "/") || strings.HasPrefix(s.File, `\`) {
+	if strings.Contains(s.File, `\`) {
+		return fmt.Errorf("source site %q must use slash separators, not backslashes", s.File)
+	}
+	if s.File == "." || strings.HasPrefix(s.File, "/") {
 		return fmt.Errorf("source site %q is not a component-relative path", s.File)
+	}
+	if isDriveLetterPath(s.File) {
+		return fmt.Errorf("source site %q is not component-relative: drive-letter paths are not component-relative", s.File)
 	}
 	for _, elem := range strings.Split(s.File, "/") {
 		switch elem {
@@ -61,6 +72,18 @@ func (s SourceSite) Validate() error {
 		}
 	}
 	return nil
+}
+
+// isDriveLetterPath reports whether s starts with a Windows drive-letter
+// element such as "C:" (its "C:/..." spelling accepts the canonical slash
+// separator but still escapes the component root).
+func isDriveLetterPath(s string) bool {
+	drive := strings.SplitN(s, "/", 2)[0]
+	if len(drive) == 2 && drive[1] == ':' {
+		c := drive[0]
+		return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
+	}
+	return false
 }
 
 // ReferenceKind classifies what kind of object a reference edge names, under

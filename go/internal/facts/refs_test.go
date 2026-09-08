@@ -60,6 +60,9 @@ func TestReferenceEdgeValidation(t *testing.T) {
 		{"parent-traversing site path", refEdge(facts.RefFunc, "example.com/app/runner", "os", "os.ReadFile", "../outside.go", 1)},
 		{"dot component in site path", refEdge(facts.RefFunc, "example.com/app/runner", "os", "os.ReadFile", "run/./runner.go", 1)},
 		{"trailing slash site path", refEdge(facts.RefFunc, "example.com/app/runner", "os", "os.ReadFile", "run/runner.go/", 1)},
+		{"windows drive backslash site path", refEdge(facts.RefFunc, "example.com/app/runner", "os", "os.ReadFile", `C:\outside.go`, 1)},
+		{"windows drive slash site path", refEdge(facts.RefFunc, "example.com/app/runner", "os", "os.ReadFile", "C:/outside.go", 1)},
+		{"embedded backslash site path", refEdge(facts.RefFunc, "example.com/app/runner", "os", "os.ReadFile", `run\runner.go`, 1)},
 		{"line below one", refEdge(facts.RefFunc, "example.com/app/runner", "os", "os.ReadFile", "run/runner.go", 0)},
 	}
 	for _, tc := range invalid {
