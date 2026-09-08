@@ -54,6 +54,20 @@ checked_ns=$(surface_field namespace "$checked_surface")
 checked_pv=$(surface_field producerVersion "$checked_surface")
 checked_fv=$(sed -n 's/.*"formatVersion": \([0-9]*\).*/\1/p' "$checked_surface" | head -1)
 
+# Zero-valued SDK-key fields (review round 1): cgoEnabled, buildTags and
+# goexperiment are omitted by the canonical encoder exactly when zero. The
+# asserted writer and the checked emitter must agree on presence AND value
+# for each, for every configuration this fixture set builds.
+for field in cgoEnabled goexperiment; do
+  a=$(surface_field "$field" "$asserted_surface")
+  c=$(surface_field "$field" "$checked_surface")
+  [ "$a" = "$c" ] || fail "$field: asserted '${a:-<absent>}' != checked '${c:-<absent>}'"
+done
+a_tags=$(tr -d '\n ' < "$asserted_surface" | sed -n 's/.*"buildTags":\[\([^]]*\)\].*/\1/p')
+c_tags=$(tr -d '\n ' < "$checked_surface" | sed -n 's/.*"buildTags":\[\([^]]*\)\].*/\1/p')
+[ "$a_tags" = "$c_tags" ] || fail "buildTags: asserted '${a_tags:-<absent>}' != checked '${c_tags:-<absent>}'"
+pass "zero-valued SDK-key fields agree (cgoEnabled, buildTags, goexperiment: present-or-absent identically)"
+
 # The asserted writer's assembled identity equals the checked emitter's for
 # the same target configuration (task req 5).
 [ "$asserted_tv" = "$checked_tv" ] || fail "toolchainVersion: asserted '$asserted_tv' != checked '$checked_tv'"

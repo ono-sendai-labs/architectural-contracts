@@ -327,17 +327,40 @@ arcc_check_test = rule(
     doc = "Runs `arcc check` on a go_component's generated manifest and layout, hermetically.",
 )
 
-def _launcher_content_with_grep(argv, expected_strings, expect_status = 1):
+def _launcher_content_with_grep(argv, expected_strings, expect_status = 1, staged_report = None):
     command = " ".join([_shell_quote(arg) for arg in argv])
-    
-    grep_commands = []
-    for s in expected_strings:
-        grep_commands.append('if ! grep -F %s "$output_file" > /dev/null; then' % _shell_quote(s))
-        grep_commands.append('  echo "arcc_check_test: expected string \'%s\' not found in output" >&2' % s)
-        grep_commands.append('  cat "$output_file" >&2')
-        grep_commands.append('  rm -f "$output_file"')
-        grep_commands.append('  exit 1')
-        grep_commands.append('fi')
+
+    def grep_block(file_expr, label):
+        lines = []
+        for s in expected_strings:
+            lines.append('if ! grep -F %s %s > /dev/null; then' % (_shell_quote(s), file_expr))
+            lines.append('  echo "arcc_check_test: expected string \'%s\' not found in %s" >&2' % (s, label))
+            lines.append('  cat %s >&2' % file_expr)
+            lines.append('  rm -f "$output_file"')
+            lines.append('  exit 1')
+            lines.append('fi')
+        return lines
+
+    tail = [
+        "",
+        'rm -f "$output_file"',
+        "exit 0",
+        "",
+    ]
+
+    staged_lines = []
+    if staged_report:
+        staged_lines = [
+            "",
+            "# The component's own checked report — produced by its ArccCheck",
+            "# producer action and staged through the arcc output group — must",
+            "# carry the same findings. This proves the assertions hold for the",
+            "# producer action's report, not only for a duplicate direct CLI run.",
+            'if [ ! -s %s ]; then' % _shell_quote(staged_report),
+            '  echo "arcc_check_test: the component\'s checked report was not staged" >&2',
+            "  exit 1",
+            "fi",
+        ] + grep_block(_shell_quote(staged_report), "the staged report")
 
     return "\n".join([
         "#!/bin/sh",
@@ -355,15 +378,17 @@ def _launcher_content_with_grep(argv, expected_strings, expect_status = 1):
         '  exit 1',
         'fi',
         "",
-    ] + grep_commands + [
-        "",
-        'rm -f "$output_file"',
-        "exit 0",
-        ""
-    ])
+    ] + grep_block('"$output_file"', "the command output") + staged_lines + tail)
 
 def _arcc_check_grep_impl(ctx):
     info = ctx.attr.component[ArccComponentInfo]
+    _require_checked_component(info, "arcc_check_grep_test", ctx.label)
+
+    # Stage the component's checked `arcc` output group (review round 1,
+    # AC 4): building this test builds the component's ArccCheck producer
+    # action, and the launcher asserts on the producer's staged report in
+    # addition to a duplicate direct CLI run.
+    staged_report = runfiles_path(ctx, info.report)
 
     layout_path = runfiles_path(ctx, info.layout) if info.layout != None else ""
     argv = arcc_check_argv(
@@ -375,13 +400,14 @@ def _arcc_check_grep_impl(ctx):
     launcher = ctx.actions.declare_file(ctx.label.name + ".sh")
     ctx.actions.write(
         output = launcher,
-        content = _launcher_content_with_grep(argv, ctx.attr.expected_strings, ctx.attr.expect_status),
+        content = _launcher_content_with_grep(argv, ctx.attr.expected_strings, ctx.attr.expect_status, staged_report),
         is_executable = True,
     )
 
     runfiles = ctx.runfiles(transitive_files = go_sdk_srcs(ctx))
     runfiles = runfiles.merge(ctx.attr.component[DefaultInfo].default_runfiles)
     runfiles = runfiles.merge(ctx.attr._arcc[DefaultInfo].default_runfiles)
+    runfiles = runfiles.merge(ctx.runfiles(transitive_files = _component_arcc_group(ctx)))
 
     return [DefaultInfo(executable = launcher, runfiles = runfiles)]
 
@@ -413,7 +439,7 @@ arcc_check_grep_test = rule(
     doc = "Runs `arcc check` on a go_component, expects exit code, and greps stdout/stderr for specific strings.",
 )
 
-def _launcher_content_with_golden(argv, golden_file_path):
+def _launcher_content_with_golden(argv, golden_file_path, staged_report):
     command = " ".join([_shell_quote(arg) for arg in argv])
     return "\n".join([
         "#!/bin/sh",
@@ -437,6 +463,17 @@ def _launcher_content_with_golden(argv, golden_file_path):
         '  exit 1',
         'fi',
         "",
+        "# The component's own checked report — produced by its ArccCheck",
+        "# producer action and staged through the arcc output group — must be",
+        "# present and non-empty (review round 1, AC 4: building the test",
+        "# builds the producer action; the golden-vs-rerun byte comparison",
+        "# of the producer's own report is arcc_checked_analysis_test's",
+        "# contract).",
+        'if [ ! -s %s ]; then' % _shell_quote(staged_report),
+        '  echo "arcc_check_report_golden_test: the component\'s checked report was not staged" >&2',
+        "  exit 1",
+        "fi",
+        "",
         'rm -f "$output_file"',
         "exit 0",
         "",
@@ -444,6 +481,9 @@ def _launcher_content_with_golden(argv, golden_file_path):
 
 def _arcc_check_report_golden_impl(ctx):
     info = ctx.attr.component[ArccComponentInfo]
+    _require_checked_component(info, "arcc_check_report_golden_test", ctx.label)
+
+    staged_report = runfiles_path(ctx, info.report)
 
     argv = arcc_check_argv(
         arcc = runfiles_path(ctx, ctx.executable._arcc),
@@ -457,13 +497,14 @@ def _arcc_check_report_golden_impl(ctx):
     launcher = ctx.actions.declare_file(ctx.label.name + ".sh")
     ctx.actions.write(
         output = launcher,
-        content = _launcher_content_with_golden(argv, golden_path),
+        content = _launcher_content_with_golden(argv, golden_path, staged_report),
         is_executable = True,
     )
 
     runfiles = ctx.runfiles(files = [ctx.file.golden], transitive_files = go_sdk_srcs(ctx))
     runfiles = runfiles.merge(ctx.attr.component[DefaultInfo].default_runfiles)
     runfiles = runfiles.merge(ctx.attr._arcc[DefaultInfo].default_runfiles)
+    runfiles = runfiles.merge(ctx.runfiles(transitive_files = _component_arcc_group(ctx)))
 
     return [DefaultInfo(executable = launcher, runfiles = runfiles)]
 

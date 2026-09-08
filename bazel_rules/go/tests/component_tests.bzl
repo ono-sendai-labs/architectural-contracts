@@ -581,6 +581,47 @@ def _migrated_fixture_stays_checked_impl(env, target):
     if info.surface == None:
         env.fail("migrated negative fixture must keep a checked surface")
 
+def _negative_rules_stage_the_checked_report_test(name):
+    # AC 4 (review round 1): the grep and golden negative-assertion rules
+    # must stage the component's checked `arcc` output group — building the
+    # test builds the component's ArccCheck producer action and its report,
+    # so the negative assertions cover a report the producer action actually
+    # generated, not only a duplicate direct CLI run.
+    analysis_test(
+        name = name,
+        target = "//bazel_rules/go/tests:broken_checker_component_fails_test",
+        impl = _negative_rules_stage_the_checked_report_impl,
+        attr_values = {"size": "small"},
+    )
+
+def _negative_rules_stage_the_checked_report_impl(env, target):
+    runfiles = [
+        f.basename
+        for f in target[DefaultInfo].default_runfiles.files.to_list()
+    ]
+    env.expect.that_collection(runfiles).contains("broken_checker_component.report.json")
+    env.expect.that_collection(runfiles).contains("broken_checker_component.surface.json")
+
+    golden_target = "//bazel_rules/go/tests:api_component_text_report_golden_test"
+    # The golden rule is asserted through a second analysis test below; this
+    # target's impl runs only for the grep rule.
+
+def _golden_rule_stages_the_checked_report_test(name):
+    analysis_test(
+        name = name,
+        target = "//bazel_rules/go/tests:api_component_text_report_golden_test",
+        impl = _golden_rule_stages_the_checked_report_impl,
+        attr_values = {"size": "small"},
+    )
+
+def _golden_rule_stages_the_checked_report_impl(env, target):
+    runfiles = [
+        f.basename
+        for f in target[DefaultInfo].default_runfiles.files.to_list()
+    ]
+    env.expect.that_collection(runfiles).contains("api_component.report.json")
+    env.expect.that_collection(runfiles).contains("api_component.surface.json")
+
 def go_component_test_suite(name):
     test_suite(
         name = name,
@@ -604,5 +645,7 @@ def go_component_test_suite(name):
             _checked_action_command_test,
             _checked_action_inputs_test,
             _migrated_fixture_stays_checked_test,
+            _negative_rules_stage_the_checked_report_test,
+            _golden_rule_stages_the_checked_report_test,
         ],
     )
