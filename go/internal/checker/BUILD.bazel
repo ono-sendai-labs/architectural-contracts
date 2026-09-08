@@ -3,7 +3,7 @@ load("@rules_go//go:def.bzl", "go_library", "go_test")
 
 go_library(
     name = "checker",
-    srcs = ["boundary.go", "checker.go", "classify.go"],
+    srcs = ["aggregate.go", "boundary.go", "checker.go", "classify.go"],
     importpath = "github.com/ono-sendai-labs/architectural-contracts/go/internal/checker",
     visibility = ["//go:__subpackages__"],
     deps = [
@@ -19,7 +19,7 @@ go_library(
 go_test(
     name = "checker_test",
     size = "small",
-    srcs = ["boundary_test.go", "checker_test.go", "classify_test.go"],
+    srcs = ["aggregate_test.go", "boundary_test.go", "checker_test.go", "classify_test.go"],
     deps = [
         ":checker",
         "//go/internal/capanalyzer",

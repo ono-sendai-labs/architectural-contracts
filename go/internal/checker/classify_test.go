@@ -424,3 +424,25 @@ func TestClassify_ImportAndReferenceRulesSeparate(t *testing.T) {
 		t.Errorf("import must be accepted behind the boundary and mark dep used, got %v", got.UsedDependencies)
 	}
 }
+
+// TestClassify_BoundaryFindingsRemainSiteSpecific pins acceptance criterion 6:
+// repeated undeclared references at distinct sites stay one finding per
+// (referent, site); capability aggregation must not merge boundary findings.
+func TestClassify_BoundaryFindingsRemainSiteSpecific(t *testing.T) {
+	auth := newFakeAuthority()
+	members := mustMembers(t, "example.com/comp/api")
+	refs := []facts.ReferenceEdge{
+		classifyRefEdge(facts.RefFunc, "example.com/comp/api", "example.com/other", "example.com/other.Thing", "member/api/api.go", 3),
+		classifyRefEdge(facts.RefFunc, "example.com/comp/api", "example.com/other", "example.com/other.Thing", "member/api/api.go", 9),
+	}
+	got, err := classifyAll(t, members, nil, refs, nil, auth)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(got.Boundary) != 2 {
+		t.Fatalf("each distinct (referent, site) must remain its own finding, got %+v", got.Boundary)
+	}
+	if got.Boundary[0].Site.Line == got.Boundary[1].Site.Line {
+		t.Errorf("distinct sites must not merge: %+v", got.Boundary)
+	}
+}

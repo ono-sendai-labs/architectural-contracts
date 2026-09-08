@@ -4,6 +4,7 @@ load("@rules_go//go:def.bzl", "go_library", "go_test")
 go_library(
     name = "facts",
     srcs = [
+        "bypass.go",
         "facts.go",
         "member.go",
         "refs.go",
@@ -21,6 +22,7 @@ go_test(
     name = "facts_test",
     size = "small",
     srcs = [
+        "bypass_test.go",
         "facts_test.go",
         "member_test.go",
         "refs_test.go",

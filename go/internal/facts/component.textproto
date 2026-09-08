@@ -1,4 +1,5 @@
 name: "facts"
+interface_files: "bypass.go"
 interface_files: "facts.go"
 interface_files: "member.go"
 interface_files: "refs.go"

@@ -14,7 +14,7 @@ load("@rules_go//go:def.bzl", "go_library")
 
 go_library(
     name = "goanalysis",
-    srcs = ["goanalysis.go", "surfaceinputs.go", "refscan.go"],
+    srcs = ["defeatscan.go", "goanalysis.go", "surfaceinputs.go", "refscan.go"],
     importpath = "github.com/ono-sendai-labs/architectural-contracts/go/internal/goanalysis",
     visibility = ["//go:__subpackages__"],
     deps = [
