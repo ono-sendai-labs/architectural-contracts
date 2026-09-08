@@ -276,4 +276,64 @@ func TestDerive_DeterministicBytes(t *testing.T) {
 	}
 }
 
+// TestDerive_CanonicalizesSDKBuildTags pins the SDK-key canonicalization
+// (review round 1): reordered build tags derive identical manifests, and a
+// duplicate tag fails closed instead of reaching the encoder boundary.
+func TestDerive_CanonicalizesSDKBuildTags(t *testing.T) {
+	base := validInput(t)
+	base.Key = &stdlibauthority.SDKKey{
+		ToolchainVersion: "go1.26.4",
+		GOOS:             "linux",
+		GOARCH:           "amd64",
+		BuildTags:        []string{"b_tag", "a_tag"},
+		ClassifierHash:   "abc123",
+		MapFormatVersion: 1,
+	}
+	m, err := surface.Derive(base)
+	if err != nil {
+		t.Fatalf("Derive: %v", err)
+	}
+	if !slicesEqual(m.SdkKey.BuildTags, []string{"a_tag", "b_tag"}) {
+		t.Errorf("build tags = %v, want sorted [a_tag b_tag]", m.SdkKey.BuildTags)
+	}
+
+	reordered := base
+	reordered.Key = &stdlibauthority.SDKKey{
+		ToolchainVersion: "go1.26.4",
+		GOOS:             "linux",
+		GOARCH:           "amd64",
+		BuildTags:        []string{"a_tag", "b_tag"},
+		ClassifierHash:   "abc123",
+		MapFormatVersion: 1,
+	}
+	m2, err := surface.Derive(reordered)
+	if err != nil {
+		t.Fatalf("Derive reordered: %v", err)
+	}
+	b1, err := artifactio.MarshalSurface(m)
+	if err != nil {
+		t.Fatalf("MarshalSurface: %v", err)
+	}
+	b2, err := artifactio.MarshalSurface(m2)
+	if err != nil {
+		t.Fatalf("MarshalSurface reordered: %v", err)
+	}
+	if string(b1) != string(b2) {
+		t.Errorf("reordered build tags changed the marshaled manifest:\n%s\n%s", b1, b2)
+	}
+
+	duplicated := base
+	duplicated.Key = &stdlibauthority.SDKKey{
+		ToolchainVersion: "go1.26.4",
+		GOOS:             "linux",
+		GOARCH:           "amd64",
+		BuildTags:        []string{"a_tag", "a_tag"},
+		ClassifierHash:   "abc123",
+		MapFormatVersion: 1,
+	}
+	if _, err := surface.Derive(duplicated); err == nil {
+		t.Errorf("Derive with duplicate build tags: want fail-closed error, got nil")
+	}
+}
+
 func slicesEqual(a, b []string) bool { return reflect.DeepEqual(a, b) }

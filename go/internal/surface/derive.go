@@ -15,6 +15,25 @@
 // implements closure until Step 6. A concrete method admitted only by that
 // workaround is therefore checked as callable but absent from the emitted
 // surface for this one step; see the comment on ResolveDependencyInterface.
+//
+// Component Contract (FR10):
+//   - What it does: Derives the persisted SurfaceManifest from fully explicit
+//     inputs — component identity, interface style, structural authority,
+//     namespace, complete target SDK key, producer version, canonical member
+//     packages, the exact declared symbols (symbol.ExtractSurface over the
+//     surviving interface files), and digest inputs — failing closed on
+//     incomplete SDK identity or non-canonical input, and computes the DR-03
+//     digest over member source bytes, manifest bytes, format version,
+//     namespace, SDK key and producer version.
+//   - What it requires: Already-loaded values (parsed manifest facts, typed
+//     interface files, member source bytes); nothing is read or resolved here.
+//   - What it provides: Derive, the Input/SourceFile emission boundary, and a
+//     deterministic, canonical result (sorted, duplicate-free collections,
+//     populated digest). Nothing here performs I/O or touches the check path;
+//     filesystem reads live in the artifactio shell adapter (ReadSources).
+//   - Ambient Authority: This component is guaranteed-pure and holds no
+//     ambient authority (no filesystem I/O, network, process execution or
+//     reflection).
 package surface
 
 import (
@@ -163,16 +182,35 @@ func sdkKeyProto(k *stdlibauthority.SDKKey) (*gen.SDKKey, error) {
 	if len(missing) > 0 {
 		return nil, fmt.Errorf("surface derivation: target SDK key is incomplete, missing: %s", strings.Join(missing, ", "))
 	}
+	// Canonicalize build tags regardless of input enumeration order; a
+	// duplicate tag is non-canonical input and fails closed here rather than
+	// surfacing later at the encoder boundary.
+	tags := slices.Clone(k.BuildTags)
+	slices.Sort(tags)
+	if i, seen := firstDuplicate(tags); seen {
+		return nil, fmt.Errorf("surface derivation: target SDK key has duplicate build tag %q", tags[i])
+	}
 	return &gen.SDKKey{
 		ToolchainVersion: k.ToolchainVersion,
 		Goos:             k.GOOS,
 		Goarch:           k.GOARCH,
 		CgoEnabled:       k.CgoEnabled,
-		BuildTags:        slices.Clone(k.BuildTags),
+		BuildTags:        tags,
 		Goexperiment:     k.GOEXPERIMENT,
 		ClassifierHash:   k.ClassifierHash,
 		MapFormatVersion: k.MapFormatVersion,
 	}, nil
+}
+
+// firstDuplicate returns the index of the first duplicate entry in a sorted
+// slice, or (-1, false) when all entries are distinct.
+func firstDuplicate(sorted []string) (int, bool) {
+	for i := 1; i < len(sorted); i++ {
+		if sorted[i] == sorted[i-1] {
+			return i, true
+		}
+	}
+	return -1, false
 }
 
 // authorityProto converts the manifest's structural declaration to the

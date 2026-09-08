@@ -9,15 +9,23 @@
 //     bytes, decodes them with bounded reads and semantic validation, reads the
 //     persisted report artifact, computes lowercase SHA-256 digests over the
 //     canonical bytes, and replaces target files atomically via a temporary
-//     sibling and rename.
+//     sibling and rename. It also hosts the shell-side filesystem boundary of
+//     surface emission: ReadSources reads exactly the caller-supplied member
+//     source paths (so dependency, test and unrelated files never reach the
+//     digest), WriteSurface encodes a surface canonically and replaces its
+//     target atomically, and SurfacePath/ReportPath locate native companion
+//     artifacts by replacing a dependency manifest path's extension with
+//     .surface.json / .report.json by convention.
 //   - What it requires: The generated artifact message types and known
-//     capability taxonomy (schema), the SymbolID grammar (symbol) and the
-//     report artifact vocabulary (report) for validation, and write access to
+//     capability taxonomy (schema), the SymbolID grammar (symbol), the
+//     surface emission model (surface) for the shell adapter, the report
+//     artifact vocabulary (report) for validation, and write access to
 //     the target directory for atomic replacement.
 //   - What it provides: MarshalSurface/MarshalMap, DecodeSurface/DecodeMap,
-//     ReadReportFile, SurfaceDigest/MapDigest, and WriteFileAtomic with
-//     injectable write seams. No cache regeneration policy, CLI commands,
-//     Bazel actions, or dependency freshness computation.
+//     ReadReportFile, SurfaceDigest/MapDigest, WriteFileAtomic with
+//     injectable write seams, WriteSurface, ReadSources, and the
+//     SurfacePath/ReportPath conventions. No cache regeneration policy,
+//     CLI commands, Bazel actions, or dependency freshness computation.
 //   - Ambient Authority: This is a shell component holding FILES,
 //     READ_SYSTEM_STATE, MODIFY_SYSTEM_STATE, REFLECT, RUNTIME, SYSTEM_CALLS,
 //     and UNSAFE_POINTER for filesystem writes and protobuf unmarshaling.
