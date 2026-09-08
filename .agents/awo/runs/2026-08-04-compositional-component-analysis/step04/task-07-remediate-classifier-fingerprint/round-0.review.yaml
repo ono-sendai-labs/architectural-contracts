@@ -1,0 +1,110 @@
+review:
+  task_file: .agents/tasks/2026-08-04-compositional-component-analysis/step04/task-07-remediate-classifier-fingerprint.code-task.md
+  change_id: rxpkklwzsvmmrntxynvzzltmzkxqwvlt
+  reviewed_at: 2026-09-08T01:46:49Z
+  verdict: changes_requested
+  schema_version: 2
+  lsp_coverage: covered
+
+merge_request:
+  title: "fix(stdlibmap): bind classifier hash to executed semantics [Compositional Analysis: Step 04/Task 07]"
+  body: |
+    The initial qsnnpklq change adds a Capslock builtin-classifier content pin
+    at the capslockadapter boundary, with determinism and sensitivity tests.
+    The follow-up rxpkklwz change routes the exact generation overlay and the
+    pin into stdlibmap's canonical classifier hash, propagates fingerprint
+    errors, and adds the semantic cache-path/key-mismatch regression.
+
+summary: |
+  The series correctly replaces the old builtin prose descriptor with a current Capslock content pin and feeds the exact overlay text used by NewGenerationClassifier into sdkKeyProto; the cache regression and implementation tests pass. However, unsafe.builtins remains a prose-only effect and the variable completion algorithm is not fingerprinted, so changes in those executed project rules can still leave classifier_hash and the native cache identity unchanged. The builtin extractor also ignores newly added classifier fields unless an existing field disappears, leaving a future Capslock semantic field change able to reuse a stale map.
+
+acceptance_criteria:
+  - text: "The fingerprint covers the executed classifier"
+    status: partial
+    evidence: |
+      go/internal/capslockadapter/generation.go:41-107 computes an order-independent SHA-256 over the currently known Capslock classifier fields, and go/internal/stdlibmap/generate.go:212-250 wires that pin plus the exact GenerationClassifierText overlay into the production rules. But go/internal/stdlibmap/generate.go:252-260 still uses a prose-only unsafe rule, while the variable completion behavior is implemented at go/internal/stdlibmap/generate.go:599-664 and is not represented by the canonical input. The production wiring test at go/internal/stdlibmap/generate_test.go:461-492 checks only the builtin pin and overlay identity.
+  - text: "Every semantic change invalidates the key"
+    status: partial
+    evidence: |
+      The implementation passes the canonical rule text and RuleVersion through ClassifierHash (go/internal/stdlibmap/generate.go:267-294 and go/internal/stdlibmap/sdkkey.go:89-118), and TestClassifierFingerprintSemanticDrift at go/internal/stdlibmap/generate_test.go:494-562 checks changes to supplied descriptor values. That test mutates the descriptor after assembly rather than changing the executed unsafe or variable rule, so it does not establish that those production semantics move the hash. The static unsafe effect at generate.go:257-260 and incomplete variable-rule representation leave those semantic changes able to preserve the key.
+  - text: "Stale maps fail closed instead of hitting the native cache"
+    status: pass
+    evidence: |
+      TestSemanticClassifierInputsSelectDistinctCacheEntries at go/internal/stdlibmap/cache_test.go:193-248 observes distinct ClassifierHash and CacheKeyDigest values and places A's valid artifact at B's path; OpenCachedMap invokes the generator and returns a map whose key equals B. The production validation path in go/internal/stdlibmap/cache.go:188-224 and artifactio reader rejects a mismatched artifact rather than serving it.
+  - text: "Generation semantics remain intact"
+    status: pass
+    evidence: |
+      NewGenerationClassifier at go/internal/capslockadapter/generation.go:110-122 still loads builtins with excludeBuiltin=false and does not apply ClassifierExcludingUnanalyzed. Existing representative generation assertions at go/internal/stdlibmap/generate_test.go:171-210 and the integration run recorded in the work log cover UNANALYZED handling, minting capabilities, curated-safe provenance, and deterministic output.
+  - text: "Integration remains green"
+    status: pass
+    evidence: |
+      The task work log records the complete just ci run and its Bazel validation legs at .agents/scratchpad/2026-08-04-compositional-component-analysis/step04/task-07-remediate-classifier-fingerprint/work.log:47-62. A fresh isolated-cache run also passed the Go vet, gofmt, build, unit, integration, and self-check legs; the remaining local Bazel attempt was blocked by the environment's Bazel output-root/server setup rather than a repository test failure.
+
+findings:
+  - severity: critical
+    category: architecture
+    file: go/internal/stdlibmap/generate.go
+    line: 257
+    title: Project completion rules remain prose-only in the fingerprint
+    details: |
+      The new builtin pin and exact overlay fix the two original F1 descriptor
+      gaps, but the canonical input still does not genuinely cover all
+      generation semantics. The unsafe.builtins effect at generate.go:257-260
+      is a fixed prose sentence, while the executed unsafe completion is the
+      hardcoded result in classifyBuiltin at generate.go:592-597 and the
+      unsafe handling branches at generate.go:914-923. Likewise, the variable
+      rule's pointer dereference, method-set union, and inherited capability
+      behavior live in generate.go:599-664; only the MintingAuthority table is
+      rendered into the fingerprint. A change to either executed rule can
+      therefore leave classifier_hash, SDKKey, and CacheKeyDigest unchanged,
+      allowing the same stale-map failure F1 identified. The semantic-drift
+      test changes the already-built Effect strings, so it cannot detect this
+      assembly-to-execution drift.
+    suggested_action: |
+      Expose one canonical, machine-readable fingerprint input from the owner
+      of the completion rules. Include the actual unsafe classification and
+      selection rule plus the full variable/minting policy (or a stable pin of
+      their immutable implementation), and have both the production execution
+      path and sdkKeyProto derive from that input. Add a regression that changes
+      each executed rule source, not merely a post-assembly descriptor string,
+      and observes a new SDK key.
+    source: built-in
+  - severity: important
+    category: architecture
+    file: go/internal/capslockadapter/generation.go
+    line: 65
+    title: Builtin pin silently ignores new classifier fields
+    details: |
+      classifierContentDigest explicitly reads five fields at generation.go:84-104,
+      but it only checks that those named fields have broad Map or Slice kinds.
+      It neither validates the complete Classifier struct schema nor rejects
+      additional semantic fields or changed key/value types. If a Capslock
+      dependency adds a classifier field and its embedded map starts using that
+      field, DefaultClassifier and NewGenerationClassifier can change behavior
+      while this digest remains unchanged, defeating the stated exact-content
+      pin and the fail-closed dependency-update goal.
+    suggested_action: |
+      Validate the reflected Classifier schema exactly (including field names,
+      types, and the absence of unhandled fields) before hashing, and fail
+      closed on any change; alternatively pin an immutable Capslock dependency
+      identity that changes with the embedded classifier content. Add a test or
+      schema guard demonstrating that an unhandled classifier field cannot be
+      silently omitted.
+    source: built-in
+  - severity: suggestion
+    category: tests
+    file: .agents/scratchpad/2026-08-04-compositional-component-analysis/step04/task-07-remediate-classifier-fingerprint/work.log
+    line: 35
+    title: GREEN log entries record failed commands
+    details: |
+      The entries labeled GREEN at work.log:35-46 show only `cd go` failures,
+      and the new fingerprint/cache tests have no successful command output in
+      the TDD portion of the log. The later full test and CI evidence is useful,
+      but the progress record currently overstates the RED-to-GREEN evidence.
+    suggested_action: |
+      Record the successful commands and their relevant output under the GREEN
+      entries, or correct the working directory and rerun the focused tests so
+      the TDD record distinguishes failed setup from passing tests.
+    source: built-in
+
+ecosystem_reviews: []

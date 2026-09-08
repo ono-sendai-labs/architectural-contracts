@@ -1,0 +1,70 @@
+result:
+  task_file: .agents/tasks/2026-08-04-compositional-component-analysis/step04/task-07-remediate-classifier-fingerprint.code-task.md
+  change_id: qpsnvvkmxtmsvsrzupmloquknyvpxmmx
+  status: completed
+  schema_version: 2
+  produced_at: 2026-09-07T19:05:00Z
+  acceptance_criteria:
+    - text: The fingerprint covers the executed classifier
+      addressed: yes
+      evidence: >
+        TestGenerationFingerprintPinsProductionClassifierInputs
+        (go/internal/stdlibmap/generate_test.go) asserts capslock.builtins.pin ==
+        capslockadapter.BuiltinClassifierPin() (SHA-256 content pin over Capslock's
+        exact embedded builtin classifier, go/internal/capslockadapter/generation.go),
+        minting.reclassification == capslockadapter.GenerationClassifierText() verbatim,
+        and — per round-1 review — that unsafe.builtins and var.completion effects equal
+        the canonical renderings of projectCompletionRules() (renderUnsafeRule /
+        renderVarRule), the same machine-readable source classifyBuiltin, the unsafe.*
+        type branch, and classifyVar execute (go/internal/stdlibmap/generate.go). No
+        prose-only surrogate remains for the builtins, overlay, or project completion
+        rules.
+    - text: Every semantic change invalidates the key
+      addressed: yes
+      evidence: >
+        TestClassifierFingerprintSemanticDrift (go/internal/stdlibmap/generate_test.go)
+        changes the executed rule sources — Unsafe.BuiltinClassification,
+        Unsafe.TypeClassification, Unsafe.Provenance, Var.PointerDereference,
+        Var.MethodSet, Var.ExportedOnly, Var.InterfaceSafe, Var.NamedSafe, and the
+        minting table (entry changed / member added) — plus the pin, overlay, and
+        RuleVersion; each produces a different classifier hash, while 50 unordered
+        reassemblies keep it stable.
+    - text: Stale maps fail closed instead of hitting the native cache
+      addressed: yes
+      evidence: >
+        TestSemanticClassifierInputsSelectDistinctCacheEntries
+        (go/internal/stdlibmap/cache_test.go): keys from two classifier semantic inputs
+        have distinct ClassifierHash and CacheKeyDigest paths; A's artifact at B's path
+        is a key mismatch and OpenCachedMap regenerates for B (generator invoked once,
+        returned key equals B) rather than reusing A's map.
+    - text: Generation semantics remain intact
+      addressed: yes
+      evidence: >
+        TestCompletionRulesDriveExecution ties the canonical rules to execution
+        (classifyBuiltin UNANALYZED/project-override; os.Stdin inherits FILES from the
+        executed minting table; mutations change the executed classifications). Existing
+        representative tests pass unchanged: full unit and integration legs all ok;
+        NewGenerationClassifier still loads with excludeBuiltin=false and no
+        ClassifierExcludingUnanalyzed (go/internal/capslockadapter/generation.go).
+    - text: Integration remains green
+      addressed: yes
+      evidence: just ci passes after the rework: gen-is-clean, lint (go vet + gofmt),
+        build, unit tests, integration tests, selfcheck, bazel build/test (all Bazel
+        tests pass), and the bazel_rules shell validations; work.log records the run.
+  artifacts:
+    scratchpad_dir: .agents/scratchpad/2026-08-04-compositional-component-analysis/step04/task-07-remediate-classifier-fingerprint
+    files:
+      - go/internal/capslockadapter/generation.go
+      - go/internal/capslockadapter/generation_test.go
+      - go/internal/stdlibmap/generate.go
+      - go/internal/stdlibmap/generate_test.go
+      - go/internal/stdlibmap/cache_test.go
+  notes: >
+    Round 1 rework of the classifier-fingerprint remediation. The project completion
+    rules (unsafe builtin/type classifications, provenance, and the full variable/
+    minting policy) became one canonical machine-readable source executed by
+    BuildAuthorityMap and hashed by the fingerprint, eliminating the prose-only unsafe
+    rule and unrepresented variable policy the reviewer identified; the builtin content
+    pin now validates Capslock's exact Classifier schema and fails closed on any
+    structural change; and the TDD log received corrected GREEN evidence. Delivered as a
+    fresh child jj change; just ci is fully green.

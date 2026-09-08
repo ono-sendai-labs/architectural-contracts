@@ -1,0 +1,62 @@
+review:
+  task_file: .agents/tasks/2026-08-04-compositional-component-analysis/step04/task-07-remediate-classifier-fingerprint.code-task.md
+  change_id: qpsnvvkmxtmsvsrzupmloquknyvpxmmx
+  reviewed_at: 2026-09-08T02:02:56Z
+  verdict: approved
+  schema_version: 2
+  lsp_coverage: covered
+
+merge_request:
+  title: "fix(stdlibmap): bind classifier hash to executed semantics [Compositional Analysis: Step 04/Task 07]"
+  body: |
+    The initial qsnnpklq change adds an order-independent SHA-256 content pin
+    for Capslock's embedded builtin classifier. The rxpkklwz change feeds that
+    pin and the exact generation overlay into stdlibmap's canonical classifier
+    hash and adds the cache mismatch regression. The qpsnvvkm rework adds a
+    canonical machine-readable project completion-rule source used by both
+    BuildAuthorityMap and fingerprint assembly, adds exact Classifier schema
+    validation, and extends the execution and drift tests.
+
+summary: |
+  The round-1 rework resolves the prior critical finding: unsafe-builtin and variable/minting completion semantics now come from projectCompletionRules, whose machine-readable fields are consumed by execution and rendered into the fingerprint. It also resolves the prior important finding by rejecting added, removed, renamed, or retyped Capslock Classifier fields before hashing; the targeted and full unit/integration tests pass, with the recorded CI run covering the remaining gates. No behavioral regressions were found; one non-blocking TDD-log documentation suggestion remains because two corrective headings lack their command output.
+
+acceptance_criteria:
+  - text: "The fingerprint covers the executed classifier"
+    status: pass
+    evidence: |
+      The original builtin and overlay gaps are addressed by qpsnvvkm at go/internal/capslockadapter/generation.go:41-145 and go/internal/stdlibmap/generate.go:214-223: the builtin content is pinned from the classifier fields and the overlay is the exact GenerationClassifierText output. The same rework defines projectCompletionRules at go/internal/stdlibmap/generate.go:643-716, routes it through classifyBuiltin, the unsafe.* type branch, and classifyVar at generate.go:620-800 and 985-1090, and renders its machine-readable fields at generate.go:226-284. TestGenerationFingerprintPinsProductionClassifierInputs at go/internal/stdlibmap/generate_test.go:465-512 verifies the production assembly against those execution inputs.
+  - text: "Every semantic change invalidates the key"
+    status: pass
+    evidence: |
+      TestClassifierFingerprintSemanticDrift at go/internal/stdlibmap/generate_test.go:514-590 covers the builtin pin, exact overlay, both unsafe classifications, provenance, every variable-policy field, minting-table changes, and RuleVersion; canonical rendering sorts minting entries. ClassifierHash and DeriveSDKKey include the canonical text and version at go/internal/stdlibmap/generate.go:286-316 and go/internal/stdlibmap/sdkkey.go:89-118. TestDeriveSDKKey and TestClassifierHashDrift at go/internal/stdlibmap/sdkkey_test.go:37-100 verify that classifier drift changes the complete SDK key.
+  - text: "Stale maps fail closed instead of hitting the native cache"
+    status: pass
+    evidence: |
+      TestSemanticClassifierInputsSelectDistinctCacheEntries at go/internal/stdlibmap/cache_test.go:193-248 observes distinct ClassifierHash and CacheKeyDigest values, places A's valid artifact at B's path, and verifies OpenCachedMap regenerates for B and returns B's key. The production cache validates exact key agreement at go/internal/stdlibmap/cache.go:188-224.
+  - text: "Generation semantics remain intact"
+    status: pass
+    evidence: |
+      NewGenerationClassifier at go/internal/capslockadapter/generation.go:148-160 still enables Capslock builtins and does not apply ClassifierExcludingUnanalyzed. Existing representative assertions at go/internal/stdlibmap/generate_test.go:171-210 and the new TestCompletionRulesDriveExecution at generate_test.go:592-641 cover UNANALYZED handling, minting-variable capabilities, and curated-safe behavior; focused unit and integration runs passed, and the full unit run passed.
+  - text: "Integration remains green"
+    status: pass
+    evidence: |
+      The implementer's corrective evidence records full unit/integration and just ci completion at .agents/scratchpad/2026-08-04-compositional-component-analysis/step04/task-07-remediate-classifier-fingerprint/work.log:64-72, including the Bazel and shell validation legs. Fresh review execution also passed go vet, gofmt cleanliness, all unit tests, and the changed packages' integration tests.
+
+findings:
+  - severity: suggestion
+    category: tests
+    file: .agents/scratchpad/2026-08-04-compositional-component-analysis/step04/task-07-remediate-classifier-fingerprint/work.log
+    line: 65
+    title: Corrective GREEN evidence is still partly undocumented
+    details: |
+      The round-1 corrective section acknowledges the earlier failed `cd go`
+      entries, but the capslockadapter pin/schema heading at work.log:65 and
+      the just ci heading at work.log:72 have no command or output beneath
+      them. The full unit/integration counts and prior CI tail provide useful
+      validation, so this does not affect the implementation verdict.
+    suggested_action: |
+      Add the exact successful focused-test and CI commands, with their relevant
+      output, beneath the corresponding corrective headings.
+    source: built-in
+
+ecosystem_reviews: []

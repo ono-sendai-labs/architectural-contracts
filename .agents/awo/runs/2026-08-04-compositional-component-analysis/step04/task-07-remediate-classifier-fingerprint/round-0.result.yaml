@@ -1,0 +1,68 @@
+result:
+  task_file: .agents/tasks/2026-08-04-compositional-component-analysis/step04/task-07-remediate-classifier-fingerprint.code-task.md
+  change_id: rxpkklwzsvmmrntxynvzzltmzkxqwvlt
+  status: completed
+  schema_version: 2
+  produced_at: 2026-09-07T18:40:00Z
+  acceptance_criteria:
+    - text: The fingerprint covers the executed classifier
+      addressed: yes
+      evidence: >
+        TestGenerationFingerprintPinsProductionClassifierInputs
+        (go/internal/stdlibmap/generate_test.go) asserts the capslock.builtins.pin rule's
+        effect equals capslockadapter.BuiltinClassifierPin() — a SHA-256 content pin over
+        Capslock's exact embedded builtin classifier content (go/internal/capslockadapter/
+        generation.go, classifierContentDigest) — and that minting.reclassification's
+        effect equals capslockadapter.GenerationClassifierText() verbatim (the exact
+        overlay NewGenerationClassifier loads); minting.authority derives from
+        MintingAuthority() and unsafe.builtins from the stable hardcoded rule. Pin
+        sensitivity is proven by TestClassifierContentDigestSensitivity
+        (capslockadapter/generation_test.go): builtin, empty, and builtin+overlay
+        classifiers digest differently, and extraction fails loudly if Capslock's
+        Classifier structure changes.
+    - text: Every semantic change invalidates the key
+      addressed: yes
+      evidence: >
+        TestClassifierFingerprintSemanticDrift (go/internal/stdlibmap/generate_test.go):
+        changing the builtin pin, the overlay, the minting-authority rule, the unsafe
+        rule, or the explicit rule version each produces a different classifier hash,
+        while 50 reassemblies (map iteration order) keep it stable.
+    - text: Stale maps fail closed instead of hitting the native cache
+      addressed: yes
+      evidence: >
+        TestSemanticClassifierInputsSelectDistinctCacheEntries
+        (go/internal/stdlibmap/cache_test.go): keys from two classifier semantic inputs
+        have distinct ClassifierHash and CacheKeyDigest paths, and input A's artifact
+        placed at B's path is a key mismatch — OpenCachedMap regenerates for B (generator
+        invoked once, returned key equals B) rather than reusing A's map. Existing
+        mismatch/corruption validation in cache.go backs this.
+    - text: Generation semantics remain intact
+      addressed: yes
+      evidence: >
+        Existing representative tests pass unchanged: go test ./internal/stdlibmap/ and
+        go test -tags=integration ./internal/stdlibmap/ ./internal/capslockadapter/ all
+        ok (sort.Slice/unsafe.Pointer UNANALYZED, minting var capabilities, curated-safe
+        provenance, byte-determinism asserted by TestGenerateRoundTripsAndKeysTheMap);
+        I4 structure untouched (capslockadapter/generation.go NewGenerationClassifier
+        still loads with excludeBuiltin=false and no ClassifierExcludingUnanalyzed).
+    - text: Integration remains green
+      addressed: yes
+      evidence: just ci passes: gen-is-clean, lint (go vet + gofmt), build, unit tests,
+        integration tests, selfcheck, bazel build/test (96 Bazel tests pass), and the
+        bazel_rules shell validations; work.log records the run.
+  artifacts:
+    scratchpad_dir: .agents/scratchpad/2026-08-04-compositional-component-analysis/step04/task-07-remediate-classifier-fingerprint
+    files:
+      - go/internal/capslockadapter/generation.go
+      - go/internal/capslockadapter/generation_test.go
+      - go/internal/stdlibmap/generate.go
+      - go/internal/stdlibmap/generate_test.go
+      - go/internal/stdlibmap/cache_test.go
+  notes: >
+    Repairs review finding F1 by deriving classifier_hash from the classifier semantics
+    generation actually executes: Capslock's exact builtin classifier content (pinned via
+    a read-only-reflection SHA-256 content digest that fails loudly on structural change)
+    plus the exact project overlay text, with the minting-authority and unsafe rules in
+    the same canonical hash input. sdkKeyProto now propagates fingerprint errors instead
+    of panicking. Delivered as two jj changes (capslockadapter pin, then stdlibmap
+    assembly + cache regression); just ci is fully green.
