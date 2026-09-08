@@ -1,0 +1,151 @@
+review:
+  task_file: .agents/tasks/2026-08-04-compositional-component-analysis/step06/task-04-report-analysis-defeating-sites.code-task.md
+  change_id: qtktwkoptmulmkkmxsyyyzsykpowmuzo
+  reviewed_at: 2026-09-08T22:52:39Z
+  verdict: changes_requested
+  schema_version: 2
+  lsp_coverage: partial
+
+merge_request:
+  title: "re-review analysis-defeating reporting [Compositional Analysis: Step 06/Task 04]"
+  body: |
+    Reviews the complete eight-change series: the typed bypass facts, the
+    byte-order expectation correction, member metadata defeat scanning and
+    linkname/assembly/cgo fixtures, report site/class/SDK-key fields, checker
+    aggregation and policy application, canonical artifact serialization, the
+    boundary and BUILD updates, and the round-1 rework that hardens ignored
+    files, pins CGO_ENABLED=0, declares the new component surfaces, and adds
+    malformed-file coverage.
+
+summary: |
+  All four prior important findings and the prior partial bypass acceptance
+  criterion are addressed in qtktwkoptmulmkkmxsyyyzsykpowmuzo: the new APIs
+  are declared, cgo loading is hermetic, ignored assembly is classified, and
+  parser errors are preserved. Fresh clean-cache unit and integration suites
+  pass, and gopls reports no diagnostics for changed Go files. Changes remain
+  requested for a new regression: the malformed checked-in fixture causes
+  gofmt to emit a syntax diagnostic, even though the current environment cannot
+  independently run just ci because protoc is unavailable.
+
+acceptance_criteria:
+  - text: |
+      1. **All bypass constructs fail closed by default**
+         - Given member fixtures containing `//go:linkname`, an assembly file, and cgo use
+         - When each is checked with strict/default policy
+         - Then each yields an `AnalysisDefeating` violation with an actionable source/file site, and none silently conforms
+    status: pass
+    evidence: |
+      The round-1 rework explicitly resolves the prior partial status. The
+      hermetic fixture now pins CGO_ENABLED=0 and asserts cgo.go is in
+      IgnoredFiles at go/internal/goanalysis/defeat_test.go:23-70; it covers
+      linkname, selected assembly, and ignored assembly at :75-80. The strict
+      policy path is covered by TestApplyAuthorityPolicyStrictViolates at
+      go/internal/checker/aggregate_test.go:127-178. Fresh clean-cache
+      integration execution passes.
+  - text: |
+      2. **Policy can explicitly downgrade analysis defeat**
+         - Given the same fixture and an explicit policy classifying its analysis-defeating capability as warn
+         - When the checker runs
+         - Then the result is one `ANALYSIS_LIMITATION` warning and no corresponding authority violation
+    status: pass
+    evidence: |
+      TestApplyAuthorityPolicyExplicitWarn at
+      go/internal/checker/aggregate_test.go:180-204 supplies the explicit
+      warn policy for the empty analysis-defeating capability and asserts one
+      ANALYSIS_LIMITATION warning with all three sites and no violation.
+  - text: |
+      3. **UNANALYZED map entries use the same policy path**
+         - Given a typed reference whose exact stdlib-map record is `UNANALYZED`
+         - When classification and checking run
+         - Then the observation retains `AnalysisDefeating`, its reference site and symbol, and is a violation by default
+    status: pass
+    evidence: |
+      checker/classify.go:195-214 converts an UNANALYZED terminal record to an
+      AnalysisDefeating observation with its Referent, Site, and SDKKey, and
+      does not invoke Capslock. The typed classification test at
+      go/internal/checker/classify_test.go:105-172 and the aggregation test at
+      go/internal/checker/aggregate_test.go:80-114 cover the observation and
+      strict-path behavior.
+  - text: |
+      4. **Authority sites aggregate deterministically**
+         - Given three member references that produce the same `(capability, class)` in shuffled observation order
+         - When a report is built
+         - Then it contains one finding, its sites are sorted and all three appear in canonical JSON, and text prints the first site plus a count of three
+    status: pass
+    evidence: |
+      TestAggregateAuthorityOnePerCapabilityClass at
+      go/internal/checker/aggregate_test.go:35-77 supplies three FILES
+      references in shuffled order, includes an exact duplicate, and asserts
+      one finding with three sorted sites. report/report_test.go:282-304
+      asserts the single text entry with the first site and count three, while
+      artifactio/report.go:197-294 performs the persisted site sort and
+      comparison.
+  - text: |
+      5. **Evidence follows the first canonical site**
+         - Given multiple symbols contributing the same capability with different map evidence
+         - When aggregation sorts their sites
+         - Then persisted evidence is the map evidence for the first sorted site's symbol, and the map SDK key and class are present
+    status: pass
+    evidence: |
+      The FILES aggregation test at go/internal/checker/aggregate_test.go:21-77
+      asserts evidence from os.ReadFile, the first sorted site, rather than a
+      later symbol. report.Finding carries Class, SDKKey, Sites, and Evidence
+      at go/internal/report/report.go:54-69, and the artifact round-trip test
+      at go/internal/artifactio/report_test.go:405-447 verifies the persisted
+      class, SDK key, sorted sites, and evidence.
+  - text: |
+      6. **Boundary findings remain site-specific**
+         - Given repeated undeclared dependency or interface references at distinct sites
+         - When findings are produced
+         - Then each distinct `(referent, site)` remains its own finding and is not merged by capability aggregation
+    status: pass
+    evidence: |
+      TestClassify_BoundaryFindingsRemainSiteSpecific at
+      go/internal/checker/classify_test.go:428-446 feeds the same undeclared
+      referent at two distinct source lines and asserts two boundary
+      observations. Boundary observations remain a separate classifier result
+      from AggregateAuthority at checker/aggregate.go:61-119.
+  - text: |
+      7. **Canonical artifacts remain stable**
+         - Given logically equal reports with authority sites, SDK-key fields, and evidence frames supplied in different order
+         - When `artifactio.MarshalReport` is called
+         - Then bytes are identical, decode round-trips all fields, and `just ci` passes
+    status: partial
+    evidence: |
+      artifactio/report.go:197-294 sorts finding sites and extends the finding
+      tie-break with class, SDK key, sites, and evidence. The round-trip and
+      reordered-site test at go/internal/artifactio/report_test.go:391-449
+      asserts byte identity and recovery of class, SDK key, sites, and
+      first-site evidence. The implementer's work.log records just ci green,
+      and fresh clean-cache unit and integration suites pass, but the checked-in
+      malformed fixture at
+      go/internal/goanalysis/testdata/byp/member/broken/ignored_bad.go:5
+      makes direct gofmt -l . emit a syntax diagnostic. A full just-ci rerun is
+      also unavailable in this environment because protoc is not installed.
+
+findings:
+  - severity: important
+    category: tests
+    file: go/internal/goanalysis/testdata/byp/member/broken/ignored_bad.go
+    line: 5
+    title: "Malformed checked-in fixture breaks the formatting gate"
+    details: |
+      The round-1 regression fixture intentionally contains invalid Go syntax
+      at go/internal/goanalysis/testdata/byp/member/broken/ignored_bad.go:5
+      so ScanAnalysisDefeats can be tested against a partial parse. However,
+      the repository's required `gofmt -l .` run reports
+      `ignored_bad.go:5:11: expected ')', found '{'`. This leaves the source tree
+      non-format-clean and can make CI or tooling fail, even though the Go
+      compiler and packages.Load omit the file because of its ignore build
+      constraint. It is a regression introduced by the rework, not a deleted
+      or weakened test.
+    suggested_action: |
+      Remove the malformed .go file from checked-in testdata and create the
+      malformed source in t.TempDir inside the regression test, then supply
+      that path through a synthetic declared packages.Package (or an equivalent
+      test seam). Preserve the assertion that ScanAnalysisDefeats returns an
+      error naming the malformed file while keeping every checked-in Go file
+      parseable and gofmt-clean.
+    source: built-in
+
+ecosystem_reviews: []

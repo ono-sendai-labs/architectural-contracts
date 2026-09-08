@@ -1,0 +1,72 @@
+result:
+  task_file: .agents/tasks/2026-08-04-compositional-component-analysis/step06/task-04-report-analysis-defeating-sites.code-task.md
+  change_id: krppqlwz
+  status: completed
+  schema_version: 2
+  produced_at: 2026-09-08T23:35:00Z
+
+acceptance_criteria:
+  - text: "All bypass constructs fail closed by default"
+    addressed: yes
+    evidence: |
+      defeat_test.go TestScanAnalysisDefeatsFindsEveryBypass pins linkname, both
+      target-selected and ignored assembly, and cgo sites under a hermetic
+      CGO_ENABLED=0 load; TestApplyAuthorityPolicyStrictViolates yields
+      UNDECLARED_AUTHORITY violations with every site under StrictPolicy.
+  - text: "Policy can explicitly downgrade analysis defeat"
+    addressed: yes
+    evidence: |
+      aggregate_test.go TestApplyAuthorityPolicyExplicitWarn: Warn{"": true} policy
+      produces exactly one ANALYSIS_LIMITATION warning with all sites and no
+      violation; TrueAuthority warn renders ALLOWED_WITH_WARNING.
+  - text: "UNANALYZED map entries use the same policy path"
+    addressed: yes
+    evidence: |
+      checker/classify.go:206-211 converts UNANALYZED to an AnalysisDefeating
+      observation with referent, site and SDKKey without Capslock;
+      TestAggregateAuthorityAnalysisDefeating merges it with bypass sites into one
+      finding, strict policy makes it a violation by default.
+  - text: "Authority sites aggregate deterministically"
+    addressed: yes
+    evidence: |
+      TestAggregateAuthorityOnePerCapabilityClass: shuffled observations -> one
+      (capability, class) finding, sites sorted (file, line, SymbolID), exact
+      duplicates removed; report_test.go pins the one-entry first-site + count text.
+  - text: "Evidence follows the first canonical site"
+    addressed: yes
+    evidence: |
+      TestAggregateAuthorityOnePerCapabilityClass asserts the finding's evidence is
+      the first sorted site's symbol's map evidence; class and SDK key carried
+      through artifactio round-trip.
+  - text: "Boundary findings remain site-specific"
+    addressed: yes
+    evidence: |
+      classify_test.go TestClassify_BoundaryFindingsRemainSiteSpecific: two
+      undeclared references at distinct sites yield two findings; goanalysis
+      fixture 5/6 tests pin per-site boundary observations.
+  - text: "Canonical artifacts remain stable"
+    addressed: yes
+    evidence: |
+      artifactio/report_test.go TestMarshalReport_SitesClassAndSDKKeyCanonical:
+      reordered/duplicated sites marshal to identical bytes and round-trip all
+      fields; gofmt -l is clean again and just ci exits 0 (log recorded in
+      work.log) after the round-2 commit.
+
+artifacts:
+  scratchpad_dir: .agents/scratchpad/2026-08-04-compositional-component-analysis/step06/task-04-report-analysis-defeating-sites/
+  files:
+    - context.md
+    - plan.md
+    - progress.md
+    - work.log
+    - result.yaml
+    - review.yaml
+
+notes: |
+  Round 2 removed the gofmt-gate regression: no testdata exclusion mechanism
+  exists in the lint recipe, so the checked-in malformed fixture was deleted
+  and the malformed source is now written at test time into t.TempDir and
+  presented through a synthetic declared packages.Package, preserving the
+  fail-closed parse-error coverage (error names ignored_bad.go). gofmt -l is
+  clean, unit/integration suites and just ci pass; fresh change krppqlwz
+  contains only this fix on top of qtktwkop.

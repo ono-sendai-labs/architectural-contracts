@@ -1,0 +1,212 @@
+review:
+  task_file: .agents/tasks/2026-08-04-compositional-component-analysis/step06/task-04-report-analysis-defeating-sites.code-task.md
+  change_id: munqzlrrpuqormqsoqwzrywomoonutwz
+  reviewed_at: 2026-09-08T22:39:40Z
+  verdict: changes_requested
+  schema_version: 2
+  lsp_coverage: partial
+
+merge_request:
+  title: "review analysis-defeating reporting [Compositional Analysis: Step 06/Task 04]"
+  body: |
+    Reviews the complete seven-change series: the typed bypass facts, the
+    byte-order expectation correction, member metadata defeat scanning and
+    linkname/assembly/cgo fixtures, report site/class/SDK-key fields, checker
+    aggregation and policy application, canonical artifact serialization, and
+    the final boundary test plus BUILD and facts-contract updates.
+
+summary: |
+  The series implements the core bypass vocabulary, metadata scanner, DR-17
+  aggregation, policy mapping, report fields, and site canonicalization, with
+  no deleted or weakened tests. Clean-cache unit, lint, and integration suites
+  pass, and gopls reported no diagnostics for changed Go files; the full
+  just-ci rerun could not reach its generation step because protoc is absent.
+  Changes are requested because two new public APIs are missing from their
+  checked-in component contracts, ignored non-Go files can be parsed as Go,
+  parse errors are discarded, and the cgo fixture depends on ambient compiler
+  configuration.
+
+acceptance_criteria:
+  - text: |
+      1. **All bypass constructs fail closed by default**
+         - Given member fixtures containing `//go:linkname`, an assembly file, and cgo use
+         - When each is checked with strict/default policy
+         - Then each yields an `AnalysisDefeating` violation with an actionable source/file site, and none silently conforms
+    status: partial
+    evidence: |
+      The real fixture contains all three constructs at
+      go/internal/goanalysis/testdata/byp/member/byp/{link.go,stub.s,cgo.go}
+      and TestScanAnalysisDefeatsFindsEveryBypass at
+      go/internal/goanalysis/defeat_test.go:44-64 verifies their sites. The
+      strict policy seam is covered by TestApplyAuthorityPolicyStrictViolates
+      at go/internal/checker/aggregate_test.go:127-178. However, the fixture
+      does not pin CGO_ENABLED=0 and the scanner's declared-file path can
+      mis-handle ignored assembly files; those gaps are recorded below.
+  - text: |
+      2. **Policy can explicitly downgrade analysis defeat**
+         - Given the same fixture and an explicit policy classifying its analysis-defeating capability as warn
+         - When the checker runs
+         - Then the result is one `ANALYSIS_LIMITATION` warning and no corresponding authority violation
+    status: pass
+    evidence: |
+      TestApplyAuthorityPolicyExplicitWarn at
+      go/internal/checker/aggregate_test.go:180-204 supplies the explicit
+      warn policy for the empty analysis-defeating capability and asserts one
+      ANALYSIS_LIMITATION warning with all three sites and no violation.
+  - text: |
+      3. **UNANALYZED map entries use the same policy path**
+         - Given a typed reference whose exact stdlib-map record is `UNANALYZED`
+         - When classification and checking run
+         - Then the observation retains `AnalysisDefeating`, its reference site and symbol, and is a violation by default
+    status: pass
+    evidence: |
+      checker/classify.go:195-214 converts an UNANALYZED terminal record to an
+      AnalysisDefeating observation with its Referent, Site, and SDKKey, and
+      does not invoke Capslock. The typed classification test at
+      go/internal/checker/classify_test.go:105-172 and the aggregation test at
+      go/internal/checker/aggregate_test.go:80-114 cover the observation and
+      strict-path behavior.
+  - text: |
+      4. **Authority sites aggregate deterministically**
+         - Given three member references that produce the same `(capability, class)` in shuffled observation order
+         - When a report is built
+         - Then it contains one finding, its sites are sorted and all three appear in canonical JSON, and text prints the first site plus a count of three
+    status: pass
+    evidence: |
+      TestAggregateAuthorityOnePerCapabilityClass at
+      go/internal/checker/aggregate_test.go:35-77 supplies three FILES
+      references in shuffled order, includes an exact duplicate, and asserts
+      one finding with three sorted sites. report/report_test.go:282-304
+      asserts the single text entry with the first site and count three, while
+      artifactio/report.go:197-294 performs the persisted site sort and
+      comparison.
+  - text: |
+      5. **Evidence follows the first canonical site**
+         - Given multiple symbols contributing the same capability with different map evidence
+         - When aggregation sorts their sites
+         - Then persisted evidence is the map evidence for the first sorted site's symbol, and the map SDK key and class are present
+    status: pass
+    evidence: |
+      The FILES aggregation test at go/internal/checker/aggregate_test.go:21-77
+      asserts evidence from os.ReadFile, the first sorted site, rather than
+      later symbols. report.Finding carries Class, SDKKey, Sites, and Evidence
+      at go/internal/report/report.go:54-69, and the artifact round-trip test
+      at go/internal/artifactio/report_test.go:405-447 verifies the persisted
+      class, SDK key, sorted sites, and evidence.
+  - text: |
+      6. **Boundary findings remain site-specific**
+         - Given repeated undeclared dependency or interface references at distinct sites
+         - When findings are produced
+         - Then each distinct `(referent, site)` remains its own finding and is not merged by capability aggregation
+    status: pass
+    evidence: |
+      TestClassify_BoundaryFindingsRemainSiteSpecific at
+      go/internal/checker/classify_test.go:428-446 feeds the same undeclared
+      referent at two distinct source lines and asserts two boundary
+      observations. Boundary observations remain a separate classifier result
+      from AggregateAuthority at checker/aggregate.go:61-119.
+  - text: |
+      7. **Canonical artifacts remain stable**
+         - Given logically equal reports with authority sites, SDK-key fields, and evidence frames supplied in different order
+         - When `artifactio.MarshalReport` is called
+         - Then bytes are identical, decode round-trips all fields, and `just ci` passes
+    status: pass
+    evidence: |
+      artifactio/report.go:197-294 sorts finding sites and extends the finding
+      tie-break with class, SDK key, sites, and evidence. The round-trip and
+      reordered-site test at go/internal/artifactio/report_test.go:391-449
+      asserts byte identity, duplicate removal, and recovery of class, SDK key,
+      sites, and first-site evidence. work.log records a green just-ci run;
+      an independent rerun passed clean-cache unit, lint, and integration
+      tests but could not execute just gen because protoc is unavailable in the
+      review environment.
+
+findings:
+  - severity: important
+    category: architecture
+    file: go/internal/checker/component.textproto
+    line: 2
+    title: "Checked-in contracts omit the new public APIs"
+    details: |
+      checker/BUILD.bazel:6 now includes aggregate.go, which exports
+      AuthorityFinding, AggregateAuthority, and ApplyAuthorityPolicy, but
+      go/internal/checker/component.textproto:2-3 still exposes only
+      checker.go and classify.go. Likewise, goanalysis/BUILD.bazel:17 includes
+      defeatscan.go while go/internal/goanalysis/component.textproto:2-3 omits
+      it and therefore omits ScanAnalysisDefeats. The Bazel component rule
+      derives interface_files from every Go source in the interface library
+      (bazel_rules/go/private/component.bzl:497-503), so the checked-in
+      contracts no longer mirror the generated public surfaces. A downstream
+      cutover caller cannot legally consume these new APIs through the stale
+      component interfaces.
+    suggested_action: |
+      Add aggregate.go to checker/component.textproto and defeatscan.go to
+      goanalysis/component.textproto, preserving the generated ordering, and
+      update any self-hosting/parity expectations that enumerate those
+      interface files.
+    source: built-in
+  - severity: important
+    category: tests
+    file: go/internal/goanalysis/defeat_test.go
+    line: 28
+    title: "Pin the cgo fixture to a hermetic build configuration"
+    details: |
+      loadBypFixture leaves packages.Config.Env unset, so the integration test
+      inherits the host's CGO_ENABLED value and C compiler availability. A
+      fresh run with CGO_ENABLED=1 in this environment fails in packages.Load
+      before ScanAnalysisDefeats because gcc is unavailable; CGO_ENABLED=0
+      passes and exercises cgo.go through the ignored-Go-file metadata path.
+      The task scratchpad explicitly identifies CGO_ENABLED=0 as the fixture
+      configuration, but the test does not set it or assert that cgo.go is in
+      the ignored metadata. This makes the acceptance test host-dependent and
+      can fail on otherwise valid pure-Go CI workers.
+    suggested_action: |
+      Set the fixture load environment explicitly to CGO_ENABLED=0 while
+      retaining the inherited toolchain/module environment, and assert that
+      the cgo source is present in the declared ignored-file metadata. If a
+      cgo-enabled case is also desired, isolate it as a separate test that
+      explicitly requires a C compiler.
+    source: built-in
+  - severity: important
+    category: architecture
+    file: go/internal/goanalysis/defeatscan.go
+    line: 75
+    title: "Ignored assembly files are sent to the Go parser"
+    details: |
+      declaredGoFiles returns p.GoFiles plus p.IgnoredFiles at
+      go/internal/goanalysis/defeatscan.go:95-100. In x/tools/go/packages,
+      IgnoredFiles combines ignored Go and ignored non-Go source files, so an
+      architecture-specific ignored .s file reaches parseDeclaredFile at
+      :75-81. The Go parser returns no AST for assembly and the scanner then
+      reports a parse failure instead of producing the required
+      AnalysisDefeating assembly site (or explicitly applying target-file
+      policy). A member package with valid assembly alternatives can therefore
+      fail as a tool error, and the current fixture covers only selected
+      OtherFiles.
+    suggested_action: |
+      Separate ignored Go files from ignored non-Go files before parsing.
+      Route .s/.S entries through the assembly observation path (including
+      ignored declared assembly if the fail-closed policy applies to it), and
+      add a fixture/test for an ignored assembly file so the scanner never
+      feeds non-Go metadata to parser.ParseFile.
+    source: built-in
+  - severity: important
+    category: architecture
+    file: go/internal/goanalysis/defeatscan.go
+    line: 154
+    title: "Discarded parser errors violate the fail-closed contract"
+    details: |
+      parseDeclaredFile assigns parser.ParseFile's error to `_` at
+      go/internal/goanalysis/defeatscan.go:154. go/parser can return a partial
+      AST together with a non-nil syntax error, so this path can report success
+      for malformed declared files and scan only the recoverable portion. That
+      contradicts the function's own fail-closed guarantee at :33-36 that a
+      declared member file that cannot be parsed returns an error, and can
+      omit a bypass that lies outside the partial AST.
+    suggested_action: |
+      Capture the ParseFile error and return a wrapped scan error whenever it
+      is non-nil, even if a partial AST was returned; add a malformed declared
+      file regression test.
+    source: built-in
+
+ecosystem_reviews: []
