@@ -1,0 +1,121 @@
+review:
+  task_file: .agents/tasks/2026-08-04-compositional-component-analysis/step06/task-01-define-typed-reference-facts.code-task.md
+  change_id: wtlnzvwuxmplxylmwslxrkzoltprttsz
+  reviewed_at: "2026-09-08T19:55:54Z"
+  verdict: approved
+  schema_version: 2
+  lsp_coverage: partial
+
+merge_request:
+  title: "feat(facts): define typed reference vocabulary [Compositional Analysis: Step 06/Task 01]"
+  body: |
+    Reviews the complete ordered task series: the initial ReferenceEdge and ImportEdge
+    vocabulary and tests, the exact canonical MemberSet, the facts component metadata
+    and symbol validation seam, round-one fixes for source-site validation, comparator
+    totality, contract wording, and distinct-site ordering coverage, and round-two fixes
+    rejecting backslash and drive-letter source paths.
+
+summary: |
+  Round two resolves the remaining AC1 gap by rejecting backslashes and drive-letter path
+  forms; the prior comparator, distinct-site coverage, and contract-wording findings remain
+  resolved. All seven acceptance criteria pass, with no test deletions or regressions found;
+  gopls reports no diagnostics for touched Go files, and the scratchpad records just ci passing.
+
+acceptance_criteria:
+  - text: |
+      **Reference identity is canonical**
+      - Given reference facts for functions, methods, fields, variables, constants, types, aliases, and interface method specs
+      - When they are validated
+      - Then every referent is a grammar-valid `SymbolID` with a canonical component-relative source site
+    status: pass
+    evidence: |
+      Round two completes the prior partial criterion. `go/internal/facts/refs.go:44-87`
+      validates a clean component-relative slash path, rejects backslashes anywhere, and
+      rejects drive-letter elements; both edge validators call it at `refs.go:166-168` and
+      `refs.go:316-318`. `go/internal/facts/refs_test.go:29-36` covers every listed
+      referent kind, while `refs_test.go:59-66` covers absolute, traversal, dot, trailing-
+      slash, Windows drive-letter, embedded-backslash, and invalid-line sites.
+
+  - text: |
+      **Structural duplicate keys are precise**
+      - Given two equal reference/import observations and observations differing only by referent or source position
+      - When their identity keys are compared
+      - Then only values equal in every semantic field deduplicate
+    status: pass
+    evidence: |
+      `go/internal/facts/refs.go:120-139` and `refs.go:278-294` make reference and import
+      keys structural over all semantic fields. Comparison and deduplication remain total
+      over those fields at `refs.go:194-242` and `refs.go:322-357`; identity tests at
+      `go/internal/facts/refs_test.go:79-102` and `refs_test.go:165-176` verify equal keys
+      and distinctions by referent, site, kind, and resolution.
+
+  - text: |
+      **Import facts retain written-edge state**
+      - Given resolved and missing-type-data import observations, including blank imports
+      - When they are represented as `ImportEdge`
+      - Then callers can distinguish those states without consulting legacy package-import slices
+    status: pass
+    evidence: |
+      `go/internal/facts/refs.go:244-276` defines the three resolution states and retains
+      the importing package, written import path, and source site on `ImportEdge`.
+      `go/internal/facts/refs_test.go:116-163` validates resolved, missing-type-data,
+      unresolved, and blank-import observations and checks that the states remain pairwise
+      distinct without using legacy slices.
+
+  - text: |
+      **Member identity is exact**
+      - Given canonical member package paths and similar prefixes
+      - When member-set membership is queried
+      - Then only exact packages match and deterministic construction rejects invalid duplicates or noncanonical identities as designed
+    status: pass
+    evidence: |
+      `go/internal/facts/member.go:10-64` stores sorted unique canonical paths, rejects
+      empty/duplicate/noncanonical construction inputs, and implements exact binary-search
+      membership. `go/internal/facts/member_test.go:13-100` covers exact, parent, child,
+      similar-prefix, duplicate, empty, order-independent, and host-rewritten cases.
+
+  - text: |
+      **Fact ordering is deterministic**
+      - Given the same facts in different input orders
+      - When the core comparison/sort helpers are applied
+      - Then edge and site order is identical and exact duplicates can be removed without losing distinct sites
+    status: pass
+    evidence: |
+      The prior comparator finding is covered by explicit less/greater branches at
+      `go/internal/facts/refs.go:26-42` and extreme-line tests at
+      `go/internal/facts/refs_test.go:266-290`. The prior missing regression coverage is
+      covered by same-referent, multi-site sort-then-dedup cases for both edge types at
+      `refs_test.go:228-263`; permutation and exact-duplicate checks remain at
+      `refs_test.go:181-226`.
+
+  - text: |
+      **The core stays shell-free**
+      - Given the updated facts package
+      - When its imports and component contract are inspected
+      - Then it imports no AST, `go/packages`, SSA, callgraph, or Capslock package and holds no ambient authority
+    status: pass
+    evidence: |
+      Current facts imports are limited to `capanalyzer`, `manifest`, and pure `symbol`
+      in `go/internal/facts/facts.go:25-28` and `refs.go:3-9`/`member.go:3-8`.
+      The corrected Component Contract at `facts.go:8-22` distinguishes SymbolID
+      referents from import-path state and retains the authority-free guarantee.
+      `facts/BUILD.bazel:36-46` and `facts/component.textproto:1-17` declare only inward
+      component dependencies, with no forbidden shell/analyzer import in the range.
+
+  - text: |
+      **Legacy execution is unchanged**
+      - Given the repository before the production cutover
+      - When `just ci` runs after this task
+      - Then all existing checks and goldens pass, the implements closure and `NeedDeps` remain enabled, and the runtime check still follows the legacy path
+    status: pass
+    evidence: |
+      The complete jj range touches facts DTOs/tests and metadata, the inward
+      `symbol.ValidateCanonicalPath` helper, and the manifest-parity expectation; it does
+      not touch `goanalysis`, `checker`, the runner, load-mode configuration, implements
+      closure, or Capslock check wiring. The rework `work.log` records the round-two green
+      tests and just-ci invocation at lines 87-95, while `result.yaml:40-43` and
+      `progress.md:31-32` record the full ci-go, selfcheck, and bazel-test pass.
+
+findings: []
+
+ecosystem_reviews: []

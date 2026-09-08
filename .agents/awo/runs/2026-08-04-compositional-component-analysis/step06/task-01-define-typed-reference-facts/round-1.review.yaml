@@ -1,0 +1,144 @@
+review:
+  task_file: .agents/tasks/2026-08-04-compositional-component-analysis/step06/task-01-define-typed-reference-facts.code-task.md
+  change_id: wmrzpuquopxtrvuxtmyzyzptmnyznkkm
+  reviewed_at: "2026-09-08T19:48:52Z"
+  verdict: changes_requested
+  schema_version: 2
+  lsp_coverage: partial
+
+merge_request:
+  title: "feat(facts): define typed reference vocabulary [Compositional Analysis: Step 06/Task 01]"
+  body: |
+    Reviews the complete ordered task series: the initial ReferenceEdge and ImportEdge
+    vocabulary and tests, the exact canonical MemberSet, the facts component metadata
+    and symbol validation seam, and the rework adding SourceSite validation, total line
+    comparison, contract wording, and distinct-site ordering coverage.
+
+summary: |
+  The rework resolves the comparator-overflow finding, adds distinct-site sort/dedup coverage,
+  and corrects the component-contract wording. It also adds shared SourceSite validation, but
+  AC1 remains partial because drive-letter and embedded-backslash paths can still pass despite
+  the promised canonical slash-path form. No test deletions or other regressions were found;
+  work.log records rework just ci passing; gopls reported no diagnostics for the touched Go
+  files, while the Go toolchain and non-Go LSP coverage were unavailable locally.
+
+acceptance_criteria:
+  - text: |
+      **Reference identity is canonical**
+      - Given reference facts for functions, methods, fields, variables, constants, types, aliases, and interface method specs
+      - When they are validated
+      - Then every referent is a grammar-valid `SymbolID` with a canonical component-relative source site
+    status: partial
+    evidence: |
+      The rework addresses the prior site-validation finding with shared
+      `SourceSite.Validate` at `go/internal/facts/refs.go:44-64`, wired into both edge
+      validators at `refs.go:143-145` and `refs.go:293-295`; tests now reject absolute,
+      parent-traversing, dot-component, and trailing-slash paths at
+      `go/internal/facts/refs_test.go:59-63` and `refs_test.go:149-151`. The referent
+      grammar and all listed kinds remain covered at `refs_test.go:24-71`. However, the
+      validator only rejects a leading backslash and splits on `/`, so `C:\outside.go`
+      and embedded-backslash forms can still pass. A canonical component-relative slash
+      site is therefore not guaranteed.
+
+  - text: |
+      **Structural duplicate keys are precise**
+      - Given two equal reference/import observations and observations differing only by referent or source position
+      - When their identity keys are compared
+      - Then only values equal in every semantic field deduplicate
+    status: pass
+    evidence: |
+      `go/internal/facts/refs.go:97-116` and `refs.go:255-271` make reference and import
+      keys structural over all semantic fields. The comparison and deduplication helpers
+      are at `refs.go:171-218` and `refs.go:299-334`; identity tests at
+      `refs_test.go:76-99` and `refs_test.go:162-173` verify equal keys and distinctions
+      by referent, site, kind, and resolution.
+
+  - text: |
+      **Import facts retain written-edge state**
+      - Given resolved and missing-type-data import observations, including blank imports
+      - When they are represented as `ImportEdge`
+      - Then callers can distinguish those states without consulting legacy package-import slices
+    status: pass
+    evidence: |
+      `go/internal/facts/refs.go:221-253` defines the three resolution states and retains
+      the importing package, written import path, and source site on `ImportEdge`.
+      `go/internal/facts/refs_test.go:113-160` validates resolved, missing-type-data,
+      unresolved, and blank-import observations and checks that the states remain pairwise
+      distinct without using legacy slices.
+
+  - text: |
+      **Member identity is exact**
+      - Given canonical member package paths and similar prefixes
+      - When member-set membership is queried
+      - Then only exact packages match and deterministic construction rejects invalid duplicates or noncanonical identities as designed
+    status: pass
+    evidence: |
+      `go/internal/facts/member.go:10-64` stores sorted unique canonical paths, rejects
+      empty/duplicate/noncanonical construction inputs, and implements exact binary-search
+      membership. `go/internal/facts/member_test.go:13-100` covers exact, parent, child,
+      similar-prefix, duplicate, empty, order-independent, and host-rewritten cases.
+
+  - text: |
+      **Fact ordering is deterministic**
+      - Given the same facts in different input orders
+      - When the core comparison/sort helpers are applied
+      - Then edge and site order is identical and exact duplicates can be removed without losing distinct sites
+    status: pass
+    evidence: |
+      The prior comparator finding is addressed by explicit less/greater branches at
+      `go/internal/facts/refs.go:26-42`, with extreme-line coverage at
+      `go/internal/facts/refs_test.go:263-287`. The prior missing regression coverage is
+      addressed by same-referent, multi-site sort-then-dedup cases for both edge types at
+      `refs_test.go:225-260`; the broader permutation and exact-duplicate checks remain at
+      `refs_test.go:178-223`.
+
+  - text: |
+      **The core stays shell-free**
+      - Given the updated facts package
+      - When its imports and component contract are inspected
+      - Then it imports no AST, `go/packages`, SSA, callgraph, or Capslock package and holds no ambient authority
+    status: pass
+    evidence: |
+      The current facts imports are limited to `capanalyzer`, `manifest`, and the pure
+      `symbol` package in `go/internal/facts/facts.go:25-28` and `refs.go:3-9`/`member.go:3-8`.
+      The Component Contract at `facts.go:8-22` states the authority-free boundary, and
+      `facts/BUILD.bazel:36-46` plus `facts/component.textproto:1-17` describe only inward
+      component dependencies. No forbidden shell/analyzer import was added in the full
+      range.
+
+  - text: |
+      **Legacy execution is unchanged**
+      - Given the repository before the production cutover
+      - When `just ci` runs after this task
+      - Then all existing checks and goldens pass, the implements closure and `NeedDeps` remain enabled, and the runtime check still follows the legacy path
+    status: pass
+    evidence: |
+      The full jj range still touches only facts DTOs/tests and metadata, the inward
+      `symbol.ValidateCanonicalPath` helper, and the manifest-parity expectation; it does
+      not touch `goanalysis`, `checker`, the runner, load-mode configuration, implements
+      closure, or Capslock check wiring. The rework `work.log` records `just ci exit=0`
+      at lines 92-95, and `progress.md:31-32` records the same verification.
+
+findings:
+  - severity: important
+    category: acceptance_criteria
+    file: go/internal/facts/refs.go
+    line: 54
+    title: Source-site validation misses Windows-style path forms
+    details: |
+      The rework correctly fixed the prior POSIX absolute/traversal gap with
+      `SourceSite.Validate` and corresponding tests. However, the implementation claims
+      to require a canonical relative slash path (`refs.go:44-46`) while only rejecting a
+      leading backslash and checking path elements split on `/` (`refs.go:54-60`). A
+      drive-letter path such as `C:\outside.go`, or a path containing embedded backslashes,
+      passes validation. On a Windows scanner or any consumer that interprets those forms
+      as native paths, such a site is not component-relative. This leaves AC1 partial.
+    suggested_action: |
+      Enforce the chosen canonical separator policy consistently: reject backslashes
+      anywhere in a slash-canonical site and reject drive-letter prefixes (or normalize
+      only at the shell boundary and validate that the stored value is the normalized
+      slash form). Add regression cases for `C:\outside.go`, `C:/outside.go`, and an
+      embedded-backslash relative spelling.
+    source: built-in
+
+ecosystem_reviews: []

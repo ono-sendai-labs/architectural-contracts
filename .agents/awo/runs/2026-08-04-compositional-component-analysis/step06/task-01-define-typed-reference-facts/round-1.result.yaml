@@ -1,0 +1,63 @@
+result:
+  task_file: .agents/tasks/2026-08-04-compositional-component-analysis/step06/task-01-define-typed-reference-facts.code-task.md
+  change_id: wmrzpuquopxtrvuxtmyzyzptmnyznkkm
+  status: completed
+  schema_version: 2
+  produced_at: 2026-09-08T12:48:00Z
+
+acceptance_criteria:
+  - text: |
+      Reference identity is canonical — every referent is a grammar-valid SymbolID with a canonical component-relative source site
+    addressed: yes
+    evidence: |
+      go/internal/facts/refs.go SourceSite.Validate is wired into ReferenceEdge.Validate and enforces the canonical component-relative path form (no absolute prefix, no '.'/'..'/empty path elements, 1-based line). TestReferenceEdgeValidation covers valid referents for func, method, type, field, interface-method-spec (declaring interface ID), var, const and alias kinds, and rejects pointer markers, generic brackets, package mismatch, and absolute/parent-traversing/dot/trailing-slash site paths.
+  - text: |
+      Structural duplicate keys are precise — only values equal in every semantic field deduplicate
+    addressed: yes
+    evidence: |
+      (unchanged from round 0) ReferenceKey/ImportKey (facts/refs.go) are structural over all fields; TestReferenceEdgeIdentity and TestImportEdgeIdentity show equal keys for identical edges and distinct keys when the referent, site (file or line), from-package, kind or resolution differs.
+  - text: |
+      Import facts retain written-edge state — callers can distinguish resolved vs missing-type-data (and unowned) states without legacy package-import slices
+    addressed: yes
+    evidence: |
+      ImportResolution enum (ImportResolved/ImportMissingTypeData/ImportUnresolved) in facts/refs.go; TestImportEdgeStates asserts the states are pairwise distinct and representable for blank imports, with no reference to legacy slices.
+  - text: |
+      Member identity is exact — only exact packages match and deterministic construction rejects invalid duplicates or noncanonical identities
+    addressed: yes
+    evidence: |
+      facts/member.go NewMemberSet (rejects empty, duplicate, noncanonical via symbol.ValidateCanonicalPath), exact Contains, sorted Packages. go/internal/facts/member_test.go covers prefix/parent/child non-membership, order-independent construction, and noncanonical rejection under a rewriting host policy.
+  - text: |
+      Fact ordering is deterministic — edge and site order identical from any input order and exact duplicates removed without losing distinct sites
+    addressed: yes
+    evidence: |
+      CompareReferenceEdges/CompareImportEdges total orders with SortReferenceEdges/SortImportEdges/Dedup*; TestDeterministicOrdering verifies identical output from rotated input, duplicate removal preserving distinct sites, and nil-input stability. Rework round 1 adds same-referent-at-two-distinct-sites sort-then-dedup cases for reference and import edges (distinct sites survive, exact duplicates drop) and TestCompareSourceSiteTotality over extreme integer lines after the comparator's subtraction was replaced with explicit branches.
+  - text: |
+      The core stays shell-free — facts imports no AST, go/packages, SSA, callgraph, or Capslock package and holds no ambient authority
+    addressed: yes
+    evidence: |
+      work.log inspection: grep over go/internal/facts/ for go/ast, go/packages, go/ssa, callgraph and capslock finds nothing; the facts Component Contract block retains the guaranteed-pure ambient-authority statement (go/internal/facts/facts.go).
+  - text: |
+      Legacy execution is unchanged — just ci passes, implements closure and NeedDeps remain enabled, runtime check follows the legacy path
+    addressed: yes
+    evidence: |
+      just ci (ci-go 42 packages, selfcheck, bazel-test 125 tests) passes; no change to goanalysis, checker, or the load mode (git/jj diff of this change touches only facts, symbol, manifest test, and BUILD/manifest metadata).
+
+artifacts:
+  scratchpad_dir: .agents/scratchpad/2026-08-04-compositional-component-analysis/step06/task-01-define-typed-reference-facts/
+  files:
+    - context.md
+    - plan.md
+    - progress.md
+    - work.log
+    - result.yaml
+
+notes: |
+  Rework round 1 addressed all three important findings and the style suggestion
+  from review round 0: SourceSite gained shared validation enforcing the canonical
+  component-relative path form (wired into both edge validators), the site
+  comparator no longer subtracts line values (explicit branches keep the order
+  total at extremes), ordering tests now prove distinct sites survive
+  sort-then-dedup, and the component contract wording distinguishes SymbolID
+  referents from written import paths. All newest RED→GREEN cycles are logged in
+  work.log; just ci passes (ci-go, selfcheck, bazel-test). The rework is a fresh
+  child change at @-: wmrzpuquopxtrvuxtmyzyzptmnyznkkm.

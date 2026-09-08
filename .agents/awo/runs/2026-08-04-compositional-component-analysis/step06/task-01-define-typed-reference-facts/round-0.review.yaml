@@ -1,0 +1,196 @@
+review:
+  task_file: .agents/tasks/2026-08-04-compositional-component-analysis/step06/task-01-define-typed-reference-facts.code-task.md
+  change_id: tusulvluuwkzvwxsqwvlsqoqsqqowzow
+  reviewed_at: "2026-09-08T19:35:21Z"
+  verdict: changes_requested
+  schema_version: 2
+  lsp_coverage: unavailable
+
+merge_request:
+  title: "feat(facts): define typed reference vocabulary [Compositional Analysis: Step 06/Task 01]"
+  body: |
+    Reviews the complete ordered task series: the initial typed ReferenceEdge and
+    ImportEdge facts and tests, the exact canonical MemberSet addition, and the
+    final component metadata, symbol validation seam, and manifest-parity update.
+    The extra symbol.go change is an in-scope inward-facing validation helper, and
+    the manifest test change correctly mirrors the updated facts component contract.
+
+summary: |
+  The series adds the typed reference/import vocabulary, exact MemberSet, validation,
+  deterministic ordering, and component metadata while leaving the legacy analysis path intact.
+  Changes are requested because source-site validation does not enforce component-relative
+  paths, the source-site comparator is not total for unvalidated line values, and the
+  ordering tests do not prove that deduplication preserves distinct sites.
+  Local Go, just, and gopls binaries were unavailable; the scratchpad records the implementer's
+  successful just ci result.
+
+acceptance_criteria:
+  - text: |
+      **Reference identity is canonical**
+      - Given reference facts for functions, methods, fields, variables, constants, types, aliases, and interface method specs
+      - When they are validated
+      - Then every referent is a grammar-valid `SymbolID` with a canonical component-relative source site
+    status: partial
+    evidence: |
+      `go/internal/facts/refs.go:87-118` validates the reference kind, canonical package
+      paths, grammar-valid `symbol.SymbolID`, referent-package consistency, and a 1-based
+      line. `go/internal/facts/refs_test.go:22-64` covers all listed kinds and malformed
+      symbol spellings. However, site validation at `refs.go:112-117` only rejects an empty
+      file and a nonpositive line; absolute or parent-traversing file paths are accepted,
+      so a canonical component-relative site is not guaranteed.
+
+  - text: |
+      **Structural duplicate keys are precise**
+      - Given two equal reference/import observations and observations differing only by referent or source position
+      - When their identity keys are compared
+      - Then only values equal in every semantic field deduplicate
+    status: pass
+    evidence: |
+      `go/internal/facts/refs.go:66-85` and `refs.go:227-243` make the reference and
+      import keys structural over all semantic fields. The comparison and deduplication
+      helpers are at `refs.go:143-190` and `refs.go:274-310`; `refs_test.go:70-92` and
+      `refs_test.go:154-165` verify equal keys and distinctions by referent, site, kind,
+      and resolution.
+
+  - text: |
+      **Import facts retain written-edge state**
+      - Given resolved and missing-type-data import observations, including blank imports
+      - When they are represented as `ImportEdge`
+      - Then callers can distinguish those states without consulting legacy package-import slices
+    status: pass
+    evidence: |
+      `go/internal/facts/refs.go:193-225` defines the three resolution states and retains
+      the importing package, written import path, and source site on `ImportEdge`.
+      `go/internal/facts/refs_test.go:107-152` validates resolved, missing-type-data,
+      unresolved, and blank-import observations and checks that the states remain pairwise
+      distinct without using legacy slices.
+
+  - text: |
+      **Member identity is exact**
+      - Given canonical member package paths and similar prefixes
+      - When member-set membership is queried
+      - Then only exact packages match and deterministic construction rejects invalid duplicates or noncanonical identities as designed
+    status: pass
+    evidence: |
+      `go/internal/facts/member.go:10-64` stores sorted unique canonical paths, rejects
+      empty/duplicate/noncanonical construction inputs, and implements exact binary-search
+      membership. `go/internal/facts/member_test.go:13-100` covers exact, parent, child,
+      similar-prefix, duplicate, empty, order-independent, and host-rewritten cases.
+
+  - text: |
+      **Fact ordering is deterministic**
+      - Given the same facts in different input orders
+      - When the core comparison/sort helpers are applied
+      - Then edge and site order is identical and exact duplicates can be removed without losing distinct sites
+    status: partial
+    evidence: |
+      `go/internal/facts/refs.go:26-33` and `refs.go:143-310` implement site/edge
+      comparison, sorting, and adjacent exact deduplication. `go/internal/facts/refs_test.go:170-215`
+      verifies permutation-independent ordering and removal of an exact duplicate, but its
+      inputs contain no same-referent edges at two different sites; the distinct-site checks
+      at `refs_test.go:80-83` cover keys only, not sort-then-dedup preservation. In addition,
+      `CompareSourceSite` uses integer subtraction at `refs.go:32`, which can overflow for
+      unvalidated `Line` values and violate the promised total order. The criterion's
+      distinct-site behavior is therefore under-tested, and the comparator needs hardening.
+
+  - text: |
+      **The core stays shell-free**
+      - Given the updated facts package
+      - When its imports and component contract are inspected
+      - Then it imports no AST, `go/packages`, SSA, callgraph, or Capslock package and holds no ambient authority
+    status: pass
+    evidence: |
+      The current facts imports are limited to `capanalyzer`, `manifest`, and the pure
+      `symbol` package in `go/internal/facts/facts.go:24-27` and `refs.go:3-9`/`member.go:3-8`.
+      The Component Contract at `facts.go:8-21` states the authority-free boundary, and
+      `facts/BUILD.bazel:36-46` plus `facts/component.textproto:1-17` describe only inward
+      component dependencies. No forbidden shell/analyzer import was added in the range.
+
+  - text: |
+      **Legacy execution is unchanged**
+      - Given the repository before the production cutover
+      - When `just ci` runs after this task
+      - Then all existing checks and goldens pass, the implements closure and `NeedDeps` remain enabled, and the runtime check still follows the legacy path
+    status: pass
+    evidence: |
+      The complete jj range touches facts DTOs/tests and metadata, the inward
+      `symbol.ValidateCanonicalPath` helper, and the manifest-parity expectation; it does
+      not touch `goanalysis`, `checker`, the runner, load-mode configuration, implements
+      closure, or Capslock check wiring. The task `work.log` records the AC7 `just ci`
+      run as passing (ci-go, selfcheck, and bazel-test), and `progress.md` records the
+      same verification.
+
+findings:
+  - severity: important
+    category: acceptance_criteria
+    file: go/internal/facts/refs.go
+    line: 32
+    title: Source-site comparator can overflow instead of being total
+    details: |
+      Technical Requirement 2 calls for a total deterministic comparison for sites, and
+      `CompareSourceSite` documents that it totally orders its inputs. The implementation
+      returns `a.Line - b.Line` (`refs.go:28-33`), so a comparison such as `MaxInt` versus
+      `-1` overflows and can report both directions as less-than. The edge sort helpers do
+      not validate their inputs before invoking this comparator.
+    suggested_action: |
+      Compare line values with explicit less-than/greater-than branches (or otherwise
+      define and enforce a validated-domain precondition) so the comparator remains
+      antisymmetric and transitive for every accepted `SourceSite` value. Add an extreme
+      integer regression case if the helper is intended to be total over the Go type.
+    source: built-in
+
+  - severity: important
+    category: acceptance_criteria
+    file: go/internal/facts/refs.go
+    line: 112
+    title: Source-site validation accepts paths outside the component
+    details: |
+      AC1 and Technical Requirement 1 require a canonical component-relative source site.
+      `ReferenceEdge.Validate` and `ImportEdge.Validate` only reject an empty `Site.File`
+      and a line below one (`refs.go:112-117`, `refs.go:265-270`). They accept values such
+      as `/outside/member.go` and `../outside.go`, so a validated fact can escape the
+      component root. The tests at `refs_test.go:44-64` cover empty and invalid line values
+      but do not cover absolute or parent-traversing paths.
+    suggested_action: |
+      Add shared SourceSite validation used by both edge validators that enforces the
+      scanner's canonical component-relative path form, including rejection of absolute
+      paths and `.`/`..` traversal components. Add table cases for absolute, parent-
+      traversing, and accepted nested relative paths.
+    source: built-in
+
+  - severity: important
+    category: tests
+    file: go/internal/facts/refs_test.go
+    line: 170
+    title: Ordering tests do not preserve distinct source sites
+    details: |
+      AC5 explicitly requires exact duplicates to be removed without losing distinct sites.
+      `TestReferenceEdgeIdentity` only proves that different-site keys differ
+      (`refs_test.go:80-83`), while `TestDeterministicOrdering` supplies only one exact
+      duplicate for references and imports (`refs_test.go:171-197`). Its length assertions
+      therefore do not exercise sort-then-dedup with the same referent at two different
+      sites. The implementation compares sites, but this behavioral criterion lacks the
+      required regression scenario.
+    suggested_action: |
+      Add same-referent reference and import observations at two distinct files/lines,
+      run them through the sort and dedup helpers, and assert both sites remain while
+      only exact duplicates are removed.
+    source: built-in
+
+  - severity: suggestion
+    category: style
+    file: go/internal/facts/facts.go
+    line: 14
+    title: Component contract wording misdescribes import identities
+    details: |
+      The updated contract says that "Reference and import edges carry symbol.SymbolID
+      identities only" (`facts.go:14-16`), but `ImportEdge` intentionally carries a written
+      import path and resolution state and has no SymbolID. This wording can confuse the
+      boundary that the new vocabulary is meant to establish.
+    suggested_action: |
+      Clarify the contract to say that reference edges use `symbol.SymbolID` as their
+      referent identity, while import edges use their canonical written import path and
+      resolution state.
+    source: built-in
+
+ecosystem_reviews: []
