@@ -414,7 +414,10 @@ func TestDamagedMapFailsClosedOnLookup(t *testing.T) {
 // --- req 2/10: classifier rules and the SDK key ---------------------------------
 
 func TestGenerationClassifierRulesMatchSourceMaterial(t *testing.T) {
-	rules := GenerationClassifierRules()
+	rules, err := GenerationClassifierRules()
+	if err != nil {
+		t.Fatalf("GenerationClassifierRules: %v", err)
+	}
 	text, err := CanonicalClassifierText(rules)
 	if err != nil {
 		t.Fatalf("CanonicalClassifierText: %v", err)
@@ -447,6 +450,114 @@ func TestGenerationClassifierRulesMatchSourceMaterial(t *testing.T) {
 	}
 	if text == "" {
 		t.Fatalf("canonical classifier text is empty")
+	}
+}
+
+// TestGenerationFingerprintPinsProductionClassifierInputs ties the production
+// fingerprint assembly to the production classifier inputs (review F1, task
+// reqs 1/3): the builtins rule's effect is Capslock's exact builtin content
+// pin, and the minting-reclassification rule's effect is the exact overlay
+// text NewGenerationClassifier loads — no prose surrogate.
+func TestGenerationFingerprintPinsProductionClassifierInputs(t *testing.T) {
+	rules, err := GenerationClassifierRules()
+	if err != nil {
+		t.Fatalf("GenerationClassifierRules: %v", err)
+	}
+	pin, err := capslockadapter.BuiltinClassifierPin()
+	if err != nil {
+		t.Fatalf("BuiltinClassifierPin: %v", err)
+	}
+	overlay, err := capslockadapter.GenerationClassifierText()
+	if err != nil {
+		t.Fatalf("GenerationClassifierText: %v", err)
+	}
+	byName := map[string]string{}
+	for _, r := range rules {
+		if _, dup := byName[r.Name]; dup {
+			t.Fatalf("rule %q appears twice", r.Name)
+		}
+		byName[r.Name] = r.Effect
+	}
+	if got := byName["capslock.builtins.pin"]; got != pin {
+		t.Fatalf("capslock.builtins.pin effect %q != the builtin content pin %q", got, pin)
+	}
+	if got := byName["minting.reclassification"]; got != overlay {
+		t.Fatalf("minting.reclassification effect %q != the executed overlay text %q", got, overlay)
+	}
+	for _, name := range []string{"capslock.builtins.pin", "minting.reclassification", "minting.authority", "unsafe.builtins"} {
+		if byName[name] == "" {
+			t.Fatalf("fingerprint rule %q is missing", name)
+		}
+	}
+}
+
+// TestClassifierFingerprintSemanticDrift proves every semantic classifier
+// input moves the hash while non-semantic ordering does not (task reqs 2/4).
+func TestClassifierFingerprintSemanticDrift(t *testing.T) {
+	pinA, pinB := "aaa1", "aaa2"
+	overlayA := "func (*os.File).Read CAPABILITY_SAFE\nfunc (*os.File).Write CAPABILITY_SAFE\n"
+	overlayB := "func (*os.File).Read CAPABILITY_SAFE\nfunc (*os.File).Seek CAPABILITY_SAFE\n"
+
+	fingerprint := func(pin, overlay string) string {
+		rules, err := classifierFingerprintRules(pin, overlay)
+		if err != nil {
+			t.Fatalf("classifierFingerprintRules: %v", err)
+		}
+		text, err := CanonicalClassifierText(rules)
+		if err != nil {
+			t.Fatalf("CanonicalClassifierText: %v", err)
+		}
+		return ClassifierHash(GenerationDescriptor{ClassifierText: text, RuleVersion: "v1"})
+	}
+	base := fingerprint(pinA, overlayA)
+	rulesBase, err := classifierFingerprintRules(pinA, overlayA)
+	if err != nil {
+		t.Fatalf("classifierFingerprintRules: %v", err)
+	}
+
+	if fingerprint(pinB, overlayA) == base {
+		t.Fatalf("changing the builtin pin did not change the fingerprint")
+	}
+	if fingerprint(pinA, overlayB) == base {
+		t.Fatalf("changing the project overlay did not change the fingerprint")
+	}
+
+	// Changing any project rule's semantics (minting-authority, unsafe) moves
+	// the hash — no rule can drift silently.
+	for _, name := range []string{"minting.authority", "unsafe.builtins"} {
+		rules, err := classifierFingerprintRules(pinA, overlayA)
+		if err != nil {
+			t.Fatalf("classifierFingerprintRules: %v", err)
+		}
+		for i, r := range rules {
+			if r.Name == name {
+				rules[i].Effect += " (changed)"
+			}
+		}
+		text, err := CanonicalClassifierText(rules)
+		if err != nil {
+			t.Fatalf("CanonicalClassifierText: %v", err)
+		}
+		if ClassifierHash(GenerationDescriptor{ClassifierText: text, RuleVersion: "v1"}) == base {
+			t.Fatalf("changing the %s rule did not change the fingerprint", name)
+		}
+	}
+
+	// The explicit rule version changes the hash (independent of the text).
+	text, err := CanonicalClassifierText(rulesBase)
+	if err != nil {
+		t.Fatalf("CanonicalClassifierText: %v", err)
+	}
+	if ClassifierHash(GenerationDescriptor{ClassifierText: text, RuleVersion: "v2"}) == base {
+		t.Fatalf("changing the rule version did not change the fingerprint")
+	}
+
+	// Minting-authority map iteration order is non-semantic: repeated
+	// assembly over the same inputs is hash-stable.
+	for i := 0; i < 50; i++ {
+		if again := fingerprint(pinA, overlayA); again != base {
+			t.Fatalf("reassembly iteration %d changed the fingerprint", i)
+		}
 	}
 }
 

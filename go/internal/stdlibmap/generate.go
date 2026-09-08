@@ -144,7 +144,11 @@ func Generate(in GenerationInput) (*GeneratedMap, error) {
 		return nil, err
 	}
 	m.FormatVersion = artifactio.MapFormatVersion
-	m.Key = sdkKeyProto(in)
+	key, err := sdkKeyProto(in)
+	if err != nil {
+		return nil, fmt.Errorf("generating the stdlib map: %w", err)
+	}
+	m.Key = key
 	data, err := artifactio.MarshalMap(m)
 	if err != nil {
 		return nil, fmt.Errorf("emitting the stdlib map: %w", err)
@@ -199,14 +203,30 @@ func rootDisplayNames(findings []capslockadapter.GenerationFinding) []string {
 	return names
 }
 
-// GenerationClassifierRules renders the generation classifier's hashable rule
-// descriptor (task req 2): the Capslock builtins, the minting-site
-// reclassification, the var-rule minting authority, and the unsafe-builtin
-// hardcoding. The reclassification effect is derived from
-// capslockadapter's shared source material, so the descriptor cannot drift
-// from the classifier actually applied (I2).
-func GenerationClassifierRules() []ClassifierRule {
-	methods := capslockadapter.ReclassifiedHandleUseMethods()
+// GenerationClassifierRules renders the generation classifier's hashable
+// rule descriptor from the semantics generation actually executes (task reqs
+// 1–3, design I2): Capslock's exact builtin classifier content pin, the exact
+// project overlay text NewGenerationClassifier loads, the var-rule minting
+// authority, and the unsafe-builtin hardcoding. There is no independently
+// maintained description that can drift from the classifier execution path.
+func GenerationClassifierRules() ([]ClassifierRule, error) {
+	pin, err := capslockadapter.BuiltinClassifierPin()
+	if err != nil {
+		return nil, fmt.Errorf("fingerprinting the Capslock builtins: %w", err)
+	}
+	overlay, err := capslockadapter.GenerationClassifierText()
+	if err != nil {
+		return nil, fmt.Errorf("reading the generation classifier overlay: %w", err)
+	}
+	return classifierFingerprintRules(pin, overlay)
+}
+
+// classifierFingerprintRules assembles the canonical fingerprint rule set
+// from its semantic inputs: the Capslock builtin content pin, the exact
+// project overlay text, and the project-side rules derived from the minting
+// authority table. Rule effects carry semantic material, not prose summaries;
+// CanonicalClassifierText renders them order-independently.
+func classifierFingerprintRules(builtinPin, overlayText string) ([]ClassifierRule, error) {
 	var minted []string
 	for recv, cap := range capslockadapter.MintingAuthority() {
 		minted = append(minted, recv+" → "+cap)
@@ -214,15 +234,19 @@ func GenerationClassifierRules() []ClassifierRule {
 	sort.Strings(minted)
 	return []ClassifierRule{
 		{
-			Name: "capslock.builtins",
-			Effect: "Capslock's builtin capability map is included (excludeBuiltin=false); " +
-				"CAPABILITY_UNANALYZED findings are preserved as terminal UNANALYZED records (I4); " +
-				"the check-time ClassifierExcludingUnanalyzed wrapper is NOT applied.",
+			// The effect IS the content pin: a cryptographic digest of
+			// Capslock's embedded builtin classifier, so any builtin
+			// classification change necessarily changes the classifier_hash
+			// (review F1, task req 2).
+			Name:   "capslock.builtins.pin",
+			Effect: builtinPin,
 		},
 		{
-			Name: "minting.reclassification",
-			Effect: "The minting-site rule reclassifies the following handle-use methods CAPABILITY_SAFE: " +
-				strings.Join(methods, ", "),
+			// The effect IS the exact overlay text the generation classifier
+			// loads (capslockadapter.GenerationClassifierText, the minting
+			// reclassification lines).
+			Name:   "minting.reclassification",
+			Effect: overlayText,
 		},
 		{
 			Name: "minting.authority",
@@ -234,19 +258,23 @@ func GenerationClassifierRules() []ClassifierRule {
 			Effect: "Exported unsafe.* compiler builtins (*types.Builtin values with no SSA roots) " +
 				"are hardcoded UNANALYZED.",
 		},
-	}
+	}, nil
 }
 
 // sdkKeyProto derives the target SDK key from the generation descriptor and
-// converts it to its persisted proto form (task req 10).
-func sdkKeyProto(in GenerationInput) *gen.SDKKey {
-	rules := GenerationClassifierRules()
+// converts it to its persisted proto form (task req 10). Fingerprint assembly
+// errors fail generation closed — never a silently unhashed key.
+func sdkKeyProto(in GenerationInput) (*gen.SDKKey, error) {
+	rules, err := GenerationClassifierRules()
+	if err != nil {
+		return nil, err
+	}
 	text, err := CanonicalClassifierText(rules)
 	if err != nil {
-		// The rule set is a fixed, duplicate-free literal; a derivation
-		// failure is a programming error and must not become a silent
-		// unhashed key.
-		panic(fmt.Sprintf("generating the stdlib map: canonicalizing the classifier rules: %v", err))
+		// The rule set is a fixed, duplicate-free set; a canonicalization
+		// failure is a programming error and must fail generation, not
+		// produce an unhashed key.
+		return nil, fmt.Errorf("canonicalizing the classifier rules: %w", err)
 	}
 	key := DeriveSDKKey(GenerationDescriptor{
 		Target:           in.Target,
@@ -263,7 +291,7 @@ func sdkKeyProto(in GenerationInput) *gen.SDKKey {
 		Goexperiment:     key.GOEXPERIMENT,
 		ClassifierHash:   key.ClassifierHash,
 		MapFormatVersion: key.MapFormatVersion,
-	}
+	}, nil
 }
 
 // --- root normalization (task req 3) --------------------------------------------

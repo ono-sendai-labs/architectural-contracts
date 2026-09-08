@@ -190,6 +190,63 @@ func TestDistinctKeysSelectDistinctEntries(t *testing.T) {
 	}
 }
 
+// TestSemanticClassifierInputsSelectDistinctCacheEntries is the end-to-end
+// key/cache regression for the classifier fingerprint repair (task req 6, AC
+// 3): two different classifier semantic inputs select different cache entries,
+// and a map generated under input A fails input B's key validation instead of
+// being reused.
+func TestSemanticClassifierInputsSelectDistinctCacheEntries(t *testing.T) {
+	target := TargetConfig{ToolchainVersion: "go-test", GOOS: "linux", GOARCH: "amd64"}
+	keyFor := func(pin, overlay string) stdlibauthority.SDKKey {
+		rules, err := classifierFingerprintRules(pin, overlay)
+		if err != nil {
+			t.Fatalf("classifierFingerprintRules: %v", err)
+		}
+		text, err := CanonicalClassifierText(rules)
+		if err != nil {
+			t.Fatalf("CanonicalClassifierText: %v", err)
+		}
+		return DeriveSDKKey(GenerationDescriptor{
+			Target:           target,
+			ClassifierText:   text,
+			RuleVersion:      RuleVersion,
+			MapFormatVersion: artifactio.MapFormatVersion,
+		})
+	}
+	keyA := keyFor("builtin-pin-a", "func (*os.File).Read CAPABILITY_SAFE\n")
+	keyB := keyFor("builtin-pin-b", "func (*os.File).Read CAPABILITY_SAFE\n")
+	if keyA.ClassifierHash == keyB.ClassifierHash {
+		t.Fatalf("two classifier semantic inputs produced the same classifier_hash")
+	}
+	if CacheKeyDigest(keyA) == CacheKeyDigest(keyB) {
+		t.Fatalf("two classifier semantic inputs selected the same cache digest")
+	}
+
+	// A's artifact, even placed at B's digest path, is a key mismatch: the
+	// cache must regenerate for B rather than return A's map.
+	root := t.TempDir()
+	mapA := cannedGeneration(t, keyA, false)
+	spy := &generatorSpy{results: cannedGeneration(t, keyB, false)}
+	seams := cacheSeams(t, root, spy)
+	pathB := filepath.Join(root, "arcc", "stdlibmap", CacheKeyDigest(keyB)+".json")
+	if err := os.MkdirAll(filepath.Dir(pathB), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(pathB, mapA.Bytes, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	auth, err := OpenCachedMap(CachedMapInput{Key: keyB, Seams: seams})
+	if err != nil {
+		t.Fatalf("OpenCachedMap with A's artifact under B's key: %v", err)
+	}
+	if got := spy.count(); got != 1 {
+		t.Fatalf("generator invocations = %d; want 1 (A's map must not be reused for B)", got)
+	}
+	if fields := stdlibauthority.EqualKeys(auth.Key(), keyB); len(fields) > 0 {
+		t.Fatalf("returned authority disagrees with B's key: %v", fields)
+	}
+}
+
 func mutateKey(base stdlibauthority.SDKKey, mutate func(*stdlibauthority.SDKKey)) stdlibauthority.SDKKey {
 	k := base
 	mutate(&k)
