@@ -1,0 +1,273 @@
+review:
+  project: 2026-08-04-compositional-component-analysis
+  plan_path: .agents/planning/2026-08-04-compositional-component-analysis/implementation/plan.md
+  design_path: .agents/planning/2026-08-04-compositional-component-analysis/design/detailed-design.md
+  reviewed_at: 2026-09-08T18:58:42Z
+  schema_version: 1
+  scope: step
+  step: 5
+  steps_in_scope: [5]
+  commits_in_scope: 31
+  remediation_step: null
+  verdict: clean
+
+summary: |
+  Step 5 meets its whole-step objective: each checked component owns one lazy
+  analysis action that produces its canonical report and exact surface, direct
+  consumers carry dependency artifact inputs that establish producer order,
+  and the three assertion rules consume the recorded report instead of running
+  another check. The final manual branch fully retires Task 4's transitional
+  checked treatment and honours I6 with a package-level, symbol-free,
+  empty-digest asserted surface, no report, and no ArccCheck action; declared-
+  interface assertion fails during analysis. The intentional Step 5 gap between
+  exact emitted surfaces and the check's implements-closure widening is explicit
+  in the plan, CLI help, README, surface package, and resolver comment. No
+  important or critical cross-task issue remains, so no remediation task is
+  warranted; the complete Go gate and 36 focused Bazel topology tests passed in
+  this review, while the task records supply the full Bazel execution-gate runs.
+
+architecture:
+  - element: Canonical persisted report and verdict assertion contract
+    expected: |
+      A completed report has one derived pass/fail verdict, deterministic and
+      bounded encoding, and a standalone verdict command that distinguishes a
+      mismatch from malformed or unreadable report input.
+    actual: |
+      artifactio owns the bounded canonical envelope and re-derives the verdict
+      on both encode and decode; report owns the pure VerdictOf derivation; the
+      CLI verdict command implements the required 0/1/2 assertion contract.
+    status: aligned
+    files:
+      - go/internal/report/report.go
+      - go/internal/artifactio/report.go
+      - go/cmd/arcc/app/verdict.go
+    notes: |
+      Canonical sorting covers dependency boundaries and findings, including a
+      complete evidence tie-break, and no report codec authority leaked into
+      the pure report package.
+
+  - element: Exact checked-surface derivation and native artifact conventions
+    expected: |
+      Checked surfaces contain canonical owned packages and exactly the symbols
+      declared by surviving interface files, carry complete namespace/SDK/
+      authority identity, and digest only manifest plus member-source producer
+      inputs. Native companion paths are derived by convention.
+    actual: |
+      surface.Derive calls symbol.ExtractSurface directly without the legacy
+      implements closure, canonicalizes package and SDK-tag collections, and
+      computes the specified framed SHA-256 digest. artifactio supplies the
+      canonical encoder, atomic writer, exact-source reader, and surface/report
+      companion-path helpers.
+    status: aligned
+    files:
+      - go/internal/surface/derive.go
+      - go/internal/surface/digest.go
+      - go/internal/artifactio/surface.go
+      - go/internal/artifactio/surfacepaths.go
+    notes: |
+      The future native surface reader is Step 7 work; exposing its conventional
+      paths now is intentional staging rather than dead code.
+
+  - element: Single CLI check invocation publishes report and checked surface
+    expected: |
+      One check invocation performs the existing Step 5 analysis, derives both
+      artifacts from that result, validates the exact target SDK identity, and
+      makes policy failure successful only under report-verdict-only mode while
+      preserving tool-error exit 2.
+    actual: |
+      runCheck performs the existing check once, then publishArtifacts derives
+      and encodes the exact surface and canonical report before publication.
+      The injected key resolver validates layout or discovered-native target
+      identity and the current classifier fingerprint; artifact writes use the
+      shared atomic writer.
+    status: aligned
+    files:
+      - go/cmd/arcc/app/check.go
+      - go/cmd/arcc/app/app.go
+      - go/internal/goanalysis/surfaceinputs.go
+    notes: |
+      Surface preparation performs a dedicated member-package load inside the
+      one CLI invocation; Step 5's topology objective is one analysis action per
+      component rather than one action per assertion test. The later load-model
+      replacement remains explicitly assigned to Steps 6 through 8.
+
+  - element: Checked Bazel producer, lazy outputs, and provider topology
+    expected: |
+      A regular go_component owns one hermetic ArccCheck action producing the
+      report and surface together, exposes them through ArccComponentInfo and
+      OutputGroupInfo(arcc), and keeps them out of DefaultInfo.
+    actual: |
+      component.bzl factors the exact CLI argv through command.bzl, declares the
+      Step 5 source/layout/map inputs, produces both files in one action, assigns
+      checked provenance, and leaves manifest/layout as the only default files.
+    status: aligned
+    files:
+      - bazel_rules/go/private/component.bzl
+      - bazel_rules/go/private/command.bzl
+      - bazel_rules/providers.bzl
+      - bazel_rules/go/providers.bzl
+    notes: |
+      Focused analysis tests confirm one ArccCheck action, exact outputs and
+      transitional inputs, no default analysis output, and complete target-key
+      wiring.
+
+  - element: Direct dependency producer edges before surface consumption
+    expected: |
+      A checked consumer declares each direct dependency's available surface
+      and report as ordering inputs even though Step 7, not Step 5, gives those
+      artifacts semantic meaning.
+    actual: |
+      go_component collects report/surface Files from authored and auto-attached
+      ArccComponentInfo providers and adds them to the consumer ArccCheck inputs.
+      Checked dependencies contribute both artifacts and asserted dependencies
+      contribute their surface, establishing the producer chain without reading
+      either artifact yet.
+    status: aligned
+    files:
+      - bazel_rules/go/private/component.bzl
+      - bazel_rules/go/tests/component_tests.bzl
+      - bazel_rules/go/tests/report_assertion_tests.bzl
+    notes: |
+      This is the deliberate Step 5 provider seam; source-based dependency
+      resolution remains active until Step 7.
+
+  - element: I6 asserted manual-surface producer and migration
+    expected: |
+      Transitional manual components bypass checking and publish only a
+      package-level asserted surface from analysis-known data: no symbols,
+      empty digest, UNKNOWN authority, complete identity, no report, and no
+      declared-interface assertion. Fixture-only manual uses remain checked by
+      moving test suppression to check_tags.
+    actual: |
+      The manual branch uses ctx.actions.write for the shared surface schema,
+      rejects a declared interface or declared authority, omits symbols/digest,
+      publishes report=None and asserted provenance, and creates no ArccCheck.
+      The genuine fixture is PACKAGE_SURFACE; negative and analysis-only
+      fixtures use check_tags, with the intentionally pre-producer conflict
+      fixture documented and rejected before branch selection.
+    status: aligned
+    files:
+      - bazel_rules/go/private/component.bzl
+      - bazel_rules/go/private/arcc_metadata.bzl
+      - bazel_rules/go/defs.bzl
+      - bazel_rules/go/tests/testdata/reportboundary/manual/BUILD.bazel
+      - bazel_rules/go/tests/asserted_surface_tests.bzl
+    notes: |
+      The Task 4 transitional state is fully retired in current production
+      behavior. Mirrored Starlark identity constants are unavoidable because
+      Starlark cannot hash; equality tests pin them to both a checked surface
+      and the generated map rather than trusting the duplicate values.
+
+  - element: Report-consuming assertion rules and once-per-component analysis
+    expected: |
+      Normal, grep, and golden check tests consume the producer's exact report
+      with minimal runfiles and cannot initiate a second check; asserted
+      providers fail closed because they have no report.
+    actual: |
+      The normal and grep launchers use arcc verdict against info.report and the
+      golden launcher directly diffs the same report. Their runfiles contain
+      only report plus the assertion-specific tool or golden, and all rule
+      families call the checked-provider guard before generating a launcher.
+    status: aligned
+    files:
+      - bazel_rules/go/private/check.bzl
+      - bazel_rules/go/private/command.bzl
+      - bazel_rules/go/tests/report_assertion_tests.bzl
+    notes: |
+      Bazel therefore shares one component producer action across any number of
+      assertion targets. arcc_checked_analysis_test deliberately re-executes the
+      command only as dedicated determinism coverage, not as a production check
+      consumer.
+
+  - element: Explicit temporary surface/check semantic gap
+    expected: |
+      Step 5 emits the exact declared interface without implements-closure
+      injection while the existing checker continues using that workaround
+      until Step 6, with the disagreement documented and tested rather than
+      silently widened away.
+    actual: |
+      Surface derivation invokes only symbol.ExtractSurface, while
+      ResolveDependencyInterface retains the legacy closure. The plan, README,
+      CLI usage, app/surface contracts, and resolver comment all identify the
+      discrepancy as Step 5-only and direct readers to Step 6.
+    status: aligned
+    files:
+      - go/internal/surface/derive.go
+      - go/internal/goanalysis/goanalysis.go
+      - go/cmd/arcc/app/app.go
+      - README.md
+      - .agents/planning/2026-08-04-compositional-component-analysis/implementation/plan.md
+    notes: |
+      This documented gap is deliberate and is not a finding.
+
+doc_code_alignment: []
+
+findings:
+  - id: F1
+    severity: suggestion
+    category: style
+    file: bazel_rules/go/private/command.bzl
+    line: 64
+    title: Function documentation still says the golden rule uses verdict argv
+    details: |
+      The module-level documentation correctly says only the normal and grep
+      assertions call arcc_verdict_argv, while the function doc still includes
+      the golden rule. Production behavior is correct: the golden rule directly
+      diffs the provider report, so this is non-blocking local prose residue.
+    suggested_action: |
+      Say that the normal and grep rules consume arcc_verdict_argv and that the
+      golden rule directly compares the report artifact.
+    source: code-task-review
+
+  - id: F2
+    severity: suggestion
+    category: tests
+    file: bazel_rules/go/tests/asserted_surface_sdk_key_test.sh
+    line: 61
+    title: SDK symmetry probe does not parse a true cgoEnabled boolean
+    details: |
+      The asserted/checked symmetry test compares cgoEnabled through a helper
+      that only extracts quoted JSON scalars. Its current cgo-off fixture is
+      correct and omission symmetry is covered, but a future true boolean would
+      look absent and could evade this particular drift guard. The production
+      key writer and the transitioned checked-key coverage are unaffected.
+    suggested_action: |
+      Use a boolean-aware JSON extraction or add a non-default transition
+      fixture that compares every SDK-key field with cgoEnabled true.
+    source: code-task-review
+
+  - id: F3
+    severity: suggestion
+    category: tests
+    file: justfile
+    line: 85
+    title: Malformed-action failure log can survive a failed grep
+    details: |
+      The log path is safely unique, but a grep failure under the recipe's
+      fail-fast shell can exit before the following cleanup. This leaks only a
+      temporary diagnostic on an already-failing CI gate and has no effect on
+      Step 5 behavior or test validity.
+    suggested_action: |
+      Install a cleanup trap after mktemp or ensure cleanup runs on both grep
+      success and failure.
+    source: code-task-review
+
+  - id: F4
+    severity: nit
+    category: doc_divergence
+    file: bazel_rules/go/private/stdlib_map.bzl
+    line: 50
+    title: Default-map seam comment still speaks from the pre-Step-5 state
+    details: |
+      The helper doc says that until Step 5 nothing consumes the default map and
+      no analysis action exists, although component.bzl now attaches it to the
+      landed Step 5 action. The preceding lines and implementation are accurate,
+      so this is a stale tense rather than architectural ambiguity.
+    suggested_action: |
+      Replace the historical "until then" sentence with the current consumer
+      relationship when this comment is next touched.
+    source: built-in
+
+remediation_tasks: []
+
+ecosystem_reviews: []
