@@ -1,9 +1,11 @@
 load("@rules_arcc//bazel_rules/go:defs.bzl", "go_component")
 
 # Contradiction fixtures: a member that a listed component_dep already covers
-# is a conflict the rule has to reject rather than resolve. `manual` keeps the
-# deliberate analysis failure out of `bazel build //...`;
-# //bazel_rules/go/tests asserts on it.
+# is a conflict the rule has to reject rather than resolve. The `manual` tag
+# here is NOT the asserted-component tag: this fixture deliberately fails at
+# analysis time before any producer branch is selected, and the tag only keeps
+# the failing analysis out of `bazel build //...`; //bazel_rules/go/tests
+# asserts on it. (Step 5 task 05 audit: kept on the component, not migrated.)
 go_component(
     name = "member_covered_conflict_component",
     component_deps = ["//bazel_rules/go/tests/testdata/shared:shared_component"],

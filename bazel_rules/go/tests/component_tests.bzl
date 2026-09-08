@@ -562,6 +562,25 @@ def _sdk_repo_prefix(env, target):
     root = content[start + len(marker):].split("\"")[0]
     return root.split("/")[0] + "/"
 
+def _migrated_fixture_stays_checked_test(name):
+    # AC 4 (Step 5 task 05): a fixture whose `manual` tag was only a
+    # check-suppression workaround keeps the checked producer after the
+    # migration to `check_tags` — it must never receive an asserted surface.
+    analysis_test(
+        name = name,
+        target = "//bazel_rules/go/tests/testdata/violation:violation_component",
+        impl = _migrated_fixture_stays_checked_impl,
+        attr_values = {"size": "small"},
+    )
+
+def _migrated_fixture_stays_checked_impl(env, target):
+    info = target[ArccComponentInfo]
+    env.expect.that_str(info.provenance).equals("checked")
+    if info.report == None:
+        env.fail("migrated negative fixture must keep a checked report")
+    if info.surface == None:
+        env.fail("migrated negative fixture must keep a checked surface")
+
 def go_component_test_suite(name):
     test_suite(
         name = name,
@@ -584,5 +603,6 @@ def go_component_test_suite(name):
             _checked_component_outputs_test,
             _checked_action_command_test,
             _checked_action_inputs_test,
+            _migrated_fixture_stays_checked_test,
         ],
     )

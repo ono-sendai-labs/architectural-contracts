@@ -6,9 +6,11 @@
 # directly by malformed_manifest_tool_error_test. broken_go_component wraps a
 # Go library whose source does not parse: its ArccCheck action is expected to
 # FAIL at execution when the arcc output group is requested (the just
-# bazel-test gate asserts exactly that). Both are tagged manual so the
-# wildcard default build — which must stay analysis-free and green — excludes
-# them; an explicit `--output_groups=+arcc` request still runs the action.
+# bazel-test gate asserts exactly that). The component stays on the checked
+# path; its generated `.check` (which would fail for the same reason) is kept
+# out of `bazel test //...` with `check_tags = ["manual"]`, and the unparseable
+# library stays out of the wildcard default build with the `manual` tag. An
+# explicit `--output_groups=+arcc` request still runs the action.
 load("@rules_arcc//bazel_rules/go:defs.bzl", "go_component")
 load("@rules_go//go:def.bzl", "go_library")
 
@@ -24,6 +26,6 @@ go_library(
 go_component(
     name = "broken_go_component",
     interface = ":broken",
-    tags = ["manual"],
+    check_tags = ["manual"],
     visibility = ["//bazel_rules:__subpackages__"],
 )

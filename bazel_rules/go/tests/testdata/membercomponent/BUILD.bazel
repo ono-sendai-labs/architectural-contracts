@@ -1,6 +1,11 @@
 load("@rules_arcc//bazel_rules/go:defs.bzl", "PACKAGE_SURFACE", "go_component")
 load("//bazel_rules/go/tests:testing.bzl", "testing_go_component")
 
+# Step 5 task 05 audit: these fixtures are analysis-test material, not
+# unowned components. Each carries `check_tags = ["manual"]` — its generated
+# check stays out of `bazel test //...` while the component itself remains a
+# checked component; none of them is on the asserted path.
+
 # The interface does not import //member. Its explicit member root must still
 # contribute both itself and its member-only dependency to the closure/layout.
 go_component(
@@ -12,7 +17,7 @@ go_component(
         "//bazel_rules/go/tests/testdata/memberdep",
         "//bazel_rules/go/tests/testdata/member",
     ],
-    tags = ["manual"],
+    check_tags = ["manual"],
     visibility = ["//bazel_rules:__subpackages__"],
 )
 
@@ -25,7 +30,7 @@ go_component(
         "//bazel_rules/go/tests/testdata/member",
         "//bazel_rules/go/tests/testdata/memberdep",
     ],
-    tags = ["manual"],
+    check_tags = ["manual"],
     visibility = ["//bazel_rules:__subpackages__"],
 )
 
@@ -39,7 +44,7 @@ go_component(
         "//bazel_rules/go/tests/testdata/memberdep",
         "//bazel_rules/go/tests/testdata/member",
     ],
-    tags = ["manual"],
+    check_tags = ["manual"],
     visibility = ["//bazel_rules:__subpackages__"],
 )
 
@@ -50,7 +55,7 @@ testing_go_component(
     infra_deps = [":package_surface_component"],
     test_infra_attach = "ALWAYS",
     test_infra_patterns = ["example.com/aspect/member*"],
-    tags = ["manual"],
+    check_tags = ["manual"],
     visibility = ["//bazel_rules:__subpackages__"],
 )
 
@@ -63,7 +68,7 @@ testing_go_component(
     infra_deps = [":package_surface_component"],
     test_infra_attach = "CLOSURE",
     test_infra_patterns = ["example.com/aspect/core*"],
-    tags = ["manual"],
+    check_tags = ["manual"],
     visibility = ["//bazel_rules:__subpackages__"],
 )
 
@@ -75,7 +80,7 @@ testing_go_component(
     members = ["//bazel_rules/go/tests/testdata/core"],
     infra_deps = [":package_surface_component"],
     test_infra_attach = "ROOTS",
-    tags = ["manual"],
+    check_tags = ["manual"],
     visibility = ["//bazel_rules:__subpackages__"],
 )
 
@@ -86,7 +91,7 @@ testing_go_component(
     infra_deps = [":package_surface_component"],
     test_infra_attach = "CLOSURE",
     test_infra_patterns = ["example.com/runtime/*"],
-    tags = ["manual"],
+    check_tags = ["manual"],
     visibility = ["//bazel_rules:__subpackages__"],
 )
 
@@ -96,7 +101,7 @@ testing_go_component(
     interface = "//bazel_rules/go/tests/testdata/api:api",
     infra_deps = [":package_surface_component"],
     test_infra_attach = "NEVER",
-    tags = ["manual"],
+    check_tags = ["manual"],
     visibility = ["//bazel_rules:__subpackages__"],
 )
 
@@ -107,7 +112,7 @@ testing_go_component(
     component_deps = [":package_surface_component"],
     infra_deps = [":package_surface_component"],
     test_infra_attach = "ALWAYS",
-    tags = ["manual"],
+    check_tags = ["manual"],
     visibility = ["//bazel_rules:__subpackages__"],
 )
 
@@ -124,7 +129,7 @@ testing_go_component(
         "//bazel_rules/go/tests/testdata/infra/runtime:runtime_component",
     ],
     test_infra_attach = "ALWAYS",
-    tags = ["manual"],
+    check_tags = ["manual"],
     visibility = ["//bazel_rules:__subpackages__"],
 )
 
@@ -140,7 +145,7 @@ testing_go_component(
         ":package_surface_component",
     ],
     test_infra_attach = "ALWAYS",
-    tags = ["manual"],
+    check_tags = ["manual"],
     visibility = ["//bazel_rules:__subpackages__"],
 )
 
@@ -152,6 +157,6 @@ go_component(
     members = [
         "//bazel_rules/go/tests/testdata/member",
     ],
-    tags = ["manual"],
+    check_tags = ["manual"],
     visibility = ["//bazel_rules:__subpackages__"],
 )

@@ -10,7 +10,7 @@ go_component(
         "//bazel_rules/go/tests/testdata/hazard/impl3",
         "//bazel_rules/go/tests/testdata/hazard/impl4",
     ],
-    tags = ["manual"],
+    check_tags = ["manual"],
     visibility = ["//bazel_rules:__subpackages__"],
 )
 
@@ -27,6 +27,6 @@ go_component(
         "//bazel_rules/go/tests/testdata/hazard/util2",
         "//bazel_rules/go/tests/testdata/hazard/util3",
     ],
-    tags = ["manual"],
+    check_tags = ["manual"],
     visibility = ["//bazel_rules:__subpackages__"],
 )
