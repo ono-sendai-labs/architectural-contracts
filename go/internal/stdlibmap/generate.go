@@ -206,9 +206,11 @@ func rootDisplayNames(findings []capslockadapter.GenerationFinding) []string {
 // GenerationClassifierRules renders the generation classifier's hashable
 // rule descriptor from the semantics generation actually executes (task reqs
 // 1–3, design I2): Capslock's exact builtin classifier content pin, the exact
-// project overlay text NewGenerationClassifier loads, the var-rule minting
-// authority, and the unsafe-builtin hardcoding. There is no independently
-// maintained description that can drift from the classifier execution path.
+// project overlay text NewGenerationClassifier loads, and the canonical
+// project completion rules (the unsafe-builtin hardcoding and the full
+// variable/minting policy — the same canonical instance BuildAuthorityMap
+// executes). There is no independently maintained description that can drift
+// from the classifier execution path (review: assembly-to-execution drift).
 func GenerationClassifierRules() ([]ClassifierRule, error) {
 	pin, err := capslockadapter.BuiltinClassifierPin()
 	if err != nil {
@@ -218,20 +220,36 @@ func GenerationClassifierRules() ([]ClassifierRule, error) {
 	if err != nil {
 		return nil, fmt.Errorf("reading the generation classifier overlay: %w", err)
 	}
-	return classifierFingerprintRules(pin, overlay)
+	return classifierFingerprintRules(pin, overlay, projectCompletionRules())
+}
+
+// renderUnsafeRule renders the executed unsafe-completion rule's canonical
+// machine-readable effect: the classifications and provenance the execution
+// path applies, key=value form, deterministic.
+func renderUnsafeRule(u UnsafeRuleSemantics) string {
+	return fmt.Sprintf("builtin-classification=%s type-classification=%s provenance=%s",
+		u.BuiltinClassification, u.TypeClassification, u.Provenance)
+}
+
+// renderVarRule renders the executed variable-completion rule's canonical
+// machine-readable effect: the full policy plus the minting table, sorted for
+// order independence.
+func renderVarRule(v VarRuleSemantics) string {
+	var minted []string
+	for recv, cap := range v.Minting {
+		minted = append(minted, recv+" → "+cap)
+	}
+	sort.Strings(minted)
+	return fmt.Sprintf("pointer-dereference=%t method-set=%s exported-only=%t interface-safe=%t named-safe=%t minting=%s",
+		v.PointerDereference, v.MethodSet, v.ExportedOnly, v.InterfaceSafe, v.NamedSafe, strings.Join(minted, ","))
 }
 
 // classifierFingerprintRules assembles the canonical fingerprint rule set
 // from its semantic inputs: the Capslock builtin content pin, the exact
-// project overlay text, and the project-side rules derived from the minting
-// authority table. Rule effects carry semantic material, not prose summaries;
+// project overlay text, and the canonical project completion rules. Rule
+// effects carry semantic material, not prose summaries;
 // CanonicalClassifierText renders them order-independently.
-func classifierFingerprintRules(builtinPin, overlayText string) ([]ClassifierRule, error) {
-	var minted []string
-	for recv, cap := range capslockadapter.MintingAuthority() {
-		minted = append(minted, recv+" → "+cap)
-	}
-	sort.Strings(minted)
+func classifierFingerprintRules(builtinPin, overlayText string, rules completionRules) ([]ClassifierRule, error) {
 	return []ClassifierRule{
 		{
 			// The effect IS the content pin: a cryptographic digest of
@@ -249,14 +267,18 @@ func classifierFingerprintRules(builtinPin, overlayText string) ([]ClassifierRul
 			Effect: overlayText,
 		},
 		{
-			Name: "minting.authority",
-			Effect: "A variable whose pointer-dereferenced static type owns a reclassified handle-use " +
-				"method inherits the ambient capability the minting site moved to itself: " + strings.Join(minted, ", "),
+			// The effect IS the executed var-rule policy (renderVarRule): the
+			// pointer/deref, method-set, exported/interface/named decisions
+			// and the minting table classifyVar actually consumes.
+			Name:   "var.completion",
+			Effect: renderVarRule(rules.Var),
 		},
 		{
-			Name: "unsafe.builtins",
-			Effect: "Exported unsafe.* compiler builtins (*types.Builtin values with no SSA roots) " +
-				"are hardcoded UNANALYZED.",
+			// The effect IS the executed unsafe rule (renderUnsafeRule): the
+			// classifications and provenance classifyBuiltin and the
+			// unsafe.* type branch actually apply.
+			Name:   "unsafe.builtins",
+			Effect: renderUnsafeRule(rules.Unsafe),
 		},
 	}, nil
 }
@@ -591,9 +613,106 @@ func resolveSymbol(inv *Inventory, id symbol.SymbolID) (symbolKind, error) {
 
 // classifyBuiltin is the unsafe-builtin rule (task req 7): exported
 // compiler builtins are *types.Builtin values with no SSA roots, so they are
-// hardcoded UNANALYZED as a project override.
-func classifyBuiltin() (gen.Classification, string) {
-	return gen.Classification_UNANALYZED, ProvenanceProjectOverride
+// hardcoded UNANALYZED as a project override. The classification and
+// provenance come from the canonical completion rules
+// (projectCompletionRules), the same source the classifier fingerprint
+// hashes (review: assembly-to-execution drift).
+func classifyBuiltin(rules UnsafeRuleSemantics) (gen.Classification, string, error) {
+	classification, err := classificationFor(rules.BuiltinClassification)
+	if err != nil {
+		return 0, "", fmt.Errorf("the unsafe-builtin completion rule: %w", err)
+	}
+	return classification, rules.Provenance, nil
+}
+
+// classificationFor parses a canonical classification spelling into its
+// persisted enum value. Only the design's terminal classifications are
+// representable; anything else fails closed.
+func classificationFor(name string) (gen.Classification, error) {
+	switch name {
+	case "SAFE":
+		return gen.Classification_SAFE, nil
+	case "CAPABILITIES":
+		return gen.Classification_CAPABILITIES, nil
+	case "UNANALYZED":
+		return gen.Classification_UNANALYZED, nil
+	}
+	return 0, fmt.Errorf("classification %q is not a known classification spelling", name)
+}
+
+// UnsafeRuleSemantics is the executed unsafe-completion rule's
+// machine-readable semantics (review: the fingerprint must carry the executed
+// rule, not prose). Both the execution paths (classifyBuiltin and the
+// unsafe.* named-type branch of BuildAuthorityMap) and the canonical
+// classifier fingerprint derive from one canonical instance
+// (projectCompletionRules).
+type UnsafeRuleSemantics struct {
+	// BuiltinClassification is the terminal classification applied to
+	// exported unsafe.* compiler builtins (*types.Builtin with no SSA roots).
+	BuiltinClassification string
+	// TypeClassification is the terminal classification applied to unsafe.*
+	// named types (compiler-magic types in a package of compiler builtins,
+	// e.g. unsafe.Pointer).
+	TypeClassification string
+	// Provenance is the SAFE-provenance vocabulary entry the rule records
+	// (ProvenanceProjectOverride); the rule is this project's overriding
+	// trust decision, not Capslock's curation or proved purity.
+	Provenance string
+}
+
+// VarRuleSemantics is the executed variable-completion rule's
+// machine-readable policy (DR-05, task req 5; review: the fingerprint must
+// carry the executed policy). classifyVar derives from the same canonical
+// instance the classifier fingerprint hashes.
+type VarRuleSemantics struct {
+	// PointerDereference dereferences a variable's static pointer type before
+	// classification (a *File variable is classified via File's method set).
+	PointerDereference bool
+	// MethodSet is the receiver type whose method set the rule unions:
+	// "pointer" (the full static pointer method set, promoted methods and
+	// alias-exposed receivers included) or "value".
+	MethodSet string
+	// ExportedOnly restricts the union to exported methods.
+	ExportedOnly bool
+	// InterfaceSafe classifies interface-typed variables SAFE.
+	InterfaceSafe bool
+	// NamedSafe classifies methodless non-interface named variables SAFE.
+	NamedSafe bool
+	// Minting maps a receiver type ("pkg.T") to the ambient capability its
+	// minting site moves to itself; a variable of that handle type inherits
+	// the minted capability (capslockadapter.MintingAuthority is the source).
+	Minting map[string]string
+}
+
+// completionRules is the canonical, machine-readable source of the project
+// completion-rule semantics executed by BuildAuthorityMap and hashed into the
+// SDK key's classifier fingerprint. There is exactly one production instance
+// (projectCompletionRules); no independently maintained description may drift
+// from it (review: project completion rules must not remain prose-only).
+type completionRules struct {
+	Unsafe UnsafeRuleSemantics
+	Var    VarRuleSemantics
+}
+
+// projectCompletionRules returns the canonical instance of the executed
+// project completion rules: the unsafe-builtin hardcoding and the full
+// variable/minting policy (task reqs 1, 5, 7).
+func projectCompletionRules() completionRules {
+	return completionRules{
+		Unsafe: UnsafeRuleSemantics{
+			BuiltinClassification: "UNANALYZED",
+			TypeClassification:    "UNANALYZED",
+			Provenance:            ProvenanceProjectOverride,
+		},
+		Var: VarRuleSemantics{
+			PointerDereference: true,
+			MethodSet:          "pointer",
+			ExportedOnly:       true,
+			InterfaceSafe:      true,
+			NamedSafe:          true,
+			Minting:            capslockadapter.MintingAuthority(),
+		},
+	}
 }
 
 // classifyVar applies the var rule (task req 5, DR-05): the union of the
@@ -601,27 +720,43 @@ func classifyBuiltin() (gen.Classification, string) {
 // the map's own classifier, plus the handle minting-authority clause.
 // Interface-typed and methodless vars are SAFE. provenance is the inherited
 // SAFE provenance when the union is empty ("" otherwise, a capability record).
-func classifyVar(inv *Inventory, varID symbol.SymbolID, obj *types.Var, records map[symbol.SymbolID]*symbolResult) (*symbolResult, error) {
+// Every branch derives from the canonical completion rules, which the
+// classifier fingerprint also hashes (review: assembly-to-execution drift).
+func classifyVar(inv *Inventory, varID symbol.SymbolID, obj *types.Var, records map[symbol.SymbolID]*symbolResult, rules VarRuleSemantics) (*symbolResult, error) {
 	t := obj.Type()
-	if ptr, ok := t.(*types.Pointer); ok {
-		t = ptr.Elem()
+	if rules.PointerDereference {
+		if ptr, ok := t.(*types.Pointer); ok {
+			t = ptr.Elem()
+		}
 	}
-	if _, ok := t.Underlying().(*types.Interface); ok {
-		return &symbolResult{classification: gen.Classification_SAFE, provenance: provenanceStructural}, nil
+	if rules.InterfaceSafe {
+		if _, ok := t.Underlying().(*types.Interface); ok {
+			return &symbolResult{classification: gen.Classification_SAFE, provenance: provenanceStructural}, nil
+		}
 	}
 	named, _ := types.Unalias(t).(*types.Named)
 	if named == nil {
-		return &symbolResult{classification: gen.Classification_SAFE, provenance: provenanceStructural}, nil
+		if rules.NamedSafe {
+			return &symbolResult{classification: gen.Classification_SAFE, provenance: provenanceStructural}, nil
+		}
+		return &symbolResult{}, nil
 	}
 	result := &symbolResult{}
-	// The full static method set of the pointer-dereferenced type: promoted
+	// The full static method set of the rule's receiver type: promoted
 	// methods from embedded types and alias-exposed receivers carry authority
-	// too, so the walk uses the complete pointer method set rather than only
-	// the explicitly declared methods (round-1 finding).
-	mset := types.NewMethodSet(types.NewPointer(named))
+	// too, so the walk uses the complete method set rather than only the
+	// explicitly declared methods (round-1 finding).
+	var recv types.Type = named
+	if rules.MethodSet == "pointer" {
+		recv = types.NewPointer(named)
+	}
+	mset := types.NewMethodSet(recv)
 	for i := 0; i < mset.Len(); i++ {
 		m, ok := mset.At(i).Obj().(*types.Func)
-		if !ok || !m.Exported() {
+		if rules.ExportedOnly && (!ok || !m.Exported()) {
+			continue
+		}
+		if m == nil {
 			continue
 		}
 		id, err := symbol.FromObject(m)
@@ -642,13 +777,13 @@ func classifyVar(inv *Inventory, varID symbol.SymbolID, obj *types.Var, records 
 	// The handle minting-authority clause: a pre-minted handle variable of a
 	// type owning reclassified use-methods inherits the capability the
 	// minting site moved to itself (DR-05; os.Stdin is FILES, not merely
-	// CHDIR).
-	minting := capslockadapter.MintingAuthority()
+	// CHDIR). The minting table comes from the canonical completion rules —
+	// the same table the fingerprint hashes.
 	pkgPath := ""
 	if p := named.Obj().Pkg(); p != nil {
 		pkgPath = p.Path()
 	}
-	if cap, ok := minting[pkgPath+"."+named.Obj().Name()]; ok {
+	if cap, ok := rules.Minting[pkgPath+"."+named.Obj().Name()]; ok {
 		result.addCapability(cap)
 		// The minted capability has no analyzed call path — it is the
 		// pre-minted handle's inherited authority. Its evidence is a
@@ -848,7 +983,19 @@ func BuildAuthorityMap(inv *Inventory, findings []capslockadapter.GenerationFind
 	}
 
 	// 2. Classify every inventoried symbol and init (exact reconciliation:
-	// records == inventory, task req 9).
+	// records == inventory, task req 9). The completion rules come from the
+	// canonical projectCompletionRules — the same source the classifier
+	// fingerprint hashes — so a rule-semantics change necessarily moves the
+	// SDK key (review: assembly-to-execution drift).
+	rules := projectCompletionRules()
+	unsafeBuiltinClass, _, err := classifyBuiltin(rules.Unsafe)
+	if err != nil {
+		return nil, fmt.Errorf("building the authority map: %w", err)
+	}
+	unsafeTypeClass, err := classificationFor(rules.Unsafe.TypeClassification)
+	if err != nil {
+		return nil, fmt.Errorf("building the authority map: the unsafe-type completion rule: %w", err)
+	}
 	reclassified := map[symbol.SymbolID]bool{}
 	for _, m := range capslockadapter.ReclassifiedHandleUseMethods() {
 		id, err := symbol.ParseCapslock(m)
@@ -913,14 +1060,15 @@ func BuildAuthorityMap(inv *Inventory, findings []capslockadapter.GenerationFind
 		case kindConst, kindType:
 			// Consts and plain types are SAFE by construction (task req 5) —
 			// except unsafe.Pointer, a compiler-magic type in a package of
-			// compiler builtins with no SSA roots (task req 7).
+			// compiler builtins with no SSA roots (task req 7). The
+			// classification comes from the canonical unsafe rule.
 			if recordPackage(id.String()) == "unsafe" {
-				records[id] = &symbolResult{classification: gen.Classification_UNANALYZED, provenance: ProvenanceProjectOverride}
+				records[id] = &symbolResult{classification: unsafeTypeClass, provenance: rules.Unsafe.Provenance}
 				continue
 			}
 			records[id] = &symbolResult{classification: gen.Classification_SAFE, provenance: provenanceStructural}
 		case kindBuiltin:
-			records[id] = &symbolResult{classification: gen.Classification_UNANALYZED, provenance: ProvenanceProjectOverride}
+			records[id] = &symbolResult{classification: unsafeBuiltinClass, provenance: rules.Unsafe.Provenance}
 		default:
 			return nil, fmt.Errorf("building the authority map: inventoried symbol %q has unexpected kind %d", id, kind)
 		}
@@ -939,7 +1087,7 @@ func BuildAuthorityMap(inv *Inventory, findings []capslockadapter.GenerationFind
 		if !ok || obj == nil {
 			return nil, fmt.Errorf("building the authority map: inventoried var %q did not resolve to a types.Var", id)
 		}
-		result, err := classifyVar(inv, id, obj, records)
+		result, err := classifyVar(inv, id, obj, records, rules.Var)
 		if err != nil {
 			return nil, fmt.Errorf("building the authority map: %w", err)
 		}

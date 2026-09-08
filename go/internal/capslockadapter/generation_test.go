@@ -1,6 +1,7 @@
 package capslockadapter
 
 import (
+	"reflect"
 	"regexp"
 	"slices"
 	"strings"
@@ -126,5 +127,50 @@ func TestClassifierContentDigestSensitivity(t *testing.T) {
 	}
 	if pin, err := BuiltinClassifierPin(); err != nil || pin != bare {
 		t.Fatalf("BuiltinClassifierPin = %q, %v; want the bare builtin digest %q", pin, err, bare)
+	}
+}
+
+// fakeClassifier mirrors Capslock's Classifier field structure for the schema
+// guard tests (the real fields are unexported in the dependency).
+type fakeClassifier struct {
+	functionCategory   map[string]string
+	unanalyzedCategory map[string]string
+	packageCategory    map[string]string
+	ignoredEdges       map[[2]string]struct{}
+	cgoSuffixes        []string
+}
+
+// fakeClassifierExtra adds one semantic field a future Capslock upgrade could
+// introduce: the schema guard must reject it rather than silently omit it.
+type fakeClassifierExtra struct {
+	fakeClassifier
+	extra map[string]string
+}
+
+// TestClassifierSchemaGuard pins the fail-closed schema validation (review:
+// the pin must not silently ignore new classifier fields): the known field
+// structure validates, the real Capslock classifier validates, and any extra,
+// renamed, or retyped field is an error naming the changed structure.
+func TestClassifierSchemaGuard(t *testing.T) {
+	if err := validateClassifierSchema(reflect.TypeOf(fakeClassifier{})); err != nil {
+		t.Fatalf("the known Classifier schema failed validation: %v", err)
+	}
+	if err := validateClassifierSchema(reflect.TypeOf(interesting.Classifier{})); err != nil {
+		t.Fatalf("Capslock's real Classifier schema failed validation: %v", err)
+	}
+	err := validateClassifierSchema(reflect.TypeOf(fakeClassifierExtra{}))
+	if err == nil || !strings.Contains(err.Error(), "fields") {
+		t.Fatalf("an unhandled extra classifier field was accepted: %v", err)
+	}
+	// A retyped known field is likewise rejected.
+	type fakeClassifierRetyped struct {
+		functionCategory   map[string]string
+		unanalyzedCategory map[string]string
+		packageCategory    map[string]int
+		ignoredEdges       map[[2]string]struct{}
+		cgoSuffixes        []string
+	}
+	if err := validateClassifierSchema(reflect.TypeOf(fakeClassifierRetyped{})); err == nil || !strings.Contains(err.Error(), "packageCategory") {
+		t.Fatalf("a retyped classifier field was accepted: %v", err)
 	}
 }

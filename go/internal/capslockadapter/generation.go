@@ -50,25 +50,75 @@ func BuiltinClassifierPin() (string, error) {
 	return classifierContentDigest(interesting.DefaultClassifier())
 }
 
+// classifierField is one expected field of Capslock's Classifier structure:
+// the exact name and Go type the content extraction depends on.
+type classifierField struct {
+	name string
+	typ  reflect.Type
+}
+
+var (
+	classifierStringMapType  = reflect.TypeOf(map[string]string{})
+	classifierEdgeMapType    = reflect.TypeOf(map[[2]string]struct{}{})
+	classifierStringSlice    = reflect.TypeOf([]string{})
+	expectedClassifierFields = []classifierField{
+		{"functionCategory", classifierStringMapType},
+		{"unanalyzedCategory", classifierStringMapType},
+		{"packageCategory", classifierStringMapType},
+		{"ignoredEdges", classifierEdgeMapType},
+		{"cgoSuffixes", classifierStringSlice},
+	}
+)
+
+// validateClassifierSchema fails closed unless the reflected Classifier
+// structure is EXACTLY the known one: the field set matches the extraction's
+// handled fields by count, name, and Go type, so a Capslock upgrade that adds,
+// removes, retypes, or renames any semantic field (handled or not) is an
+// error — never a silently weakened pin.
+func validateClassifierSchema(t reflect.Type) error {
+	if t.Kind() != reflect.Struct {
+		return fmt.Errorf("digesting the builtin classifier: the classifier is not a struct (got %s)", t.Kind())
+	}
+	if t.NumField() != len(expectedClassifierFields) {
+		var known []string
+		for _, f := range expectedClassifierFields {
+			known = append(known, f.name)
+		}
+		return fmt.Errorf("digesting the builtin classifier: the classifier has %d fields, want exactly %d (%s); a Capslock upgrade changed the classifier's structure", t.NumField(), len(expectedClassifierFields), strings.Join(known, ", "))
+	}
+	for _, want := range expectedClassifierFields {
+		f, ok := t.FieldByName(want.name)
+		if !ok || f.Type != want.typ {
+			got := "missing"
+			if ok {
+				got = f.Type.String()
+			}
+			return fmt.Errorf("digesting the builtin classifier: field %q is %s, want %s; a Capslock upgrade changed the classifier's structure", want.name, got, want.typ)
+		}
+	}
+	return nil
+}
+
 // classifierContentDigest renders one classifier's full semantic content
 // canonically and digests it. Capslock's Classifier exposes its content only
 // through unexported map fields, so the rendering reads those fields with
 // reflection; read-only reflection is sufficient (the read-only flag permits
-// Len, MapKeys/MapIndex, Index and String). The extraction fails loudly — an
-// error, never a partial pin — if a Capslock upgrade changes the classifier's
-// field structure, so generation fails closed rather than fingerprinting a
-// silently weakened description.
+// Len, MapKeys/MapIndex, Index and String). The exact classifier schema is
+// validated first (validateClassifierSchema), so the extraction fails loudly
+// — an error, never a partial pin — if a Capslock upgrade changes the
+// classifier's structure, and an added semantic field can never be silently
+// omitted from the digest.
 func classifierContentDigest(c *interesting.Classifier) (string, error) {
 	if c == nil {
 		return "", fmt.Errorf("digesting the builtin classifier: the classifier is nil")
 	}
 	v := reflect.ValueOf(c).Elem()
+	if err := validateClassifierSchema(v.Type()); err != nil {
+		return "", err
+	}
 	var lines []string
-	addMap := func(name string, renderKey func(reflect.Value) string, hasValue bool) error {
+	addMap := func(name string, renderKey func(reflect.Value) string, hasValue bool) {
 		f := v.FieldByName(name)
-		if !f.IsValid() || f.Kind() != reflect.Map {
-			return fmt.Errorf("digesting the builtin classifier: field %q is missing or not a map (Capslock's Classifier structure changed)", name)
-		}
 		// Capslock's own loader panics when the embedded builtin map is
 		// empty (parseInternalMapOrDie), so no empty-classifier guard is
 		// needed here; the digest is simply faithful to the content.
@@ -79,26 +129,14 @@ func classifierContentDigest(c *interesting.Classifier) (string, error) {
 			}
 			lines = append(lines, line)
 		}
-		return nil
 	}
-	if err := addMap("functionCategory", func(k reflect.Value) string { return k.String() }, true); err != nil {
-		return "", err
-	}
-	if err := addMap("unanalyzedCategory", func(k reflect.Value) string { return k.String() }, true); err != nil {
-		return "", err
-	}
-	if err := addMap("packageCategory", func(k reflect.Value) string { return k.String() }, true); err != nil {
-		return "", err
-	}
-	if err := addMap("ignoredEdges", func(k reflect.Value) string {
+	addMap("functionCategory", func(k reflect.Value) string { return k.String() }, true)
+	addMap("unanalyzedCategory", func(k reflect.Value) string { return k.String() }, true)
+	addMap("packageCategory", func(k reflect.Value) string { return k.String() }, true)
+	addMap("ignoredEdges", func(k reflect.Value) string {
 		return k.Index(0).String() + builtinPinEntry + k.Index(1).String()
-	}, false); err != nil {
-		return "", err
-	}
+	}, false)
 	sfx := v.FieldByName("cgoSuffixes")
-	if !sfx.IsValid() || sfx.Kind() != reflect.Slice {
-		return "", fmt.Errorf("digesting the builtin classifier: field %q is missing or not a slice (Capslock's Classifier structure changed)", "cgoSuffixes")
-	}
 	for i := 0; i < sfx.Len(); i++ {
 		lines = append(lines, "cgoSuffix"+builtinPinEntry+sfx.Index(i).String())
 	}

@@ -3,6 +3,7 @@ package stdlibmap
 import (
 	"bytes"
 	"errors"
+	"go/types"
 	"slices"
 	"strings"
 	"testing"
@@ -324,7 +325,10 @@ func TestBuildAuthorityMapFailsOnUnknownRootPackage(t *testing.T) {
 // Hermetic stand-in: the builtin rule is exercised directly; the integration
 // leg pins the real unsafe.Pointer.
 func TestBuiltinIsHardcodedUnanalyzed(t *testing.T) {
-	class, provenance := classifyBuiltin()
+	class, provenance, err := classifyBuiltin(projectCompletionRules().Unsafe)
+	if err != nil {
+		t.Fatalf("classifyBuiltin: %v", err)
+	}
 	if class != gen.Classification_UNANALYZED || provenance != "project-override" {
 		t.Fatalf("classifyBuiltin = (%v, %q); want UNANALYZED project-override", class, provenance)
 	}
@@ -484,7 +488,23 @@ func TestGenerationFingerprintPinsProductionClassifierInputs(t *testing.T) {
 	if got := byName["minting.reclassification"]; got != overlay {
 		t.Fatalf("minting.reclassification effect %q != the executed overlay text %q", got, overlay)
 	}
-	for _, name := range []string{"capslock.builtins.pin", "minting.reclassification", "minting.authority", "unsafe.builtins"} {
+	// The project completion rules' effects ARE the executed rules' canonical
+	// renderings, not prose (review: assembly-to-execution drift).
+	rulesCanonical := projectCompletionRules()
+	if got, want := byName["unsafe.builtins"], renderUnsafeRule(rulesCanonical.Unsafe); got != want {
+		t.Fatalf("unsafe.builtins effect %q != the executed rule rendering %q", got, want)
+	}
+	if got, want := byName["var.completion"], renderVarRule(rulesCanonical.Var); got != want {
+		t.Fatalf("var.completion effect %q != the executed rule rendering %q", got, want)
+	}
+	if !strings.Contains(byName["var.completion"], "os.File → FILES") {
+		t.Fatalf("var.completion effect %q misses the executed minting entry", byName["var.completion"])
+	}
+	if !strings.Contains(byName["unsafe.builtins"], "builtin-classification=UNANALYZED") ||
+		!strings.Contains(byName["unsafe.builtins"], "provenance=project-override") {
+		t.Fatalf("unsafe.builtins effect %q misses the executed unsafe classification", byName["unsafe.builtins"])
+	}
+	for _, name := range []string{"capslock.builtins.pin", "minting.reclassification", "var.completion", "unsafe.builtins"} {
 		if byName[name] == "" {
 			t.Fatalf("fingerprint rule %q is missing", name)
 		}
@@ -492,59 +512,67 @@ func TestGenerationFingerprintPinsProductionClassifierInputs(t *testing.T) {
 }
 
 // TestClassifierFingerprintSemanticDrift proves every semantic classifier
-// input moves the hash while non-semantic ordering does not (task reqs 2/4).
+// input moves the hash while non-semantic ordering does not (task reqs 2/4):
+// the builtin pin, the overlay, and every canonical completion-rule field —
+// the sources the execution paths consume — each change the fingerprint, and
+// unordered minting-table iteration does not.
 func TestClassifierFingerprintSemanticDrift(t *testing.T) {
 	pinA, pinB := "aaa1", "aaa2"
 	overlayA := "func (*os.File).Read CAPABILITY_SAFE\nfunc (*os.File).Write CAPABILITY_SAFE\n"
 	overlayB := "func (*os.File).Read CAPABILITY_SAFE\nfunc (*os.File).Seek CAPABILITY_SAFE\n"
+	rulesA := projectCompletionRules()
 
-	fingerprint := func(pin, overlay string) string {
-		rules, err := classifierFingerprintRules(pin, overlay)
+	fingerprint := func(pin, overlay string, rules completionRules) string {
+		ruleset, err := classifierFingerprintRules(pin, overlay, rules)
 		if err != nil {
 			t.Fatalf("classifierFingerprintRules: %v", err)
 		}
-		text, err := CanonicalClassifierText(rules)
+		text, err := CanonicalClassifierText(ruleset)
 		if err != nil {
 			t.Fatalf("CanonicalClassifierText: %v", err)
 		}
 		return ClassifierHash(GenerationDescriptor{ClassifierText: text, RuleVersion: "v1"})
 	}
-	base := fingerprint(pinA, overlayA)
-	rulesBase, err := classifierFingerprintRules(pinA, overlayA)
-	if err != nil {
-		t.Fatalf("classifierFingerprintRules: %v", err)
-	}
+	base := fingerprint(pinA, overlayA, rulesA)
 
-	if fingerprint(pinB, overlayA) == base {
+	if fingerprint(pinB, overlayA, rulesA) == base {
 		t.Fatalf("changing the builtin pin did not change the fingerprint")
 	}
-	if fingerprint(pinA, overlayB) == base {
+	if fingerprint(pinA, overlayB, rulesA) == base {
 		t.Fatalf("changing the project overlay did not change the fingerprint")
 	}
 
-	// Changing any project rule's semantics (minting-authority, unsafe) moves
-	// the hash — no rule can drift silently.
-	for _, name := range []string{"minting.authority", "unsafe.builtins"} {
-		rules, err := classifierFingerprintRules(pinA, overlayA)
-		if err != nil {
-			t.Fatalf("classifierFingerprintRules: %v", err)
-		}
-		for i, r := range rules {
-			if r.Name == name {
-				rules[i].Effect += " (changed)"
-			}
-		}
-		text, err := CanonicalClassifierText(rules)
-		if err != nil {
-			t.Fatalf("CanonicalClassifierText: %v", err)
-		}
-		if ClassifierHash(GenerationDescriptor{ClassifierText: text, RuleVersion: "v1"}) == base {
-			t.Fatalf("changing the %s rule did not change the fingerprint", name)
+	// Each executed completion-rule semantic moves the fingerprint when it
+	// changes: the unsafe builtin/type classifications, the provenance, and
+	// every var-policy field plus the minting table.
+	ruleCases := map[string]func(*completionRules){
+		"unsafe builtin classification": func(r *completionRules) { r.Unsafe.BuiltinClassification = "SAFE" },
+		"unsafe type classification":    func(r *completionRules) { r.Unsafe.TypeClassification = "SAFE" },
+		"unsafe provenance":             func(r *completionRules) { r.Unsafe.Provenance = ProvenanceCapslockCurated },
+		"var pointer dereference":       func(r *completionRules) { r.Var.PointerDereference = false },
+		"var method set":                func(r *completionRules) { r.Var.MethodSet = "value" },
+		"var exported-only":             func(r *completionRules) { r.Var.ExportedOnly = false },
+		"var interface-safe":            func(r *completionRules) { r.Var.InterfaceSafe = false },
+		"var named-safe":                func(r *completionRules) { r.Var.NamedSafe = false },
+		"var minting table entry":       func(r *completionRules) { r.Var.Minting = map[string]string{"os.File": "NETWORK"} },
+		"var minting table added member": func(r *completionRules) {
+			r.Var.Minting = map[string]string{"os.File": "FILES", "os.Process": "OPERATING_SYSTEM"}
+		},
+	}
+	for name, mutate := range ruleCases {
+		mutated := projectCompletionRules()
+		mutate(&mutated)
+		if fingerprint(pinA, overlayA, mutated) == base {
+			t.Fatalf("changing the %s did not change the fingerprint", name)
 		}
 	}
 
 	// The explicit rule version changes the hash (independent of the text).
-	text, err := CanonicalClassifierText(rulesBase)
+	ruleset, err := classifierFingerprintRules(pinA, overlayA, rulesA)
+	if err != nil {
+		t.Fatalf("classifierFingerprintRules: %v", err)
+	}
+	text, err := CanonicalClassifierText(ruleset)
 	if err != nil {
 		t.Fatalf("CanonicalClassifierText: %v", err)
 	}
@@ -552,12 +580,63 @@ func TestClassifierFingerprintSemanticDrift(t *testing.T) {
 		t.Fatalf("changing the rule version did not change the fingerprint")
 	}
 
-	// Minting-authority map iteration order is non-semantic: repeated
-	// assembly over the same inputs is hash-stable.
+	// Minting-table iteration order is non-semantic: repeated assembly over
+	// the same inputs is hash-stable.
 	for i := 0; i < 50; i++ {
-		if again := fingerprint(pinA, overlayA); again != base {
+		if again := fingerprint(pinA, overlayA, rulesA); again != base {
 			t.Fatalf("reassembly iteration %d changed the fingerprint", i)
 		}
+	}
+}
+
+// TestCompletionRulesDriveExecution ties the canonical completion rules to
+// the execution paths (review: assembly-to-execution drift): classifyBuiltin
+// and classifyVar apply exactly the canonical instance's semantics, so a
+// changed rule source changes executed classifications — and, through
+// classifierFingerprintRules, the SDK key.
+func TestCompletionRulesDriveExecution(t *testing.T) {
+	rules := projectCompletionRules()
+	cls, provenance, err := classifyBuiltin(rules.Unsafe)
+	if err != nil {
+		t.Fatalf("classifyBuiltin: %v", err)
+	}
+	if cls != gen.Classification_UNANALYZED || provenance != ProvenanceProjectOverride {
+		t.Fatalf("classifyBuiltin = %v, %q; want UNANALYZED, project-override", cls, provenance)
+	}
+	// A changed unsafe rule changes the executed classification.
+	mutated := rules
+	mutated.Unsafe.BuiltinClassification = "SAFE"
+	cls, _, err = classifyBuiltin(mutated.Unsafe)
+	if err != nil {
+		t.Fatalf("classifyBuiltin(mutated): %v", err)
+	}
+	if cls != gen.Classification_SAFE {
+		t.Fatalf("classifyBuiltin with a changed rule = %v; want the rule's SAFE", cls)
+	}
+
+	// The var rule: the fixture's os.Stdin inherits FILES from the executed
+	// minting table; clearing the table's entry removes the capability.
+	inv := genInventory(t)
+	obj, ok := inv.loaded["os"].Scope().Lookup("Stdin").(*types.Var)
+	if !ok || obj == nil {
+		t.Fatalf("fixture os.Stdin did not resolve to a types.Var")
+	}
+	stdin := symbol.SymbolID("os.Stdin")
+	result, err := classifyVar(inv, stdin, obj, map[symbol.SymbolID]*symbolResult{}, rules.Var)
+	if err != nil {
+		t.Fatalf("classifyVar(os.Stdin): %v", err)
+	}
+	if !slices.Contains(result.caps, "FILES") {
+		t.Fatalf("os.Stdin = %+v; want the executed minting capability FILES", result)
+	}
+	mutated = rules
+	mutated.Var.Minting = map[string]string{}
+	result, err = classifyVar(inv, stdin, obj, map[symbol.SymbolID]*symbolResult{}, mutated.Var)
+	if err != nil {
+		t.Fatalf("classifyVar(os.Stdin, cleared minting): %v", err)
+	}
+	if slices.Contains(result.caps, "FILES") {
+		t.Fatalf("os.Stdin with a cleared minting table = %+v; want no inherited FILES", result)
 	}
 }
 

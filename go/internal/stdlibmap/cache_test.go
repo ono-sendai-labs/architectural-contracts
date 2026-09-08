@@ -198,7 +198,7 @@ func TestDistinctKeysSelectDistinctEntries(t *testing.T) {
 func TestSemanticClassifierInputsSelectDistinctCacheEntries(t *testing.T) {
 	target := TargetConfig{ToolchainVersion: "go-test", GOOS: "linux", GOARCH: "amd64"}
 	keyFor := func(pin, overlay string) stdlibauthority.SDKKey {
-		rules, err := classifierFingerprintRules(pin, overlay)
+		rules, err := classifierFingerprintRules(pin, overlay, projectCompletionRules())
 		if err != nil {
 			t.Fatalf("classifierFingerprintRules: %v", err)
 		}
