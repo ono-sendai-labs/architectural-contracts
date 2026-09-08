@@ -339,6 +339,8 @@ func TestFixture6_ResolutionMatchesSurface(t *testing.T) {
 const (
 	classifyRoot   = "testdata/classify"
 	classifyMember = "github.com/ono-sendai-labs/architectural-contracts/go/internal/goanalysis/testdata/classify/member"
+	// classifyInfra is the auto-attached infra dependency's package.
+	classifyInfra = "github.com/ono-sendai-labs/architectural-contracts/go/internal/goanalysis/testdata/classify/infra/infra"
 )
 
 // fixtureAuthority is a deterministic fake StdlibAuthority enumerating
@@ -367,13 +369,14 @@ func newFixtureAuthority(t *testing.T) *fixtureAuthority {
 		inits:    map[string]stdlibauthority.Classification{},
 		evidence: map[string][]stdlibauthority.Frame{},
 	}
-	for _, pkg := range []string{"os", "io", "image/png"} {
+	for _, pkg := range []string{"os", "io", "image/png", "go/ast"} {
 		auth.packages[pkg] = true
 	}
 	auth.symbols[facts.SymbolID("os.ReadFile")] = stdlibauthority.Classification{Capabilities: []string{"FILES"}}
 	auth.symbols[facts.SymbolID("os.Stdin")] = stdlibauthority.Classification{Capabilities: []string{"CHDIR", "FILES"}}
 	auth.symbols[facts.SymbolID("io.EOF")] = stdlibauthority.Classification{Safe: true}
 	auth.inits["image/png"] = stdlibauthority.Classification{Capabilities: []string{"FILES"}}
+	auth.inits["go/ast"] = stdlibauthority.Classification{Unanalyzed: true}
 	auth.inits["os"] = stdlibauthority.Classification{Safe: true}
 	auth.inits["io"] = stdlibauthority.Classification{Safe: true}
 	auth.evidence["os.ReadFile FILES"] = []stdlibauthority.Frame{{Function: "os.ReadFile", File: "os/file.go", Line: 331}}
@@ -406,18 +409,14 @@ func (f *fixtureAuthority) Evidence(id symbol.SymbolID, cap stdlibauthority.Capa
 
 func (f *fixtureAuthority) Key() stdlibauthority.SDKKey { return f.key }
 
-// loadClassifyFixture scans the classify member packages.
-func loadClassifyFixture(t *testing.T) (members facts.MemberSet, refs []facts.ReferenceEdge, imports []facts.ImportEdge) {
+// loadClassifyFixturePkgs loads the classify member packages.
+func loadClassifyFixturePkgs(t *testing.T) []*packages.Package {
 	t.Helper()
 	root, err := filepath.Abs(classifyRoot)
 	if err != nil {
 		t.Fatalf("failed to resolve classify fixture root: %v", err)
 	}
 	memberPkgs := []string{classifyMember + "/globals", classifyMember + "/rows"}
-	members, err = facts.NewMemberSet(memberPkgs...)
-	if err != nil {
-		t.Fatalf("invalid member set: %v", err)
-	}
 	cfg := &packages.Config{
 		Mode: packages.NeedName | packages.NeedFiles | packages.NeedCompiledGoFiles |
 			packages.NeedImports | packages.NeedDeps | packages.NeedSyntax |
@@ -431,11 +430,46 @@ func loadClassifyFixture(t *testing.T) (members facts.MemberSet, refs []facts.Re
 	if packages.PrintErrors(pkgs) > 0 {
 		t.Fatalf("classify member packages have load errors")
 	}
-	refs, imports, err = goanalysis.ScanReferences(pkgs, members, root)
+	return pkgs
+}
+
+// classifyMemberSet is the classify fixture's member set.
+func classifyMemberSet(t *testing.T) facts.MemberSet {
+	t.Helper()
+	ms, err := facts.NewMemberSet(classifyMember+"/globals", classifyMember+"/rows")
+	if err != nil {
+		t.Fatalf("invalid member set: %v", err)
+	}
+	return ms
+}
+
+// scanClassifyFixture scans the loaded classify member packages.
+func scanClassifyFixture(t *testing.T, pkgs []*packages.Package) (facts.MemberSet, []facts.ReferenceEdge, []facts.ImportEdge) {
+	t.Helper()
+	members := classifyMemberSet(t)
+	root, err := filepath.Abs(classifyRoot)
+	if err != nil {
+		t.Fatalf("failed to resolve classify fixture root: %v", err)
+	}
+	refs, imports, err := goanalysis.ScanReferences(pkgs, members, root)
 	if err != nil {
 		t.Fatalf("unexpected error scanning references: %v", err)
 	}
 	return members, refs, imports
+}
+
+// loadClassifyFixture scans the classify member packages.
+func loadClassifyFixture(t *testing.T) (members facts.MemberSet, refs []facts.ReferenceEdge, imports []facts.ImportEdge) {
+	t.Helper()
+	return scanClassifyFixture(t, loadClassifyFixturePkgs(t))
+}
+
+// loadClassifyFixtureRefs scans the classify member packages and returns only
+// the reference edges.
+func loadClassifyFixtureRefs(t *testing.T) []facts.ReferenceEdge {
+	t.Helper()
+	_, refs, _ := loadClassifyFixture(t)
+	return refs
 }
 
 // classifyFixture runs the full classification over the classify fixture with
@@ -544,18 +578,25 @@ func TestFixture2_BlankImportClassifiesAggregateInit(t *testing.T) {
 }
 
 // TestFixture6_ImportTable pins design fixture 6, the import table, against
-// real typed source: member imports are ignored, a stdlib-map import carries
-// its aggregate init authority, a declared dependency's import is accepted
-// and marks the dependency used, an unowned package with type data present is
-// UNDECLARED_DEPENDENCY at the exact site, and two direct dependencies
-// claiming one package fail closed with DEPENDENCY_OVERLAP before any row is
-// classified. The seventh row — a written declared/stdlib path with missing
-// type data — is a loader-seam state (ImportMissingTypeData, produced by the
-// nil-entry seam pinned in refscan_test.go) and is pinned fail-closed at the
-// classifier level in checker's TestClassifyImports_MissingTypeDataFailsClosed.
+// real typed source: the member import is ignored, the stdlib-map import with
+// an authority-bearing init carries its aggregate init authority, the
+// stdlib-map import with an UNANALYZED init produces an AnalysisDefeating
+// observation under the aggregate pkg.init identity, declared and
+// auto-attached dependency imports are accepted and mark their dependencies
+// used, unowned packages with type data present are UNDECLARED_DEPENDENCY at
+// the exact sites, and two direct dependencies claiming one package fail
+// closed with DEPENDENCY_OVERLAP before any row is classified. The seventh
+// row — a written stdlib path whose loader entry carries no type data — is
+// driven through the typed loader's nil-entry seam and classified fail-closed
+// in TestFixture6_MissingTypeDataFailsClosed below.
 func TestFixture6_ImportTable(t *testing.T) {
 	declared, _ := resolveFixtureDep(t)
-	got, _, imports := classifyFixture(t, []facts.DependencyInterface{declared})
+	infra := facts.DependencyInterface{
+		Component:      "infra",
+		InterfaceStyle: manifest.InterfaceStylePackageSurface,
+		Packages:       []string{classifyInfra},
+	}
+	got, _, imports := classifyFixture(t, []facts.DependencyInterface{declared, infra})
 
 	rowsPkg := classifyMember + "/rows"
 	byPath := map[string]facts.ImportEdge{}
@@ -564,47 +605,91 @@ func TestFixture6_ImportTable(t *testing.T) {
 			byPath[e.ImportPath] = e
 		}
 	}
-	for _, path := range []string{"sort", refscanDep, classifyMember + "/globals", "image/png"} {
+	scanned := []string{
+		"sort", "errors", "strconv", refscanDep, refscanDep + "/sub",
+		classifyMember + "/globals", classifyInfra, "image/png", "go/ast", "os",
+	}
+	for _, path := range scanned {
 		if _, ok := byPath[path]; !ok {
 			t.Fatalf("import of %q was not scanned", path)
 		}
 	}
 
-	// Unowned resolved package: UNDECLARED_DEPENDENCY both for the import
-	// itself (empty referent, import site) and for the object reference
-	// naming sort.Ints (import row 6 and reference row V2 are separate
-	// observations at separate sites).
-	var sortObs int
+	// Unowned resolved packages: UNDECLARED_DEPENDENCY for each import at its
+	// own site, plus the object references into them (sort.Ints, errors.Is).
+	unowned := map[string]bool{"sort": true, "errors": true, "strconv": true}
 	for _, b := range got.Boundary {
-		if b.ReferentPackage == "sort" {
-			sortObs++
-			if b.Kind != "UNDECLARED_DEPENDENCY" {
-				t.Errorf("sort boundary wrong: %+v", b)
-			}
-			if b.Referent == "" && b.Site != byPath["sort"].Site {
-				t.Errorf("import violation must sit at the import site, got %+v", b)
-			}
+		if b.Kind != "UNDECLARED_DEPENDENCY" || !unowned[b.ReferentPackage] {
+			t.Errorf("unexpected boundary observation %+v", b)
+		}
+		if b.Referent == "" && b.Site != byPath[b.ReferentPackage].Site {
+			t.Errorf("import violation must sit at the import site, got %+v", b)
 		}
 	}
-	if sortObs != 2 {
-		t.Errorf("want exactly two UNDECLARED_DEPENDENCY observations for sort (import + reference), got %d (%+v)", sortObs, got.Boundary)
-	}
-
-	// Declared dependency: accepted behind the boundary and counted used.
-	found := false
-	for _, dep := range got.UsedDependencies {
-		if dep == "dep" {
-			found = true
+	var wantObs int
+	for _, e := range imports {
+		if e.ImportingPackage == rowsPkg && unowned[e.ImportPath] {
+			wantObs++
 		}
 	}
-	if !found {
-		t.Errorf("the declared dependency import must mark dep used, got %v", got.UsedDependencies)
+	for _, e := range loadClassifyFixtureRefs(t) {
+		if unowned[e.ReferentPackage] && e.FromPackage == rowsPkg {
+			wantObs++
+		}
+	}
+	if len(got.Boundary) != wantObs {
+		t.Errorf("want %d UNDECLARED_DEPENDENCY observations (imports + references into unowned packages), got %d: %+v", wantObs, len(got.Boundary), got.Boundary)
 	}
 
-	// Member import: no observation anywhere.
+	// Declared and auto-attached dependency imports: accepted behind the
+	// boundary and counted used.
+	if got, want := got.UsedDependencies, []string{"dep", "infra"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("used dependencies = %v, want %v", got, want)
+	}
+
+	// Stdlib-map imports: the UNANALYZED init of go/ast produces exactly one
+	// AnalysisDefeating observation under the aggregate pkg.init identity at
+	// the import site; image/png's FILES init is fixture 2's observation.
+	// The globals package's stdlib symbol observations (fixture 1/9's
+	// os.ReadFile and os.Stdin) appear exactly once each; io.EOF is SAFE.
+	var defeating int
+	readFileObs, stdinObs := 0, 0
+	for _, o := range got.Authority {
+		switch {
+		case o.Referent == facts.SymbolID("go/ast.init"):
+			defeating++
+			if o.Class != capanalyzer.AnalysisDefeating || o.Capability != "" || o.Site != byPath["go/ast"].Site {
+				t.Errorf("go/ast.init observation wrong: %+v", o)
+			}
+		case o.Referent == facts.SymbolID("image/png.init"):
+			if o.Class != capanalyzer.TrueAuthority || o.Capability != "FILES" || o.Site != byPath["image/png"].Site {
+				t.Errorf("image/png.init observation wrong: %+v", o)
+			}
+		case o.Referent == facts.SymbolID("os.ReadFile"):
+			readFileObs++
+			if o.Class != capanalyzer.TrueAuthority || o.Capability != "FILES" {
+				t.Errorf("os.ReadFile observation wrong: %+v", o)
+			}
+		case o.Referent == facts.SymbolID("os.Stdin"):
+			stdinObs++
+		case o.Referent == facts.SymbolID("io.EOF"):
+			t.Errorf("io.EOF is SAFE and must contribute no authority")
+		default:
+			t.Errorf("unexpected authority observation %+v", o)
+		}
+	}
+	if defeating != 1 {
+		t.Errorf("want exactly one AnalysisDefeating init observation for go/ast.init, got %d", defeating)
+	}
+	if readFileObs != 1 || stdinObs != 2 {
+		t.Errorf("want one os.ReadFile and two os.Stdin observations, got %d and %d", readFileObs, stdinObs)
+	}
+
+	// Member and dependency imports produce no boundary observation.
 	for _, b := range got.Boundary {
-		if b.ReferentPackage == classifyMember+"/globals" {
-			t.Errorf("member import must be ignored, got %+v", b)
+		switch b.ReferentPackage {
+		case classifyMember + "/globals", refscanDep, refscanDep + "/sub", classifyInfra:
+			t.Errorf("member or dependency import must be ignored, got %+v", b)
 		}
 	}
 
@@ -618,5 +703,50 @@ func TestFixture6_ImportTable(t *testing.T) {
 	_, err := checker.ClassifyEdges(members, []facts.DependencyInterface{declared, second}, refs, imps, newFixtureAuthority(t), testSDKKey())
 	if err == nil || !strings.Contains(err.Error(), "DEPENDENCY_OVERLAP") {
 		t.Fatalf("overlapping ownership must fail closed with DEPENDENCY_OVERLAP, got %v", err)
+	}
+}
+
+// TestFixture6_MissingTypeDataFailsClosed drives the import table's seventh
+// row through the typed loader: the rows package's written blank import of
+// the map-enumerated package "os" is given a nil loader entry (the seam
+// pinned in refscan_test.go), the scan therefore records
+// ImportMissingTypeData, and classification fails closed with an actionable
+// tool error naming the written path and site — never a false
+// UNDECLARED_DEPENDENCY and never a pass.
+func TestFixture6_MissingTypeDataFailsClosed(t *testing.T) {
+	pkgs := loadClassifyFixturePkgs(t)
+	for _, p := range pkgs {
+		if p.PkgPath == classifyMember+"/rows" {
+			p.Imports["os"] = nil
+		}
+	}
+	members, refs, imports := scanClassifyFixture(t, pkgs)
+	var missing bool
+	for _, e := range imports {
+		if e.ImportingPackage == classifyMember+"/rows" && e.ImportPath == "os" {
+			if e.Resolution != facts.ImportMissingTypeData {
+				t.Fatalf("nil loader entry must be ImportMissingTypeData, got %q", e.Resolution)
+			}
+			missing = true
+		}
+	}
+	if !missing {
+		t.Fatalf("the os import edge was not observed")
+	}
+	declared, _ := resolveFixtureDep(t)
+	infra := facts.DependencyInterface{
+		Component:      "infra",
+		InterfaceStyle: manifest.InterfaceStylePackageSurface,
+		Packages:       []string{classifyInfra},
+	}
+	got, err := checker.ClassifyEdges(members, []facts.DependencyInterface{declared, infra}, refs, imports, newFixtureAuthority(t), testSDKKey())
+	if err == nil {
+		t.Fatalf("missing type data for a written stdlib import must fail closed, got %+v", got)
+	}
+	if strings.Contains(err.Error(), "UNDECLARED_DEPENDENCY") {
+		t.Errorf("missing type data must not render as a violation: %v", err)
+	}
+	if !strings.Contains(err.Error(), `"os"`) || !strings.Contains(err.Error(), "member/rows/rows.go") {
+		t.Errorf("error must name the written path and site, got %v", err)
 	}
 }
