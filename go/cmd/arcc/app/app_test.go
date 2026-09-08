@@ -79,13 +79,13 @@ func TestRunner_VersionAndHelp(t *testing.T) {
 			name:       "empty layout value",
 			args:       []string{"check", "component.textproto", "--package-layout="},
 			wantExit:   2,
-			wantStderr: "empty package layout value",
+			wantStderr: "empty --package-layout value",
 		},
 		{
 			name:       "missing layout value (no equals)",
 			args:       []string{"check", "component.textproto", "--package-layout"},
 			wantExit:   2,
-			wantStderr: "missing package layout value",
+			wantStderr: "missing --package-layout value",
 		},
 		{
 			name:       "duplicate layout",
