@@ -1,0 +1,204 @@
+review:
+  task_file: .agents/tasks/2026-08-04-compositional-component-analysis/step05/task-01-add-canonical-report-artifacts.code-task.md
+  change_id: uvmwtoynpyzsvoprtryvvnkqzmnlzpzr
+  reviewed_at: "2026-09-08T03:11:08Z"
+  verdict: changes_requested
+  schema_version: 2
+  lsp_coverage: partial
+
+merge_request:
+  title: "feat(report): add canonical report artifacts [Compositional Analysis: Step 05/Task 01]"
+  body: |
+    Reviews the complete ordered task series: the initial report codec, the
+    artifactio bounded reader, the arcc verdict command, and the final refactor
+    that moved the codec into artifactio and repaired native PACKAGE_SURFACE
+    member loading for the newly declared cli-to-artifactio edge.
+
+summary: |
+  The codec, bounded file reader, and verdict command are mostly implemented, and the pure report boundary is preserved. The final native PACKAGE_SURFACE loader change is a narrow and correct enabling fix for the new cli-to-artifactio dependency; it retains the implements-closure workaround in the check path as required for Step 5. Changes are requested for decoder trust and size-validation gaps, incomplete canonical ordering, an exported serialization bypass, and an omitted Bazel test source; Go tests passed with an isolated cache, while Bazel could not start here because its default output base was not writable.
+
+acceptance_criteria:
+  - text: |
+      **Reports carry one trustworthy verdict**
+        - Given completed reports with zero and non-zero violations
+        - When each is encoded and decoded
+        - Then its persisted verdict is respectively `pass` and `fail`, and no API permits a contradictory verdict to survive validation.
+    status: partial
+    evidence: |
+      `go/internal/report/report.go:152-163` provides the single pure
+      `VerdictOf` derivation, and `go/internal/artifactio/report.go:50-55`
+      derives it during encoding while `:77-84` validates it during decoding.
+      The pass/fail and mismatch cases are exercised by
+      `go/internal/artifactio/report_test.go:16-57` and `:109-196`. However,
+      `PersistedReport` exposes writable JSON-tagged fields at
+      `go/internal/artifactio/report.go:39-43`, so direct `json.Marshal` can
+      bypass `MarshalReport`, and a missing embedded report is accepted as a
+      passing zero value by `:68-84`.
+  - text: |
+      **Report bytes are deterministic and bounded**
+        - Given logically identical reports with inputs observed in different orders
+        - When they are canonicalized repeatedly
+        - Then the output bytes are identical; malformed, oversized, or unknown-verdict input returns a specific tool error.
+    status: partial
+    evidence: |
+      `go/internal/artifactio/report.go:90-115` sorts violation and warning
+      findings, and `go/internal/artifactio/report_test.go:59-81` verifies
+      byte-identical output for reordered findings. `ReadReportFile` applies
+      `boundedRead` at `go/internal/artifactio/report.go:125-143`, with the
+      oversized and malformed cases covered at `:266-284`. The exported
+      `DecodeReport` itself calls `json.Unmarshal` without checking
+      `len(data)` at `:67-72`; it also leaves dependency ordering and equal
+      finding-key tie ordering unspecified at `:90-115`, and accepts an absent
+      or null embedded report as valid pass input.
+  - text: |
+      **The verdict command asserts report artifacts**
+        - Given valid passing and failing report files
+        - When `arcc verdict --expect=pass|fail` is run against matching and opposite expectations
+        - Then matching exits 0, opposite exits 1 with expected/actual context, and invalid input or invalid usage exits 2.
+    status: pass
+    evidence: |
+      `go/cmd/arcc/app/verdict.go:18-79` implements parsing, bounded artifact
+      reading, the 0/1/2 exit contract, and expected/actual mismatch context.
+      `go/cmd/arcc/app/verdict_test.go:27-130` covers matching, opposite,
+      open, malformed, and usage cases; `:132-139` covers the usage entry.
+  - text: |
+      **Existing check behavior is unchanged**
+        - Given the existing CLI and Bazel check fixtures
+        - When they run before Task 3's output flags are added
+        - Then text/JSON rendering and exit 0/1/2 behavior are unchanged apart from the explicit verdict field in persisted JSON expectations.
+    status: pass
+    evidence: |
+      The existing check pipeline remains at `go/cmd/arcc/app/app.go:147-281`;
+      the task changes only command dispatch and usage at `:64-66` and `:284-294`.
+      The full Go suite, including the existing app and integration tests,
+      passed when run with `GOCACHE=/tmp/arcc-review-gocache`; the producer's
+      RED/GREEN and full-CI evidence is recorded in
+      `.agents/scratchpad/2026-08-04-compositional-component-analysis/step05/task-01-add-canonical-report-artifacts/work.log:75-101`.
+  - text: |
+      **Architectural boundaries remain valid**
+        - Given the new codec and command
+        - When self-check and manifest parity run
+        - Then the pure report package has gained no ambient authority and all changed Component Contracts and BUILD metadata are accurate.
+    status: partial
+    evidence: |
+      `go/internal/report/report.go:1-13` remains pure and
+      `go/internal/artifactio/component.textproto:9-12` plus
+      `go/cmd/arcc/component.textproto:16-19` declare the new dependency edges.
+      Native self-check and manifest-parity evidence is recorded in
+      `work.log:90-101`. The final loader branch at
+      `go/internal/goanalysis/goanalysis.go:1442-1455` correctly loads declared
+      PACKAGE_SURFACE members directly while the implements-closure workaround
+      remains at `:1688-1723`, so the Step 5 intentional surface/check
+      divergence is preserved. The report BUILD target, however, still lists
+      only `report_test.go` at `go/internal/report/BUILD.bazel:14` and omits the
+      added `artifact_test.go`.
+
+findings:
+  - severity: important
+    category: acceptance_criteria
+    file: go/internal/artifactio/report.go
+    line: 39
+    title: PersistedReport permits bypassing derived verdict serialization
+    details: |
+      `PersistedReport` exposes `FormatVersion`, `Verdict`, and `Report` as
+      ordinary exported fields with JSON tags at `go/internal/artifactio/report.go:39-43`.
+      A caller can construct a contradictory value and pass it to the standard
+      `encoding/json.Marshal`, bypassing `MarshalReport`'s authoritative
+      `report.VerdictOf` derivation. `DecodeReport` rejects the resulting bytes,
+      but the public artifact model still permits a caller to stamp and write a
+      contradictory persisted artifact, contrary to Technical Requirement 1.
+    suggested_action: |
+      Make the wire representation private or give `PersistedReport` a custom
+      JSON marshaler that always derives the verdict from `Report`; expose only
+      validated read access to decoded values. Add a regression test proving
+      direct serialization cannot emit a contradictory verdict.
+    source: built-in
+  - severity: important
+    category: acceptance_criteria
+    file: go/internal/artifactio/report.go
+    line: 67
+    title: Decoder accepts a missing embedded report as pass
+    details: |
+      `json.Unmarshal` into the value field at `go/internal/artifactio/report.go:68`
+      leaves `PersistedReport.Report` as its zero value when `report` is absent
+      or JSON `null`. With `format_version: 1` and `verdict: "pass"`, the
+      re-derivation at `:82-84` therefore succeeds and `arcc verdict` can return
+      0 for an artifact that contains no report at all. This is malformed input
+      accepted as a valid passing artifact and violates the trust and malformed
+      input requirements.
+    suggested_action: |
+      Decode the envelope with a pointer or `json.RawMessage`, reject a missing
+      or null `report` field before verdict derivation, and add CLI/codec tests
+      for both forms.
+    source: built-in
+  - severity: important
+    category: acceptance_criteria
+    file: go/internal/artifactio/report.go
+    line: 67
+    title: DecodeReport does not enforce the report size limit
+    details: |
+      The exported `DecodeReport(data []byte)` path at
+      `go/internal/artifactio/report.go:67-72` sends arbitrary-length input
+      directly to `json.Unmarshal`. Only `ReadReportFile` applies
+      `MaxReportBytes` through `boundedRead` at `:125-143`, so callers that
+      already have bytes can bypass the required bounded decoding contract and
+      cause unbounded JSON parsing/allocation. The existing tests cover the file
+      reader but not direct oversized input.
+    suggested_action: |
+      Check `len(data)` against `MaxReportBytes` at the start of `DecodeReport`,
+      return an actionable size-limit error, and add a direct DecodeReport
+      oversized-input test. Keep the file-reader bound as defense in depth.
+    source: built-in
+  - severity: important
+    category: acceptance_criteria
+    file: go/internal/artifactio/report.go
+    line: 90
+    title: Report canonicalization leaves collection order unstable
+    details: |
+      `canonicalReport` only sorts `Violations` and `Warnings` at
+      `go/internal/artifactio/report.go:90-94`; it leaves the order of the
+      order-insensitive `Dependencies` collection untouched. In addition,
+      `sortFindings` compares only kind, message, file, and line at `:97-115`.
+      Two findings with equal keys but different evidence retain input-dependent
+      order because Evidence is not a tie-breaker. Thus logically equivalent
+      reports can produce different bytes despite the stated stable collection
+      ordering requirement. The current test changes distinct primary keys and
+      does not detect either case.
+    suggested_action: |
+      Canonicalize every order-insensitive report collection, including
+      dependency boundaries, and define deterministic tie-breakers for all
+      remaining finding fields (or explicitly preserve fields whose order is
+      semantic). Add reversed-order tests for dependencies and equal-key
+      findings with different evidence.
+    source: built-in
+  - severity: important
+    category: tests
+    file: go/internal/report/BUILD.bazel
+    line: 14
+    title: Bazel report target omits the new verdict tests
+    details: |
+      The change adds `go/internal/report/artifact_test.go`, but the report
+      `go_test` target still declares `srcs = ["report_test.go"]` at
+      `go/internal/report/BUILD.bazel:11-16`. Consequently the new pure
+      `VerdictOf` tests are run by `go test` but not by the Bazel target used by
+      the repository's CI/self-check topology. This leaves the changed BUILD
+      metadata and the intended Bazel test coverage incomplete.
+    suggested_action: |
+      Add `artifact_test.go` to the report `go_test.srcs` and run the report
+      Bazel target to verify the newly added tests are compiled and executed.
+    source: built-in
+  - severity: suggestion
+    category: style
+    file: go/cmd/arcc/app/verdict_test.go
+    line: 113
+    title: Use the buffer's Bytes method in the verdict test
+    details: |
+      `gopls check` reports that `bytes.Buffer.Bytes()` should be used instead
+      of converting `stderr.String()` back to a byte slice at
+      `go/cmd/arcc/app/verdict_test.go:113`.
+    suggested_action: |
+      Replace the conversion with `stderr.Bytes()` (and use the same direct
+      buffer form for the expected substring if desired).
+    source: built-in
+
+ecosystem_reviews: []

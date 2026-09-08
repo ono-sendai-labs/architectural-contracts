@@ -1,0 +1,93 @@
+review:
+  task_file: .agents/tasks/2026-08-04-compositional-component-analysis/step05/task-01-add-canonical-report-artifacts.code-task.md
+  change_id: uruwklmrnwmwkknvvnzmnpnvnxpwwnzx
+  reviewed_at: "2026-09-08T03:40:45Z"
+  verdict: approved
+  schema_version: 2
+  lsp_coverage: partial
+
+merge_request:
+  title: "feat(report): add canonical report artifacts [Compositional Analysis: Step 05/Task 01]"
+  body: |
+    Reviews the complete ordered series: the initial report codec, the artifactio
+    bounded reader, the arcc verdict command, the artifactio refactor and native
+    PACKAGE_SURFACE loader fix, round-1 hardening of report serialization,
+    validation, canonical ordering, BUILD metadata, and test style, and round-2
+    hardening of the public JSON decode size gate.
+
+summary: |
+  Round 2 resolves the remaining prior important finding by putting the MaxReportBytes check in the shared parser used by both DecodeReport and PersistedReport.UnmarshalJSON, with a regression test for standard json.Unmarshal. All five acceptance criteria pass, and no regressions, test weakening, security issues, style issues, or LSP diagnostics were found. The native PACKAGE_SURFACE loading fix remains a correct, narrowly enabling change for the new dependency, while the implements-closure workaround remains in the check path as required for Step 5; Go validation and self-check pass, and the producer records the full CI/Bazel validation.
+
+acceptance_criteria:
+  - text: |
+      **Reports carry one trustworthy verdict**
+        - Given completed reports with zero and non-zero violations
+        - When each is encoded and decoded
+        - Then its persisted verdict is respectively `pass` and `fail`, and no API permits a contradictory verdict to survive validation.
+    status: pass
+    evidence: |
+      The prior round's verdict-bypass and missing/null-envelope findings are
+      addressed by `PersistedReport.MarshalJSON` at
+      `go/internal/artifactio/report.go:61-68` and the validated
+      `UnmarshalJSON`/envelope parser at `:72-138`. The direct-stamping test at
+      `go/internal/artifactio/report_test.go:122-139`, pass/fail tests at
+      `:16-57`, and mismatch cases at `:167-256` pass. The verdict itself is
+      derived only by `report.VerdictOf` at `go/internal/report/report.go:152-163`.
+  - text: |
+      **Report bytes are deterministic and bounded**
+        - Given logically identical reports with inputs observed in different orders
+        - When they are canonicalized repeatedly
+        - Then the output bytes are identical; malformed, oversized, or unknown-verdict input returns a specific tool error.
+    status: pass
+    evidence: |
+      Dependency ordering and equal-key finding tie-breaking are implemented at
+      `go/internal/artifactio/report.go:172-252` and exercised by
+      `go/internal/artifactio/report_test.go:83-120`. The shared parser now checks
+      `MaxReportBytes` before parsing at `go/internal/artifactio/report.go:91-97`,
+      covering both `DecodeReport` and `PersistedReport.UnmarshalJSON`; direct
+      and standard-JSON oversize tests are at `report_test.go:277-302`. Malformed,
+      missing/null-field, unknown-verdict, and unsupported-version cases are
+      covered at `:167-275`, and file reads remain bounded at `:260-276`.
+  - text: |
+      **The verdict command asserts report artifacts**
+        - Given valid passing and failing report files
+        - When `arcc verdict --expect=pass|fail` is run against matching and opposite expectations
+        - Then matching exits 0, opposite exits 1 with expected/actual context, and invalid input or invalid usage exits 2.
+    status: pass
+    evidence: |
+      `go/cmd/arcc/app/verdict.go:18-79` implements parsing, artifact reading,
+      expected/actual mismatch diagnostics, and the 0/1/2 exit contract.
+      `go/cmd/arcc/app/verdict_test.go:27-130` covers matching, opposite,
+      open, malformed, and usage errors; the command is documented at `:132-139`.
+  - text: |
+      **Existing check behavior is unchanged**
+        - Given the existing CLI and Bazel check fixtures
+        - When they run before Task 3's output flags are added
+        - Then text/JSON rendering and exit 0/1/2 behavior are unchanged apart from the explicit verdict field in persisted JSON expectations.
+    status: pass
+    evidence: |
+      The existing check pipeline remains at
+      `go/cmd/arcc/app/app.go:147-281`; the series only adds verdict dispatch
+      and usage at `:64-66` and `:284-294`. The full Go suite and integration
+      suite pass with an isolated cache, and the existing app/check tests remain
+      green. The prior rework did not modify check rendering or exit logic.
+  - text: |
+      **Architectural boundaries remain valid**
+        - Given the new codec and command
+        - When self-check and manifest parity run
+        - Then the pure report package has gained no ambient authority and all changed Component Contracts and BUILD metadata are accurate.
+    status: pass
+    evidence: |
+      `go/internal/report/report.go:1-13` remains reflection- and
+      filesystem-free. The artifactio and CLI dependency edges are declared at
+      `go/internal/artifactio/component.textproto:9-12` and
+      `go/cmd/arcc/component.textproto:16-19`; the report test target includes
+      both tests at `go/internal/report/BUILD.bazel:11-16`. Current self-check
+      and manifest-parity runs pass. The native loader repair at
+      `go/internal/goanalysis/goanalysis.go:1442-1455` directly loads declared
+      PACKAGE_SURFACE members, while the implements-closure check workaround
+      remains at `:1688-1723`, preserving the documented Step 5 divergence.
+
+findings: []
+
+ecosystem_reviews: []

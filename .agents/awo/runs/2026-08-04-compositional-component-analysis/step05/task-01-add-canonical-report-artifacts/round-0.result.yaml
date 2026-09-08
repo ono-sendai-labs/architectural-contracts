@@ -1,0 +1,75 @@
+result:
+  task_file: .agents/tasks/2026-08-04-compositional-component-analysis/step05/task-01-add-canonical-report-artifacts.code-task.md
+  change_id: uvmwtoynpyzsvoprtryvvnkqzmnlzpzr
+  status: completed
+  schema_version: 2
+  produced_at: 2026-09-08T03:00:28Z
+
+acceptance_criteria:
+  - text: "Reports carry one trustworthy verdict"
+    addressed: yes
+    evidence: |
+      Authoritative derivation is report.VerdictOf (go/internal/report/report.go:150,
+      pure, sole derivation shared by encode/decode/exit codes). artifactio.MarshalReport
+      derives the verdict itself and no API accepts a caller verdict
+      (go/internal/artifactio/report.go:49). artifactio.DecodeReport rejects unknown
+      verdicts (ErrUnknownVerdict) and verdicts contradicting the embedded report
+      (ErrVerdictMismatch). Tests: artifactio/report_test.go TestMarshalReport_
+      DerivesVerdictAndFormatVersion, TestDecodeReport_RejectsInvalidInput;
+      report/artifact_test.go TestVerdictOf.
+  - text: "Report bytes are deterministic and bounded"
+    addressed: yes
+    evidence: |
+      MarshalReport canonically sorts findings by kind/message/file/line before
+      encoding (go/internal/artifactio/report.go canonicalReport/sortFindings);
+      TestMarshalReport_DeterministicAcrossOrderings asserts byte-identical output
+      for reordered inputs. DecodeReport fails malformed input with
+      ErrMalformedReport and unsupported versions with ErrUnsupportedReportVersion;
+      artifactio.ReadReportFile enforces MaxReportBytes (16 MiB) before allocation
+      (TestReadReportFile_RejectsOversizedInput, TestReadReportFile_RejectsMalformed).
+  - text: "The verdict command asserts report artifacts"
+    addressed: yes
+    evidence: |
+      go/cmd/arcc/app/verdict.go implements arcc verdict <report> --expect=pass|fail:
+      exit 0 on match, 1 on opposite verdict with "expected fail, got pass"-style
+      diagnostics naming both verdicts, 2 for usage/open/decode/validation errors.
+      Tests: go/cmd/arcc/app/verdict_test.go TestVerdict_ExitCodes (12-case table),
+      TestVerdict_MalformedFileContent, TestVerdict_UsageListsCommand. End-to-end
+      smoke in work.log: matching expectation exits 0, opposite exits 1.
+  - text: "Existing check behavior is unchanged"
+    addressed: yes
+    evidence: |
+      runCheck (app.go) text/JSON rendering and 0/1/2 exit logic untouched; only
+      additions are the verdict dispatch, a usage line, and the FR10 doc block.
+      Existing suites (app_test.go, checker, cli integration) and the full
+      `just ci` pass unchanged.
+  - text: "Architectural boundaries remain valid"
+    addressed: yes
+    evidence: |
+      `just ci` green: self-check legs (report stays reflection/authority-free —
+      its FR10 block still claims no ambient authority and arcc verifies it),
+      manifestparity (ownership_test.go pins the new artifactio->report component
+      edge), bazel build/test 96 tests, member-label and component-shape
+      validation. artifactio FR10 block and cli component.textproto updated; a
+      native loader fix in goanalysis.go (declared-member loading for
+      PACKAGE_SURFACE deps) was required to resolve the cli->artifactio edge.
+
+artifacts:
+  scratchpad_dir: .agents/scratchpad/2026-08-04-compositional-component-analysis/step05/task-01-add-canonical-report-artifacts/
+  files:
+    - context.md
+    - plan.md
+    - progress.md
+    - work.log
+    - result.yaml
+
+notes: |
+  Implemented the persisted report artifact contract across four incremental jj
+  changes: pure verdict derivation in report, canonical codec plus bounded file
+  reader in the artifactio shell, and the arcc verdict CLI command with 0/1/2
+  exit semantics. Two self-check-discovered constraints were addressed in the
+  final change: the JSON codec had to move out of the pure report package
+  (reflection authority), and native dependency resolution had to load declared
+  member import paths for PACKAGE_SURFACE dependencies so cli can consume
+  artifactio. `just ci` is fully green, including self-check, parity, and the
+  Bazel leg.

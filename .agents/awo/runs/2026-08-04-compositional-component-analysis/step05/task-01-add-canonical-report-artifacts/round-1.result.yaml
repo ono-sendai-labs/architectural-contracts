@@ -1,0 +1,74 @@
+result:
+  task_file: .agents/tasks/2026-08-04-compositional-component-analysis/step05/task-01-add-canonical-report-artifacts.code-task.md
+  change_id: xrrulruuouzzmkoktrqkmnmmnspmokny
+  status: completed
+  schema_version: 2
+  produced_at: 2026-09-08T03:32:00Z
+
+acceptance_criteria:
+  - text: "Reports carry one trustworthy verdict"
+    addressed: yes
+    evidence: |
+      report.VerdictOf (go/internal/report/report.go) is the sole derivation.
+      PersistedReport now serializes only through MarshalJSON, which re-derives
+      the verdict from the embedded report regardless of any caller-stamped
+      value, and UnmarshalJSON/decodePersistedReport validates it
+      (go/internal/artifactio/report.go). Regression test
+      TestMarshalReport_DirectJSONCannotStampContradictoryVerdict proves direct
+      json.Marshal emits the derived verdict; a missing/null embedded report is
+      ErrMalformedReport, never an implicit pass (new invalid-input cases).
+  - text: "Report bytes are deterministic and bounded"
+    addressed: yes
+    evidence: |
+      MarshalJSON canonicalizes every order-insensitive collection: findings by
+      kind/message/file/line with evidence as tie-breaker, and dependency
+      boundaries by component
+      (TestMarshalReport_DeterministicAcrossOrderings,
+      TestMarshalReport_DeterministicAcrossDependencyAndEvidenceOrderings).
+      DecodeReport enforces MaxReportBytes on direct byte input
+      (TestDecodeReport_EnforcesSizeLimitDirectly) and ReadReportFile keeps the
+      bounded-read defense in depth; malformed, oversized, and unknown-verdict
+      inputs each return sentinel-wrapped errors.
+  - text: "The verdict command asserts report artifacts"
+    addressed: yes
+    evidence: |
+      go/cmd/arcc/app/verdict.go: exit 0 on match, 1 on opposite verdict with
+      expected/actual diagnostics, 2 for usage/open/decode/validation errors.
+      Tests: go/cmd/arcc/app/verdict_test.go TestVerdict_ExitCodes,
+      TestVerdict_MalformedFileContent, TestVerdict_UsageListsCommand
+      (stderr.Bytes() style fix applied). Round-1 review marked this pass.
+  - text: "Existing check behavior is unchanged"
+    addressed: yes
+    evidence: |
+      runCheck text/JSON rendering and 0/1/2 exit logic untouched; only
+      dispatch, one usage line, and the FR10 doc block were added. Full Go
+      suite and `just ci` pass; round-1 review marked this pass.
+  - text: "Architectural boundaries remain valid"
+    addressed: yes
+    evidence: |
+      `just ci` green after the rework: self-check legs (pure report package
+      still claims no ambient authority and arcc verifies it), manifestparity
+      ownership test, Bazel build/test (96 tests, now including the report
+      target's artifact_test.go), and member-label/component-shape validation.
+      Report BUILD go_test srcs now include artifact_test.go
+      (go/internal/report/BUILD.bazel:14).
+
+artifacts:
+  scratchpad_dir: .agents/scratchpad/2026-08-04-compositional-component-analysis/step05/task-01-add-canonical-report-artifacts/
+  files:
+    - context.md
+    - plan.md
+    - progress.md
+    - work.log
+    - review.yaml
+    - result.yaml
+
+notes: |
+  Rework round 1 addressed all six findings (five important, one suggestion)
+  in a fresh child change xrrulruuouzzmkoktrqkmnmmnspmokny: the persisted
+  model now owns both JSON directions with a always-derived verdict
+  (MarshalJSON) and a validating envelope parser (UnmarshalJSON), the direct
+  decode path enforces the 16 MiB bound, missing/null embedded reports are
+  rejected as malformed instead of passing, canonicalization covers dependency
+  ordering and evidence tie-breakers, and the Bazel report test target gained
+  artifact_test.go. `just ci` is fully green.
