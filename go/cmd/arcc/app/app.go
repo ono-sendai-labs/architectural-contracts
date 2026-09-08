@@ -1,8 +1,8 @@
 // Package app implements CLI orchestration and formatting of architectural checks.
 //
 // Component Contract (FR10):
-// - What it does: Orchestrates manifest parsing, fact loading, capability analysis, checker execution, report rendering, and the stdlibmap subcommands (generate native and explicit-input mode, inspect).
-// - What it requires: Command-line arguments specifying the check path and output format, as well as an environment for stdout/stderr output. Explicit-input `stdlibmap generate` declares its whole target (package list, config file, SDK root) and performs no host discovery.
+// - What it does: Orchestrates manifest parsing, fact loading, capability analysis, checker execution, report rendering, report-verdict assertion, and the stdlibmap subcommands (generate native and explicit-input mode, inspect).
+// - What it requires: Command-line arguments specifying the command path and output format, as well as an environment for stdout/stderr output. Explicit-input `stdlibmap generate` declares its whole target (package list, config file, SDK root) and performs no host discovery. `verdict` reads only its named report artifact argument.
 // - What it provides: Actionable conformance reports and deterministic exit codes.
 // - Ambient Authority: This component is a shell component and holds FILES, REFLECT, READ_SYSTEM_STATE, and UNSAFE_POINTER. Explicit-input map generation adds no EXEC beyond arcc's own self-exec layout driver: it never runs the toolchain (`go env`, `go list`), while native mode runs the host toolchain.
 package app
@@ -59,6 +59,10 @@ func (r *Runner) run(args []string, stdout, stderr io.Writer) int {
 
 	if args[0] == "stdlibmap" {
 		return r.runStdlibmap(args[1:], stdout, stderr)
+	}
+
+	if args[0] == "verdict" {
+		return r.runVerdict(args[1:], stdout, stderr)
 	}
 
 	if args[0] != "check" {
@@ -282,6 +286,7 @@ func printUsage(w io.Writer) {
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "Usage:")
 	fmt.Fprintln(w, "  arcc check <manifest> [--package-layout=<layout>] [--format=json]")
+	fmt.Fprintln(w, "  arcc verdict <report> --expect=pass|fail")
 	fmt.Fprintln(w, "  arcc stdlibmap generate --output=<path> [--toolchain=<version>] [--goos=<os>] [--goarch=<arch>] [--cgo] [--tags=<t1,t2>] [--goexperiment=<exp>]")
 	fmt.Fprintln(w, "  arcc stdlibmap generate --output=<path> --package-list=<file> --config-file=<file> --sdk-root=<dir>  (explicit-input mode)")
 	fmt.Fprintln(w, "  arcc stdlibmap inspect <artifact> [--expect-key=<field=value,...>] [summary | symbol <id> | init <pkg>]...")
