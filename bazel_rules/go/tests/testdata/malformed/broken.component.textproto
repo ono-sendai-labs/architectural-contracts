@@ -1,0 +1,3 @@
+name: "broken"
+component_dependencies {
+  this_is_not_a_manifest_field: true

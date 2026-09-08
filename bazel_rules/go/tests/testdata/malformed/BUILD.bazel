@@ -1,0 +1,6 @@
+# Tool-error fixture for the checked-analysis execution tests (task req 8,
+# AC 2): a manifest no parser accepts. arcc's exit 2 on it is what makes a
+# component analysis action fail, so the fixture pins that the action's
+# always-green verdict-only mode masks violations (exit 1) but never tool
+# errors.
+exports_files(["broken.component.textproto"])

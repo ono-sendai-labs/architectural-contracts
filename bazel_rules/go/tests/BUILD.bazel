@@ -1,6 +1,6 @@
 load("@rules_go//go:def.bzl", "go_test")
 load("@rules_shell//shell:sh_test.bzl", "sh_test")
-load("//bazel_rules/go/private:check.bzl", "arcc_check_grep_test", "arcc_check_report_golden_test", "arcc_check_test")
+load("//bazel_rules/go/private:check.bzl", "arcc_check_grep_test", "arcc_check_report_golden_test", "arcc_check_test", "arcc_checked_analysis_test")
 load(":aspect_tests.bzl", "arcc_deps_aspect_test_suite")
 load(":component_tests.bzl", "go_component_test_suite")
 load(":pattern_match_test.bzl", "pattern_match_test_suite")
@@ -9,6 +9,44 @@ load(":stdlib_map_probe.bzl", "darwin_arm64_stdlib_map", "default_seam_probe", "
 load(":stdlib_map_tests.bzl", "stdlib_map_test_suite")
 
 stdlib_map_test_suite(name = "stdlib_map_tests")
+
+# Checked-analysis execution coverage (task req 8): the same command the
+# ArccCheck action runs, re-executed twice in the test sandbox against the
+# action's own artifacts. The conforming component must produce a pass
+# report; the violating fixture a fail report — violations are data, the
+# action still succeeds (AC 2) — and both runs must be byte-identical with
+# each other and with the action's outputs (AC 7). Building either test
+# builds the component's analysis action and, through its declared inputs,
+# the direct dependency's producer chain (AC 4).
+arcc_checked_analysis_test(
+    name = "checked_api_analysis_test",
+    size = "small",
+    component = "//bazel_rules/go/tests/testdata/api:api_component",
+)
+
+arcc_checked_analysis_test(
+    name = "checked_violating_analysis_test",
+    size = "small",
+    component = "//bazel_rules/go/tests/testdata/membercomponent:undeclared_dep_component",
+    expect_verdict = "fail",
+)
+
+# Tool errors still fail the action (AC 2): verdict-only mode masks
+# violations, not exit 2. A malformed manifest is the smallest tool error;
+# run the CLI-level behavior the action inherits directly.
+sh_test(
+    name = "malformed_manifest_tool_error_test",
+    srcs = ["malformed_manifest_tool_error_test.sh"],
+    size = "small",
+    args = [
+        "$(rootpath //:arcc)",
+        "$(rootpath //bazel_rules/go/tests/testdata/malformed:broken.component.textproto)",
+    ],
+    data = [
+        "//:arcc",
+        "//bazel_rules/go/tests/testdata/malformed:broken.component.textproto",
+    ],
+)
 
 # The private default-seam probe (task req 7): the rule Step 5's analysis
 # action will mirror — it consumes the default `_stdlib_map` attribute and
