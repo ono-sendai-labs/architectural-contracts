@@ -47,7 +47,7 @@ func ScanAnalysisDefeats(
 		if !members.Contains(hostpolicy.CanonicalizePath(p.PkgPath)) {
 			continue
 		}
-		if err := scanBypassPackage(p, members, root, obs); err != nil {
+		if err := scanBypassPackage(p, root, obs); err != nil {
 			return nil, err
 		}
 	}
@@ -59,20 +59,25 @@ func ScanAnalysisDefeats(
 	return out, nil
 }
 
+// scanBypassPackage routes every declared file of one member package to its
+// construct class: assembly files (selected or ignored by the target
+// configuration) become assembly observations, and Go source files are
+// scanned for directives and cgo use.
 func scanBypassPackage(
 	p *packages.Package,
-	members facts.MemberSet,
 	root string,
 	obs map[facts.BypassKey]struct{},
 ) error {
-	for _, file := range p.OtherFiles {
-		if isAssemblyFile(file) {
+	for _, file := range allDeclaredFiles(p) {
+		switch {
+		case isAssemblyFile(file):
 			if err := addBypassSite(p.Fset, root, file, 0, facts.BypassAssembly, obs); err != nil {
 				return err
 			}
+			continue
+		case !isGoSourceFile(file):
+			continue
 		}
-	}
-	for _, file := range declaredGoFiles(p) {
 		syntax := syntaxForFile(p, file)
 		if syntax.file == nil {
 			var err error
@@ -92,18 +97,27 @@ func scanBypassPackage(
 	return nil
 }
 
-// declaredGoFiles returns the package's declared Go sources: the files the
-// current build configuration selected plus the ones it ignores. Ignored
-// files are scanned fail-closed — a construct hidden behind a build tag or a
-// cgo-off target must never silently pass (DR-11).
-func declaredGoFiles(p *packages.Package) []string {
-	return concatFiles(p.GoFiles, p.IgnoredFiles)
+// allDeclaredFiles returns the package's declared sources, both selected and
+// ignored by the current build configuration. Ignored files are scanned
+// fail-closed — a construct hidden behind a build tag or a cgo-off target
+// must never silently pass (DR-11) — and only Go sources reach the parser;
+// assembly is routed to its own construct class and any other declared
+// non-Go file (a cgo package's C headers and sources, for example, whose
+// cgo use is already observed at the member's `import "C"` line) is inert
+// without the Go constructs around it.
+func allDeclaredFiles(p *packages.Package) []string {
+	return concatFiles(p.GoFiles, p.IgnoredFiles, p.OtherFiles)
 }
 
-func concatFiles(a, b []string) []string {
-	out := make([]string, 0, len(a)+len(b))
-	out = append(out, a...)
-	out = append(out, b...)
+func concatFiles(lists ...[]string) []string {
+	n := 0
+	for _, l := range lists {
+		n += len(l)
+	}
+	out := make([]string, 0, n)
+	for _, l := range lists {
+		out = append(out, l...)
+	}
 	sort.Strings(out)
 	return out
 }
@@ -117,6 +131,13 @@ func isAssemblyFile(file string) bool {
 	}
 }
 
+// isGoSourceFile reports whether a declared file is Go source at all: only
+// such files are handed to the Go parser; every other declared file is
+// routed by its construct class or skipped as inert.
+func isGoSourceFile(file string) bool {
+	return filepath.Ext(file) == ".go"
+}
+
 // parsedFile pairs an AST with the file set its positions resolve against:
 // loaded syntax uses the load's shared file set, a fresh parse uses a local
 // one.
@@ -126,7 +147,7 @@ type parsedFile struct {
 }
 
 // syntaxForFile returns the loaded syntax AST whose position filename matches
-// the declared file, or nil when the loader did not parse it.
+// the declared file, or an empty result when the loader did not parse it.
 func syntaxForFile(p *packages.Package, file string) parsedFile {
 	if p.Fset == nil || p.Syntax == nil {
 		return parsedFile{}
@@ -144,14 +165,20 @@ func syntaxForFile(p *packages.Package, file string) parsedFile {
 }
 
 // parseDeclaredFile reads and parses one declared member file not covered by
-// the load's syntax, preserving comments so directives are visible.
+// the load's syntax, preserving comments so directives are visible. The parse
+// is fail-closed: a read or parse error — even one accompanied by a partial
+// AST — aborts the scan, because a directive outside the recoverable portion
+// of a malformed file must never be silently missed.
 func parseDeclaredFile(file string) (parsedFile, error) {
 	src, err := os.ReadFile(file)
 	if err != nil {
 		return parsedFile{}, fmt.Errorf("scan analysis defeats: read member file %q: %w", file, err)
 	}
 	fset := token.NewFileSet()
-	f, _ := parser.ParseFile(fset, file, src, parser.ParseComments)
+	f, parseErr := parser.ParseFile(fset, file, src, parser.ParseComments)
+	if parseErr != nil {
+		return parsedFile{}, fmt.Errorf("scan analysis defeats: member file %q does not parse as Go source: %w", file, parseErr)
+	}
 	if f == nil {
 		return parsedFile{}, fmt.Errorf("scan analysis defeats: member file %q does not parse as Go source", file)
 	}

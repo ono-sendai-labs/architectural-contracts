@@ -1,4 +1,5 @@
 name: "goanalysis"
+interface_files: "defeatscan.go"
 interface_files: "goanalysis.go"
 interface_files: "surfaceinputs.go"
 members: "github.com/ono-sendai-labs/architectural-contracts/go/internal/goanalysis"
