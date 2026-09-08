@@ -1439,7 +1439,20 @@ func ResolveDependencyInterface(
 		}
 	} else {
 		loadDir = cleanDepRoot
-		patterns = []string{"./..."}
+		// A PACKAGE_SURFACE dependency declares its members as concrete
+		// import paths, which may live outside the dependency root (e.g. the
+		// protobuf runtime members of artifactio). Load the declared member
+		// import paths directly; "./..." can never match external members.
+		// Declared-interface dependencies keep the whole-package load.
+		if depManifest.InterfaceStyle == manifest.InterfaceStylePackageSurface && len(depManifest.Members) > 0 {
+			patterns = make([]string, len(depManifest.Members))
+			for i, member := range depManifest.Members {
+				patterns[i] = hostpolicy.CanonicalizePath(member)
+			}
+			sort.Strings(patterns)
+		} else {
+			patterns = []string{"./..."}
+		}
 
 		cfg := &packages.Config{
 			Mode: packages.NeedName | packages.NeedFiles | packages.NeedCompiledGoFiles |

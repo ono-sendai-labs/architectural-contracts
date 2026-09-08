@@ -1,9 +1,9 @@
 // Package report defines the conformance report data models and rendering logic.
 //
 // Component Contract (FR10):
-// - What it does: Defines the representation of architectural checker findings and renders them into deterministic, human-readable text.
+// - What it does: Defines the representation of architectural checker findings, renders them into deterministic, human-readable text, and owns the authoritative pass/fail verdict derivation for the persisted report artifact.
 // - What it requires: Receives a ConformanceReport struct populated with violations and warnings from the checker.
-// - What it provides: RenderText for plain-text formatting. Avoids JSON marshaling internally to keep the package free of reflection.
+// - What it provides: RenderText for plain-text formatting and the Verdict/VerdictOf derivation consumed by the persisted-artifact codec in the artifactio shell. JSON marshaling, filesystem access, and artifact file I/O stay in the shell (artifactio); this package remains free of reflection.
 // - Ambient Authority: This component is guaranteed-pure and holds no ambient authority (performs no filesystem I/O, network, process execution, or reflection).
 package report
 
@@ -129,4 +129,36 @@ func (r ConformanceReport) RenderText() string {
 
 func formatDependencyBoundary(dep DependencyBoundary) string {
 	return fmt.Sprintf("- %s", dep.Component)
+}
+
+// Verdict is the explicit pass/fail outcome recorded in a persisted report
+// artifact. It is derived from the completed report's violations; no
+// caller-supplied verdict is accepted anywhere in the artifact pipeline, so a
+// contradictory verdict cannot be persisted (task req 1).
+type Verdict string
+
+const (
+	// VerdictPass records a completed analysis with zero violations.
+	VerdictPass Verdict = "pass"
+	// VerdictFail records a successful analysis with at least one violation.
+	VerdictFail Verdict = "fail"
+)
+
+// String returns the string representation of the Verdict.
+func (v Verdict) String() string {
+	return string(v)
+}
+
+// VerdictOf derives the verdict of a completed report from its violations:
+// non-empty Violations is fail, otherwise pass. This is the single
+// authoritative derivation shared by artifact encoding, decoding, and exit
+// codes; it stays in the pure report package because it is a property of the
+// report data model itself. The canonical JSON codec that consumes it lives
+// in the shell (artifactio), which holds the reflection authority JSON
+// encoding requires.
+func VerdictOf(r ConformanceReport) Verdict {
+	if len(r.Violations) > 0 {
+		return VerdictFail
+	}
+	return VerdictPass
 }

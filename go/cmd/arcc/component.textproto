@@ -14,6 +14,10 @@ component_dependencies {
   manifest: "../../internal/checker/component.textproto"
 }
 component_dependencies {
+  name: "artifactio"
+  manifest: "../../internal/artifactio/component.textproto"
+}
+component_dependencies {
   name: "facts"
   manifest: "../../internal/facts/component.textproto"
 }

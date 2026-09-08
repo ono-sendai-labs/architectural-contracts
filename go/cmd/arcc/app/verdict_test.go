@@ -7,12 +7,13 @@ import (
 	"testing"
 
 	"github.com/ono-sendai-labs/architectural-contracts/go/cmd/arcc/app"
+	"github.com/ono-sendai-labs/architectural-contracts/go/internal/artifactio"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/report"
 )
 
 func writeReportFile(t *testing.T, r report.ConformanceReport) string {
 	t.Helper()
-	data, err := report.MarshalReport(r)
+	data, err := artifactio.MarshalReport(r)
 	if err != nil {
 		t.Fatalf("MarshalReport() error = %v", err)
 	}
