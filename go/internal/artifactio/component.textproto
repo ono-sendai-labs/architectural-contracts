@@ -7,6 +7,10 @@ name: "artifactio"
 # for why there is no manifest component edge).
 interface_style: INTERFACE_STYLE_PACKAGE_SURFACE
 component_dependencies {
+  name: "report"
+  manifest: "../report/component.textproto"
+}
+component_dependencies {
   name: "schema"
   manifest: "../schema/component.textproto"
 }

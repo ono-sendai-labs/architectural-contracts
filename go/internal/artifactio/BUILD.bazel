@@ -6,6 +6,7 @@ go_library(
     srcs = [
         "artifactio.go",
         "digest.go",
+        "reportfile.go",
         "stdlibmap.go",
         "stdlibmapreader.go",
         "surface.go",
@@ -19,6 +20,7 @@ go_library(
         "//go:__subpackages__",
     ],
     deps = [
+        "//go/internal/report",
         "//go/internal/schema",
         "//go/internal/schema/gen",
         "//go/internal/symbol",
@@ -35,6 +37,7 @@ go_test(
         "artifactio_test.go",
         "decode_test.go",
         "rework_test.go",
+        "reportfile_test.go",
         "stdlibmap_test.go",
         "stdlibmapreader_test.go",
         "write_test.go",
@@ -57,6 +60,7 @@ go_component(
     name = "artifactio_component",
     interface_style = "PACKAGE_SURFACE",
     component_deps = [
+        "//go/internal/report:report_component",
         "//go/internal/schema:schema_component",
         "//go/internal/symbol:symbol_component",
         "//go/internal/stdlibauthority:stdlibauthority_component",

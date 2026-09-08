@@ -120,6 +120,9 @@ func canonicalReport(r ConformanceReport) ConformanceReport {
 }
 
 func sortFindings(findings []Finding) []Finding {
+	if findings == nil {
+		return nil
+	}
 	sorted := make([]Finding, len(findings))
 	copy(sorted, findings)
 	sort.Slice(sorted, func(i, j int) bool {

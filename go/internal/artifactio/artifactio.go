@@ -1,23 +1,23 @@
 // Package artifactio encodes and decodes the persisted archcontracts
-// artifacts — surface manifests and standard-library maps — as canonical,
-// byte-stable JSON, hashes them, and replaces files atomically.
+// artifacts — surface manifests, standard-library maps, and reports — as
+// canonical, byte-stable JSON, hashes them, and replaces files atomically.
 //
 // Component Contract (FR10):
 //   - What it does: Normalizes artifact messages (sorting every repeated field by
 //     its documented canonical sort key and rejecting non-canonical states),
-//     encodes them with protojson followed by encoding/json compaction and
-//     indentation so semantically identical artifacts serialize to identical
-//     bytes, decodes them with bounded reads and semantic validation, computes
-//     lowercase SHA-256 digests over the canonical bytes, and replaces target
-//     files atomically via a temporary sibling and rename.
+//     encodes them so semantically identical artifacts serialize to identical
+//     bytes, decodes them with bounded reads and semantic validation, reads the
+//     persisted report artifact, computes lowercase SHA-256 digests over the
+//     canonical bytes, and replaces target files atomically via a temporary
+//     sibling and rename.
 //   - What it requires: The generated artifact message types and known
-//     capability taxonomy (schema), the SymbolID grammar (symbol) for
-//     validation, and write access to the target directory for atomic
-//     replacement.
+//     capability taxonomy (schema), the SymbolID grammar (symbol) and the
+//     report artifact vocabulary (report) for validation, and write access to
+//     the target directory for atomic replacement.
 //   - What it provides: MarshalSurface/MarshalMap, DecodeSurface/DecodeMap,
-//     SurfaceDigest/MapDigest, and WriteFileAtomic with injectable write seams.
-//     No cache regeneration policy, CLI commands, Bazel actions, or dependency
-//     freshness computation.
+//     ReadReportFile, SurfaceDigest/MapDigest, and WriteFileAtomic with
+//     injectable write seams. No cache regeneration policy, CLI commands,
+//     Bazel actions, or dependency freshness computation.
 //   - Ambient Authority: This is a shell component holding FILES,
 //     READ_SYSTEM_STATE, MODIFY_SYSTEM_STATE, REFLECT, RUNTIME, SYSTEM_CALLS,
 //     and UNSAFE_POINTER for filesystem writes and protobuf unmarshaling.
