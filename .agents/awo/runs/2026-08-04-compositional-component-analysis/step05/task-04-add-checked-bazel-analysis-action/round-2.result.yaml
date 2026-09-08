@@ -1,0 +1,100 @@
+result:
+  task_file: .agents/tasks/2026-08-04-compositional-component-analysis/step05/task-04-add-checked-bazel-analysis-action.code-task.md
+  change_id: wmowxnskqoltmqtvuwmznvpvttqzyulo
+  status: completed
+  schema_version: 2
+  produced_at: 2026-09-08T08:05:00Z
+
+acceptance_criteria:
+  - text: "Checked components publish structural outputs (manual-tagged components out of scope, staying checked until Task 5)"
+    addressed: yes
+    evidence: |
+      component.bzl _checked_analysis_action produces <name>.report.json and
+      <name>.surface.json by one ArccCheck action; ArccComponentInfo carries
+      surface/report, provenance = "checked" for every regular producer, with
+      transitional notes stating Task 5 replaces the manual treatment
+      (component.bzl, go_component_impl checked-path branch and provenance
+      assignment). _checked_component_outputs_test passes; base-commit RED
+      (tests and output group absent at rowtmqrm) recorded in work.log.
+
+  - text: "Violations are data, tool errors fail the action"
+    addressed: yes
+    evidence: |
+      checked_api_analysis_test (verdict pass), checked_violating_analysis_test
+      (verdict fail, action succeeds), malformed_manifest_tool_error_test
+      (exit 2, no report published), and the just bazel-test gate asserting the
+      malformed component's ArccCheck action FAILS the build with a package-load
+      tool error (per-run mktemp log; see work.log "GATE OK").
+
+  - text: "Analysis outputs are lazy"
+    addressed: yes
+    evidence: |
+      DefaultInfo unchanged; report/surface only in OutputGroupInfo(arcc);
+      analysis test asserts default outputs exactly manifest+layout; work.log
+      records the default build without the artifacts, the +arcc build with
+      both, and a green full `bazel build //...`.
+
+  - text: "Dependent checks establish producer order"
+    addressed: yes
+    evidence: |
+      Dep report/surface declared as action inputs; .check and
+      arcc_checked_analysis_test stage the component's arcc group;
+      _checked_action_inputs_test (spec-derived) requires
+      shared_component.{report,surface}.json among the inputs;
+      aquery (work.log appendix) shows both ArccCheck actions in the dependent
+      test's build graph.
+
+  - text: "Inputs match the Step 5 transition"
+    addressed: yes
+    evidence: |
+      _checked_action_inputs_impl derives the expected non-SDK set from the
+      specification (provider closure, provider manifest/layout, dependency
+      manifest->layout/report/surface convention, default-seam map) and asserts
+      both directions; negatives for export data, cache paths and toolchain
+      binaries; argv[1] asserted to be the arcc tool. Non-tautology proven by
+      injection (contract.md injected -> RED; removed -> GREEN, work.log).
+
+  - text: "Target identity is coherent"
+    addressed: yes
+    evidence: |
+      Layout pins toolchain_version/goexperiment; transitioned_surface_sdk_key_test
+      now asserts the COMPLETE key — toolchain_version, goos, goarch,
+      cgo_enabled=false (explicit checked field; the cgo_enabled=true variant is
+      rejected by the same map), goexperiment= (empty, checked as a field), and
+      the build tag — against the transition configuration's map via
+      `arcc stdlibmap inspect --expect-key`, and the key is rejected by the
+      default configuration's map. GOEXPERIMENT is stamped by the pinned SDK
+      itself (go_target_mode reads sdk.experiments), so a non-default
+      GOEXPERIMENT key is exercised at the stdlibmap layer, where the same
+      checked-field mechanism applies.
+
+  - text: "Artifacts are deterministic"
+    addressed: yes
+    evidence: |
+      arcc_checked_analysis_test re-executes the exact analysis command twice
+      and requires byte-identity between the runs and with the action's
+      artifacts; CLI repeated-run determinism tests remain green.
+
+artifacts:
+  scratchpad_dir: .agents/scratchpad/2026-08-04-compositional-component-analysis/step05/task-04-add-checked-bazel-analysis-action/
+  files:
+    - context.md
+    - plan.md
+    - progress.md
+    - work.log
+    - review.yaml
+    - result.yaml
+
+notes: |
+  Reconcile round 2: accepted the upstream spec fix (rowtmqrm) that scopes
+  manual-tagged components out of task 04 — no manual/asserted branch was
+  implemented, and transitional notes in component.bzl now point readers at
+  Task 5's asserted branch. Addressed the three open important findings: the
+  work.log was rebuilt with requirement-scoped RED/GREEN sections including
+  genuine RED evidence (base-commit workspace run and an AC5 injection
+  experiment); the exact input-set test is no longer tautological (spec-derived
+  expectation, both directions, injection-proven); and the transitioned
+  identity test now checks the complete key including cgo-off and GOEXPERIMENT
+  fields. The tool-error gate also moved to a per-run mktemp path per the
+  suggestion. Full `just ci` green; fresh child commit
+  wmowxnskqoltmqtvuwmznvpvttqzyulo with an empty working copy.

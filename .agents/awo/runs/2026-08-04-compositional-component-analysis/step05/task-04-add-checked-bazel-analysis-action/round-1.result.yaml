@@ -1,0 +1,133 @@
+result:
+  task_file: .agents/tasks/2026-08-04-compositional-component-analysis/step05/task-04-add-checked-bazel-analysis-action.code-task.md
+  change_id: rylmkxmzvzrypnvwspwvxvxkonlzrzqv
+  status: escalated
+  schema_version: 2
+  produced_at: 2026-09-08T07:20:00Z
+
+acceptance_criteria:
+  - text: "Checked components publish structural outputs"
+    addressed: yes
+    evidence: |
+      component.bzl _checked_analysis_action produces <name>.report.json and
+      <name>.surface.json by one ArccCheck action; ArccComponentInfo carries
+      surface/report and provenance = "checked" for regular producers.
+      _checked_component_outputs_test passes.
+
+  - text: "Violations are data, tool errors fail the action"
+    addressed: partial
+    evidence: |
+      Conforming (checked_api_analysis_test, verdict pass) and violating
+      (checked_violating_analysis_test, verdict fail) actions succeed; the CLI
+      sh_test pins exit 2 with no report on a malformed manifest. The remaining
+      half — observing a Bazel ArccCheck action fail on a tool error — is now
+      enforced by the just bazel-test gate: requesting
+      //bazel_rules/go/tests/testdata/malformed:broken_go_component
+      --output_groups=+arcc fails with "failed to load package facts" while the
+      wildcard default build stays green (broken source is manual-tagged).
+      Marked partial only because the gate is a CI-level assertion rather than
+      an in-sandbox test, which is the strongest available mechanism.
+
+  - text: "Analysis outputs are lazy"
+    addressed: yes
+    evidence: |
+      DefaultInfo unchanged; report/surface only in OutputGroupInfo(arcc);
+      analysis test asserts default outputs exactly manifest+layout; work.log
+      records default build without the artifacts, +arcc build with both, and a
+      green full `bazel build //...`.
+
+  - text: "Dependent checks establish producer order"
+    addressed: yes
+    evidence: |
+      Dep report/surface are declared action inputs; .check and
+      arcc_checked_analysis_test stage the component's arcc group;
+      _checked_action_inputs_test asserts shared_component's report/surface
+      among api_component's inputs; aquery (work.log) shows both ArccCheck
+      actions in the dependent test's build graph.
+
+  - text: "Inputs match the Step 5 transition"
+    addressed: yes
+    evidence: |
+      _checked_action_inputs_impl now classifies every input against the
+      layout's SDK repository prefix and compares the exact non-SDK set
+      (closure sources, manifest, layout, map, dep manifests/layouts and
+      producer artifacts), plus negatives: no ".export" files, no "cache"
+      paths, no "go"/".a" toolchain binaries; the action declares an empty
+      environment. Export-data/member-only semantics remain unclaimed (no
+      export inputs exist at all).
+
+  - text: "Target identity is coherent"
+    addressed: partial
+    evidence: |
+      The layout pins toolchain_version/goexperiment; the new
+      transitioned_surface_sdk_key_test analyzes api_component under a
+      darwin/arm64, cgo-off, build-tagged configuration and verifies the
+      surface's complete SDK key (toolchain, GOOS, GOARCH, cgo, tags) against
+      its own configuration's map via `arcc stdlibmap inspect --expect-key`,
+      and that the default configuration's map rejects the same key. Partial
+      only in that GOEXPERIMENT variation would require transitioning the
+      SDK itself: rules_go stamps GOEXPERIMENT from the SDK (go_target_mode
+      reads sdk.experiments), so the field is coherent across the
+      configurations these rules can distinguish; a non-default GOEXPERIMENT
+      key is exercised at the stdlibmap layer (Step 4 key tests).
+
+  - text: "Artifacts are deterministic"
+    addressed: yes
+    evidence: |
+      arcc_checked_analysis_test re-executes the exact analysis command twice
+      and requires byte-identity between runs and with the action's artifacts;
+      CLI repeated-run determinism tests remain green.
+
+artifacts:
+  scratchpad_dir: .agents/scratchpad/2026-08-04-compositional-component-analysis/step05/task-04-add-checked-bazel-analysis-action/
+  files:
+    - context.md
+    - plan.md
+    - progress.md
+    - work.log
+    - review.yaml
+    - result.yaml
+
+escalation:
+  reason: spec_defect
+  details: |
+    The review's critical finding — manual-tagged components take the checked
+    path (ArccCheck action, checked report/surface, provenance = "checked") —
+    is confirmed: e.g. the genuinely unowned
+    //bazel_rules/go/tests/testdata/reportboundary/manual:manual_component
+    carries an ArccCheck action today. Fixing it means implementing the
+    manual→asserted producer branch (analysis-time asserted surface, no action,
+    no report, provenance = "asserted"), which is the explicit charter of
+    step05/task-05 ("Add Asserted Manual Surface Producer", reqs 1-9), including
+    its requirement 6 to audit every current `manual` tag and migrate the
+    fixture-only uses (about fifteen fixtures across testdata and go/internal
+    use `manual` purely to keep deliberately failing autogenerated `.check`
+    targets out of `bazel test //...`) and its requirement 7 to define
+    `.check` behavior for asserted components.
+
+    The finding and this task cannot both be satisfied here: flipping
+    manual→asserted inside task 4 without that audit would misclassify the
+    fixture-only tags (e.g. undeclared_dep_component, the AC2 violating
+    checked fixture used by checked_violating_analysis_test) and would remove
+    the violating CHECKED fixture that task 4's own AC2 execution coverage
+    requires; inventing the fixture-migration arrangement is exactly the
+    task-5 design decision this round may not guess. What was implemented
+    instead in this round's fresh change (rylmkxmz): every other critical and
+    important finding plus both suggestions — shared-argv rerouting of the
+    golden rule, expect_verdict enum validation, exact transition input set
+    with negative assertions, transitioned-configuration SDK-key identity
+    execution coverage, an action-level tool-error failure gate, fail-closed
+    wrapper, and requirement-scoped RED/GREEN work.log entries. Decision
+    needed: either apply the manual→asserted branch in step05/task-05 (its
+    task file already specifies it) or amend task-04's scope with the audit
+    and migration plan; the reviewed provenance risk (unverified components
+    labeled checked) persists until then.
+
+notes: |
+  Rework round 1: fixed every important finding and both suggestions and
+  produced a fresh child change (rylmkxmz) on top of the round-0 series, with
+  requirement-scoped RED/GREEN evidence in work.log and a green `just ci`
+  (including the new expected-failure gate). The single critical finding is
+  escalated rather than patched: the manual/asserted producer transition with
+  its manual-tag audit is step05/task-05's charter, and forcing it into task 4
+  would contradict both tasks' specifications.

@@ -1,0 +1,325 @@
+review:
+  task_file: .agents/tasks/2026-08-04-compositional-component-analysis/step05/task-04-add-checked-bazel-analysis-action.code-task.md
+  change_id: ttrpqutqzyrlkkptmyxzytynxnutvprz
+  reviewed_at: "2026-09-08T06:13:26Z"
+  verdict: changes_requested
+  schema_version: 2
+  lsp_coverage: unavailable
+
+merge_request:
+  title: "feat(bazel): checked component analysis action [Compositional Analysis: Step 05/Task 04]"
+  body: |
+    Reviews the complete four-change series from the task base. The initial
+    implementation adds the checked ArccCheck action, provider/output-group
+    wiring, shared command options, target pinning, dependency producer edges,
+    and the layout-root fix. The subsequent changes add rules_testing analysis
+    coverage, execution coverage for verdicts/determinism/SDK identity and
+    tool errors, and the documentation plus generated-layout golden updates.
+
+summary: |
+  The complete four-change series successfully adds the regular-component
+  ArccCheck action and passes the targeted Bazel tests plus a full `just ci` run
+  with an isolated Go cache. It nevertheless unconditionally analyzes
+  `manual`-tagged components and labels them `checked`, contradicting the
+  explicit Step 5 asserted/no-action transition and creating a provenance risk.
+  The report-golden assertion bypasses the shared argv helper, the malformed
+  action-failure and full target-identity/input contracts are under-tested, and
+  the new expected-verdict value is interpolated into generated shell code
+  without validation. The two package-layout golden updates correctly add the
+  nonempty toolchain pin rather than weakening coverage; no tests were deleted,
+  and LSP diagnostics were unavailable.
+
+acceptance_criteria:
+  - text: |
+      1. **Checked components publish structural outputs**
+         - Given a regular `go_component`
+         - When analyzed
+         - Then its provider carries `<name>.surface.json`, `<name>.report.json`, and `provenance = "checked"`, produced together by one ordinary analysis action.
+    status: pass
+    evidence: |
+      `bazel_rules/go/private/component.bzl:260-298` declares the report and
+      surface and creates one `ArccCheck` action with both outputs. Provider and
+      output-group wiring is at `component.bzl:518-549`. The analysis test at
+      `bazel_rules/go/tests/component_tests.bzl:391-416` checks both provider
+      basenames, `provenance`, one shared action, the exact two action outputs,
+      and `OutputGroupInfo(arcc)`.
+
+  - text: |
+      2. **Violations are data, tool errors fail the action**
+         - Given conforming, violating, and malformed fixtures
+         - When their analysis outputs are requested
+         - Then conforming and violating actions succeed with pass/fail reports, while the malformed/tool-error action fails.
+    status: partial
+    evidence: |
+      `bazel_rules/go/private/component.bzl:285-298` runs the shared command with
+      `--report-verdict-only`; the pass and violation execution tests are wired
+      at `bazel_rules/go/tests/BUILD.bazel:21-32` and exercise the component's
+      real output group. The malformed fixture at `BUILD.bazel:34-49` instead
+      invokes `arcc check` directly from a shell test
+      (`malformed_manifest_tool_error_test.sh:17-31`); it does not request a
+      malformed component's `ArccCheck` output group or assert that the Bazel
+      action itself fails.
+
+  - text: |
+      3. **Analysis outputs are lazy**
+         - Given wildcard/default builds and an explicit `--output_groups=+arcc` build
+         - When action execution is observed
+         - Then the default build runs no component analysis, while the output-group build produces both artifacts.
+    status: pass
+    evidence: |
+      `bazel_rules/go/private/component.bzl:518-522` keeps `DefaultInfo.files`
+      limited to manifest/layout and `:544-549` publishes report/surface only
+      through `OutputGroupInfo(arcc)`. The rules_testing assertion at
+      `bazel_rules/go/tests/component_tests.bzl:406-416` checks both sets, and
+      the recorded builds at `work.log:74-96` show the default output list
+      without report/surface and the explicit `+arcc` list with both artifacts.
+
+  - text: |
+      4. **Dependent checks establish producer order**
+         - Given checked component B depends directly on checked component A
+         - When B's report or `.check` is requested
+         - Then A's analysis action is in the build graph and builds first, even though B does not semantically read A's artifacts until Step 7.
+    status: pass
+    evidence: |
+      `bazel_rules/go/private/component.bzl:473-487` collects direct dependency
+      report/surface artifacts, and they are passed as direct action inputs at
+      `component.bzl:285-291`. `.check` stages the component's arcc output group
+      at `bazel_rules/go/private/check.bzl:68-78` and `:254-261`. The analysis
+      test asserts the shared dependency artifacts at
+      `bazel_rules/go/tests/component_tests.bzl:477-483`; the recorded aquery
+      evidence in `work.log:56-65` shows both `ArccCheck` actions. No dependency
+      surface parsing was added, preserving the Step 7 boundary.
+
+  - text: |
+      5. **Inputs match the Step 5 transition**
+         - Given a checked component action
+         - When its action graph is inspected
+         - Then it contains the manifest, layout, today's source/runfile closure, required SDK source inputs, Step 4 stdlib map, arcc tool, and direct dependency artifacts; it contains no undeclared host cache/network input and does not yet claim export-data/member-only semantics.
+    status: partial
+    evidence: |
+      The implementation's transition input set is visible at
+      `bazel_rules/go/private/component.bzl:275-296`: manifest/layout/map,
+      closure sources, SDK sources, transitive runfile metadata, direct
+      dependency artifacts, the arcc tool, empty default shell environment,
+      and `block-network`. The test at
+      `bazel_rules/go/tests/component_tests.bzl:467-489` checks required inputs
+      by basename and exact report/surface outputs, but does not compare the
+      complete input set or assert the forbidden export-data/cache/toolchain
+      cases. The aquery recorded in `work.log:56-65` is useful inspection
+      evidence, but the required automated negative/exact coverage is absent.
+
+  - text: |
+      6. **Target identity is coherent**
+         - Given a target configuration with toolchain version, GOOS/GOARCH, tags, cgo-off, and GOEXPERIMENT
+         - When the action emits its surface
+         - Then the surface SDK key matches the attached stdlib map exactly and the generated layout carries the target platform fields required to reproduce it.
+    status: partial
+    evidence: |
+      `bazel_rules/go/private/component.bzl:147-163` adds the optional
+      `toolchain_version` and `goexperiment` fields while retaining GOOS,
+      GOARCH, tags, and cgo; the generated goldens at
+      `bazel_rules/go/tests/goldens/api_component.package-layout.json:69-75`
+      and `member_component.package-layout.json:93-99` correctly add the
+      nonempty `toolchain_version` field and retain the full platform block.
+      The action's full map/layout-key validation is in the existing CLI path
+      at `go/cmd/arcc/app/check.go:522-548`, but the new execution assertion at
+      `bazel_rules/go/private/check.bzl:146-160` checks only toolchain version,
+      GOOS, and GOARCH. No checked-component scenario exercises cgo-off,
+      build-tag, and GOEXPERIMENT identity fields together.
+
+  - text: |
+      7. **Artifacts are deterministic**
+         - Given two unchanged executions for the same component inputs
+         - When their output files are compared
+         - Then report and surface bytes are identical.
+    status: pass
+    evidence: |
+      `bazel_rules/go/private/check.bzl:92-138` generates two executions of the
+      same factored command and compares report/surface bytes both to each
+      other and to the component action's artifacts. The pass and violation
+      tests are registered at `bazel_rules/go/tests/BUILD.bazel:21-32`, and the
+      full CI run recorded for this series passed those tests and the existing
+      CLI repeated-run determinism coverage.
+
+findings:
+  - severity: critical
+    category: architecture
+    file: bazel_rules/go/private/component.bzl
+    line: 491
+    title: Manual components are incorrectly treated as checked
+    details: |
+      `go_component_impl` invokes `_checked_analysis_action` for every component
+      with a layout at `bazel_rules/go/private/component.bzl:489-509` and then
+      assigns `provenance = "checked"` at `:539-541`. It never branches on the
+      inherited `manual` tag. The Step 5 plan explicitly requires manual-tagged
+      transitional components to receive an analysis-time asserted surface,
+      no analysis action, and `provenance = "asserted"`
+      (`.agents/planning/2026-08-04-compositional-component-analysis/implementation/plan.md:240-243`;
+      design:246-249). The existing fixture is tagged manual at
+      `bazel_rules/go/tests/testdata/reportboundary/manual/BUILD.bazel:13-17`,
+      and a current aquery shows an `ArccCheck` action and checked report/surface
+      outputs for it. This can make an unverified dependency appear checked to
+      the forthcoming surface consumer and also creates the wrong producer edge.
+    suggested_action: |
+      Add the planned manual/asserted producer branch before creating the
+      `ArccCheck` action, publish the asserted surface with
+      `provenance = "asserted"` and no report/action, and add an analysis test
+      proving a manual component has no `ArccCheck` action and is not labeled
+      checked. Make the check output-group helper tolerate a producer with no
+      arcc group if the asserted producer does not publish one.
+    source: built-in
+
+  - severity: important
+    category: tests
+    file: .agents/scratchpad/2026-08-04-compositional-component-analysis/step05/task-04-add-checked-bazel-analysis-action/work.log
+    line: null
+    title: Requirement-level RED/GREEN evidence is missing
+    details: |
+      `work.log:1-96` records commands and passing outputs but contains no
+      requirement-level RED entry followed by a GREEN entry. `progress.md`
+      explicitly says the first two cycles landed implementation and analysis
+      tests in the same changes, while the only recorded failures are the
+      later launcher/stderr fixes. This leaves the required TDD evidence for
+      the provider, action-input, laziness, and producer-edge scenarios
+      unauditable.
+    suggested_action: |
+      Add honest, requirement-scoped RED/GREEN entries to the task work log for
+      the analysis-action requirements, including the failing assertion and the
+      implementation/test change that turned it green. Preserve the existing
+      execution failure and fix entries rather than retroactively claiming
+      tests that did not run.
+    source: built-in
+
+  - severity: important
+    category: security
+    file: bazel_rules/go/private/check.bzl
+    line: 140
+    title: Expected verdict is interpolated into shell source
+    details: |
+      `_checked_analysis_launcher` inserts the user-controlled `expect_verdict`
+      attribute directly into generated shell code at
+      `bazel_rules/go/private/check.bzl:140-142`. The value is inside generated
+      single/double-quoted shell fragments, but it is not escaped or validated;
+      a quote or command substitution in a BUILD caller's value can alter the
+      test script and execute commands in the test sandbox. The rule documents
+      only `pass`/`fail` but accepts any string.
+    suggested_action: |
+      Validate `expect_verdict` at analysis time against the exact `pass` and
+      `fail` enum, and generate the grep/diagnostic text from validated constants
+      (or apply a complete shell-argument quoting routine to every insertion).
+    source: built-in
+
+  - severity: important
+    category: acceptance_criteria
+    file: bazel_rules/go/private/check.bzl
+    line: 146
+    title: Target-identity test omits tags and GOEXPERIMENT
+    details: |
+      The new execution check at `check.bzl:146-160` extracts only
+      `toolchainVersion`, `goos`, and `goarch` and passes those three fields to
+      `stdlibmap inspect --expect-key`. It does not assert cgo state, build tags,
+      or GOEXPERIMENT, and the fixtures use the default empty values. Although
+      the implementation delegates full key comparison to the existing CLI
+      path, the behavioral acceptance criterion requires a checked action
+      scenario covering the complete target identity.
+    suggested_action: |
+      Add a checked-component configuration/fixture with cgo disabled, at least
+      one build tag, and a non-default GOEXPERIMENT, then compare every surface
+      SDK-key field with the attached map (or make the assertion use a complete
+      expected-key value).
+    source: built-in
+
+  - severity: important
+    category: architecture
+    file: bazel_rules/go/private/check.bzl
+    line: 408
+    title: Report golden rule bypasses shared argv construction
+    details: |
+      `arcc_check_report_golden_impl` manually builds its command at
+      `bazel_rules/go/private/check.bzl:408-416`, while the ordinary check, grep,
+      and checked-analysis paths use `arcc_check_argv`. This is exactly the
+      assertion-rule drift that Technical Requirement 7 asks to prevent: future
+      report/surface/map/verdict options can change the action and other
+      assertion rules without changing the golden rule. The helper currently
+      lacks a format-selection parameter, which is the reason the text-golden
+      path cannot simply call it as written.
+    suggested_action: |
+      Extend `arcc_check_argv` with the needed format-selection option while
+      preserving its current defaults, and route the report-golden rule through
+      it so text and JSON golden tests share the same command construction.
+    source: built-in
+
+  - severity: important
+    category: acceptance_criteria
+    file: bazel_rules/go/tests/BUILD.bazel
+    line: 34
+    title: Tool-error test does not fail an ArccCheck action
+    details: |
+      The pass/fail execution tests request real component output groups, but
+      `malformed_manifest_tool_error_test` at `bazel_rules/go/tests/BUILD.bazel:34-49`
+      invokes the CLI directly on `testdata/malformed/broken.component.textproto`.
+      No malformed component action is requested and no test observes Bazel
+      failing the `ArccCheck` action after a tool error, so AC2's action-level
+      failure half is only inferred from shell exit propagation.
+    suggested_action: |
+      Add a targeted Bazel fixture/test that requests a component's arcc output
+      group with a malformed loader/map input and asserts the `ArccCheck` action
+      fails, while retaining the direct CLI test for the report-verdict-only
+      contract.
+    source: built-in
+
+  - severity: important
+    category: acceptance_criteria
+    file: bazel_rules/go/tests/component_tests.bzl
+    line: 470
+    title: Input test does not assert the exact transition input set
+    details: |
+      `_checked_action_inputs_impl` checks required files by basename with
+      `contains` at `bazel_rules/go/tests/component_tests.bzl:470-483` and only
+      checks the two output basenames at `:485-489`. It does not compare the
+      complete normalized input set or reject export data, cache files,
+      toolchain executables, or other undeclared inputs. The action implementation
+      and aquery show the intended set, but the rules_testing coverage requested
+      by AC5/Technical Requirement 8 cannot detect a future extra or missing
+      input.
+    suggested_action: |
+      Build an expected categorized path set in the analysis test, compare it
+      exactly with the action inputs, and add explicit negative assertions for
+      export-data/member-only inputs, host cache paths, and toolchain binaries;
+      also assert the network-block execution requirement.
+    source: built-in
+
+  - severity: suggestion
+    category: style
+    file: bazel_rules/go/private/command.bzl
+    line: 4
+    title: Refresh stale command helper documentation
+    details: |
+      The module doc still says a planned `_arcc_validation` action will consume
+      the helper at `bazel_rules/go/private/command.bzl:4-6`, but the checked
+      `ArccCheck` action now exists under `component.bzl`. The adjacent component
+      comment also refers to a `run_shell` command even though the implementation
+      now writes a wrapper and uses `ctx.actions.run`.
+    suggested_action: |
+      Update the comments to name the current checked-analysis action and its
+      wrapper-based execution contract.
+    source: built-in
+
+  - severity: suggestion
+    category: security
+    file: bazel_rules/go/private/component.bzl
+    line: 281
+    title: Fail closed when frame symlink setup fails
+    details: |
+      The generated wrapper at `bazel_rules/go/private/component.bzl:279-282`
+      runs `ln -s` commands without `set -e`, so a failed frame setup is
+      ignored before `exec "$@"`. Current Bazel sandboxes make the expected
+      destinations available, but silently continuing after a failed hermetic
+      path reconstruction makes the action's working-directory contract less
+      fail-closed.
+    suggested_action: |
+      Add `set -eu` to the generated wrapper before the symlink commands so any
+      frame-construction failure fails the action immediately.
+    source: built-in
+
+ecosystem_reviews: []

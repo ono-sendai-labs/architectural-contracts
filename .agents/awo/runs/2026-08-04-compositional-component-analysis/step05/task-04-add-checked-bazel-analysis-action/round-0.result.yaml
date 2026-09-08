@@ -1,0 +1,108 @@
+result:
+  task_file: .agents/tasks/2026-08-04-compositional-component-analysis/step05/task-04-add-checked-bazel-analysis-action.code-task.md
+  change_id: ttrpqutqzyrlkkptmyxzytynxnutvprz
+  status: completed
+  schema_version: 2
+  produced_at: 2026-09-07T23:59:00Z
+
+acceptance_criteria:
+  - text: "Checked components publish structural outputs"
+    addressed: yes
+    evidence: |
+      bazel_rules/go/private/component.bzl:232-325 (_checked_analysis_action: one
+      ArccCheck action producing <name>.report.json + <name>.surface.json) and
+      :511-521 (ArccComponentInfo surface/report, provenance = "checked").
+      Analysis test bazel_rules/go/tests/component_tests.bzl
+      _checked_component_outputs_impl asserts provider fields, one shared action,
+      and the arcc output group; the artifacts build for real (work.log).
+
+  - text: "Violations are data, tool errors fail the action"
+    addressed: yes
+    evidence: |
+      Action runs arcc check --report-verdict-only (command.bzl argv; exit 0 for
+      pass AND fail, exit 2 propagates through the wrapper exec). Execution tests
+      bazel_rules/go/tests/BUILD.bazel checked_api_analysis_test (verdict pass),
+      checked_violating_analysis_test (violating undeclared_dep_component, verdict
+      fail, action succeeds), malformed_manifest_tool_error_test (exit 2, no
+      report published); CLI exit-policy unit tests (check_test.go
+      VerdictOnlySeparatesPolicyFromExecution, OrdinaryExitsPreserved) stay green.
+
+  - text: "Analysis outputs are lazy"
+    addressed: yes
+    evidence: |
+      component.bzl: report/surface returned only via OutputGroupInfo(arcc),
+      DefaultInfo unchanged (component.bzl:516-521). Analysis test asserts
+      default_outputs contains exactly manifest+layout. work.log ad-hoc: default
+      build of api_component produces only manifest+layout;
+      --output_groups=+arcc produces both; full `bazel build //...` green with no
+      ArccCheck executions.
+
+  - text: "Dependent checks establish producer order"
+    addressed: yes
+    evidence: |
+      Dep report/surface declared as action inputs (component.bzl dep_artifacts);
+      arcc_check_test and arcc_checked_analysis_test stage the component's arcc
+      output group (check.bzl _component_arcc_group). Analysis test
+      _checked_action_inputs_impl asserts shared_component.report/surface among
+      api_component's action inputs; work.log aquery shows both api_component's
+      and shared_component's ArccCheck actions in
+      //bazel_rules/go/tests:checked_api_analysis_test's build graph, and the
+      tests build/execute the chain. Semantic consumption stays out (Step 7).
+
+  - text: "Inputs match the Step 5 transition"
+    addressed: yes
+    evidence: |
+      _checked_action_inputs_test asserts manifest, layout, member closure
+      sources, stdlib map, and dep report/surface among the action inputs;
+      SDK sources and transitive dep manifests/layouts are declared transitively
+      (component.bzl inputs depset). No environment is set (env().contains_exactly({})
+      asserted), network blocked, no export data, surfaces not parsed.
+
+  - text: "Target identity is coherent"
+    addressed: yes
+    evidence: |
+      Layout platform block pins toolchain_version/goexperiment from
+      go_target_mode (component.bzl _layout_content; omitted when empty), the
+      same values the stdlib-map rule stamps; arcc validates the map key against
+      the pinned platform and stamps the map's key into the surface
+      (check.go keyFromDeclaredMap). Regenerated layout goldens carry
+      toolchain_version; checked_api_analysis_test re-checks the surface key's
+      identity fields against the attached map via `arcc stdlibmap inspect
+      --expect-key`.
+
+  - text: "Artifacts are deterministic"
+    addressed: yes
+    evidence: |
+      arcc_checked_analysis_test re-executes the exact analysis command twice in
+      the sandbox and requires byte-identity between the two runs and with the
+      action's own artifacts (cmp of report and surface). CLI-level determinism
+      for repeated invocations was already covered by
+      check_integration_test.go (byte-identical across runs), unchanged and green.
+
+artifacts:
+  scratchpad_dir: .agents/scratchpad/2026-08-04-compositional-component-analysis/step05/task-04-add-checked-bazel-analysis-action/
+  files:
+    - context.md
+    - plan.md
+    - progress.md
+    - work.log
+    - result.yaml
+
+notes: |
+  Implemented the checked-component analysis action owned by go_component: one
+  ordinary ArccCheck action running the shared command.bzl construction in
+  report-verdict-only mode, publishing report/surface via OutputGroupInfo(arcc)
+  with provenance="checked" on ArccComponentInfo, the default stdlib-map seam
+  attached, layout platform pinning fields added, and dep report/surface
+  artifacts declared as producer-chain inputs. The action recreates the
+  runfiles path frame in the sandbox (workspace + external-repo symlinks
+  derived from declared inputs) to keep the layout-driver working-directory
+  contract hermetic; surfaceinputs.go now resolves declared interface files
+  against the active layout workspace dir in layout mode (the frame Bazel
+  manifests use). Analysis (rules_testing) and execution (verdict, determinism,
+  SDK-key coherence, tool-error) coverage added; layout goldens regenerated;
+  README/macro/schema docs updated. Full `just ci` green across four
+  incremental jj commits (pwqpnyst, xooqnlnx, ytsmxsxl, ttrpqutq). The RED
+  phase for the wiring ran intertwined with exploration because the action's
+  enabling constraints (sandbox frame, map-key match) had to be proven
+  constructively; the execution tests were driven RED→GREEN after the wiring.

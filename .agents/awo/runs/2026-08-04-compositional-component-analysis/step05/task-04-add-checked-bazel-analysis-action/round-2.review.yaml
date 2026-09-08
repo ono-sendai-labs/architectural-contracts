@@ -1,0 +1,164 @@
+review:
+  task_file: .agents/tasks/2026-08-04-compositional-component-analysis/step05/task-04-add-checked-bazel-analysis-action.code-task.md
+  change_id: wmowxnskqoltmqtvuwmznvpvttqzyulo
+  reviewed_at: "2026-09-08T07:00:41Z"
+  verdict: approved
+  schema_version: 2
+  lsp_coverage: unavailable
+
+merge_request:
+  title: "feat(bazel): checked component analysis action [Compositional Analysis: Step 05/Task 04]"
+  body: |
+    Reviews the complete implementation series and reconciliation against the
+    corrected task: the checked ArccCheck action and provider wiring, analysis
+    tests, execution/determinism tests, documentation and layout goldens, the
+    first review's hardening change, and the final exact-input, complete-key,
+    RED/GREEN-evidence reconciliation. The specification-only ownership fix is
+    the supplied base for the final reconciliation; it scopes manual-tagged
+    components out of this task and leaves their asserted branch to Task 5.
+
+summary: |
+  The specification repair resolves the prior scope ambiguity, and the
+  implementation correctly leaves manual-tagged components on the checked path
+  as explicitly required by corrected Task 4. The reconciliation resolves all
+  prior critical and important findings: argv construction and shell input
+  validation are hardened, the malformed action failure is gated, exact-input
+  and complete target-identity coverage are present, and work.log now contains
+  auditable RED-to-GREEN evidence; the full `just ci` gate passes. No tests were
+  deleted or weakened, the layout golden additions are correct, no new material
+  security/style issues were found, and LSP diagnostics were unavailable.
+
+acceptance_criteria:
+  - text: |
+      1. **Checked components publish structural outputs**
+         - Given a regular `go_component` (a `manual`-tagged component is out of scope here and stays on the checked path until Task 5)
+         - When analyzed
+         - Then its provider carries `<name>.surface.json`, `<name>.report.json`, and `provenance = "checked"`, produced together by one ordinary analysis action.
+    status: pass
+    evidence: |
+      The corrected criterion now explicitly scopes manual-tagged components
+      out of this task. The regular path at
+      `bazel_rules/go/private/component.bzl:260-302` and `:492-552` creates one
+      `ArccCheck` action with the two declared outputs, carries them on
+      `ArccComponentInfo`, and sets `provenance = "checked"`. The analysis test
+      at `bazel_rules/go/tests/component_tests.bzl:391-416` verifies the
+      provider names, provenance, one action, and arcc output group.
+
+  - text: |
+      2. **Violations are data, tool errors fail the action**
+         - Given conforming, violating, and malformed fixtures
+         - When their analysis outputs are requested
+         - Then conforming and violating actions succeed with pass/fail reports, while the malformed/tool-error action fails.
+    status: pass
+    evidence: |
+      `bazel_rules/go/tests/BUILD.bazel:21-32` registers pass and violating
+      checked-analysis execution tests; they request the real output group and
+      verify pass/fail reports while the action succeeds. The malformed manifest
+      CLI case remains at `malformed_manifest_tool_error_test.sh:17-31`, and
+      `bazel_rules/go/tests/testdata/malformed/BUILD.bazel:17-28` supplies an
+      invalid member-source component. The `justfile:81-85` gate requests that
+      component's `+arcc` group and verifies the Bazel build fails with the
+      package-load tool error. These tests and the full re-review `just ci` run
+      pass.
+
+  - text: |
+      3. **Analysis outputs are lazy**
+         - Given wildcard/default builds and an explicit `--output_groups=+arcc` build
+         - When action execution is observed
+         - Then the default build runs no component analysis, while the output-group build produces both artifacts.
+    status: pass
+    evidence: |
+      `bazel_rules/go/private/component.bzl:521-525` keeps default files to the
+      manifest and layout, while `:547-552` publishes report/surface only via
+      `OutputGroupInfo(arcc)`. The rules_testing check at
+      `bazel_rules/go/tests/component_tests.bzl:406-416` verifies the two output
+      sets. The recorded default and explicit-group builds at
+      `work.log:28-44` and `:127-132` show the expected lazy behavior, and the
+      full CI gate's wildcard build remains green.
+
+  - text: |
+      4. **Dependent checks establish producer order**
+         - Given checked component B depends directly on checked component A
+         - When B's report or `.check` is requested
+         - Then A's analysis action is in the build graph and builds first, even though B does not semantically read A's artifacts until Step 7.
+    status: pass
+    evidence: |
+      Direct dependency report/surface artifacts are collected at
+      `bazel_rules/go/private/component.bzl:476-490` and passed as action inputs
+      at `:288-294`. The `.check` path stages the component's arcc group at
+      `bazel_rules/go/private/check.bzl:68-78` and `:274-277`. The analysis
+      test asserts the shared producer artifacts at
+      `bazel_rules/go/tests/component_tests.bzl:480-486`, and the aquery evidence
+      in `work.log:190-199` shows both producer actions. No dependency surface
+      parsing was introduced before Step 7.
+
+  - text: |
+      5. **Inputs match the Step 5 transition**
+         - Given a checked component action
+         - When its action graph is inspected
+         - Then it contains the manifest, layout, today's source/runfile closure, required SDK source inputs, Step 4 stdlib map, arcc tool, and direct dependency artifacts; it contains no undeclared host cache/network input and does not yet claim export-data/member-only semantics.
+    status: pass
+    evidence: |
+      The action declares the transitional inputs and hermetic settings at
+      `bazel_rules/go/private/component.bzl:275-301`. The reconciled analysis
+      test at `bazel_rules/go/tests/component_tests.bzl:494-550` independently
+      derives the expected non-SDK set from provider/layout conventions, checks
+      both unexpected and missing inputs, asserts the arcc tool, and rejects
+      export data, cache paths, and toolchain binaries. The RED injection of
+      `contract.md` and GREEN restoration are recorded at
+      `work.log:80-95`. Export data is absent as required for this transition.
+
+  - text: |
+      6. **Target identity is coherent**
+         - Given a target configuration with toolchain version, GOOS/GOARCH, tags, cgo-off, and GOEXPERIMENT
+         - When the action emits its surface
+         - Then the surface SDK key matches the attached stdlib map exactly and the generated layout carries the target platform fields required to reproduce it.
+    status: pass
+    evidence: |
+      `bazel_rules/go/private/component.bzl:147-163` emits the target platform
+      fields and omits empty pinning fields; the updated goldens at
+      `bazel_rules/go/tests/goldens/api_component.package-layout.json:69-75`
+      and `member_component.package-layout.json:93-99` correctly add the
+      nonempty toolchain version without weakening the layout comparison. The
+      transitioned execution test at
+      `bazel_rules/go/tests/transitioned_surface_sdk_key_test.sh:28-91`
+      constructs and checks toolchain, GOOS, GOARCH, explicit cgo-off,
+      explicit empty GOEXPERIMENT, and build-tag identity against the
+      transitioned map, rejects the cgo-enabled variant, and rejects the
+      default map. The full-key action validation remains at
+      `go/cmd/arcc/app/check.go:522-548`; the RED/GREEN evidence for the
+      corrected identity assertions is at `work.log:97-111`.
+
+  - text: |
+      7. **Artifacts are deterministic**
+         - Given two unchanged executions for the same component inputs
+         - When their output files are compared
+         - Then report and surface bytes are identical.
+    status: pass
+    evidence: |
+      `bazel_rules/go/private/check.bzl:109-155` re-executes the factored
+      analysis command twice and compares both report and surface bytes between
+      runs and against the component action's artifacts. The corresponding pass
+      and violation tests remain registered at
+      `bazel_rules/go/tests/BUILD.bazel:21-32`; CLI repeated-run coverage and
+      the full re-review `just ci` run also pass.
+
+findings:
+  - severity: suggestion
+    category: tests
+    file: justfile
+    line: 85
+    title: Clean up the failure log when grep fails
+    details: |
+      The per-run `mktemp` path fixes the prior concurrency issue, but under the
+      repository's `set -e` shell settings a failing `grep` on the expected
+      Bazel error exits before the subsequent `rm -f "$out"`. This only leaks a
+      temporary diagnostic file on an already-failing gate and does not affect
+      correctness or the verdict.
+    suggested_action: |
+      Install a cleanup trap immediately after creating the temporary file, or
+      place the grep in a conditional that always removes the file before
+      returning its status.
+    source: built-in
+
+ecosystem_reviews: []
