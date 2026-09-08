@@ -200,12 +200,14 @@ func TestBuildInventoryRejectsRawEntries(t *testing.T) {
 	dummy := LoaderFunc(func(paths []string) (map[string]*types.Package, error) {
 		return nil, fmt.Errorf("fixture loader: unexpected load %v", paths)
 	})
+	// A public path MAY be declared non-importable: that is the explicit
+	// oracle's build-excluded verdict (task req 6), retained in the
+	// enumeration — only internal-marked-importable is rejected here.
 	for name, entries := range map[string][]PackageEntry{
-		"duplicate path":               {{Path: "a/b", Importable: true}, {Path: "a/b", Importable: true}},
-		"malformed path":               {{Path: "a/b ", Importable: true}},
-		"empty path":                   {{Path: "", Importable: true}},
-		"internal marked importable":   {{Path: "a/internal/x", Importable: true}},
-		"public marked non-importable": {{Path: "a/b", Importable: false}},
+		"duplicate path":             {{Path: "a/b", Importable: true}, {Path: "a/b", Importable: true}},
+		"malformed path":             {{Path: "a/b ", Importable: true}},
+		"empty path":                 {{Path: "", Importable: true}},
+		"internal marked importable": {{Path: "a/internal/x", Importable: true}},
 	} {
 		inv, err := BuildInventory(entries, dummy)
 		if err == nil {

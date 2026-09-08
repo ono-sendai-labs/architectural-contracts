@@ -141,9 +141,12 @@ type observed struct {
 
 // normalizeEntries is the single validation boundary in front of the
 // inventory (task reqs 2–3): every path is grammar- and policy-validated,
-// importable flags must agree with the path's internal status, and duplicate
-// paths are rejected, so an unnormalized or inconsistent oracle result can
-// never reach loading or duplicate init records.
+// duplicate paths are rejected, and an internal path can never be declared
+// importable. A public path MAY be declared non-importable: that is the
+// explicit oracle's build-excluded verdict (task req 6 — a listed package
+// whose directory exists but whose files the target's constraints all
+// exclude is enumerated importable: false), and the enumeration keeps it
+// with no symbols or init.
 func normalizeEntries(entries []PackageEntry) ([]PackageEntry, error) {
 	seen := make(map[string]bool, len(entries))
 	out := make([]PackageEntry, 0, len(entries))
@@ -151,15 +154,14 @@ func normalizeEntries(entries []PackageEntry) ([]PackageEntry, error) {
 		if err := validatePackagePath(e.Path); err != nil {
 			return nil, fmt.Errorf("normalizing the package inventory: %w", err)
 		}
-		importable := !IsInternalPath(e.Path)
-		if e.Importable != importable {
-			return nil, fmt.Errorf("normalizing the package inventory: package %q declares importable %t, but its path segments make it %t", e.Path, e.Importable, importable)
+		if IsInternalPath(e.Path) && e.Importable {
+			return nil, fmt.Errorf("normalizing the package inventory: internal package %q cannot be importable", e.Path)
 		}
 		if seen[e.Path] {
 			return nil, fmt.Errorf("normalizing the package inventory: duplicate package path %q", e.Path)
 		}
 		seen[e.Path] = true
-		out = append(out, PackageEntry{Path: e.Path, Importable: importable})
+		out = append(out, PackageEntry{Path: e.Path, Importable: e.Importable})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Path < out[j].Path })
 	return out, nil

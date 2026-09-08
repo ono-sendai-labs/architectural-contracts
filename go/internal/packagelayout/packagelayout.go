@@ -107,16 +107,19 @@ type Platform struct {
 	// CgoEnabled controls whether files guarded by the cgo tag are selected.
 	CgoEnabled bool `json:"cgo_enabled"`
 	// ToolchainVersion is the pinned toolchain's version in the `go1.N.M`
-	// spelling, when the layout pins one. When present, the build context's
-	// release tags derive from it (go1.1 … go1.N) instead of being copied from
-	// build.Default, so constraints describe the pinned target rather than the
-	// binary that produced the layout. Absent leaves the default behaviour.
-	ToolchainVersion string `json:"toolchain_version,omitempty"`
+	// spelling. A non-nil pointer marks the layout as pinned: the build
+	// context's release tags derive from it (go1.1 … go1.N) instead of being
+	// copied from build.Default, so constraints describe the pinned target
+	// rather than the binary that produced the layout. Absent (nil) leaves
+	// the default behaviour.
+	ToolchainVersion *string `json:"toolchain_version,omitempty"`
 	// GOEXPERIMENT is the target's enabled Go experiments, comma-separated,
-	// as the toolchain's GOEXPERIMENT setting spells them. When present, the
-	// build context's tool tags derive `goexperiment.<name>` entries from it
-	// instead of copying build.Default. Absent leaves the default behaviour.
-	GOEXPERIMENT string `json:"goexperiment,omitempty"`
+	// as the toolchain's GOEXPERIMENT setting spells them. A non-nil pointer
+	// marks the layout as pinned: the build context's tool tags derive
+	// `goexperiment.<name>` entries from it (plus the baseline experiments
+	// and the target GOARCH's default arch feature tags) instead of copying
+	// build.Default. Absent (nil) leaves the default behaviour.
+	GOEXPERIMENT *string `json:"goexperiment,omitempty"`
 }
 
 // IsStdlibPackage reports the validated standard-library provenance for a
@@ -231,22 +234,34 @@ func BuildContextForLayout(l *Layout) (build.Context, error) {
 	bctx.BuildTags = append([]string(nil), platform.BuildTags...)
 	bctx.CgoEnabled = platform.CgoEnabled
 
-	// A platform block describes a pinned target, so the tool-derived tags
-	// derive from the target instead of the binary that produced the layout.
-	// Release tags come from the pinned toolchain version; tool tags are the
-	// target GOARCH's default feature tags plus the declared experiments' tags.
-	// A non-default arch feature level (GOAMD64=v2+, GOARM64=v9, …) is out of
-	// scope and must not be silently taken from the host.
-	if platform.ToolchainVersion != "" {
-		tags, err := releaseTagsForVersion(platform.ToolchainVersion)
+	// A pinned platform describes a target toolchain, so the tool-derived
+	// tags derive from the target instead of the binary that produced the
+	// layout. A platform block that names neither optional field keeps the
+	// legacy behaviour exactly (host-default release and tool tags).
+	pinned := platform.ToolchainVersion != nil || platform.GOEXPERIMENT != nil
+	if pinned {
+		if platform.ToolchainVersion != nil {
+			tags, err := releaseTagsForVersion(*platform.ToolchainVersion)
+			if err != nil {
+				return build.Context{}, err
+			}
+			bctx.ReleaseTags = tags
+		}
+		goexperiment := ""
+		if platform.GOEXPERIMENT != nil {
+			goexperiment = *platform.GOEXPERIMENT
+		}
+		experiments, err := effectiveExperimentTags(platform.GOOS, platform.GOARCH, goexperiment)
 		if err != nil {
 			return build.Context{}, err
 		}
-		bctx.ReleaseTags = tags
+		// The target GOARCH's default arch feature tags; a non-default arch
+		// feature level (GOAMD64=v2+, GOARM64=v9, …) is out of scope and must
+		// not be silently taken from the host.
+		bctx.ToolTags = defaultArchToolTags(platform.GOARCH)
+		bctx.ToolTags = append(bctx.ToolTags, experiments...)
+		sort.Strings(bctx.ToolTags)
 	}
-	bctx.ToolTags = defaultArchToolTags(platform.GOARCH)
-	bctx.ToolTags = append(bctx.ToolTags, effectiveExperimentTags(platform.GOOS, platform.GOARCH, platform.GOEXPERIMENT)...)
-	sort.Strings(bctx.ToolTags)
 	return bctx, nil
 }
 
@@ -276,8 +291,9 @@ func baselineExperimentTags(goos, goarch string) []string {
 // target configuration: the baseline experiments for the target plus the
 // GOEXPERIMENT value's overrides, using the toolchain's own semantics — a
 // comma-separated list where `none` disables every experiment and a `no`
-// prefix disables a single one. The result is sorted.
-func effectiveExperimentTags(goos, goarch, goexperiment string) []string {
+// prefix disables a single one. Every experiment name must be a valid Go
+// identifier; a malformed name fails naming it. The result is sorted.
+func effectiveExperimentTags(goos, goarch, goexperiment string) ([]string, error) {
 	enabled := map[string]bool{}
 	for _, tag := range baselineExperimentTags(goos, goarch) {
 		enabled[strings.TrimPrefix(tag, "goexperiment.")] = true
@@ -295,6 +311,9 @@ func effectiveExperimentTags(goos, goarch, goexperiment string) []string {
 		if off, ok := strings.CutPrefix(f, "no"); ok {
 			name, on = off, false
 		}
+		if !isGoIdentifier(name) {
+			return nil, fmt.Errorf("platform.goexperiment has invalid experiment name %q", name)
+		}
 		enabled[name] = on
 	}
 	var tags []string
@@ -304,7 +323,7 @@ func effectiveExperimentTags(goos, goarch, goexperiment string) []string {
 		}
 	}
 	sort.Strings(tags)
-	return tags
+	return tags, nil
 }
 
 // releaseTagsForVersion derives the release tags a `go1.N(.M)` toolchain

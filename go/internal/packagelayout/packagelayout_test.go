@@ -2598,7 +2598,7 @@ func fixtureStdlibSDKLayout(t *testing.T) *Layout {
 	write("pinned/future.go", "//go:build go1.27\n\npackage pinned\n")
 	write("pinned/experiment.go", "//go:build goexperiment.greenteagc\n\npackage pinned\n")
 	write("pinned/hostarch_amd64.go", "package pinned\n")
-	layout, err := StdlibLayout(sdkRoot, &Platform{GOOS: "linux", GOARCH: "arm64", ToolchainVersion: "go1.26.4", GOEXPERIMENT: "greenteagc"})
+	layout, err := StdlibLayout(sdkRoot, &Platform{GOOS: "linux", GOARCH: "arm64", ToolchainVersion: strPtr("go1.26.4"), GOEXPERIMENT: strPtr("greenteagc")})
 	if err != nil {
 		t.Fatalf("StdlibLayout() error = %v", err)
 	}
@@ -2670,7 +2670,7 @@ func TestPlatformToolchainVersionDerivesReleaseTags(t *testing.T) {
 		{name: "go0.9", version: "go0.9", wantErr: "platform.toolchain_version"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			layout := &Layout{Platform: &Platform{GOOS: "linux", GOARCH: "amd64", ToolchainVersion: tc.version}}
+			layout := &Layout{Platform: &Platform{GOOS: "linux", GOARCH: "amd64", ToolchainVersion: optionalStr(tc.version)}}
 			ctx, err := BuildContextForLayout(layout)
 			if tc.wantErr != "" {
 				if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
@@ -2707,8 +2707,8 @@ func TestPlatformGoexperimentDerivesToolTags(t *testing.T) {
 	layout := &Layout{Platform: &Platform{
 		GOOS:             "linux",
 		GOARCH:           "amd64",
-		GOEXPERIMENT:     "greenteagc,arenayaslicit",
-		ToolchainVersion: "go1.26.4",
+		GOEXPERIMENT:     strPtr("greenteagc,arenayaslicit"),
+		ToolchainVersion: strPtr("go1.26.4"),
 	}}
 	ctx, err := BuildContextForLayout(layout)
 	if err != nil {
@@ -2752,7 +2752,7 @@ func TestPlatformGoexperimentDerivesToolTags(t *testing.T) {
 		}
 	})
 	t.Run("goexperiment=none disables every experiment", func(t *testing.T) {
-		ctx, err := BuildContextForLayout(&Layout{Platform: &Platform{GOOS: "linux", GOARCH: "amd64", GOEXPERIMENT: "none"}})
+		ctx, err := BuildContextForLayout(&Layout{Platform: &Platform{GOOS: "linux", GOARCH: "amd64", GOEXPERIMENT: strPtr("none")}})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -2760,8 +2760,29 @@ func TestPlatformGoexperimentDerivesToolTags(t *testing.T) {
 			t.Fatalf("goexperiment=none derived experiment tags %v", got)
 		}
 	})
+	t.Run("malformed experiment name fails naming it", func(t *testing.T) {
+		_, err := BuildContextForLayout(&Layout{Platform: &Platform{GOOS: "linux", GOARCH: "amd64", GOEXPERIMENT: strPtr("no-9bad")}})
+		if err == nil || !strings.Contains(err.Error(), "platform.goexperiment") {
+			t.Fatalf("BuildContextForLayout() error = %v, want naming platform.goexperiment", err)
+		}
+	})
+	t.Run("legacy platform without optional fields keeps host behavior", func(t *testing.T) {
+		// A hand-written platform block naming only the pre-task fields must
+		// behave exactly as before (task req 1): host-default release and
+		// tool tags, not target-derived ones.
+		ctx, err := BuildContextForLayout(&Layout{Platform: &Platform{GOOS: "windows", GOARCH: "386", BuildTags: []string{"purego"}}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !slicesEqual(ctx.ReleaseTags, build.Default.ReleaseTags) {
+			t.Fatalf("legacy platform changed release tags: %v", ctx.ReleaseTags)
+		}
+		if !slicesEqual(ctx.ToolTags, build.Default.ToolTags) {
+			t.Fatalf("legacy platform changed tool tags: %v vs host %v", ctx.ToolTags, build.Default.ToolTags)
+		}
+	})
 	t.Run("no-prefixed override disables a baseline experiment", func(t *testing.T) {
-		ctx, err := BuildContextForLayout(&Layout{Platform: &Platform{GOOS: "linux", GOARCH: "amd64", GOEXPERIMENT: "nogreenteagc"}})
+		ctx, err := BuildContextForLayout(&Layout{Platform: &Platform{GOOS: "linux", GOARCH: "amd64", GOEXPERIMENT: strPtr("nogreenteagc")}})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -2777,7 +2798,7 @@ func TestPlatformGoexperimentDerivesToolTags(t *testing.T) {
 func TestDriverArchReportsPlatformGOARCH(t *testing.T) {
 	req := &packages.DriverRequest{Mode: packages.NeedName}
 	layout := fixtureStdlibSDKLayout(t)
-	layout.Platform = &Platform{GOOS: "linux", GOARCH: "arm64", ToolchainVersion: "go1.26.4"}
+	layout.Platform = &Platform{GOOS: "linux", GOARCH: "arm64", ToolchainVersion: strPtr("go1.26.4")}
 	resp, err := HandleDriverRequest(layout, req, []string{"fmt"})
 	if err != nil {
 		t.Fatalf("HandleDriverRequest() error = %v", err)
@@ -2803,8 +2824,8 @@ func TestPlatformFidelityThroughFixtureFiles(t *testing.T) {
 	sdk.Platform = &Platform{
 		GOOS:             "linux",
 		GOARCH:           "arm64",
-		GOEXPERIMENT:     "greenteagc",
-		ToolchainVersion: "go1.26.4",
+		GOEXPERIMENT:     strPtr("greenteagc"),
+		ToolchainVersion: strPtr("go1.26.4"),
 	}
 	ctx, err := BuildContextForLayout(sdk)
 	if err != nil {
@@ -2848,6 +2869,17 @@ func experimentToolTagsOnly(tags []string) []string {
 		}
 	}
 	return out
+}
+
+func strPtr(s string) *string { return &s }
+
+// optionalStr maps the release-tag test table's empty spelling to the
+// platform field's nil (absent) value.
+func optionalStr(s string) *string {
+	if s == "" {
+		return nil
+	}
+	return &s
 }
 
 func sortedCopy(s []string) []string {

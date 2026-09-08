@@ -165,12 +165,13 @@ func GenerateExplicit(target TargetConfig, packageList []string, sdkRoot string)
 	if target.ToolchainVersion == "" {
 		return nil, fmt.Errorf("generating the stdlib map: toolchain_version is required")
 	}
+	toolchainVersion, goexperiment := target.ToolchainVersion, target.GOEXPERIMENT
 	platform := &packagelayout.Platform{
 		GOOS:             target.GOOS,
 		GOARCH:           target.GOARCH,
 		BuildTags:        target.BuildTags,
-		ToolchainVersion: target.ToolchainVersion,
-		GOEXPERIMENT:     target.GOEXPERIMENT,
+		ToolchainVersion: &toolchainVersion,
+		GOEXPERIMENT:     &goexperiment,
 	}
 	layout, err := packagelayout.StdlibLayout(sdkRoot, platform)
 	if err != nil {

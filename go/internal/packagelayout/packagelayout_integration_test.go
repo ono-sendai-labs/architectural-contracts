@@ -29,7 +29,7 @@ func TestStdlibLayoutMatchesGoListStd(t *testing.T) {
 	layout, err := StdlibLayout(sdkRoot, &Platform{
 		GOOS:             "linux",
 		GOARCH:           "amd64",
-		ToolchainVersion: version,
+		ToolchainVersion: &version,
 	})
 	if err != nil {
 		t.Fatalf("StdlibLayout() error = %v", err)

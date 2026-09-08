@@ -13,6 +13,8 @@ import (
 // fixtureSDK builds a small SDK tree for the explicit-input tests: fmt, a
 // build-excluded pinned package (constrained to a future release), an
 // internal package, and unsafe.
+func strPtr(s string) *string { return &s }
+
 func fixtureSDK(t *testing.T) string {
 	t.Helper()
 	sdkRoot := filepath.Join(t.TempDir(), "sdk", "src")
@@ -36,7 +38,7 @@ func fixtureSDK(t *testing.T) string {
 func fixtureSDKLayout(t *testing.T, sdkRoot string) *packagelayout.Layout {
 	t.Helper()
 	layout, err := packagelayout.StdlibLayout(sdkRoot, &packagelayout.Platform{
-		GOOS: "linux", GOARCH: "amd64", ToolchainVersion: "go1.26.4",
+		GOOS: "linux", GOARCH: "amd64", ToolchainVersion: strPtr("go1.26.4"),
 	})
 	if err != nil {
 		t.Fatalf("StdlibLayout() error = %v", err)
@@ -172,4 +174,41 @@ func TestReconcilePackageList(t *testing.T) {
 			t.Fatalf("ReconcilePackageList() error = %v, want naming strings", err)
 		}
 	})
+}
+
+// TestGenerateExplicitKeepsBuildExcludedPackage is the end-to-end AC5(a) leg:
+// a listed public package whose every file the target's constraints exclude
+// stays in the generated enumeration with importable: false (and carries no
+// symbols), while generation still succeeds.
+func TestGenerateExplicitKeepsBuildExcludedPackage(t *testing.T) {
+	sdkRoot := fixtureSDK(t)
+	out, err := GenerateExplicit(
+		TargetConfig{ToolchainVersion: "go1.26.4", GOOS: "linux", GOARCH: "amd64"},
+		[]string{"fmt", "strings", "unsafe", "internal/testcap", "pinned"},
+		sdkRoot)
+	if err != nil {
+		t.Fatalf("GenerateExplicit() error = %v", err)
+	}
+	found := false
+	for _, p := range out.Map.Packages {
+		if p.Path == "pinned" {
+			found = true
+			if p.Importable {
+				t.Fatalf("build-excluded listed package %q enumerated importable", p.Path)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("the generated map does not enumerate the build-excluded listed package pinned")
+	}
+	for _, s := range out.Map.Symbols {
+		if strings.HasPrefix(s.Id, "pinned.") {
+			t.Fatalf("build-excluded package pinned carries a symbol record %q", s.Id)
+		}
+	}
+	for _, i := range out.Map.Inits {
+		if i.Package == "pinned" {
+			t.Fatalf("build-excluded package pinned carries an init record")
+		}
+	}
 }
