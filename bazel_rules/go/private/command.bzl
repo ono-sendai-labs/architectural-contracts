@@ -6,9 +6,10 @@ analysis argv — the component analysis action (component.bzl's ArccCheck, via
 its generated frame wrapper) runs it in always-green report-verdict-only
 mode, and `arcc_checked_analysis_test` re-executes the exact same command, so
 the analysis and its execution coverage cannot drift. `arcc_verdict_argv` is
-the report-assertion argv — the `.check`, grep, and golden assertion rules
-consume the provider's canonical report through it (Step 5 task 06) and never
-re-run the analysis.
+the report-assertion argv — the `.check` and grep assertion rules consume the
+provider's canonical report through it (Step 5 task 06) and never re-run the
+analysis; the golden rule diffs the provider report directly against its
+golden, needing no tool.
 """
 
 def arcc_check_argv(

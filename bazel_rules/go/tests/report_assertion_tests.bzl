@@ -229,6 +229,32 @@ def _asserted_assertion_rejected_impl(env, target):
         matching.contains("no checked"),
     )
 
+def _hostile_grep_strings_stay_data_test(name):
+    # Review round 1 (important): expected strings are BUILD-authored data and
+    # must never become generated shell code. The launcher passes them as
+    # shell-quoted operands (`grep -F --`) and as printf data in the
+    # missing-string diagnostic, so quotes, command substitution, `%` signs
+    # and newlines stay inert even when the assertion fails.
+    analysis_test(
+        name = name,
+        target = "//bazel_rules/go/tests:hostile_grep_strings_launcher_probe_test",
+        impl = _hostile_grep_strings_stay_data_impl,
+        attr_values = {"size": "small"},
+    )
+
+def _hostile_grep_strings_stay_data_impl(env, target):
+    content = _launcher(env, target)
+    env.expect.that_str(content).contains("grep -F --")
+    env.expect.that_str(content).contains("printf '%s\\n'")
+    # Each hostile string appears exactly once, as a shell-quoted operand.
+    env.expect.that_str(content).contains("'$(whoami)'")
+    env.expect.that_str(content).contains("''\\''; rm -rf / #'")
+    env.expect.that_str(content).contains("'a\nb'")
+    env.expect.that_str(content).contains("'-e'")
+    env.expect.that_str(content).contains("'100%s'")
+    # The old diagnostic interpolated the string raw into an echo: gone.
+    _assert_absent(env, content, "expected string '")
+
 def report_assertion_test_suite(name):
     test_suite(
         name = name,
@@ -241,5 +267,6 @@ def report_assertion_test_suite(name):
             _checked_artifacts_stay_lazy_test,
             _asserted_grep_rejected_test,
             _asserted_golden_rejected_test,
+            _hostile_grep_strings_stay_data_test,
         ],
     )

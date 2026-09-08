@@ -344,9 +344,14 @@ def _launcher_content_with_grep(verdict_argv, report_path, expected_strings, exp
     ]
 
     for s in expected_strings:
+        # `--` keeps a pattern beginning with `-` from being parsed as an
+        # option; the diagnostic passes the string as printf data (single
+        # shell-quoted argument), so quotes, `$(...)`, `%` signs and newlines
+        # in an expected string stay data — never generated shell code.
         lines += [
-            'if ! grep -F %s %s > /dev/null; then' % (_shell_quote(s), _shell_quote(report_path)),
-            '  echo "arcc_check_grep_test: expected string \'%s\' not found in the component report" >&2' % s,
+            'if ! grep -F -- %s %s > /dev/null; then' % (_shell_quote(s), _shell_quote(report_path)),
+            '  echo "arcc_check_grep_test: expected string not found in the component report:" >&2',
+            "  printf '%s\\n' " + _shell_quote(s) + " >&2",
             "  cat " + _shell_quote(report_path) + " >&2",
             "  exit 1",
             "fi",

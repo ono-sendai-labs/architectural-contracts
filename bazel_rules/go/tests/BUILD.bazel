@@ -119,6 +119,26 @@ arcc_check_grep_test(
     tags = ["manual"],
 )
 
+# Review round 1 (shell-safety): the launcher generated for expected strings
+# that are hostile as shell code — command substitution, embedded quotes and
+# newlines, a leading dash, `%` signs — must keep them as data. The target is
+# manual: the hostile strings are deliberately absent from the report, so the
+# assertion fails when executed; the analysis test pins the launcher content.
+arcc_check_grep_test(
+    name = "hostile_grep_strings_launcher_probe_test",
+    size = "small",
+    component = "//bazel_rules/go/tests/testdata/api:api_component",
+    expect_status = 0,
+    expected_strings = [
+        "$(whoami)",
+        "'; rm -rf / #",
+        "a\nb",
+        "-e",
+        "100%s",
+    ],
+    tags = ["manual"],
+)
+
 arcc_check_report_golden_test(
     name = "asserted_component_golden_rejected_test",
     size = "small",
