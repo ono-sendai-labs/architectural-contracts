@@ -11,6 +11,8 @@ import (
 
 	"github.com/ono-sendai-labs/architectural-contracts/go/cmd/arcc/app"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/artifactio"
+	"github.com/ono-sendai-labs/architectural-contracts/go/internal/capslockadapter"
+	"github.com/ono-sendai-labs/architectural-contracts/go/internal/goanalysis"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/stdlibmap"
 )
 
@@ -69,6 +71,14 @@ func writeLayoutManifest(t *testing.T, workspace, pkgPath string) string {
 	return manifestPath
 }
 
+// fullRunner constructs the production runner exactly as main.go does.
+func fullRunner() *app.Runner {
+	return &app.Runner{
+		Loader:   goanalysis.LoadPackageFacts,
+		Analyzer: capslockadapter.NewAdapter(),
+	}
+}
+
 func generateNativeMap(t *testing.T, path string) {
 	t.Helper()
 	runner := &app.Runner{}
@@ -95,7 +105,7 @@ func TestCheck_EmitsArtifactsLayoutMode(t *testing.T) {
 	mapPath := filepath.Join(t.TempDir(), "map.json")
 	generateNativeMap(t, mapPath)
 
-	runner := &app.Runner{}
+	runner := fullRunner()
 	reportPath := filepath.Join(workspace, "comp.report.json")
 	surfacePath := filepath.Join(workspace, "comp.surface.json")
 	args := []string{
@@ -200,7 +210,7 @@ func TestCheck_EmitsArtifactsNativeMode(t *testing.T) {
 	mapPath := filepath.Join(t.TempDir(), "map.json")
 	generateNativeMap(t, mapPath)
 
-	runner := &app.Runner{}
+	runner := fullRunner()
 	reportPath := filepath.Join(compDir, "natart.report.json")
 	surfacePath := filepath.Join(compDir, "natart.surface.json")
 	args := []string{

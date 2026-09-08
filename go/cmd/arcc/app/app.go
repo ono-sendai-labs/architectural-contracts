@@ -103,6 +103,7 @@ func (r *Runner) run(args []string, stdout, stderr io.Writer) int {
 		}
 
 		var exitCode int
+		opts.workspaceDir = workspaceDir
 		err = goanalysis.WithDriverEnv(absLayoutPath, workspaceDir, func() error {
 			exitCode = r.runCheck(opts, stdout, stderr)
 			return nil

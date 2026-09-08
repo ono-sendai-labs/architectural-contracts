@@ -235,3 +235,59 @@ func collectInterfaceDeclarations(members []*packages.Package, componentRoot str
 	}
 	return asts, info, nil
 }
+
+// PlatformIdentity is the active layout's pinned target declaration as plain
+// values (plan Step 5 task 3): the complete target configuration surface
+// emission needs to validate a declared stdlib map's key against the layout,
+// without exposing the layout package's types across the component boundary.
+type PlatformIdentity struct {
+	// ToolchainVersion is the pinned toolchain version (`go1.N.M`).
+	ToolchainVersion string
+	// GOOS and GOARCH are the target operating system and architecture.
+	GOOS, GOARCH string
+	// CgoEnabled is the target cgo state.
+	CgoEnabled bool
+	// BuildTags are the target's user build tags.
+	BuildTags []string
+	// GOEXPERIMENT is the target's GOEXPERIMENT setting (empty when unset).
+	GOEXPERIMENT string
+}
+
+// ActivePlatformIdentity reports the active layout's pinned platform as a
+// PlatformIdentity. When no layout is active or the layout declares no
+// platform block, ok is false: an unpinned layout carries no declared
+// target, so the caller cannot compare a declared map's key against it.
+func ActivePlatformIdentity() (PlatformIdentity, bool) {
+	if !packagelayout.IsLayoutMode() {
+		return PlatformIdentity{}, false
+	}
+	layout := packagelayout.GetActiveLayout()
+	if layout == nil || layout.Platform == nil {
+		return PlatformIdentity{}, false
+	}
+	platform := layout.Platform
+	goexperiment := ""
+	if platform.GOEXPERIMENT != nil {
+		goexperiment = *platform.GOEXPERIMENT
+	}
+	toolchain := ""
+	if platform.ToolchainVersion != nil {
+		toolchain = *platform.ToolchainVersion
+	}
+	return PlatformIdentity{
+		ToolchainVersion: toolchain,
+		GOOS:             platform.GOOS,
+		GOARCH:           platform.GOARCH,
+		CgoEnabled:       platform.CgoEnabled,
+		BuildTags:        platform.BuildTags,
+		GOEXPERIMENT:     goexperiment,
+	}, true
+}
+
+// CanonicalNamespace returns the host's canonical namespace identifier, the
+// namespace stamped into emitted surfaces. It mediates the hostpolicy value
+// across this component's interface so callers that already depend on
+// goanalysis need no direct hostpolicy dependency.
+func CanonicalNamespace() string {
+	return hostpolicy.NamespaceID
+}

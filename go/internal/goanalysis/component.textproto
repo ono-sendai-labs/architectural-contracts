@@ -1,5 +1,6 @@
 name: "goanalysis"
 interface_files: "goanalysis.go"
+interface_files: "surfaceinputs.go"
 members: "github.com/ono-sendai-labs/architectural-contracts/go/internal/goanalysis"
 members: "github.com/ono-sendai-labs/architectural-contracts/go/internal/hostpolicy"
 members: "github.com/ono-sendai-labs/architectural-contracts/go/internal/packagelayout"

@@ -45,6 +45,11 @@ component_dependencies {
   name: "schema"
   manifest: "../../internal/schema/component.textproto"
 }
+component_dependencies {
+  name: "surface"
+  manifest: "../../internal/surface/component.textproto"
+}
+
 declared_authority: "FILES"
 declared_authority: "REFLECT"
 declared_authority: "READ_SYSTEM_STATE"

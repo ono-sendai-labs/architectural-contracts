@@ -13,13 +13,10 @@ import (
 
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/artifactio"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/capanalyzer"
-	"github.com/ono-sendai-labs/architectural-contracts/go/internal/capslockadapter"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/checker"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/facts"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/goanalysis"
-	"github.com/ono-sendai-labs/architectural-contracts/go/internal/hostpolicy"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/manifest"
-	"github.com/ono-sendai-labs/architectural-contracts/go/internal/packagelayout"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/report"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/stdlibauthority"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/stdlibmap"
@@ -34,7 +31,10 @@ import (
 // declared, configuration-keyed source of the target SDK identity in Bazel
 // and layout mode.
 type SDKKeyRequest struct {
-	LayoutPlatform *packagelayout.Platform
+	// LayoutPlatform is the active layout's pinned target declaration as
+	// plain values (nil/unset when the layout is unpinned or the check runs
+	// in native mode); see goanalysis.ActivePlatformIdentity.
+	LayoutPlatform *goanalysis.PlatformIdentity
 	StdlibMapPath  string
 }
 
@@ -58,11 +58,15 @@ type ArtifactWriter func(path string, data []byte) error
 type checkOptions struct {
 	manifestPath  string
 	packageLayout string
-	formatJSON    bool
-	reportOut     string
-	surfaceOut    string
-	stdlibMap     string
-	verdictOnly   bool
+	// workspaceDir is the layout mode's workspace root (set by the caller
+	// that established the layout driver environment); source paths resolve
+	// against it.
+	workspaceDir string
+	formatJSON   bool
+	reportOut    string
+	surfaceOut   string
+	stdlibMap    string
+	verdictOnly  bool
 }
 
 // parseCheckOptions parses the check command's options with precise
@@ -242,7 +246,7 @@ func (r *Runner) runCheck(opts checkOptions, stdout, stderr io.Writer) int {
 	}
 	var findings []capanalyzer.CapabilityFinding
 	if len(pkgs) > 0 {
-		findings, err = r.analyzer().Analyze(capanalyzer.AnalyzeRequest{
+		findings, err = r.Analyzer.Analyze(capanalyzer.AnalyzeRequest{
 			Packages: pkgs,
 			PruneAt:  pruneAt,
 		})
@@ -331,9 +335,9 @@ func (r *Runner) publishArtifacts(
 
 	surfaceBytes := []byte(nil)
 	if opts.surfaceOut != "" {
-		layoutPlatform := (*packagelayout.Platform)(nil)
-		if packagelayout.IsLayoutMode() {
-			layoutPlatform = activeLayoutPlatform()
+		layoutPlatform := (*goanalysis.PlatformIdentity)(nil)
+		if identity, ok := goanalysis.ActivePlatformIdentity(); ok {
+			layoutPlatform = &identity
 		}
 		key, err := r.keyResolver()(
 			SDKKeyRequest{LayoutPlatform: layoutPlatform, StdlibMapPath: opts.stdlibMap},
@@ -354,8 +358,8 @@ func (r *Runner) publishArtifacts(
 		}
 
 		sourceRoot := componentRoot
-		if packagelayout.IsLayoutMode() {
-			sourceRoot = packagelayout.GetActiveWorkspaceDir()
+		if opts.workspaceDir != "" {
+			sourceRoot = opts.workspaceDir
 		}
 		sources, err := artifactio.ReadSources(os.DirFS(sourceRoot), surf.SourcePaths)
 		if err != nil {
@@ -366,7 +370,7 @@ func (r *Runner) publishArtifacts(
 			Component:       parsedManifest.Name,
 			Style:           parsedManifest.InterfaceStyle,
 			Authority:       parsedManifest.Authority,
-			Namespace:       hostpolicy.NamespaceID,
+			Namespace:       goanalysis.CanonicalNamespace(),
 			Key:             sdkKey,
 			ProducerVersion: producerVersion(),
 			MemberPackages:  surf.MemberPackages,
@@ -417,13 +421,6 @@ func (r *Runner) loader() PackageLoader {
 	return goanalysis.LoadPackageFacts
 }
 
-func (r *Runner) analyzer() capanalyzer.CapabilityAnalyzer {
-	if r.Analyzer != nil {
-		return r.Analyzer
-	}
-	return capslockadapter.NewAdapter()
-}
-
 func (r *Runner) keyResolver() SDKKeyResolver {
 	if r.KeyResolver != nil {
 		return r.KeyResolver
@@ -445,16 +442,6 @@ func (r *Runner) artifactWriter() ArtifactWriter {
 	return func(path string, data []byte) error {
 		return artifactio.WriteFileAtomic(path, data, 0o644, nil)
 	}
-}
-
-// activeLayoutPlatform returns the active layout's platform declaration, or
-// nil when the layout declares none.
-func activeLayoutPlatform() *packagelayout.Platform {
-	layout := packagelayout.GetActiveLayout()
-	if layout == nil || layout.Platform == nil {
-		return nil
-	}
-	return layout.Platform
 }
 
 // defaultKeyResolver is the production SDK-key resolver (technical
@@ -511,11 +498,7 @@ func keyFromDeclaredMap(req SDKKeyRequest) (stdlibauthority.SDKKey, error) {
 	// target declaration (N3). Only a layout that declares a platform can be
 	// compared; an unpinned layout carries no declared target.
 	if req.LayoutPlatform != nil {
-		target, err := layoutTarget(req.LayoutPlatform)
-		if err != nil {
-			return stdlibauthority.SDKKey{}, err
-		}
-		expectedKey, err := deriveSDKKey(target)
+		expectedKey, err := deriveSDKKey(layoutTarget(req.LayoutPlatform))
 		if err != nil {
 			return stdlibauthority.SDKKey{}, err
 		}
@@ -556,26 +539,17 @@ func keyFromNativeDiscovery() (stdlibauthority.SDKKey, error) {
 	return auth.Key(), nil
 }
 
-// layoutTarget converts a pinned layout platform into the target
-// configuration the SDK key is derived from. An unpinned layout cannot
-// establish the target SDK identity and fails closed with an actionable
-// message.
-func layoutTarget(platform *packagelayout.Platform) (stdlibmap.TargetConfig, error) {
-	if platform == nil || platform.ToolchainVersion == nil || *platform.ToolchainVersion == "" {
-		return stdlibmap.TargetConfig{}, fmt.Errorf("the package layout does not declare platform.toolchain_version; surface emission cannot establish the target SDK identity (pin the platform in the layout)")
-	}
-	goexperiment := ""
-	if platform.GOEXPERIMENT != nil {
-		goexperiment = *platform.GOEXPERIMENT
-	}
+// layoutTarget converts a pinned layout platform identity into the target
+// configuration the SDK key is derived from.
+func layoutTarget(platform *goanalysis.PlatformIdentity) stdlibmap.TargetConfig {
 	return stdlibmap.TargetConfig{
-		ToolchainVersion: *platform.ToolchainVersion,
+		ToolchainVersion: platform.ToolchainVersion,
 		GOOS:             platform.GOOS,
 		GOARCH:           platform.GOARCH,
 		CgoEnabled:       platform.CgoEnabled,
 		BuildTags:        platform.BuildTags,
-		GOEXPERIMENT:     goexperiment,
-	}, nil
+		GOEXPERIMENT:     platform.GOEXPERIMENT,
+	}
 }
 
 // deriveSDKKey derives the complete target SDK key (classifier hash and map
