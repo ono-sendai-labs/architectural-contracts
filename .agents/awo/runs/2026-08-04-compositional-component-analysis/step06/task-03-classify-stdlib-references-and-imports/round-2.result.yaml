@@ -1,0 +1,104 @@
+result:
+  task_file: .agents/tasks/2026-08-04-compositional-component-analysis/step06/task-03-classify-stdlib-references-and-imports.code-task.md
+  change_id: pplpznzvxpkkklpounryoummvowswklp
+  status: completed
+  schema_version: 2
+  produced_at: 2026-09-08T22:55:00Z
+
+acceptance_criteria:
+  - text: "Function values carry stdlib authority"
+    addressed: yes
+    evidence: |
+      goanalysis/fixture_test.go TestFixture1_FuncValueCarriesStdlibAuthority
+      (integration): the scanned RefFunc edge to os.ReadFile from a function
+      body that never calls it yields exactly one TrueAuthority observation
+      with Capability FILES at that exact site, carrying the map's canned
+      evidence and SDKKey. Unchanged; reviewer marked pass in rounds 0-1.
+  - text: "Blank imports classify aggregate init"
+    addressed: yes
+    evidence: |
+      TestFixture2_BlankImportClassifiesAggregateInit: the blank import of
+      image/png (rows.go) attributes FILES under the aggregate image/png.init
+      identity at the import site via StdlibAuthority.PackageInitAuthority.
+      Unchanged; reviewer marked pass.
+  - text: "Every import-table row is pinned"
+    addressed: yes
+    evidence: |
+      Round 2 rework: rows.go is now the design's import-only blank-import
+      table — every row is a genuine blank import with no object use: member
+      (globals), top-level declared dependency (dep) and dep/sub,
+      auto-attached infra dependency, unowned resolved packages (errors,
+      sort, strconv), stdlib-map packages with authority-bearing
+      (image/png) and UNANALYZED (go/ast) aggregate inits, and the written
+      stdlib path (os) whose loader entry
+      TestFixture6_MissingTypeDataFailsClosed nils out through the typed
+      loader seam before scanning. TestFixture6_ImportTable asserts each
+      blank row's ImportEdge, that rows.go emits no reference edge, that
+      every unowned import violation sits at its own resolved import site,
+      used provenance [dep infra], the go/ast.init AnalysisDefeating
+      observation, and DEPENDENCY_OVERLAP. The named imports and object
+      references live in the separate member/uses fixture, keeping the
+      reference rows in real typed form.
+  - text: "Stdlib globals use symbol classifications"
+    addressed: yes
+    evidence: |
+      TestFixture9_StdlibGlobalsUseSymbolClassifications: os.Stdin carries
+      its map capabilities CHDIR,FILES from the exact record; io.EOF (SAFE)
+      contributes no observation. Unchanged; reviewer marked pass.
+  - text: "Inventory and key faults fail closed"
+    addressed: yes
+    evidence: |
+      checker/classify_test.go TestClassify_ToolErrors covers symbol and
+      init inventory gaps, invalid terminal classification, and SDK-key
+      mismatch; TestClassifyImports_MissingTypeDataFailsClosed and the typed
+      seam fixture cover the missing-data path end to end. Reviewer marked
+      pass.
+  - text: "Reference and import rules stay separate"
+    addressed: yes
+    evidence: |
+      TestClassify_ImportAndReferenceRulesSeparate: the dependency import is
+      accepted behind the boundary (dep recorded used) while the object
+      reference to an unlisted declaring object independently produces
+      CALLS_UNDECLARED_INTERFACE. In fixture form the separation is now
+      structural: member/rows is import-only and member/uses is the
+      reference package. Reviewer marked pass.
+  - text: "Pre-cutover fixture gate is complete"
+    addressed: yes
+    evidence: |
+      Fixtures 1, 2, 6 and 9 run entirely through packages.Load +
+      ScanReferences + checker.ClassifyEdges over AST + types.Info, with
+      fixture 6's complete blank-import table and a real UNANALYZED init
+      path; fixtures 3-5 remain the real typed fixtures from task 02. just
+      ci and the full integration suite pass; grep confirms no
+      types.Implements in goanalysis non-test code and no production
+      Runner/check-path file modified.
+  - text: "No legacy analysis leaks into classification"
+    addressed: yes
+    evidence: |
+      checker/classify.go imports only fmt/sort/strings plus capanalyzer,
+      facts, report, stdlibauthority, symbol (grep inspection: no capslock,
+      go/ssa, callgraph, IsStdlibPath or hostpolicy reference). just ci
+      (unit, vet, gofmt, selfcheck, bazel parity tests) exits 0.
+
+artifacts:
+  scratchpad_dir: .agents/scratchpad/2026-08-04-compositional-component-analysis/step06/task-03-classify-stdlib-references-and-imports/
+  files:
+    - context.md
+    - plan.md
+    - progress.md
+    - work.log
+    - review.yaml
+    - result.yaml
+
+notes: |
+  Round 2 completed the import-table fixture shape the reviewer required:
+  member/rows is now strictly the import-only blank-import table (member,
+  declared dep and dep/sub, auto-attached infra, unowned resolved, stdlib
+  init-authority, UNANALYZED init, and missing-type-data rows), with the
+  named imports and object references moved to a new member/uses fixture so
+  the reference dispatch keeps real typed coverage. TestFixture6_ImportTable
+  now asserts the blank row edges, rows.go's import-only shape, per-site
+  unowned-import violations across both member packages, used provenance
+  [dep infra], and the AnalysisDefeating go/ast.init observation. Fresh
+  child change pplpznzvxpkkklpounryoummvowswklp; prior commits untouched;
+  just ci and the full integration suite are green.

@@ -1,0 +1,176 @@
+review:
+  task_file: .agents/tasks/2026-08-04-compositional-component-analysis/step06/task-03-classify-stdlib-references-and-imports.code-task.md
+  change_id: pquupxkqqwlzyltqxzumwnqvsvovuuro
+  reviewed_at: 2026-09-08T21:46:58Z
+  verdict: changes_requested
+  schema_version: 2
+  lsp_coverage: unavailable
+
+merge_request:
+  title: "review typed stdlib classification and import dispatch [Compositional Analysis: Step 06/Task 03]"
+  body: |
+    Reviews the complete ordered series: the pure typed reference/import
+    classifier, the AST + types.Info fixtures for design cases 1, 2, 6 and 9,
+    and the self-hosting manifest and BUILD dependency updates.
+
+summary: |
+  The classifier implementation covers the requested stdlib, dependency, evidence, SDK-key, and fail-closed dispatch rules, and the ordered test series includes real typed fixtures for the main reference and import cases. Two important gaps remain: the new exported classifier is absent from the checker's declared interface surface, and fixture 6 delegates several required rows to handcrafted edges instead of exercising the complete import table through the typed scanner, including a real UNANALYZED init path. Clean-cache Go unit, vet, formatting, and integration checks pass; the local Bazel invocation was blocked by the sandboxed Bazel/JVM environment, while work.log records the orchestrator's successful `just ci` run.
+
+acceptance_criteria:
+  - text: |
+      1. **Function values carry stdlib authority**
+         - Given design fixture 1, `f := os.ReadFile` where `f` is never called
+         - When the package is scanned and classified
+         - Then the `os.ReadFile` reference contributes FILES authority at that source site
+    status: pass
+    evidence: |
+      The real typed fixture is scanned in go/internal/goanalysis/fixture_test.go:409-438,
+      and TestFixture1_FuncValueCarriesStdlibAuthority at :453-487 verifies the
+      RefFunc site, FILES observation, and authority evidence. The dispatch is in
+      go/internal/checker/classify.go:114-126 and :193-224.
+  - text: |
+      2. **Blank imports classify aggregate init**
+         - Given design fixture 2, a blank import of a map-enumerated package whose aggregate init carries authority
+         - When imports are classified
+         - Then the package's init authority is attributed without a symbol lookup or call edge
+    status: pass
+    evidence: |
+      go/internal/goanalysis/testdata/classify/member/rows/rows.go:13 contains the
+      real blank image/png import, and TestFixture2_BlankImportClassifiesAggregateInit
+      in go/internal/goanalysis/fixture_test.go:515-544 verifies the import site and
+      image/png.init identity. The separate import dispatch calls
+      PackageInitAuthority in go/internal/checker/classify.go:144-164 and :232-267.
+  - text: |
+      3. **Every import-table row is pinned**
+         - Given design fixture 6 with blank imports for member, stdlib, declared dependency, auto-attached dependency, overlapping direct dependencies, unowned resolved package, and declared/stdlib package with missing type data
+         - When each case is classified
+         - Then outcomes match all seven design rows exactly, including used-edge provenance, `DEPENDENCY_OVERLAP`, `UNDECLARED_DEPENDENCY`, and fail-closed layout/type-data errors
+    status: partial
+    evidence: |
+      The classifier implements the rows in go/internal/checker/classify.go:144-177,
+      and unit tests cover member, stdlib, declared, auto-attached, unowned,
+      overlap, and missing-data outcomes in go/internal/checker/classify_test.go:219-335.
+      However, the real source fixture at
+      go/internal/goanalysis/testdata/classify/member/rows/rows.go:7-19 contains
+      only one blank import; the auto-attached and missing-type-data rows are
+      explicitly delegated to handcrafted ImportEdges in
+      go/internal/goanalysis/fixture_test.go:546-555 rather than being scanned
+      from the complete typed fixture.
+  - text: |
+      4. **Stdlib globals use symbol classifications**
+         - Given design fixture 9
+         - When member source references `os.Stdin` and `io.EOF`
+         - Then `os.Stdin` contributes its non-SAFE authority and `io.EOF` contributes none, based solely on exact map records
+    status: pass
+    evidence: |
+      The real typed globals fixture is scanned and classified by
+      TestFixture9_StdlibGlobalsUseSymbolClassifications in
+      go/internal/goanalysis/fixture_test.go:489-513; the fake map records are
+      defined at :373-375. The exact SymbolAuthority conversion is implemented
+      in go/internal/checker/classify.go:189-224.
+  - text: |
+      5. **Inventory and key faults fail closed**
+         - Given a reference to an enumerated stdlib package whose symbol or init record is absent, an invalid classification, or a map whose SDK key does not match the target
+         - When classification runs
+         - Then it returns an actionable tool error and emits no partial conformance verdict
+    status: pass
+    evidence: |
+      TestClassify_ToolErrors in go/internal/checker/classify_test.go:337-396 covers
+      symbol and init inventory gaps, invalid terminal state, and SDK-key mismatch;
+      TestClassifyImports_MissingTypeDataFailsClosed at :306-335 covers the
+      missing-data error path. ClassifyEdges validates the key before dispatch and
+      returns an empty Classified value on every error at
+      go/internal/checker/classify.go:100-109 and :111-186.
+  - text: |
+      6. **Reference and import rules stay separate**
+         - Given a dependency package with an init and a referenced object outside its declared symbol surface
+         - When both the import and reference are classified
+         - Then the import is accepted behind the component boundary while the object reference independently produces `CALLS_UNDECLARED_INTERFACE`
+    status: pass
+    evidence: |
+      TestClassify_ImportAndReferenceRulesSeparate in
+      go/internal/checker/classify_test.go:399-425 supplies both edges and verifies
+      the independent CALLS_UNDECLARED_INTERFACE result and used dependency. The
+      production loops are separate in go/internal/checker/classify.go:114-141 and
+      :144-177.
+  - text: |
+      7. **Pre-cutover fixture gate is complete**
+         - Given the repository after Tasks 01-03
+         - When the Step 6 scanner suites run
+         - Then design fixtures 1, 2, 3, 4, 5, 6, and 9 pass in full against AST + `types.Info`, the implements-closure code is absent, and the production `Runner` has not yet been switched
+    status: partial
+    evidence: |
+      Fixtures 1, 2, 6, and 9 run through packages.Load plus ScanReferences in
+      go/internal/goanalysis/fixture_test.go:409-446, while fixtures 3-5 remain
+      real typed fixtures in the earlier suite at :98-274. The work.log records
+      the complete integration suite and the implements-closure/Runner inspections
+      as green. The fixture-6 gate is not complete against AST + types.Info for
+      every import-table row, because its auto-attached and missing-data cases use
+      synthetic ImportEdges as documented at go/internal/goanalysis/fixture_test.go:546-555.
+  - text: |
+      8. **No legacy analysis leaks into classification**
+         - Given the new classifier packages
+         - When their imports and test seams are inspected and `just ci` runs
+         - Then they contain no Capslock, SSA, VTA, callgraph, or stdlib path-predicate dependency
+    status: pass
+    evidence: |
+      go/internal/checker/classify.go:33-43 imports only pure core packages and
+      contains no legacy analysis dependency. The work.log records the requested
+      grep inspections and a green just ci run; an independent clean-cache run
+      passed Go vet, formatting, unit tests, and the integration suite. The local
+      Bazel tail of just ci could not start its JVM in the sandbox, so Bazel
+      verification relies on the recorded orchestrator run.
+
+findings:
+  - severity: important
+    category: architecture
+    file: go/internal/checker/component.textproto
+    line: 2
+    title: "Classifier API is missing from the declared checker surface"
+    details: |
+      The new component contract in go/internal/checker/classify.go:21-26 says
+      the checker provides ClassifyEdges, Classified, AuthorityObservation, and
+      BoundaryObservation, but the manifest still declares only checker.go as an
+      interface file at go/internal/checker/component.textproto:2. The parity
+      expectation in go/internal/manifest/manifest_test.go:554-564 likewise still
+      lists only checker.go. A future cross-component Runner caller cannot consume
+      the new exported classifier through the checker's declared interface even
+      though the Go library and self-check pass; the self-check does not exercise
+      the missing public-surface edge.
+    suggested_action: |
+      Add classify.go to checker/component.textproto's interface_files and update
+      the corresponding manifest-parity expectation. Verify the eventual Runner
+      caller resolves ClassifyEdges through that declared checker surface rather
+      than relying on the package's broader Go export set.
+    source: built-in
+  - severity: important
+    category: tests
+    file: go/internal/goanalysis/fixture_test.go
+    line: 546
+    title: "Fixture 6 is not a full typed import-table fixture"
+    details: |
+      Acceptance criterion 3 and technical requirement 8 require the seven import
+      rows to be driven by real typed source plus the deterministic authority map.
+      The source at go/internal/goanalysis/testdata/classify/member/rows/rows.go:7-19
+      has only the image/png blank import; the member, dependency, and unowned
+      imports are ordinary imports that also create object-reference edges, and no
+      auto-attached import is scanned. The real fixture test explicitly sends the
+      missing-data row to a checker unit test at
+      go/internal/goanalysis/fixture_test.go:546-555. The unit table and
+      TestClassifyImports_MissingTypeDataFailsClosed do test the classifier
+      branches, and the symbol UNANALYZED path is exercised by a handcrafted
+      ReferenceEdge in go/internal/checker/classify_test.go:109-172, but neither
+      the typed fixture nor a test exercises an UNANALYZED package-init row.
+      Consequently the classifier branches are partly covered while the requested
+      scanner-to-classifier import gate is not.
+    suggested_action: |
+      Extend the real classify source and fixture loader so the import-only rows
+      include blank imports for member, declared, auto-attached, and unowned
+      packages; drive the missing-type-data state from the typed loader nil-entry
+      seam before classification; and add a typed fixture authority record with an
+      UNANALYZED package init, asserting its aggregate pkg.init
+      AnalysisDefeating observation. Keep the synthetic unit cases as focused
+      fail-closed tests, but do not use them as the only proof of the fixture gate.
+    source: built-in
+
+ecosystem_reviews: []

@@ -1,0 +1,104 @@
+result:
+  task_file: .agents/tasks/2026-08-04-compositional-component-analysis/step06/task-03-classify-stdlib-references-and-imports.code-task.md
+  change_id: pquupxkqqwlzyltqxzumwnqvsvovuuro
+  status: completed
+  schema_version: 2
+  produced_at: 2026-09-08T14:40:00Z
+
+acceptance_criteria:
+  - text: "Function values carry stdlib authority"
+    addressed: yes
+    evidence: |
+      goanalysis/fixture_test.go TestFixture1_FuncValueCarriesStdlibAuthority
+      (integration): the scanned RefFunc edge to os.ReadFile from a function
+      body that never calls it yields exactly one TrueAuthority observation
+      with Capability FILES at that exact site, carrying the map's canned
+      evidence and SDKKey; checker.ClassifyEdges classifies it in
+      checker/classify.go classifySymbol.
+  - text: "Blank imports classify aggregate init"
+    addressed: yes
+    evidence: |
+      TestFixture2_BlankImportClassifiesAggregateInit: the blank import of
+      image/png attributes FILES under the aggregate image/png.init identity
+      at the import site, with evidence from
+      StdlibAuthority.PackageInitAuthority — no symbol lookup or call edge.
+  - text: "Every import-table row is pinned"
+    addressed: yes
+    evidence: |
+      TestFixture6_ImportTable pins, against real typed source, member
+      ignored, stdlib-map init authority, declared dependency accepted and
+      marked used, unowned resolved import UNDECLARED_DEPENDENCY at the
+      import site, and DEPENDENCY_OVERLAP failing closed before
+      classification. The auto-attached row is pinned in
+      checker/classify_test.go TestClassifyImports_Table (dep and infra both
+      recorded in UsedDependencies), and the missing-type-data row is pinned
+      fail-closed for stdlib/dep/unknown written paths in
+      TestClassifyImports_MissingTypeDataFailsClosed (the
+      ImportMissingTypeData loader state itself is pinned by
+      refscan_test.go's nil-entry seam).
+  - text: "Stdlib globals use symbol classifications"
+    addressed: yes
+    evidence: |
+      TestFixture9_StdlibGlobalsUseSymbolClassifications: os.Stdin carries
+      its map capabilities CHDIR,FILES from the exact record; io.EOF (SAFE)
+      contributes no observation. Unit table
+      TestClassifyReferences_StdlibAuthorityTable pins the same conversion
+      (one TrueAuthority per capability, AnalysisDefeating for UNANALYZED,
+      nothing for SAFE).
+  - text: "Inventory and key faults fail closed"
+    addressed: yes
+    evidence: |
+      checker/classify_test.go TestClassify_ToolErrors: symbol inventory gap
+      (wraps ErrInventoryGap, actionable site+symbol), init-record gap,
+      invalid terminal classification, and SDK-key mismatch (wraps
+      ErrKeyMismatch) each abort ClassifyEdges with a tool error and no
+      partial verdict; TestClassifyImports_OverlappingDependencies pins the
+      pre-classification DEPENDENCY_OVERLAP error.
+  - text: "Reference and import rules stay separate"
+    addressed: yes
+    evidence: |
+      TestClassify_ImportAndReferenceRulesSeparate: the dependency import is
+      accepted behind the boundary (dep recorded used) while the object
+      reference to an unlisted declaring object independently produces
+      CALLS_UNDECLARED_INTERFACE.
+  - text: "Pre-cutover fixture gate is complete"
+    addressed: yes
+    evidence: |
+      Fixtures 1, 2, 6 and 9 (this task) join fixtures 3, 4, 5 and the
+      resolution fixture from task 02; `go test -tags=integration
+      ./internal/goanalysis/` and `just ci` pass. Grep confirms no
+      types.Implements in goanalysis non-test code, and no production
+      Runner/check-path file was modified (task changes touch only
+      checker/classify*, goanalysis fixture/testdata, and self-hosting
+      manifest/BUILD parity surfaces).
+  - text: "No legacy analysis leaks into classification"
+    addressed: yes
+    evidence: |
+      checker/classify.go imports only fmt/sort/strings plus capanalyzer,
+      facts, report, stdlibauthority, symbol (grep inspection: no capslock,
+      go/ssa, callgraph, IsStdlibPath or hostpolicy reference). just ci
+      (unit, vet, gofmt, selfcheck, bazel parity tests) exits 0.
+
+artifacts:
+  scratchpad_dir: .agents/scratchpad/2026-08-04-compositional-component-analysis/step06/task-03-classify-stdlib-references-and-imports/
+  files:
+    - context.md
+    - plan.md
+    - progress.md
+    - work.log
+    - result.yaml
+
+notes: |
+  Implemented in three incremental changes: the pure ClassifyEdges dispatch in
+  checker (stdlib references resolve through exact SymbolID lookups on the
+  StdlibAuthority port; imports resolve only the aggregate pkg.init authority;
+  dependency-owned imports are accepted and recorded used; unowned imports and
+  undeclared interface objects become site-specific boundary observations;
+  key mismatch, inventory gaps, invalid classifications, missing type data and
+  dependency overlap all fail closed), the classify testdata fixtures with
+  integration tests for design fixtures 1, 2, 6 and 9, and the self-hosting
+  parity surfaces (manifest, BUILD.bazel, self-manifest test table) that the
+  checker's new core dependency on stdlibauthority/symbol requires. All
+  fixtures 1-6 and 9 pass against AST + types.Info with a deterministic fake
+  authority map; no implements closure, Capslock, SSA or path predicate
+  participates, and the production Runner remains untouched for task 05.
