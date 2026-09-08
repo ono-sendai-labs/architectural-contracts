@@ -1,0 +1,71 @@
+result:
+  task_file: .agents/tasks/2026-08-04-compositional-component-analysis/step05/task-03-emit-check-artifacts-from-cli.code-task.md
+  change_id: lppqlsnp
+  status: completed
+  schema_version: 2
+  produced_at: 2026-09-07T22:05:00Z
+
+acceptance_criteria:
+  - text: "One check emits both artifacts"
+    addressed: yes
+    evidence: |
+      cmd/arcc/app/check.go runCheck/publishArtifacts derive both artifacts from one
+      analysis invocation and publish them atomically. Unit: TestRunner_Check_EmitsBothArtifacts
+      (go/cmd/arcc/app/check_test.go) decodes both artifacts; integration:
+      TestCheck_EmitsArtifactsLayoutMode/NativeMode (go/cmd/arcc/app/check_integration_test.go)
+      with a generated stdlib map.
+  - text: "Verdict-only mode separates policy from execution"
+    addressed: yes
+    evidence: |
+      TestRunner_Check_VerdictOnlySeparatesPolicyFromExecution: violating component exits 0 with
+      report verdict fail; loader error exits 2. Exit policy in check.go step 11.
+  - text: "Ordinary CLI compatibility is preserved"
+    addressed: yes
+    evidence: |
+      Existing app_test.go suite passes unchanged (0/1/2, text and --format=json display);
+      TestRunner_Check_OrdinaryExitsPreserved verifies 1 for violations and 2 for tool errors
+      with artifact emission enabled.
+  - text: "SDK identity fails closed without changing Step 5 verdicts"
+    addressed: yes
+    evidence: |
+      defaultKeyResolver/keyFromDeclaredMap (check.go) validates the declared map (decode,
+      classifier hash, target-key equality) and native mode uses discovery+OpenCachedMap;
+      map classifications are not consulted. Tests: TestRunner_Check_KeyResolverFailsClosed,
+      TestRunner_Check_ParseDiagnostics (--stdlib-map requires --surface-out), and integration
+      corrupt/missing-map cases (exit 2 with context).
+  - text: "Artifact writes are deterministic and atomic"
+    addressed: yes
+    evidence: |
+      artifactio.WriteFileAtomic via the ArtifactWriter seam; TestRunner_Check_ArtifactBytesDeterministic
+      (two invocations, identical bytes), TestRunner_Check_WriteFailurePreservesPreviousTarget
+      (previous target intact, path named in stderr), and integration determinism legs.
+  - text: "Option validation is actionable"
+    addressed: yes
+    evidence: |
+      parseCheckOptions (check.go) with single-occurrence/empty/missing-value diagnostics naming
+      the option; TestRunner_Check_ParseDiagnostics asserts loader never invoked (analysis not run).
+  - text: "The temporary surface/check disagreement is documented"
+    addressed: yes
+    evidence: |
+      printUsage (app.go) and README.md "Check artifact emission" both state surfaces are exact
+      while the check retains implements-closure widening only until Step 6; app.go FR10 comment
+      states the same. Non-behavioral criterion verified by inspection.
+
+artifacts:
+  scratchpad_dir: .agents/scratchpad/2026-08-04-compositional-component-analysis/step05/task-03-emit-check-artifacts-from-cli/
+  files:
+    - context.md
+    - plan.md
+    - progress.md
+    - work.log
+    - result.yaml
+
+notes: |
+  Implemented --report-out/--surface-out/--stdlib-map/--report-verdict-only on `arcc check`
+  with an injected SDK-key resolver (declared-map validation in layout mode; native discovery
+  plus the Step 4 cache in native mode), a new goanalysis.LoadSurfaceInputs member-package load
+  for surface derivation, and atomic canonical publication of both artifacts from one analysis
+  invocation. Selfcheck exposed that app must not import hostpolicy/packagelayout directly, so
+  the layout identity/namespace glue is mediated through goanalysis's declared interface
+  (ActivePlatformIdentity, CanonicalNamespace). Full `just ci` (including selfcheck and
+  bazel-test) passes; three incremental jj changes were produced, head task change lppqlsnp.

@@ -1,0 +1,110 @@
+review:
+  task_file: .agents/tasks/2026-08-04-compositional-component-analysis/step05/task-03-emit-check-artifacts-from-cli.code-task.md
+  change_id: yrovknmmlslyzyruxzrpuvoqstsxymlu
+  reviewed_at: 2026-09-08T05:20:45Z
+  verdict: changes_requested
+  schema_version: 2
+  lsp_coverage: unavailable
+
+merge_request:
+  title: "feat(cli): emit canonical check artifacts [Compositional Analysis: Step 05/Task 03]"
+  body: |
+    Reviews the complete four-change series. The initial change added check-option
+    parsing, artifact orchestration, SDK-key and writer seams, surface-input loading,
+    and exit-policy coverage. The second change added layout/native integration tests,
+    usage and README documentation, and build metadata; the third moved layout platform
+    identity and namespace mediation behind goanalysis. The rework change added native
+    explicit-map target validation, surviving-interface filtering, the conforming
+    verdict-only case, mismatch-matrix tests, and the restored README synopsis.
+
+summary: |
+  All three prior important findings and the prior README suggestion are resolved in the
+  rework: native explicit maps are checked against the discovered target, excluded
+  interface files emit exact surviving surfaces, and verdict-only coverage includes pass
+  and fail. The component boundary remains sound, and the Go unit, integration, vet, and
+  formatting checks pass. One regression remains: the new white-box resolver test file is
+  absent from the Bazel app test target and its schema/gen test dependency is undeclared.
+
+acceptance_criteria:
+  - text: "One check emits both artifacts"
+    status: pass
+    evidence: |
+      The common publication path remains in go/cmd/arcc/app/check.go:285-293 and
+      :329-415. Existing unit and layout/native integration coverage decodes both
+      artifacts at go/cmd/arcc/app/check_test.go:212-250 and
+      go/cmd/arcc/app/check_integration_test.go:95-265. The prior excluded-file defect
+      is addressed by passing survivingInterfaceFiles at check.go:356-364, with the
+      end-to-end mixed-interface case at check_integration_test.go:340-428.
+  - text: "Verdict-only mode separates policy from execution"
+    status: pass
+    evidence: |
+      check.go:308-318 still maps every successfully published verdict-only result to
+      exit 0, while tool errors return 2 before display/publication. The rework extends
+      check_test.go:253-308 with both violating/fail and conforming/pass report cases,
+      plus a loader-error exit-2 assertion.
+  - text: "Ordinary CLI compatibility is preserved"
+    status: pass
+    evidence: |
+      Existing text/JSON rendering and the ordinary 0/1/2 contract remain in
+      go/cmd/arcc/app/app.go:121-145 and check.go:295-318. The existing app suite covers
+      JSON/text behavior at app_test.go:594-683, and the artifact-path ordinary exit
+      assertions remain at check_test.go:310-345.
+  - text: "SDK identity fails closed without changing Step 5 verdicts"
+    status: pass
+    evidence: |
+      Layout and native explicit-map checks are implemented at
+      go/cmd/arcc/app/check.go:522-548: layout requests compare against the pinned
+      layout target, while native requests discover and compare the current target.
+      The rework's white-box matrix in check_internal_test.go:63-191 covers native
+      match/mismatch, classifier, format, and layout target cases; the layout
+      integration leg still covers corrupt and missing maps at
+      check_integration_test.go:153-187. The resolver only returns the SDK key and the
+      checker continues to use the existing Capslock findings path at check.go:242-267.
+  - text: "Artifact writes are deterministic and atomic"
+    status: pass
+    evidence: |
+      Production publication uses artifactio.WriteFileAtomic through the writer seam at
+      go/cmd/arcc/app/check.go:463-469. Determinism is asserted by
+      check_test.go:392-425 and check_integration_test.go:143-151 and :234-265; write
+      failure preserves the previous target at check_test.go:358-390. The atomic helper's
+      mid-write failure coverage remains in go/internal/artifactio/write_test.go:53-117.
+  - text: "Option validation is actionable"
+    status: pass
+    evidence: |
+      parseCheckOptions implements single-occurrence, empty-value, missing-value, and
+      incompatible-option checks at go/cmd/arcc/app/check.go:75-172. The matrix at
+      check_test.go:99-210 verifies named diagnostics, exit 2, and that the loader is
+      not invoked.
+  - text: "The temporary surface/check disagreement is documented"
+    status: pass
+    evidence: |
+      Generated help documents the exact-surface versus check-workaround split at
+      go/cmd/arcc/app/app.go:134-145. README.md:238-276 and the app FR10 contract at
+      app.go:4-6 carry the same Step 5 note. The rework also restores the existing
+      --package-layout and --format=json options in the README synopsis at README.md:229.
+
+findings:
+  - severity: important
+    category: tests
+    file: go/cmd/arcc/app/BUILD.bazel
+    line: 33
+    title: Bazel app test omits the new resolver matrix
+    details: |
+      The rework adds the non-build-tagged white-box test file
+      go/cmd/arcc/app/check_internal_test.go, which contains the native target,
+      classifier, format, and layout SDK-key matrix used as evidence for AC4. The
+      declared Bazel app_test target still lists only app_test.go, check_test.go,
+      stdlibmap_test.go, and verdict_test.go at BUILD.bazel:33, so this test file is not
+      compiled or run by that target. If it is added there, its import of
+      internal/schema/gen also requires the corresponding test dependency, which is
+      currently absent from BUILD.bazel:39-47. The Go test suite passes because Go's
+      package discovery includes the file, but the checked-in Bazel test metadata does
+      not exercise the new coverage.
+    suggested_action: |
+      Add check_internal_test.go to the Bazel app_test sources and add
+      //go/internal/schema/gen to its deps, or create a dedicated white-box go_test
+      target with the required dependencies. Keep the matrix in a declared test target
+      used by the repository's CI/test workflow.
+    source: built-in
+
+ecosystem_reviews: []

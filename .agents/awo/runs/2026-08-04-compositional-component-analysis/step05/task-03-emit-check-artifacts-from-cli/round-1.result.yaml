@@ -1,0 +1,73 @@
+result:
+  task_file: .agents/tasks/2026-08-04-compositional-component-analysis/step05/task-03-emit-check-artifacts-from-cli.code-task.md
+  change_id: yrovknmm
+  status: completed
+  schema_version: 2
+  produced_at: 2026-09-08T06:10:00Z
+
+acceptance_criteria:
+  - text: "One check emits both artifacts"
+    addressed: yes
+    evidence: |
+      cmd/arcc/app/check.go runCheck/publishArtifacts derive both artifacts from one
+      analysis invocation and publish them atomically; build-constraint-excluded interface
+      files no longer abort emission (survivingInterfaceFiles filters them before
+      goanalysis.LoadSurfaceInputs). Unit: TestRunner_Check_EmitsBothArtifacts; integration:
+      TestCheck_EmitsArtifactsLayoutMode/NativeMode and
+      TestCheck_ExcludedInterfaceFileStillEmitsSurface (excluded declaration absent from the
+      surface, warning retained in the report).
+  - text: "Verdict-only mode separates policy from execution"
+    addressed: yes
+    evidence: |
+      TestRunner_Check_VerdictOnlySeparatesPolicyFromExecution now covers the full matrix:
+      conforming (exit 0, verdict pass), violating (exit 0, verdict fail), and tool error
+      (exit 2).
+  - text: "Ordinary CLI compatibility is preserved"
+    addressed: yes
+    evidence: |
+      Existing app_test.go suite passes unchanged (0/1/2, text and --format=json display);
+      TestRunner_Check_OrdinaryExitsPreserved verifies 1 for violations and 2 for tool errors
+      with artifact emission enabled.
+  - text: "SDK identity fails closed without changing Step 5 verdicts"
+    addressed: yes
+    evidence: |
+      keyFromDeclaredMap now also validates native explicit maps against the discovered native
+      target (review round 1 finding 1). Internal resolver matrix
+      (go/cmd/arcc/app/check_internal_test.go): native target mismatch/match, classifier_hash
+      mismatch, format-version mismatch, layout declared-target mismatch/match — all fail or
+      pass with actionable context; map classifications are not consulted by checker decisions.
+  - text: "Artifact writes are deterministic and atomic"
+    addressed: yes
+    evidence: |
+      artifactio.WriteFileAtomic via the ArtifactWriter seam; TestRunner_Check_ArtifactBytesDeterministic,
+      TestRunner_Check_WriteFailurePreservesPreviousTarget, and integration determinism legs.
+  - text: "Option validation is actionable"
+    addressed: yes
+    evidence: |
+      parseCheckOptions with named single-occurrence/empty/missing-value diagnostics;
+      TestRunner_Check_ParseDiagnostics asserts analysis never runs.
+  - text: "The temporary surface/check disagreement is documented"
+    addressed: yes
+    evidence: |
+      printUsage (app.go), README.md "Check artifact emission" (including the native
+      --stdlib-map target-validation note), and the app FR10 comment state that surfaces are
+      exact while the check retains implements-closure widening only until Step 6. Verified by
+      inspection.
+
+artifacts:
+  scratchpad_dir: .agents/scratchpad/2026-08-04-compositional-component-analysis/step05/task-03-emit-check-artifacts-from-cli/
+  files:
+    - context.md
+    - plan.md
+    - progress.md
+    - work.log
+    - result.yaml
+    - review.yaml
+
+notes: |
+  Rework round 1 addressed all three important findings and the README suggestion: native
+  explicit maps are now validated against the discovered native target, verdict-only coverage
+  gained the conforming case, and build-constraint-excluded interface files are filtered out of
+  surface emission so valid components still emit the exact surviving surface. The rework is a
+  fresh child jj change (yrovknmm) on the prior task tip; full `just ci` (including selfcheck
+  and bazel-test) passes.

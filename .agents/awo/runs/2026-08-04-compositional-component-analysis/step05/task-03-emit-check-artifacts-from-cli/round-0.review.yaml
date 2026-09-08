@@ -1,0 +1,167 @@
+review:
+  task_file: .agents/tasks/2026-08-04-compositional-component-analysis/step05/task-03-emit-check-artifacts-from-cli.code-task.md
+  change_id: lppqlsnpupowyzvlszzvzxpuvouupovr
+  reviewed_at: 2026-09-08T05:07:35Z
+  verdict: changes_requested
+  schema_version: 2
+  lsp_coverage: unavailable
+
+merge_request:
+  title: "feat(cli): emit canonical check artifacts [Compositional Analysis: Step 05/Task 03]"
+  body: |
+    Reviews the complete three-change series. The initial change added check-option
+    parsing, artifact orchestration, SDK-key and writer seams, surface-input loading,
+    and exit-policy coverage. The second change added layout/native integration tests,
+    usage and README documentation, and build metadata. The final change moved layout
+    platform identity and namespace mediation behind goanalysis and updated both
+    component declarations.
+
+summary: |
+  The series has a sound component boundary: the CLI no longer reaches hostpolicy or
+  packagelayout directly, and goanalysis exposes the plain layout identity and namespace
+  boundary it owns. Canonical artifact publication, option validation, ordinary exit
+  compatibility, determinism, and the Step 5 surface/check disagreement are implemented.
+  Changes are requested because native explicit maps are not checked against the native
+  target, valid components with a build-excluded interface file cannot emit a surface,
+  and verdict-only coverage omits the conforming case.
+
+acceptance_criteria:
+  - text: "One check emits both artifacts"
+    status: partial
+    evidence: |
+      The common report/surface publication path is in go/cmd/arcc/app/check.go:285-293
+      and :321-405; unit coverage decodes both artifacts at
+      go/cmd/arcc/app/check_test.go:212-250, and real layout/native coverage is at
+      go/cmd/arcc/app/check_integration_test.go:95-151 and :192-265. However,
+      go/cmd/arcc/app/check.go:350-355 passes the original interface_files list to
+      goanalysis.LoadSurfaceInputs. A valid component with one surviving and one
+      build-excluded interface file is accepted by the existing validation at
+      go/cmd/arcc/app/app_test.go:365-405, but surfaceinputs.go:187-225 then errors
+      because the excluded file is absent from the loaded package.
+  - text: "Verdict-only mode separates policy from execution"
+    status: partial
+    evidence: |
+      The implementation returns 0 after successful publication regardless of findings
+      at go/cmd/arcc/app/check.go:308-318, and
+      go/cmd/arcc/app/check_test.go:253-293 verifies a violating report exits 0 while
+      a loader error exits 2. The required conforming verdict-only invocation is not
+      exercised; the passing case at :212-250 is ordinary mode rather than
+      --report-verdict-only.
+  - text: "Ordinary CLI compatibility is preserved"
+    status: pass
+    evidence: |
+      Existing text and JSON behavior remains in go/cmd/arcc/app/app.go:121-145 and
+      go/cmd/arcc/app/check.go:295-305. The existing suite covers JSON and text output
+      and 0/1/2 behavior at go/cmd/arcc/app/app_test.go:594-683, while the new artifact
+      path checks the ordinary violation/tool-error exits at check_test.go:295-330.
+  - text: "SDK identity fails closed without changing Step 5 verdicts"
+    status: partial
+    evidence: |
+      Layout-declared maps are decoded and semantically validated at
+      go/cmd/arcc/app/check.go:463-509, including classifier and pinned-layout key
+      comparisons, and native cache resolution is wired at :512-539. The layout
+      integration test covers corrupt and missing maps at
+      go/cmd/arcc/app/check_integration_test.go:153-187, but no test covers the
+      classifier/format/target mismatch matrix. More importantly, when native mode is
+      given --stdlib-map, defaultKeyResolver selects keyFromDeclaredMap at
+      check.go:452-456, while keyFromDeclaredMap compares a target only when
+      LayoutPlatform is non-nil at :497-507; native requests always have nil
+      LayoutPlatform. A valid map for another native target can therefore be stamped
+      into the emitted surface.
+  - text: "Artifact writes are deterministic and atomic"
+    status: pass
+    evidence: |
+      Production publication uses artifactio.WriteFileAtomic through the writer seam at
+      go/cmd/arcc/app/check.go:438-444. Repeated-byte checks are in
+      go/cmd/arcc/app/check_test.go:392-425 and
+      go/cmd/arcc/app/check_integration_test.go:143-151 and :234-265; the CLI failure
+      path preserves a previous target and reports its path at check_test.go:358-390.
+      The atomic helper's injected mid-write failure coverage is retained in
+      go/internal/artifactio/write_test.go:53-117.
+  - text: "Option validation is actionable"
+    status: pass
+    evidence: |
+      parseCheckOptions implements single-occurrence, empty-value, missing-value, and
+      incompatible-option checks at go/cmd/arcc/app/check.go:72-169. The matrix at
+      go/cmd/arcc/app/check_test.go:99-210 verifies named diagnostics, exit 2, and
+      that the loader is not invoked.
+  - text: "The temporary surface/check disagreement is documented"
+    status: pass
+    evidence: |
+      Generated help states the exact-surface versus check-workaround split at
+      go/cmd/arcc/app/app.go:134-145. The same Step 5 note appears in README.md:238-274,
+      and the app FR10 contract records it at app.go:4-6.
+
+findings:
+  - severity: important
+    category: acceptance_criteria
+    file: go/cmd/arcc/app/check.go
+    line: 452
+    title: Native explicit maps bypass target-key validation
+    details: |
+      defaultKeyResolver treats every non-empty --stdlib-map as a declared-map path.
+      keyFromDeclaredMap validates format and classifier hash, but only compares the
+      map key with LayoutPlatform when that value is non-nil (check.go:497-507).
+      ActivePlatformIdentity reports no platform in native mode, so a valid map made
+      for another toolchain, GOOS, GOARCH, cgo state, or build-tag set is accepted and
+      its key is emitted. This violates the exact SDK identity requirement and the
+      target-mismatch part of AC4; the README also explicitly documents --stdlib-map in
+      native mode at README.md:256-259.
+    suggested_action: |
+      In native mode, discover the current target and derive the expected SDK key before
+      accepting an explicit map, then compare all key fields (or pass the expected key
+      directly to the map reader). Add coverage for native target mismatches alongside
+      the classifier and format mismatch cases.
+    source: built-in
+  - severity: important
+    category: tests
+    file: go/cmd/arcc/app/check_test.go
+    line: 253
+    title: Verdict-only tests omit the conforming case
+    details: |
+      AC2 requires both a conforming component with report verdict pass and a violating
+      component with verdict fail to exit 0 under --report-verdict-only. The test at
+      check_test.go:253-293 covers only the violating report plus a loader error. The
+      conforming test at :212-250 does not pass --report-verdict-only, so this does not
+      verify the complete policy/execution matrix.
+    suggested_action: |
+      Add a conforming verdict-only invocation, decode its report, and assert verdict
+      pass and exit 0. Keep the existing violating and tool-error assertions.
+    source: built-in
+  - severity: important
+    category: acceptance_criteria
+    file: go/internal/goanalysis/surfaceinputs.go
+    line: 187
+    title: Excluded interface files abort surface emission
+    details: |
+      ValidateInterfaceFiles deliberately returns build-constraint exclusions as
+      non-fatal warnings, and the existing ordinary check test demonstrates that a
+      component with api.go plus excluded gated.go is valid (app_test.go:365-405).
+      LoadSurfaceInputs nevertheless receives the unfiltered manifest list from
+      check.go:350-355 and collectInterfaceDeclarations requires every listed file to
+      match p.GoFiles at surfaceinputs.go:187-225. The excluded file cannot match, so
+      requesting --surface-out turns this otherwise valid component into exit 2 instead
+      of emitting the exact surviving interface surface.
+    suggested_action: |
+      Carry the surviving interface-file set from ValidateInterfaceFiles into the
+      surface-input load request, or give the loader an explicit exclusion list. Add an
+      artifact-emission test using the existing mixed surviving/excluded fixture and
+      assert the excluded declaration is absent from the surface while the warning
+      remains in the report.
+    source: built-in
+  - severity: suggestion
+    category: style
+    file: README.md
+    line: 229
+    title: README usage omits existing check options
+    details: |
+      The refreshed CLI usage block retains the new artifact options but drops the
+      previously documented --package-layout and --format=json options from the README
+      line at 229. Runtime parsing still supports them and generated help lists them at
+      app.go:125, so the user-facing references now disagree.
+    suggested_action: |
+      Keep --package-layout=<layout> and --format=json in the README usage synopsis while
+      listing the new artifact options on continuation lines.
+    source: built-in
+
+ecosystem_reviews: []

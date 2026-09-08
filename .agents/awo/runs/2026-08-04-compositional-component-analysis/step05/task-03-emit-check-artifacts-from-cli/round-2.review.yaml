@@ -1,0 +1,87 @@
+review:
+  task_file: .agents/tasks/2026-08-04-compositional-component-analysis/step05/task-03-emit-check-artifacts-from-cli.code-task.md
+  change_id: yyrxkrkktkxtvmkymumwrooqylyxuqyw
+  reviewed_at: 2026-09-08T05:27:24Z
+  verdict: approved
+  schema_version: 2
+  lsp_coverage: unavailable
+
+merge_request:
+  title: "feat(cli): emit canonical check artifacts [Compositional Analysis: Step 05/Task 03]"
+  body: |
+    Reviews the complete five-change series. The initial implementation added check
+    artifact parsing, orchestration, SDK-key and writer seams, surface-input loading,
+    exit-policy tests, integration coverage, documentation, and component metadata.
+    Subsequent changes moved layout identity through goanalysis, addressed the first
+    review's native-key, excluded-interface, verdict-only, and README findings, and
+    finally registered the SDK-key resolver matrix in the Bazel app test target with
+    its schema dependency.
+
+summary: |
+  All prior important findings and the prior documentation suggestion are resolved.
+  The final rework registers check_internal_test.go and its schema/gen dependency in
+  the Bazel app test target, while preserving the correct goanalysis-mediated component
+  boundary. Acceptance criteria remain fully covered, and the Go unit, integration,
+  vet, and formatting checks pass; no new code, test, security, or style regressions
+  were found.
+
+acceptance_criteria:
+  - text: "One check emits both artifacts"
+    status: pass
+    evidence: |
+      The common publication path is in go/cmd/arcc/app/check.go:285-293 and
+      :329-415. Unit and layout/native integration coverage decodes both artifacts at
+      go/cmd/arcc/app/check_test.go:212-250 and
+      go/cmd/arcc/app/check_integration_test.go:95-265. The prior excluded-interface
+      case is covered end to end at check_integration_test.go:340-428, with surviving
+      files passed through check.go:356-364.
+  - text: "Verdict-only mode separates policy from execution"
+    status: pass
+    evidence: |
+      check.go:308-318 returns 0 after successful publication for either verdict and
+      returns 2 before display/publication for tool errors. The test matrix at
+      check_test.go:253-308 covers violating/fail and conforming/pass reports, plus a
+      loader-error exit of 2.
+  - text: "Ordinary CLI compatibility is preserved"
+    status: pass
+    evidence: |
+      Existing text/JSON rendering and ordinary 0/1/2 behavior remain in
+      go/cmd/arcc/app/app.go:121-145 and check.go:295-318. The existing suite covers
+      JSON/text behavior at app_test.go:594-683, and artifact-enabled ordinary exits
+      are covered at check_test.go:310-345.
+  - text: "SDK identity fails closed without changing Step 5 verdicts"
+    status: pass
+    evidence: |
+      Layout and native explicit-map validation is implemented at
+      go/cmd/arcc/app/check.go:522-548. The mismatch/match matrix is in
+      check_internal_test.go:63-191, and BUILD.bazel:33-54 now includes that test and
+      its schema/gen dependency in the Bazel app target. Integration coverage still
+      verifies corrupt and missing maps at check_integration_test.go:153-187. The map
+      contributes only the surface SDK key; checker decisions continue through the
+      existing findings path at check.go:242-267.
+  - text: "Artifact writes are deterministic and atomic"
+    status: pass
+    evidence: |
+      Production publication uses artifactio.WriteFileAtomic through the writer seam at
+      go/cmd/arcc/app/check.go:463-469. Determinism is asserted by check_test.go:392-425
+      and check_integration_test.go:143-151 and :234-265; write failure preserves the
+      previous target at check_test.go:358-390. Atomic helper mid-write coverage
+      remains in go/internal/artifactio/write_test.go:53-117.
+  - text: "Option validation is actionable"
+    status: pass
+    evidence: |
+      parseCheckOptions implements single-occurrence, empty-value, missing-value, and
+      incompatible-option checks at go/cmd/arcc/app/check.go:75-172. The matrix at
+      check_test.go:99-210 verifies named diagnostics, exit 2, and that the loader is
+      not invoked.
+  - text: "The temporary surface/check disagreement is documented"
+    status: pass
+    evidence: |
+      Generated help documents the exact-surface versus check-workaround split at
+      go/cmd/arcc/app/app.go:134-145. README.md:238-276 and the app FR10 contract at
+      app.go:4-6 carry the same Step 5 note, and README.md:229 restores the existing
+      --package-layout and --format=json synopsis alongside the new options.
+
+findings: []
+
+ecosystem_reviews: []
