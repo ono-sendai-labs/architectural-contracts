@@ -53,6 +53,17 @@ sh_test(
     ],
 )
 
+arcc_deps_aspect_test_suite(name = "arcc_deps_aspect_tests")
+
+go_component_test_suite(name = "go_component_tests")
+
+pattern_match_test_suite(name = "pattern_match_tests")
+
+transitioned_component_layout(
+    name = "darwin_arm64_layout",
+    component = "//bazel_rules/go/tests/testdata/api:api_component",
+)
+
 # Negative test for self-check dependency regression: a self-component declaration
 # with one declared dependency removed (//go/internal/report:report_component)
 # must fail its check and report UNDECLARED_DEPENDENCY and the undeclared import path.
