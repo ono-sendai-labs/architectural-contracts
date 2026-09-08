@@ -492,6 +492,11 @@ def go_component_impl(ctx, attachment_fn = go_attached_infra):
     report = None
     surface = None
     if layout:
+        # Every component takes the checked path here, `manual`-tagged ones
+        # included: that is deliberate until Task 5 introduces the asserted
+        # branch (Task 5 owns detecting the tag, auditing every current use,
+        # and migrating fixture-only uses). This transitional state is
+        # specified by Task 4 req 4, not a defect.
         dep_runfiles = depset(transitive = [
             dep[DefaultInfo].default_runfiles.files
             for dep in ctx.attr.component_deps
@@ -541,6 +546,9 @@ def go_component_impl(ctx, attachment_fn = go_attached_infra):
             contracts = contracts,
             surface = surface,
             report = report,
+            # Transitional (Task 4 req 4): "checked" for every producer,
+            # manual-tagged ones included, until Task 5's asserted branch
+            # splits manual components onto provenance = "asserted".
             provenance = "checked" if report != None else None,
         ),
     ]

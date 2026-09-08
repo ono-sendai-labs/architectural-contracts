@@ -123,7 +123,8 @@ checked_analysis_surface(
 sh_test(
     name = "transitioned_surface_sdk_key_test",
     srcs = ["transitioned_surface_sdk_key_test.sh"],
-    size = "medium",
+    size = "large",
+    timeout = "moderate",
     args = [
         "$(rootpath //:arcc)",
         "$(rootpath //:arcc_stdlib_map)",

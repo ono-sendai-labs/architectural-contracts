@@ -429,8 +429,10 @@ def _checked_action_command_impl(env, target):
 
     # The exact shared command (command.bzl), in report-verdict-only mode.
     # argv[0] is the generated frame wrapper; argv[1] the arcc tool path
-    # (execroot-relative, Bazel-managed); the rest is the factored command.
+    # (execroot-relative, Bazel-managed — the tool, never a toolchain
+    # binary); the rest is the factored command.
     argv = action.actual.argv
+    env.expect.that_str(argv[1].rsplit("/", 1)[-1]).equals("arcc")
     env.expect.that_str(argv[2]).equals("check")
     env.expect.that_str(argv[3]).equals(info.manifest.path)
     action.contains_flag_values([
@@ -463,6 +465,7 @@ def _checked_action_inputs_test(name):
 def _checked_action_inputs_impl(env, target):
     info = target[ArccComponentInfo]
     action, raw = _checked_action(env, target)
+    argv = raw.argv
 
     # Step 5 transition inputs (AC 5): manifest, layout, today's source and
     # runfile closure, SDK sources, stdlib map, and the direct dependency's
@@ -488,37 +491,57 @@ def _checked_action_inputs_impl(env, target):
         "api_component.surface.json",
     ])
 
-    # The transition input set is exact (AC 5): every input is either a
-    # closure source, one of the component's/dependency's manifest, layout,
-    # map or producer artifacts, or an SDK source under the layout's
-    # go_sdk_root repository. Anything else — export data, host caches,
-    # toolchain binaries, an undeclared host file — fails here.
+    # The transition input set is exact (AC 5), asserted in both directions
+    # from a specification-derived expectation, never from the action under
+    # test: the expected non-SDK set is built from the provider's closure,
+    # the component's own manifest/layout (declared outputs), the dependency
+    # manifest/layout/producer artifacts (named by the manifest convention),
+    # and the default seam's map artifact — then every action input outside
+    # the SDK must be in it, and every expected file must be an input.
     sdk_frame_prefix = _sdk_repo_prefix(env, target)
     non_sdk_inputs = [
         f.basename
         for f in raw.inputs.to_list()
         if not f.short_path.startswith("../" + sdk_frame_prefix)
     ]
+
     expected_basenames = {}
-    for basename in non_sdk_inputs:
-        expected_basenames[basename] = True
     for src in info.closure.to_list():
         for s in src.srcs:
             expected_basenames[s.basename] = True
-    expected_basenames["api_component.component.textproto"] = True
-    expected_basenames["api_component.package-layout.json"] = True
-    expected_basenames[_stdlib_map_path(env, raw).rsplit("/", 1)[-1]] = True
-    expected_basenames["shared_component.component.textproto"] = True
-    expected_basenames["shared_component.package-layout.json"] = True
-    expected_basenames["shared_component.report.json"] = True
-    expected_basenames["shared_component.surface.json"] = True
+    expected_basenames[info.manifest.basename] = True
+    expected_basenames[info.layout.basename] = True
+    expected_basenames["arcc_stdlib_map.stdlib-map.json"] = True
+    for manifest in info.transitive_manifests.to_list():
+        if manifest == info.manifest:
+            continue
+        dep_stem = manifest.basename[:-len(".component.textproto")]
+        expected_basenames[manifest.basename] = True
+        expected_basenames[dep_stem + ".package-layout.json"] = True
+        expected_basenames[dep_stem + ".report.json"] = True
+        expected_basenames[dep_stem + ".surface.json"] = True
 
     unexpected = [
         basename
         for basename in non_sdk_inputs
         if not expected_basenames.get(basename)
+        # The arcc tool and its runfiles (the argv[1] executable, declared as
+        # a tool), the generated frame wrapper (the action's executable), and
+        # covered dependency sources — today's source/runfile closure, which
+        # AC 5 explicitly keeps in the transition set until Step 8.
+        and basename != argv[1].rsplit("/", 1)[-1]
+        and basename != "arcc.runfiles"
+        and basename != argv[0].rsplit("/", 1)[-1]
+        and not basename.endswith(".go")
     ]
     env.expect.that_collection(unexpected).contains_exactly([])
+    input_set = {basename: True for basename in non_sdk_inputs}
+    missing = [
+        basename
+        for basename in sorted(expected_basenames.keys())
+        if not input_set.get(basename)
+    ]
+    env.expect.that_collection(missing).contains_exactly([])
 
     # Explicit negatives over the non-SDK inputs (AC 5): no export data, no
     # host/toolchain caches, no toolchain binary in the declared inputs.
