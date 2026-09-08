@@ -157,7 +157,7 @@ func LoadSurfaceInputs(req LoadRequest) (SurfaceInputs, error) {
 	sort.Strings(memberPaths)
 	sort.Strings(sourcePaths)
 
-	ifaceASTs, info, err := collectInterfaceDeclarations(members, req.ComponentRoot, req.InterfaceFiles, sourceRoot)
+	ifaceASTs, info, err := collectInterfaceDeclarations(members, interfaceFileRoot(req.ComponentRoot), req.InterfaceFiles, sourceRoot)
 	if err != nil {
 		return SurfaceInputs{}, err
 	}
@@ -168,6 +168,18 @@ func LoadSurfaceInputs(req LoadRequest) (SurfaceInputs, error) {
 		MemberPackages: memberPaths,
 		SourcePaths:    sourcePaths,
 	}, nil
+}
+
+// interfaceFileRoot is the directory declared interface files resolve
+// against, mirroring ValidateInterfaceFiles: natively that is the component
+// root (the manifest's directory); in layout mode the frame is the driver's
+// working directory, because Bazel emitters write interface file paths
+// relative to the runfiles root, not the manifest's directory.
+func interfaceFileRoot(componentRoot string) string {
+	if packagelayout.IsLayoutMode() {
+		return packagelayout.GetActiveWorkspaceDir()
+	}
+	return componentRoot
 }
 
 // collectInterfaceDeclarations resolves each declared interface file to its

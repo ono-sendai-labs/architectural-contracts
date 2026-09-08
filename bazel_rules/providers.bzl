@@ -18,5 +18,13 @@ ArccComponentInfo = provider(
         "closure": "depset[struct], this component's member packages, " +
                    "which dependents subtract from their own closure (design §5.3)",
         "contracts": "depset[File], contract docs (Bazel-only metadata)",
+        "surface": "File, the component's canonical surface manifest " +
+                   "(<name>.surface.json), or None for a producer that emits none",
+        "report": "File, the component's canonical check report " +
+                  "(<name>.report.json), or None for a producer that emits none",
+        "provenance": "string, how the surface/report were produced: " +
+                      '"checked" (an ordinary analysis action ran arcc check), ' +
+                      '"asserted" (written without analysis), or None for a ' +
+                      "producer predating the surface axis",
     },
 )

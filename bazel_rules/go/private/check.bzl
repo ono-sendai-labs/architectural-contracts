@@ -57,6 +57,18 @@ def _launcher_content(argv, expect_violation):
         "",
     ])
 
+def _component_arcc_group(ctx):
+    """The component's `arcc` output group (report + surface), or an empty depset.
+
+    Staging the checked analysis artifacts into the test's runfiles builds the
+    component's analysis action — and transitively its direct dependencies'
+    producer chain — whenever the `.check` runs, even though the assertion
+    itself reads only the report verdict (design AC 4; Step 6 turns these
+    rules into pure report assertions).
+    """
+    output_groups = ctx.attr.component[OutputGroupInfo]
+    return getattr(output_groups, "arcc", depset())
+
 def _arcc_check_impl(ctx):
     info = ctx.attr.component[ArccComponentInfo]
 
@@ -79,6 +91,7 @@ def _arcc_check_impl(ctx):
     runfiles = ctx.runfiles(transitive_files = go_sdk_srcs(ctx))
     runfiles = runfiles.merge(ctx.attr.component[DefaultInfo].default_runfiles)
     runfiles = runfiles.merge(ctx.attr._arcc[DefaultInfo].default_runfiles)
+    runfiles = runfiles.merge(ctx.runfiles(transitive_files = _component_arcc_group(ctx)))
 
     return [DefaultInfo(executable = launcher, runfiles = runfiles)]
 

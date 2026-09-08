@@ -70,7 +70,8 @@
     "build_tags": [],
     "cgo_enabled": false,
     "goarch": "amd64",
-    "goos": "linux"
+    "goos": "linux",
+    "toolchain_version": "go1.26.4"
   },
   "roots": [
     "example.com/aspect/api",

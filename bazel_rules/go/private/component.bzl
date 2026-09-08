@@ -1,19 +1,27 @@
-"""The `_go_component` rule: manifest and package-layout generation.
+"""The `_go_component` rule: manifest and package-layout generation, plus the
+checked-component analysis action (Step 5 task 04).
 
-Everything here happens at analysis time; the only actions are the two writes.
-The rule classifies the union of the interface and declared member package
-closures into component-dep-covered and member packages (design §3.1, §4.8), emits the
-manifest arcc checks and the layout arcc loads through, and forwards the
-interface library's Go providers so the component target is usable as a
-`deps` entry.
+Everything here happens at analysis time. The write actions produce the
+manifest arcc checks and the layout arcc loads through, and the ArccCheck
+action runs the exact command the `.check` assertion rules run (command.bzl)
+in always-green report-verdict-only mode, publishing `<name>.report.json` and
+`<name>.surface.json` through `OutputGroupInfo(arcc)` — never as default
+outputs, so `bazel build //...` runs no component analysis unless asked. The
+rule classifies the union of the interface and declared member package
+closures into component-dep-covered and member packages (design §3.1, §4.8),
+and forwards the interface library's Go providers so the component target is
+usable as a `deps` entry.
 """
 
 load("//bazel_rules:authority.bzl", "ALL_AUTHORITIES")
 load("//bazel_rules:providers.bzl", "ArccComponentInfo")
-load("//bazel_rules/go:providers.bzl", "ArccPackageInfo")
+load("//bazel_rules/go:providers.bzl", "ArccPackageInfo", "ArccStdlibMapInfo")
 load(":aspect.bzl", "arcc_deps_aspect", "merge_by_importpath")
+load(":command.bzl", "arcc_check_argv")
 load(
     ":go_adapter.bzl",
+    "ARCC_TARGET",
+    "GO_CONTEXT_DATA_ATTRS",
     "GO_PROVIDERS",
     "GO_TOOLCHAINS",
     "forward_go_providers",
@@ -22,8 +30,12 @@ load(
     "go_importpath",
     "go_library_srcs",
     "go_sdk_root",
+    "go_sdk_srcs",
+    "go_stdlib_toolchain",
+    "go_target_mode",
 )
 load(":paths.bzl", "match_path", "runfiles_path")
+load(":stdlib_map.bzl", "stdlib_map_default_attr")
 
 def _relativize(target_path, base_dir):
     """`target_path` as seen from the directory `base_dir`."""
@@ -101,7 +113,7 @@ def _manifest_content(ctx, interface_files, component_deps, auto_attached_deps, 
 
     return "\n".join(lines) + "\n"
 
-def _layout_content(ctx, merged, roots, go_sdk_root, platform):
+def _layout_content(ctx, merged, roots, go_sdk_root, platform, target):
     packages = []
     for importpath in sorted(merged.keys()):
         pkg = merged[importpath]
@@ -132,12 +144,23 @@ def _layout_content(ctx, merged, roots, go_sdk_root, platform):
         "packages": packages,
     }
     if platform:
-        layout_data["platform"] = {
+        layout_platform = {
             "goos": platform.goos,
             "goarch": platform.goarch,
             "build_tags": sorted(platform.tags),
             "cgo_enabled": platform.cgo_enabled,
         }
+        # Pinning fields (docs/package-layout-schema.md §3): they must be
+        # omitted when empty — a present-but-empty toolchain_version is a
+        # validation error and a present-but-empty goexperiment pins
+        # GOEXPERIMENT=none. Non-empty, they pin the release/tool tags so the
+        # layout describes exactly the target SDK configuration whose
+        # stdlib map is attached to the analysis action (AC 6).
+        if target.toolchain_version:
+            layout_platform["toolchain_version"] = target.toolchain_version
+        if target.goexperiment:
+            layout_platform["goexperiment"] = target.goexperiment
+        layout_data["platform"] = layout_platform
 
     return json.encode_indent(
         layout_data,
@@ -165,6 +188,104 @@ def _classify(ctx, merged, effective_members, covered):
         # The checker reports the remaining frontier as UNDECLARED_DEPENDENCY.
 
     return sorted(members)
+
+def _shell_quote(arg):
+    """Shell-quote one argv element for a `run_shell` command (see check.bzl)."""
+    return "'" + arg.replace("'", "'\\''") + "'"
+
+def _frame_symlink_commands(files, workspace_name):
+    """Shell commands recreating the runfiles path frame in an action sandbox.
+
+    The manifest and layout name sources in the runfiles-root frame
+    (paths.bzl): `<workspace_name>/<short_path>` for main-repo files and
+    `<repo>/<stripped short_path>` for external-repo files. arcc resolves them
+    against its working directory, which in a Bazel action is the sandbox
+    execroot — a frame in which none of those names resolve as written.
+
+    Two symlink families repair that with declared inputs alone (no host
+    state, I5): `<workspace_name> -> .` recovers every main-repo path, and
+    one `<apparent repo name> -> external/<canonical repo name>` per external
+    repository the frame names recovers every external path. Both are derived
+    from the inputs themselves, so the command is deterministic.
+    """
+    external_repos = {}
+    for f in files:
+        short_path = f.short_path
+        if not short_path.startswith("../"):
+            continue
+        apparent = short_path[len("../"):].split("/")[0]
+        path_parts = f.path.split("/")
+        if len(path_parts) < 2 or path_parts[0] != "external":
+            fail(("component input %s names an external repository frame the action " +
+                  "sandbox does not stage; refusing to guess a symlink") % f.path)
+        canonical = path_parts[1]
+        external_repos[apparent] = "external/" + canonical
+
+    commands = ["ln -s . " + _shell_quote(workspace_name)]
+    for apparent in sorted(external_repos.keys()):
+        commands.append("ln -s %s %s" % (
+            _shell_quote(external_repos[apparent]),
+            _shell_quote(apparent),
+        ))
+    return commands
+
+def _checked_analysis_action(ctx, manifest, layout, closure_srcs, transitive_manifests, transitive_layouts, dep_artifacts, dep_runfiles, sdk_root_file):
+    """The checked-component analysis action (design R8, task reqs 1/3/5/6).
+
+    One ordinary action running the exact `arcc check` command the assertion
+    rules build (command.bzl), in always-green report-verdict-only mode:
+    violations are data in the report, tool errors (exit 2) fail the action.
+
+    Inputs are exactly the Step 5 transition set (task req 3): the manifest
+    and layout, today's source and runfile closure (including the direct
+    dependencies' own), the SDK sources today's loader reads, the declared
+    stdlib map, and the direct dependencies' report/surface artifacts as
+    ordering inputs (never parsed here — Step 7 replaces
+    `ResolveDependencyInterface`). Export data is not an input until Step 8.
+
+    Hermetic per I5: no host cache, no network (block-network), no toolchain
+    binary execution — the generator-free check loads sources through the
+    layout driver — and no environment at all, so the argv and the frame
+    symlinks above fully determine the action.
+    """
+    report = ctx.actions.declare_file(ctx.label.name + ".report.json")
+    surface = ctx.actions.declare_file(ctx.label.name + ".surface.json")
+
+    map_file = ctx.attr._stdlib_map[ArccStdlibMapInfo].map
+    argv = arcc_check_argv(
+        arcc = ctx.executable._arcc.path,
+        manifest = manifest.path,
+        layout = layout.path,
+        stdlib_map = map_file.path,
+        report_out = report.path,
+        surface_out = surface.path,
+        verdict_only = True,
+    )
+
+    frame_files = list(closure_srcs) + [sdk_root_file]
+    frame_files += transitive_manifests.to_list() + transitive_layouts.to_list()
+    frame_files += dep_runfiles.to_list()
+
+    command = "\n".join(
+        ["set -eu"] +
+        _frame_symlink_commands(frame_files, ctx.workspace_name) +
+        [" ".join([_shell_quote(arg) for arg in argv])],
+    ) + "\n"
+
+    ctx.actions.run_shell(
+        command = command,
+        inputs = depset(
+            direct = [manifest, layout, map_file] + list(closure_srcs) + list(dep_artifacts),
+            transitive = [go_sdk_srcs(ctx), transitive_manifests, transitive_layouts, dep_runfiles],
+        ),
+        tools = [ctx.executable._arcc],
+        outputs = [report, surface],
+        use_default_shell_env = False,
+        execution_requirements = {"block-network": "1"},
+        mnemonic = "ArccCheck",
+        progress_message = "Checking component %s" % ctx.label,
+    )
+    return report, surface
 
 def go_component_impl(ctx, attachment_fn = go_attached_infra):
     """Generates a component using the supplied adapter attachment function.
@@ -280,6 +401,7 @@ def go_component_impl(ctx, attachment_fn = go_attached_infra):
         layout = ctx.actions.declare_file(ctx.label.name + ".package-layout.json")
         layout_roots = sorted(list(effective_members.keys()))
         platform = go_build_platform(roots[0])
+        target_mode = go_target_mode(ctx)
         ctx.actions.write(
             output = layout,
             content = _layout_content(
@@ -288,6 +410,7 @@ def go_component_impl(ctx, attachment_fn = go_attached_infra):
                 roots = layout_roots,
                 go_sdk_root = go_sdk_root(ctx),
                 platform = platform,
+                target = target_mode,
             ),
         )
         direct_layouts = [layout]
@@ -336,6 +459,44 @@ def go_component_impl(ctx, attachment_fn = go_attached_infra):
 
     covered_or_member = {importpath: True for importpath in members}
 
+    # Direct checked dependencies' report/surface artifacts, declared as
+    # inputs of this component's analysis action (task req 3): building this
+    # component's analysis orders the dependency's producer chain (R8), but
+    # nothing parses them here — Step 7 replaces the dependency-interface
+    # resolution. Auto-attached infra components are checked components too.
+    dep_artifacts = []
+    for dep in ctx.attr.component_deps:
+        info = dep[ArccComponentInfo]
+        for artifact in (info.report, info.surface):
+            if artifact != None:
+                dep_artifacts.append(artifact)
+    for info in auto_attached_deps:
+        for artifact in (info.report, info.surface):
+            if artifact != None:
+                dep_artifacts.append(artifact)
+
+    report = None
+    surface = None
+    if layout:
+        dep_runfiles = depset(transitive = [
+            dep[DefaultInfo].default_runfiles.files
+            for dep in ctx.attr.component_deps
+        ] + [
+            target[DefaultInfo].default_runfiles.files
+            for target in auto_attached_targets
+        ])
+        report, surface = _checked_analysis_action(
+            ctx,
+            manifest = manifest,
+            layout = layout,
+            closure_srcs = closure_srcs,
+            transitive_manifests = transitive_manifests,
+            transitive_layouts = transitive_layouts,
+            dep_artifacts = dep_artifacts,
+            dep_runfiles = dep_runfiles,
+            sdk_root_file = go_stdlib_toolchain(ctx).root_file,
+        )
+
     base_runfiles = ctx.runfiles(
         files = closure_srcs,
         transitive_files = depset(transitive = [transitive_manifests, transitive_layouts]),
@@ -364,8 +525,17 @@ def go_component_impl(ctx, attachment_fn = go_attached_infra):
                 for importpath in sorted(covered_or_member.keys())
             ]),
             contracts = contracts,
+            surface = surface,
+            report = report,
+            provenance = "checked" if report != None else None,
         ),
     ]
+    if report != None:
+        # Lazy analysis (design §Build topology): the report and surface ride
+        # in the `arcc` output group, never in DefaultInfo, so `bazel build
+        # //...` runs no component analysis unless the group — or a consumer
+        # — requests it.
+        providers.append(OutputGroupInfo(arcc = depset([report, surface])))
     if interface:
         providers.extend(forward_go_providers(interface))
     return providers
@@ -402,6 +572,19 @@ GO_COMPONENT_ATTRS = {
     "declared_authority": attr.string_list(
         doc = "Ambient authority the component declares, from //bazel_rules:authority.bzl.",
     ),
+} | GO_CONTEXT_DATA_ATTRS | {
+    # The arcc binary the analysis action runs (exec configuration, like the
+    # stdlib-map generator: the target is described by declared inputs).
+    "_arcc": attr.label(
+        default = ARCC_TARGET,
+        executable = True,
+        cfg = "exec",
+        doc = "The arcc binary the checked analysis action runs.",
+    ),
+    # The stdlib authority map the analysis action passes to arcc, so the
+    # emitted surface is stamped with the exact target SDK key (task req 2,
+    # AC 6). The default seam is the adapter-overridable //:arcc_stdlib_map.
+    "_stdlib_map": stdlib_map_default_attr(),
 }
 
 go_component_rule = rule(
@@ -409,5 +592,7 @@ go_component_rule = rule(
     attrs = GO_COMPONENT_ATTRS,
     toolchains = GO_TOOLCHAINS,
     provides = [ArccComponentInfo],
-    doc = "Generates an arcc manifest and package layout for a Go component.",
+    doc = "Generates an arcc manifest and package layout for a Go component, " +
+          "and runs the checked-component analysis action whose report and " +
+          "surface ride in the `arcc` output group.",
 )
