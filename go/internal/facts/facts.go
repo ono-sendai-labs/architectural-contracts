@@ -12,8 +12,9 @@
 //     MemberSet — with validation and total deterministic comparison
 //     (refs.go, member.go).
 //   - What it requires: Constructed by the shell from static analysis or
-//     tests; holds no active logic or behaviors. Reference and import edges
-//     carry symbol.SymbolID identities only.
+//     tests; holds no active logic or behaviors. Reference edges carry only
+//     symbol.SymbolID referent identities (declaring-object rule); import
+//     edges carry the written canonical import path and its resolution state.
 //   - What it provides: The plain data representation of component facts used
 //     throughout the checker analysis.
 //   - Ambient Authority: This component is guaranteed-pure and holds no

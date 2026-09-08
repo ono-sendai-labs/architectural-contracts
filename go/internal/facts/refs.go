@@ -23,13 +23,44 @@ type SourceSite struct {
 	Line int
 }
 
-// CompareSourceSite totally orders two sites by file bytes, then line. Sites
-// of different components are not compared with each other.
+// CompareSourceSite totally orders two sites by file bytes, then line. The
+// line comparison uses explicit less/greater branches so the order stays
+// antisymmetric even for far-apart (or unvalidated) line values, where an
+// integer subtraction would overflow.
 func CompareSourceSite(a, b SourceSite) int {
 	if c := strings.Compare(a.File, b.File); c != 0 {
 		return c
 	}
-	return a.Line - b.Line
+	switch {
+	case a.Line < b.Line:
+		return -1
+	case a.Line > b.Line:
+		return 1
+	default:
+		return 0
+	}
+}
+
+// Validate checks that the site is a canonical component-relative position:
+// a non-empty relative slash path with no absolute prefix, no ".", "..",
+// empty (double-slash or trailing-slash) path elements, and a 1-based line.
+func (s SourceSite) Validate() error {
+	if s.File == "" {
+		return fmt.Errorf("source site: empty file")
+	}
+	if s.Line < 1 {
+		return fmt.Errorf("source site %q: line %d is not 1-based", s.File, s.Line)
+	}
+	if s.File == "." || strings.HasPrefix(s.File, "/") || strings.HasPrefix(s.File, `\`) {
+		return fmt.Errorf("source site %q is not a component-relative path", s.File)
+	}
+	for _, elem := range strings.Split(s.File, "/") {
+		switch elem {
+		case "", ".", "..":
+			return fmt.Errorf("source site %q is not a clean component-relative path", s.File)
+		}
+	}
+	return nil
 }
 
 // ReferenceKind classifies what kind of object a reference edge names, under
@@ -109,11 +140,8 @@ func (e ReferenceEdge) Validate() error {
 	if got := symbolIDPackage(id); got != e.ReferentPackage {
 		return fmt.Errorf("reference edge from %s: referent %s names package %q but edge records %q", e.FromPackage, id, got, e.ReferentPackage)
 	}
-	if e.Site.File == "" {
-		return fmt.Errorf("reference edge from %s to %s: empty site file", e.FromPackage, e.Referent)
-	}
-	if e.Site.Line < 1 {
-		return fmt.Errorf("reference edge from %s to %s: site line %d is not 1-based", e.FromPackage, e.Referent, e.Site.Line)
+	if err := e.Site.Validate(); err != nil {
+		return fmt.Errorf("reference edge from %s to %s: %w", e.FromPackage, e.Referent, err)
 	}
 	return nil
 }
@@ -262,11 +290,8 @@ func (e ImportEdge) Validate() error {
 	if err := symbol.ValidateCanonicalPath(e.ImportPath); err != nil {
 		return fmt.Errorf("import edge in %s: %w", e.ImportingPackage, err)
 	}
-	if e.Site.File == "" {
-		return fmt.Errorf("import edge in %s for %q: empty site file", e.ImportingPackage, e.ImportPath)
-	}
-	if e.Site.Line < 1 {
-		return fmt.Errorf("import edge in %s for %q: site line %d is not 1-based", e.ImportingPackage, e.ImportPath, e.Site.Line)
+	if err := e.Site.Validate(); err != nil {
+		return fmt.Errorf("import edge in %s for %q: %w", e.ImportingPackage, e.ImportPath, err)
 	}
 	return nil
 }

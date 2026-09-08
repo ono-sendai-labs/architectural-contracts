@@ -1,6 +1,8 @@
 package facts_test
 
 import (
+	"fmt"
+	"math"
 	"reflect"
 	"testing"
 
@@ -54,6 +56,10 @@ func TestReferenceEdgeValidation(t *testing.T) {
 		{"empty referent", refEdge(facts.RefFunc, "example.com/app/runner", "os", "", "run/runner.go", 1)},
 		{"empty from package", refEdge(facts.RefFunc, "", "os", "os.ReadFile", "run/runner.go", 1)},
 		{"empty file", refEdge(facts.RefFunc, "example.com/app/runner", "os", "os.ReadFile", "", 1)},
+		{"absolute site path", refEdge(facts.RefFunc, "example.com/app/runner", "os", "os.ReadFile", "/outside/member.go", 1)},
+		{"parent-traversing site path", refEdge(facts.RefFunc, "example.com/app/runner", "os", "os.ReadFile", "../outside.go", 1)},
+		{"dot component in site path", refEdge(facts.RefFunc, "example.com/app/runner", "os", "os.ReadFile", "run/./runner.go", 1)},
+		{"trailing slash site path", refEdge(facts.RefFunc, "example.com/app/runner", "os", "os.ReadFile", "run/runner.go/", 1)},
 		{"line below one", refEdge(facts.RefFunc, "example.com/app/runner", "os", "os.ReadFile", "run/runner.go", 0)},
 	}
 	for _, tc := range invalid {
@@ -140,6 +146,8 @@ func TestImportEdgeStates(t *testing.T) {
 		{"empty import path", importEdge("example.com/app/runner", "", facts.ImportResolved, "run/runner.go", 1)},
 		{"unknown resolution", importEdge("example.com/app/runner", "os", "maybe", "run/runner.go", 1)},
 		{"empty file", importEdge("example.com/app/runner", "os", facts.ImportResolved, "", 1)},
+		{"absolute site path", importEdge("example.com/app/runner", "os", facts.ImportResolved, "/outside/runner.go", 1)},
+		{"parent-traversing site path", importEdge("example.com/app/runner", "os", facts.ImportResolved, "../elsewhere.go", 1)},
 		{"line below one", importEdge("example.com/app/runner", "os", facts.ImportResolved, "run/runner.go", 0)},
 	}
 	for _, tc := range invalid {
@@ -213,4 +221,68 @@ func TestDeterministicOrdering(t *testing.T) {
 	if got := facts.SortImportEdges(nil); got != nil && len(got) != 0 {
 		t.Fatalf("SortImportEdges(nil) = %v, want empty", got)
 	}
+
+	// AC5 regression: the same referent observed at two distinct sites
+	// survives sort-then-dedup; only exact duplicates (same referent AND
+	// same site) collapse.
+	sameReferent := []facts.ReferenceEdge{
+		refEdge(facts.RefFunc, "example.com/app/a", "os", "os.ReadFile", "a/one.go", 7),
+		refEdge(facts.RefFunc, "example.com/app/a", "os", "os.ReadFile", "a/one.go", 7), // exact duplicate
+		refEdge(facts.RefFunc, "example.com/app/a", "os", "os.ReadFile", "a/two.go", 7), // distinct site
+		refEdge(facts.RefFunc, "example.com/app/a", "os", "os.ReadFile", "a/one.go", 8), // distinct site
+	}
+	dedupedSame := facts.DedupReferenceEdges(facts.SortReferenceEdges(sameReferent))
+	if len(dedupedSame) != 3 {
+		t.Fatalf("DedupReferenceEdges kept %d edges, want 3 (two distinct sites, one exact duplicate dropped): %v", len(dedupedSame), dedupedSame)
+	}
+	sites := map[string]int{}
+	for _, e := range dedupedSame {
+		sites[e.Site.File+":"+fmt.Sprint(e.Site.Line)]++
+	}
+	wantSites := []string{"a/one.go:7", "a/one.go:8", "a/two.go:7"}
+	for _, w := range wantSites {
+		if sites[w] != 1 {
+			t.Fatalf("site %s kept %d times, want exactly once; kept edges: %v", w, sites[w], dedupedSame)
+		}
+	}
+
+	sameReferentImports := []facts.ImportEdge{
+		importEdge("example.com/app/a", "os", facts.ImportResolved, "a/one.go", 3),
+		importEdge("example.com/app/a", "os", facts.ImportResolved, "a/one.go", 3), // exact duplicate
+		importEdge("example.com/app/a", "os", facts.ImportResolved, "a/two.go", 3), // distinct site
+	}
+	dedupedImportSites := facts.DedupImportEdges(facts.SortImportEdges(sameReferentImports))
+	if len(dedupedImportSites) != 2 {
+		t.Fatalf("DedupImportEdges kept %d edges, want 2 (distinct site preserved): %v", len(dedupedImportSites), dedupedImportSites)
+	}
+	if dedupedImportSites[0].Site.File != "a/one.go" || dedupedImportSites[1].Site.File != "a/two.go" {
+		t.Fatalf("import dedup lost a distinct site: %v", dedupedImportSites)
+	}
+}
+
+// The site comparator must be total over the whole int domain, not just the
+// validated 1..MaxInt range, so unvalidated values still sort without
+// overflow antisymmetry violations.
+func TestCompareSourceSiteTotality(t *testing.T) {
+	max := facts.SourceSite{File: "a", Line: math.MaxInt}
+	neg := facts.SourceSite{File: "a", Line: -1}
+	if facts.CompareSourceSite(max, neg) <= 0 {
+		t.Fatal("MaxInt line must sort after negative line without overflow")
+	}
+	// Antisymmetry for every pair of extremes.
+	for _, pair := range [][2]facts.SourceSite{
+		{max, neg},
+		{neg, max},
+		{facts.SourceSite{File: "a", Line: math.MaxInt}, facts.SourceSite{File: "a", Line: math.MinInt}},
+	} {
+		if facts.CompareSourceSite(pair[0], pair[1]) != -facts.CompareSourceSite(pair[1], pair[0]) {
+			t.Fatalf("comparator violates antisymmetry for %+v vs %+v", pair[0], pair[1])
+		}
+	}
+	// A consistent sort over shuffled extreme values terminates and is deterministic.
+	edges := []facts.ReferenceEdge{
+		{Kind: facts.RefFunc, FromPackage: "p", ReferentPackage: "q", Referent: "q.A", Site: facts.SourceSite{File: "a", Line: math.MaxInt}},
+		{Kind: facts.RefFunc, FromPackage: "p", ReferentPackage: "q", Referent: "q.A", Site: facts.SourceSite{File: "a", Line: math.MinInt}},
+	}
+	facts.SortReferenceEdges(edges)
 }
