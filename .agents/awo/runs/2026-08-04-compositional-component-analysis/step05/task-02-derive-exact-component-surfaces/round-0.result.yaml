@@ -1,0 +1,90 @@
+result:
+  task_file: .agents/tasks/2026-08-04-compositional-component-analysis/step05/task-02-derive-exact-component-surfaces.code-task.md
+  change_id: notrkpyn
+  status: completed
+  schema_version: 2
+  produced_at: 2026-09-08T04:04:42Z
+
+acceptance_criteria:
+  - text: "Declared surfaces are exact"
+    addressed: yes
+    evidence: |
+      go/internal/surface/derive_test.go TestDerive_DeclaredInterfaceExact pins the
+      exact ExtractSurface output over the surviving interface file (funcs, types,
+      const/var, alias expansion, generic method, interface) and asserts the
+      workaround-only concrete method "(example.com/dep.impl).Greet" (declared in a
+      non-interface member file) is absent; output sorted and duplicate-free.
+      Implementation: symbol.ExtractSurface invoked in derive.go:126-136.
+  - text: "Package surfaces contain packages, not symbols"
+    addressed: yes
+    evidence: |
+      derive_test.go TestDerive_PackageSurface: PACKAGE_SURFACE derive yields
+      packages ["example.com/a" "example.com/b"] from duplicated, shuffled member
+      input and empty symbols; dependency packages never enter because the input
+      boundary only carries MemberPackages.
+  - text: "Every emitted surface is fully identified"
+    addressed: yes
+    evidence: |
+      derive_test.go TestDerive_IdentityFields asserts format version 1, component,
+      interface style, DECLARED{FILES} and UNKNOWN authority round-trips, namespace,
+      complete SDK key, producer version, and 64-char digest.
+      TestDerive_IncompleteSDKKeyFailsClosed covers missing toolchain/goos/goarch/
+      classifier_hash/map_format_version and nil key — all fail closed
+      (derive.go sdkKeyProto).
+  - text: "Digest tracks only semantic producer inputs"
+    addressed: yes
+    evidence: |
+      digest_test.go TestDigestSensitiveToProducerInputs: digest changes when member
+      source bytes, the member set, manifest bytes, namespace, producer version, or
+      SDK key change. TestDigestInsensitiveToEnumerationOrder: reordering identical
+      sources is digest-neutral. Exclusion of dependency/test/unrelated files is
+      structural and tested in artifactio/surfacepath_test.go
+      TestReadSourcesReadsOnlyRequestedPaths (only supplied member paths are read).
+      Implementation: surface/digest.go computeDigest (length-prefixed, sources
+      sorted by path).
+  - text: "Emission is deterministic"
+    addressed: yes
+    evidence: |
+      derive_test.go TestDerive_DeterministicBytes: two derives with independently
+      ordered inputs marshal (artifactio.MarshalSurface) to identical bytes. All
+      emitted collections are sorted/deduped (canonicalPaths, ExtractSurface, and
+      MarshalSurface normalization).
+  - text: "The Step 5 semantic gap is explicit and contained"
+    addressed: yes
+    evidence: |
+      Behavioral leg: no check-path code was changed and the full goanalysis
+      implements-closure test suite stays green (go test ./... and `just ci` PASS,
+      incl. //go/internal/goanalysis:goanalysis_component.check). Non-behavioral
+      leg, verified by inspection: goanalysis/goanalysis.go:1353-1360 carries the
+      prominent "STEP 5-ONLY SEMANTIC GAP" comment on ResolveDependencyInterface;
+      the surface package doc (derive.go:1-17) documents the same disagreement.
+  - text: "Native paths are conventional"
+    addressed: yes
+    evidence: |
+      artifactio/surfacepath_test.go TestSurfacePathConvention pins extension
+      replacement: "store.component.textproto" -> "store.component.surface.json" /
+      "store.component.report.json"; "dep.json" -> "dep.surface.json"/
+      "dep.report.json". Implementation artifactio/surfacepaths.go SurfacePath/
+      ReportPath. No manifest field introduced (inspection: proto component.proto
+      contains no surface-path field); WriteSurface uses MarshalSurface +
+      WriteFileAtomic.
+
+artifacts:
+  scratchpad_dir: .agents/scratchpad/2026-08-04-compositional-component-analysis/step05/task-02-derive-exact-component-surfaces/
+  files:
+    - context.md
+    - plan.md
+    - progress.md
+    - work.log
+    - result.yaml
+
+notes: |
+  Implemented the pure surface-emission package (go/internal/surface: Derive +
+  digest) and the shell-side helpers in artifactio (SurfacePath/ReportPath/
+  WriteSurface/ReadSources), registering surface as an authority-free component
+  with BUILD and component.textproto metadata and adding the prominent Step 5
+  disagreement comment on ResolveDependencyInterface. The check path, SSA/VTA,
+  Capslock and the implements-closure workaround are untouched. Two incremental
+  jj changes were produced (wlmmzkqr, notrkpyn); `just ci` passes end to end,
+  including the new surface self-check and Bazel legs. The Step 5 wiring into
+  `arcc check` itself remains with task-03 as scoped.

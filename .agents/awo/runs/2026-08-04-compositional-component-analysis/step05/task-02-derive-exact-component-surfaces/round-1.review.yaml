@@ -1,0 +1,126 @@
+review:
+  task_file: .agents/tasks/2026-08-04-compositional-component-analysis/step05/task-02-derive-exact-component-surfaces.code-task.md
+  change_id: sxyrlvttmuyytwtzknttztznkvmzwtpz
+  reviewed_at: 2026-09-08T04:21:04Z
+  verdict: approved
+  schema_version: 2
+  lsp_coverage: unavailable
+
+merge_request:
+  title: "feat(surface): derive exact component surfaces [Compositional Surfaces: Step 05/Task 02]"
+  body: |
+    Reviews the complete ordered task series. The initial change
+    wlmmzkqrxkllzrlovokxtwrzwylrypop adds the pure surface Derive API,
+    exact SymbolID extraction, digest implementation, tests, and component
+    metadata. The subsequent change notrkpynlqrrmvuxmkznrzpvluzuosok adds the
+    artifactio path conventions, atomic writer, filesystem source adapter,
+    metadata/self-check wiring, and the required Step 5 semantic-gap comment.
+    The fresh child change sxyrlvttmuyytwtzknttztznkvmzwtpz adds the FR10
+    contract updates, SDK build-tag canonicalization and validation, regression
+    coverage, and the corrected self-check comment.
+
+summary: |
+  All prior important and suggestion findings are addressed in the fresh child
+  change: both affected packages now have accurate FR10 contracts, Derive sorts
+  and rejects duplicate SDK build tags with regression coverage, and the
+  justfile comment names the surface self-check. The complete series still
+  satisfies all seven acceptance criteria, preserves the legacy check path and
+  intentional Step 5 semantic gap, and introduces no regressions. The recorded
+  `just ci` pass was used because this review environment has no `go`
+  executable; LSP diagnostics were unavailable.
+
+acceptance_criteria:
+  - text: |
+      1. **Declared surfaces are exact**
+       - Given a declared-interface component with interface functions, types, fields/interface specs, aliases, generic methods, and a concrete method admitted only by the legacy implements workaround
+       - When its surface is derived
+       - Then it contains exactly the Step 3 extractor's declared `SymbolID`s, excludes the workaround-only concrete method, and is sorted and duplicate-free.
+    status: pass
+    evidence: |
+      `go/internal/surface/derive.go:128-134` invokes `symbol.ExtractSurface`
+      only on the supplied interface files, without resolver or closure
+      expansion. `go/internal/surface/derive_test.go:118-142` covers aliases,
+      generic methods, declared types and values, and asserts that the concrete
+      `(example.com/dep.impl).Greet` method is absent from the sorted result.
+  - text: |
+      2. **Package surfaces contain packages, not symbols**
+       - Given a `PACKAGE_SURFACE` component with multiple concrete members and a dependency closure
+       - When its surface is derived
+       - Then `packages` contains exactly its owned canonical member packages, `symbols` is empty, and dependency packages are absent.
+    status: pass
+    evidence: |
+      `go/internal/surface/derive.go:115-142` selects the package-surface enum,
+      canonicalizes only `MemberPackages`, and leaves symbols empty.
+      `go/internal/surface/derive_test.go:145-167` supplies shuffled duplicate
+      members and verifies `[example.com/a example.com/b]` with no symbols; the
+      API has no dependency-closure input.
+  - text: |
+      3. **Every emitted surface is fully identified**
+       - Given either interface style and a complete target configuration
+       - When the surface is encoded
+       - Then it carries the current format version, component, structural authority, namespace, complete SDK key, producer version, and a valid digest; incomplete target identity fails closed.
+    status: pass
+    evidence: |
+      `go/internal/surface/derive.go:136-151` populates all schema identity
+      fields and the digest. `go/internal/surface/derive.go:162-203` rejects a
+      nil or incomplete SDK key and canonicalizes its build tags.
+      `go/internal/surface/derive_test.go:169-248` verifies the identity fields,
+      both authority states, digest shape, and every incomplete-key case.
+  - text: |
+      4. **Digest tracks only semantic producer inputs**
+       - Given an unchanged component
+       - When the manifest or a member source changes
+       - Then the digest changes; changing a dependency source, a test file, an unrelated file, or only enumeration order leaves it unchanged.
+    status: pass
+    evidence: |
+      `go/internal/surface/digest.go:19-43` hashes sorted member source path/bytes,
+      manifest bytes, format version, namespace, SDK key, and producer version.
+      `go/internal/surface/digest_test.go:39-86` covers sensitivity and source
+      enumeration order. `go/internal/artifactio/surfacepaths.go:49-64` and
+      `go/internal/artifactio/surfacepath_test.go:47-75` establish the shell
+      boundary reads only caller-supplied member paths, so dependency, test, and
+      unrelated files cannot enter the digest input set.
+  - text: |
+      5. **Emission is deterministic**
+       - Given identical complete inputs in repeated runs and different map iteration orders
+       - When surfaces are derived and marshaled
+       - Then the bytes are identical.
+    status: pass
+    evidence: |
+      `go/internal/surface/derive_test.go:252-275` covers repeated derivation
+      and canonical marshaling. The round-1 regression test at
+      `go/internal/surface/derive_test.go:279-337` verifies reordered SDK build
+      tags produce the same canonical in-memory key and marshaled bytes, while
+      duplicate tags fail closed. `derive.go:236-242` sorts and deduplicates
+      packages, `symbol.ExtractSurface` supplies sorted/deduplicated symbols,
+      and the existing canonical encoder sorts all persisted repeated fields.
+  - text: |
+      6. **The Step 5 semantic gap is explicit and contained**
+       - Given the implements-closure fixture
+       - When both the current check and surface emission run
+       - Then the check retains its pre-Step 6 behavior, the surface remains exact, and code/docs identify this as the intentional Step 5-only disagreement.
+    status: pass
+    evidence: |
+      The fresh child changes no check-path implementation. The required
+      prominent comment remains at `go/internal/goanalysis/goanalysis.go:1352-1362`,
+      and the surface package documents the same rationale in its FR10 block
+      at `go/internal/surface/derive.go:11-17`. Existing resolver regression
+      tests remain intact, including the legacy concrete-implementation
+      expectations in `go/internal/goanalysis/dep_resolve_test.go:47-82`.
+  - text: |
+      7. **Native paths are conventional**
+       - Given a dependency manifest path
+       - When its companion artifact paths are derived
+       - Then the extension is deterministically replaced by `.surface.json` and `.report.json`, with no manifest field or caller-selected surface path introduced.
+    status: pass
+    evidence: |
+      `go/internal/artifactio/surfacepaths.go:14-34` implements the two
+      extension-replacement helpers without reading artifacts or adding a
+      manifest field. `surfacepath_test.go:27-45` covers extension and
+      no-extension paths. `WriteSurface` uses the existing canonical encoder
+      and atomic writer at `surfacepaths.go:36-46`, with behavior checked at
+      `surfacepath_test.go:77-115`.
+
+findings: []
+
+ecosystem_reviews: []

@@ -1,0 +1,184 @@
+review:
+  task_file: .agents/tasks/2026-08-04-compositional-component-analysis/step05/task-02-derive-exact-component-surfaces.code-task.md
+  change_id: notrkpynlqrrmvuxmkznrzpvluzuosok
+  reviewed_at: 2026-09-08T04:11:16Z
+  verdict: changes_requested
+  schema_version: 2
+  lsp_coverage: unavailable
+
+merge_request:
+  title: "feat(surface): derive exact component surfaces [Compositional Surfaces: Step 05/Task 02]"
+  body: |
+    Reviews the complete ordered task series. The initial change
+    wlmmzkqrxkllzrlovokxtwrzwylrypop adds the pure surface Derive API,
+    exact SymbolID extraction, digest implementation, tests, and component
+    metadata. The subsequent change notrkpynlqrrmvuxmkznrzpvluzuosok adds the
+    artifactio path conventions, atomic writer, filesystem source adapter,
+    metadata/self-check wiring, and the required Step 5 semantic-gap comment.
+
+summary: |
+  The ordered changes cover the seven behavioral and mixed acceptance criteria,
+  and the intentional Step 5 disagreement between emitted surfaces and the
+  legacy check workaround is correctly documented and preserved. The extra
+  goanalysis, manifestparity, and justfile edits are in scope and correct:
+  they respectively document the required gap and keep component dependency
+  parity and self-check coverage aligned. Changes are requested because the
+  new surface package lacks the required FR10 contract block and artifactio's
+  FR10 block is stale, while Derive also returns SDK build tags without
+  canonicalizing them despite promising a canonical SurfaceManifest.
+  The recorded `just ci` result is therefore accepted as evidence; this review
+  environment has no `go` executable for a fresh test rerun.
+
+acceptance_criteria:
+  - text: |
+      1. **Declared surfaces are exact**
+       - Given a declared-interface component with interface functions, types, fields/interface specs, aliases, generic methods, and a concrete method admitted only by the legacy implements workaround
+       - When its surface is derived
+       - Then it contains exactly the Step 3 extractor's declared `SymbolID`s, excludes the workaround-only concrete method, and is sorted and duplicate-free.
+    status: pass
+    evidence: |
+      `go/internal/surface/derive.go:109-115` invokes `symbol.ExtractSurface`
+      only on the supplied interface files, without any resolver or closure
+      expansion. `go/internal/surface/derive_test.go:118-142` covers aliases,
+      generic methods, declared types and values, and asserts that the concrete
+      `(example.com/dep.impl).Greet` method is absent from the sorted result.
+  - text: |
+      2. **Package surfaces contain packages, not symbols**
+       - Given a `PACKAGE_SURFACE` component with multiple concrete members and a dependency closure
+       - When its surface is derived
+       - Then `packages` contains exactly its owned canonical member packages, `symbols` is empty, and dependency packages are absent.
+    status: pass
+    evidence: |
+      `go/internal/surface/derive.go:96-123` selects the package-surface enum,
+      canonicalizes only `MemberPackages`, and leaves symbols empty.
+      `go/internal/surface/derive_test.go:145-167` supplies shuffled duplicate
+      members and verifies `[example.com/a example.com/b]` with no symbols; the
+      API has no dependency-closure input.
+  - text: |
+      3. **Every emitted surface is fully identified**
+       - Given either interface style and a complete target configuration
+       - When the surface is encoded
+       - Then it carries the current format version, component, structural authority, namespace, complete SDK key, producer version, and a valid digest; incomplete target identity fails closed.
+    status: pass
+    evidence: |
+      `go/internal/surface/derive.go:117-132` populates all schema identity
+      fields and the digest. `go/internal/surface/derive.go:143-175` rejects a
+      nil or incomplete SDK key. `go/internal/surface/derive_test.go:169-248`
+      verifies the identity fields, both authority states, digest shape, and
+      every incomplete-key case.
+  - text: |
+      4. **Digest tracks only semantic producer inputs**
+       - Given an unchanged component
+       - When the manifest or a member source changes
+       - Then the digest changes; changing a dependency source, a test file, an unrelated file, or only enumeration order leaves it unchanged.
+    status: pass
+    evidence: |
+      `go/internal/surface/digest.go:19-43` hashes sorted member source path/bytes,
+      manifest bytes, format version, namespace, SDK key, and producer version.
+      `go/internal/surface/digest_test.go:39-86` covers sensitivity and source
+      enumeration order. `go/internal/artifactio/surfacepaths.go:49-64` and
+      `go/internal/artifactio/surfacepath_test.go:47-75` establish the shell
+      boundary reads only caller-supplied member paths, so dependency, test, and
+      unrelated files cannot enter the digest input set.
+  - text: |
+      5. **Emission is deterministic**
+       - Given identical complete inputs in repeated runs and different map iteration orders
+       - When surfaces are derived and marshaled
+       - Then the bytes are identical.
+    status: pass
+    evidence: |
+      `go/internal/surface/derive_test.go:252-275` compares repeated derivation
+      and canonical marshaling; `derive.go:198-204` sorts and deduplicates
+      packages, while `symbol.ExtractSurface` supplies sorted/deduplicated
+      symbols. The existing canonical encoder also sorts packages, symbols,
+      authority capabilities, and SDK build tags before writing
+      (`go/internal/artifactio/surface.go:65-84`). Source-order determinism is
+      covered by `digest_test.go:69-86`.
+  - text: |
+      6. **The Step 5 semantic gap is explicit and contained**
+       - Given the implements-closure fixture
+       - When both the current check and surface emission run
+       - Then the check retains its pre-Step 6 behavior, the surface remains exact, and code/docs identify this as the intentional Step 5-only disagreement.
+    status: pass
+    evidence: |
+      The current check implementation is unchanged. The required prominent
+      comment is at `go/internal/goanalysis/goanalysis.go:1352-1362`, and the
+      pure surface package repeats the design rationale at
+      `go/internal/surface/derive.go:11-17`. Existing resolver regression tests
+      remain intact (including the legacy concrete-implementation expectations
+      in `go/internal/goanalysis/dep_resolve_test.go:47-82`), while the exact
+      emission fixture is at `derive_test.go:118-142`.
+  - text: |
+      7. **Native paths are conventional**
+       - Given a dependency manifest path
+       - When its companion artifact paths are derived
+       - Then the extension is deterministically replaced by `.surface.json` and `.report.json`, with no manifest field or caller-selected surface path introduced.
+    status: pass
+    evidence: |
+      `go/internal/artifactio/surfacepaths.go:14-34` implements the two
+      extension-replacement helpers without reading artifacts or adding a
+      manifest field. `surfacepath_test.go:27-45` covers extension and no-extension
+      paths. `WriteSurface` uses the existing canonical encoder and atomic writer
+      at `surfacepaths.go:36-46`, with behavior checked at `surfacepath_test.go:77-115`.
+
+findings:
+  - severity: important
+    category: style
+    file: go/internal/surface/derive.go
+    line: 1
+    title: "Surface package is missing its FR10 contract block"
+    details: |
+      The new non-test `surface` package has a package comment, but it does not
+      contain the repository-mandated `Component Contract (FR10)` block. The
+      authoritative coding-style summary states that every non-test package,
+      especially every new package, must document what it does, requires,
+      provides, and its ambient authority. The package is also registered as a
+      component in `go/internal/surface/component.textproto`, so this is a
+      missing contract for a checked component, not merely an optional comment.
+      In addition, `go/internal/artifactio/artifactio.go:5-23` was not updated
+      to describe the newly added `SurfacePath`, `ReportPath`, `ReadSources`,
+      and `WriteSurface` responsibilities or its dependency on the surface
+      model.
+    suggested_action: |
+      Add the standard FR10 block to the `surface` package comment, describing
+      the pure Derive/digest API and its explicit inputs, and update artifactio's
+      FR10 block to include the new path, source-reading, and surface-writing
+      APIs and their filesystem authority.
+    source: built-in
+  - severity: important
+    category: acceptance_criteria
+    file: go/internal/surface/derive.go
+    line: 166
+    title: "Derive does not canonicalize SDK build tags"
+    details: |
+      `Input` promises at `go/internal/surface/derive.go:41-43` that collections
+      may arrive in any order and that the output is canonical, but
+      `sdkKeyProto` copies `k.BuildTags` at lines 166-174 without sorting or
+      rejecting duplicates. A direct caller therefore receives a non-canonical
+      `SurfaceManifest` whose SDK-key collection depends on input order; a
+      duplicate tag instead yields a manifest that `artifactio.MarshalSurface`
+      later rejects (`go/internal/artifactio/surface.go:117-120`). The writer's
+      normalization makes serialized bytes stable, but it does not make the
+      result returned by `Derive` canonical and leaves invalid input to fail at a
+      later boundary.
+    suggested_action: |
+      Canonicalize the SDK key during derivation by cloning, sorting, and
+      validating `BuildTags` (or fail closed on duplicate tags), and add a test
+      that derives and marshals keys with reordered and duplicate build tags.
+    source: built-in
+  - severity: suggestion
+    category: style
+    file: justfile
+    line: 38
+    title: "Self-check component comment omits surface"
+    details: |
+      The new self-check command at `justfile:65` correctly runs the surface
+      component, but the explanatory component list at `justfile:38-40` still
+      omits `surface` while claiming to enumerate the components checked by
+      that recipe.
+    suggested_action: |
+      Add `surface` to the self-check list so the comment remains aligned with
+      the recipe and the component metadata.
+    source: built-in
+
+ecosystem_reviews: []

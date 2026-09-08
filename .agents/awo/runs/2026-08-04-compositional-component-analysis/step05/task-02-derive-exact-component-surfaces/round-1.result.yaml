@@ -1,0 +1,80 @@
+result:
+  task_file: .agents/tasks/2026-08-04-compositional-component-analysis/step05/task-02-derive-exact-component-surfaces.code-task.md
+  change_id: sxyrlvtt
+  status: completed
+  schema_version: 2
+  produced_at: 2026-09-08T04:19:07Z
+
+acceptance_criteria:
+  - text: "Declared surfaces are exact"
+    addressed: yes
+    evidence: |
+      go/internal/surface/derive_test.go TestDerive_DeclaredInterfaceExact pins the
+      exact ExtractSurface output over the surviving interface file (funcs, types,
+      const/var, alias expansion, generic method, interface) and asserts the
+      workaround-only concrete method "(example.com/dep.impl).Greet" is absent;
+      output sorted and duplicate-free. Implementation: symbol.ExtractSurface
+      invoked in derive.go's declared-interface branch.
+  - text: "Package surfaces contain packages, not symbols"
+    addressed: yes
+    evidence: |
+      derive_test.go TestDerive_PackageSurface: PACKAGE_SURFACE derive yields
+      packages ["example.com/a" "example.com/b"] from duplicated, shuffled member
+      input and empty symbols; the API has no dependency-closure input.
+  - text: "Every emitted surface is fully identified"
+    addressed: yes
+    evidence: |
+      derive_test.go TestDerive_IdentityFields asserts format version 1, component,
+      interface style, DECLARED{FILES} and UNKNOWN authority round-trips, namespace,
+      complete SDK key, producer version, and 64-char digest.
+      TestDerive_IncompleteSDKKeyFailsClosed covers every incomplete-key case and
+      nil key — all fail closed (derive.go sdkKeyProto).
+  - text: "Digest tracks only semantic producer inputs"
+    addressed: yes
+    evidence: |
+      digest_test.go TestDigestSensitiveToProducerInputs and
+      TestDigestInsensitiveToEnumerationOrder; artifactio/surfacepath_test.go
+      TestReadSourcesReadsOnlyRequestedPaths proves the shell boundary reads only
+      supplied member paths. Implementation: surface/digest.go computeDigest.
+  - text: "Emission is deterministic"
+    addressed: yes
+    evidence: |
+      derive_test.go TestDerive_DeterministicBytes plus (round 1)
+      TestDerive_CanonicalizesSDKBuildTags, which pins byte-identical marshaled
+      output across SDK build-tag input orders. MarshalSurface normalization
+      remains the final canonical encoder.
+  - text: "The Step 5 semantic gap is explicit and contained"
+    addressed: yes
+    evidence: |
+      No check-path code changed; full goanalysis suite green (just ci PASS,
+      incl. //go/internal/goanalysis:goanalysis_component.check). Inspection:
+      "STEP 5-ONLY SEMANTIC GAP" comment on ResolveDependencyInterface
+      (goanalysis.go) and the same rationale in surface's package doc; the FR10
+      block added in round 1 restates that Derive never touches the check path.
+  - text: "Native paths are conventional"
+    addressed: yes
+    evidence: |
+      artifactio/surfacepath_test.go TestSurfacePathConvention pins extension
+      replacement for .surface.json / .report.json; WriteSurface uses
+      MarshalSurface + WriteFileAtomic; no manifest field introduced
+      (component.proto has no surface-path field).
+
+artifacts:
+  scratchpad_dir: .agents/scratchpad/2026-08-04-compositional-component-analysis/step05/task-02-derive-exact-component-surfaces/
+  files:
+    - context.md
+    - plan.md
+    - progress.md
+    - work.log
+    - review.yaml
+    - result.yaml
+
+notes: |
+  Rework round 1 addressed all review findings as a fresh child change
+  (sxyrlvtt) on top of the untouched task series (wlmmzkqr, notrkpyn):
+  Derive now sorts and validates SDK build tags at the API boundary with a
+  duplicate-tag fail-closed error and a new ordering/duplicate test; the
+  surface package gained its mandated FR10 Component Contract block; artifactio's
+  FR10 block now covers the new path-convention, source-reading, and
+  surface-writing APIs and its surface dependency; and the justfile self-check
+  comment names the surface component. Full `just ci` passes end to end.
