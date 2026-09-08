@@ -86,32 +86,27 @@ func TestScanAnalysisDefeatsFindsEveryBypass(t *testing.T) {
 // TestScanAnalysisDefeatsMalformedIgnoredFileFailsClosed pins that a declared
 // member file which does not parse as Go source fails the scan instead of
 // yielding a partial-AST success that could miss a bypass outside the
-// recoverable portion.
+// recoverable portion. The malformed source is written out at test time
+// (into a TempDir, under a .go name) and presented through a synthetic
+// declared package: no unparseable .go file may be checked into the tree,
+// because the repository's formatting gate runs gofmt over it.
 func TestScanAnalysisDefeatsMalformedIgnoredFileFailsClosed(t *testing.T) {
-	root, err := filepath.Abs(bypRoot)
-	if err != nil {
-		t.Fatalf("failed to resolve byp fixture root: %v", err)
+	dir := t.TempDir()
+	badFile := filepath.Join(dir, "ignored_bad.go")
+	badSource := "package broken\n\nfunc Bad( { this is not Go\n"
+	if err := os.WriteFile(badFile, []byte(badSource), 0o444); err != nil {
+		t.Fatalf("failed to write malformed fixture: %v", err)
 	}
-	brokenMember := bypMember[:strings.LastIndex(bypMember, "/")] + "/broken"
-	cfg := &packages.Config{
-		Mode: packages.NeedName | packages.NeedFiles | packages.NeedCompiledGoFiles |
-			packages.NeedImports | packages.NeedDeps | packages.NeedSyntax |
-			packages.NeedTypes | packages.NeedTypesInfo,
-		Dir: root,
-		Env: hermeticLoadEnv(),
-	}
-	pkgs, err := packages.Load(cfg, brokenMember)
-	if err != nil {
-		t.Fatalf("failed to load broken member package: %v", err)
-	}
-	if packages.PrintErrors(pkgs) > 0 {
-		t.Fatalf("broken member package has load errors")
+	const brokenMember = "example.com/comp/broken"
+	pkg := &packages.Package{
+		PkgPath:      brokenMember,
+		IgnoredFiles: []string{badFile},
 	}
 	members, err := facts.NewMemberSet(brokenMember)
 	if err != nil {
 		t.Fatalf("invalid member set: %v", err)
 	}
-	got, err := goanalysis.ScanAnalysisDefeats(pkgs, members, root)
+	got, err := goanalysis.ScanAnalysisDefeats([]*packages.Package{pkg}, members, dir)
 	if err == nil {
 		t.Fatalf("malformed declared member file must fail the scan closed, got %+v", got)
 	}
