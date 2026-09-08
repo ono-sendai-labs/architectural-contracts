@@ -1,7 +1,8 @@
 # Implementation plan — compositional component analysis
 
 **Date:** 2026-08-04 · **Revised:** 2026-09-02 (post design review); 2026-09-07 (Step 4:
-layout-driver map generation and cgo scoping, design I5)
+layout-driver map generation and cgo scoping, design I5); 2026-09-08 (Step 5: asserted
+surfaces are package-level, design I6)
 **Design:** [`../design/detailed-design.md`](../design/detailed-design.md)
 **Decision record:** [`../idea-honing.md`](../idea-honing.md),
 [`../2026-09-02-design-review-response.md`](../2026-09-02-design-review-response.md)
@@ -238,7 +239,11 @@ surface yet.
   runfiles). Outputs `<name>.report.json`, `<name>.surface.json`; `OutputGroupInfo(arcc)`;
   `ArccComponentInfo` gains `surface`, `report`, `provenance`.
 - `manual`-tagged components (transitional stand-in for `UNKNOWN`) get an analysis-time
-  `ctx.actions.write` of an asserted surface and no action; `provenance = "asserted"`. This
+  `ctx.actions.write` of an asserted surface and no action; `provenance = "asserted"`. Per
+  design **I6** that surface is package-level: `Packages` from the layout, namespace, SDK
+  key, format and producer version, no symbols and the empty digest. A declared-interface
+  component cannot be asserted and fails at analysis time naming the target, so the one
+  genuine declared-interface `manual` fixture migrates to `PACKAGE_SURFACE`. This
   asserted branch lands with the asserted-surface producer, together with the audit of every
   current `manual` tag and the migration of the fixture-only uses; until it does, such
   components stay on the checked path. The analysis action and the asserted branch are

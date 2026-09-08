@@ -1,0 +1,113 @@
+result:
+  task_file: .agents/tasks/2026-08-04-compositional-component-analysis/step05/task-05-add-asserted-manual-surface-producer.code-task.md
+  change_id: null
+  status: escalated
+  schema_version: 2
+  produced_at: 2026-09-08T07:20:00Z
+
+acceptance_criteria:
+  - text: "Manual components are structurally asserted (canonical surface, report = None, provenance = \"asserted\", no component analysis action)"
+    addressed: no
+    evidence: |
+      Not implemented. The asserted producer's mechanism is undecided: the task
+      forbids both the analysis-time write req 2 prescribes (cannot compute exact
+      symbols/digest) and the execution an exact-content emitter would need.
+  - text: "Asserted surfaces have complete content (exact symbols/packages and identity metadata a checked emitter would derive, including digest)"
+    addressed: no
+    evidence: |
+      Unsatisfiable under req 2 as written. surface.Derive (go/internal/surface/derive.go:97-153)
+      takes types.Info from a go/packages type-checking load (goanalysis.LoadSurfaceInputs,
+      goanalysis/surfaceinputs.go:50-171) for declared-interface symbols and computes a
+      SHA-256 digest (go/internal/surface/digest.go:13-44). Bazel Starlark analysis has no
+      type information and no hashing primitive, so ctx.actions.write from rule-known data
+      cannot reproduce this content.
+  - text: "Provenance is not self-asserted by the file (no checked/asserted bit in the surface schema)"
+    addressed: no
+    evidence: |
+      Not reached; provider-level work was not started. The schema itself already
+      carries no provenance bit (go/internal/schema/gen/stdlibmap.pb.go:412).
+  - text: "Negative fixtures remain real analyses after migration"
+    addressed: no
+    evidence: |
+      The manual-tag audit is complete (scratchpad context.md inventories every tag and
+      classifies the fixture-only uses), but no migration was applied without the
+      producer-mechanism decision.
+  - text: "An asserted component cannot masquerade as checked (explicit .check fails clearly or is omitted)"
+    addressed: no
+    evidence: "Not reached; check.bzl was not modified."
+  - text: "Default builds remain lazy (no analysis without the arcc output group)"
+    addressed: no
+    evidence: "Not reached; component.bzl was not modified."
+
+artifacts:
+  scratchpad_dir: .agents/scratchpad/2026-08-04-compositional-component-analysis/step05/task-05-add-asserted-manual-surface-producer/
+  files:
+    - context.md
+    - plan.md
+    - progress.md
+    - work.log
+    - result.yaml
+
+escalation:
+  reason: spec_defect
+  details: |
+    Req 2 (task file line 23) mandates the asserted surface be produced with
+    `ctx.actions.write` (or an equivalent analysis-time deterministic write) "from data
+    already known to the rule", forbidding any arcc execution or component analysis
+    action. Req 1 + AC 2 (lines 22, 51-54) demand the asserted surface contain "the same
+    exact symbols/packages and identity metadata a checked emitter would derive from the
+    same inputs, including namespace, SDK key, format version, producer version, and
+    digest" — for both declared-interface and PACKAGE_SURFACE fixtures.
+
+    These two requirements are jointly unsatisfiable. The checked emitter's exact
+    content requires (1) `symbol.ExtractSurface` over type-checked interface files —
+    `surface.Derive` (go/internal/surface/derive.go:129-134) consumes `types.Info`
+    produced by goanalysis.LoadSurfaceInputs' full go/packages load
+    (goanalysis/surfaceinputs.go:72-77) — and (2) a SHA-256 digest over member source
+    bytes and manifest bytes (go/internal/surface/digest.go:13-44). Bazel Starlark
+    analysis has neither type information nor any hashing primitive, so no
+    analysis-time write from rule-known data can reproduce the required content. The
+    design's own prescription (DR-01, design-review-response.md:102-104) justifies the
+    analysis-time write only with "(packages are known from the layout)" and is silent
+    on declared-interface symbols and the digest — the task inherits both sides of the
+    gap. AC 2 additionally requires a declared-interface asserted fixture, which the
+    audit confirms exists (reportboundary/manual:manual_component, the only genuine
+    asserted component).
+
+    What was explored before escalating:
+    - Extending the Step 4 seam per req 5: ArccStdlibMapInfo
+      (bazel_rules/go/providers.bzl:11-22) lacks classifier_hash and
+      map_format_version, so even the complete SDK key is not assemblable in Starlark
+      today; that extension is implementable but cannot supply symbols or the digest,
+      which are component-specific.
+    - A dedicated deterministic non-arcc emitter action reusing surface.Derive: exact
+      and drift-free (req 5 satisfied by construction), but it is an execution that
+      type-checks member sources — contradicting req 2's mechanism and the design/plan's
+      "analysis-time ctx.actions.write" prescription, and re-coupling the asserted path
+      to analysis-time-scale work the design's asserted branch is meant to avoid.
+    - Starlark-computed content with text-approximate symbols and no digest: fails AC 2
+      outright and reintroduces the independently-drifting duplicate the design forbids.
+    - Restricting the transitional asserted path to PACKAGE_SURFACE and failing closed
+      on declared-interface manual components: narrows req 6 and leaves the genuine
+      manual_component fixture unplaceable.
+
+    Decision needed from the orchestrator (any of):
+    (a) Amend req 2 / design DR-01 to permit a dedicated deterministic asserted-surface
+        emitter action (non-arcc, no report, no verdict) reusing surface.Derive.
+    (b) Amend req 1/AC 2 so asserted surfaces carry analysis-time-derivable content
+        only, with explicitly defined asserted digest semantics (e.g. a documented
+        empty digest), accepting schema divergence from checked surfaces.
+    (c) Amend req 6 to fail closed on declared-interface manual components and move the
+        declared-interface asserted fixture to PACKAGE_SURFACE or to a later step.
+
+    No code was written and no commit was produced; the working copy is untouched.
+
+notes: |
+  Explored the task fully — task file, design (R8, I1, Build topology, surface manifest,
+  migration), DR-01/DR-13, host-import-friction, plan Step 5, and the task 04 state —
+  and completed the manual-tag audit into the scratchpad context.md. Implementation
+  halted at planning because req 2's analysis-time-write mechanism cannot produce the
+  exact-symbol, SHA-256-digest surface content req 1/AC 2 demand, a contradiction the
+  escalation policy requires be surfaced rather than silently resolved one way. The
+  scratchpad records the evidence, the three candidate resolutions, and the
+  unaffected-by-decision remainder of the plan so a corrected round can start quickly.

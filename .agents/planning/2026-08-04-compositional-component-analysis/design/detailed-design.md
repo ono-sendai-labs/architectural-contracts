@@ -1,7 +1,8 @@
 # Detailed design — compositional component analysis
 
 **Date:** 2026-08-04 · **Revised:** 2026-09-02 (post design review); 2026-09-07
-(hermetic map generation through the layout driver; cgo scoping — see I5)
+(hermetic map generation through the layout driver; cgo scoping — see I5); 2026-09-08
+(asserted surfaces are package-level — see I6)
 **Status:** design complete; implementation not started.
 **Baseline:** `dev-exp-go-bazel-mvp` @ `5011b726` (code unchanged through `cca66212`)
 **Inputs:** [`../rough-idea.md`](../rough-idea.md), [`../idea-honing.md`](../idea-honing.md),
@@ -101,7 +102,9 @@ response; Q-numbers cite the decision record, DR-numbers the review.
   the analysis, and its provenance MUST be established by the build graph (provider
   edge plus the accompanying report verdict), not by a flag inside the file. An
   **asserted** surface (for `authority: UNKNOWN`) MUST come from a distinct producer that
-  is structurally distinguishable from the checked one. (Q16, DR-01, DR-06)
+  is structurally distinguishable from the checked one, and MUST be package-level: it is an
+  assertion *about* a component, never a derivation *from* its code (I6). (Q16, DR-01,
+  DR-06, I6)
 - **R9.** `absorbed_dependencies` MUST be removed. Pattern (glob) membership MUST be
   removed with it: it can never be checked and Q7 already rejected wildcard membership.
   (Q4, Q7, DR-16)
@@ -162,6 +165,19 @@ response; Q-numbers cite the decision record, DR-numbers the review.
   SDK's `go` binary, its tool binaries, build caches and the network are never action
   inputs. Native mode is the only place arcc runs `go`. (DR-07; step 4 task 05
   escalation, 2026-09-07.)
+- **I6 (asserted surfaces are package-level).** An asserted surface is an assertion
+  *about* a component, never a derivation *from* its code, so it is produced without
+  loading, type-checking or hashing anything the component contains. It therefore carries
+  only what Bazel analysis already knows: `Packages` from the layout, `Namespace`,
+  `SdkKey`, `FormatVersion` and `ProducerVersion`. It has no `Symbols` and its digest is
+  the empty string, which records the absence of derived content rather than asserting
+  anything about it. Consequently an asserted component MUST be `PACKAGE_SURFACE`;
+  a declared-interface component cannot be asserted, and the producer fails at analysis
+  time naming the target. This is what makes the analysis-time `ctx.actions.write` of
+  DR-01 realisable: Starlark has neither type information nor a hashing primitive, so any
+  design requiring exact symbols or a content digest on an asserted surface would force
+  the asserted path back onto the analysis it exists to avoid. (DR-01; step 5 task 05
+  escalation, 2026-09-08.)
 
 ### Explicitly out of scope
 
@@ -245,7 +261,9 @@ flowchart LR
   of any `.check` builds the transitive analyses it depends on.
 - **`authority: UNKNOWN`** components have no analysis action. Their surface is written
   at analysis time from the layout (packages are known) and the provider marks
-  `provenance = ASSERTED`. During the transition, a `manual`-tagged component takes the
+  `provenance = ASSERTED`. Such a component MUST be `PACKAGE_SURFACE`; a
+  declared-interface component cannot be asserted, and the rule fails at analysis time
+  naming the target (I6). During the transition, a `manual`-tagged component takes the
   same path, preserving the host's current behaviour until the attribute replaces it.
 - **Native mode** gets `--report-out` and `--surface-out` on `arcc check`. Dependency
   surfaces are located by convention: `<dependency manifest path>` with its extension
@@ -391,6 +409,7 @@ fail-closed on key mismatch.
 ```go
 // Derived from the component's own manifest, layout and loaded member facts; needs no
 // scan. Written by the analysis action (checked) or at Bazel analysis time (asserted).
+// An asserted write is package-level and carries the empty digest (I6).
 type SurfaceManifest struct {
     FormatVersion  int
     Component      string
@@ -550,8 +569,10 @@ Duplicate observations of the same edge at the same site collapse to one.
 Packages are always concrete import paths in the emitter's namespace. For
 `PACKAGE_SURFACE` the surface is "everything exported by `Packages`"; for
 declared-interface style `Symbols` is the exact declared set with no implements-closure
-injection. An asserted surface differs from a checked one only in how it was produced
-and what provenance the consumer derives; the file schema is the same.
+injection. An asserted surface differs from a checked one in how it was produced and what
+provenance the consumer derives; the file schema is the same, but an asserted surface is
+always `PACKAGE_SURFACE` and carries the empty digest (I6). Consumers MUST NOT read an
+empty digest as a content claim: it records that no content was derived.
 
 ### Provenance, freshness and authority (DR-03, DR-06)
 
@@ -910,6 +931,19 @@ user (Q5).
 existing pattern membership is removed for the same reason (DR-16).
 
 **`UNANALYZED_PACKAGE_SURFACE` as a third `interface_style`.** Rejected (Q8).
+
+**A dedicated deterministic asserted-surface emitter action** (non-arcc, no report, no
+verdict) reusing `surface.Derive`, so that an asserted surface could carry exact symbols
+and a real content digest. Rejected by the user (2026-09-08, step 5 task 05 escalation):
+such an action loads and type-checks the component's member sources and hashes their
+bytes, so the resulting surface would be *derived from the code* — everything a checked
+run does except forming a verdict. That blurs the one distinction the asserted path
+exists to draw and re-couples it to analysis-time-scale work. Asserted surfaces are
+package-level instead (I6).
+
+**Asserted surfaces with text-approximate symbols and no digest**, computed in Starlark.
+Rejected in the same decision: it reintroduces the independently-drifting duplicate
+definition DR-01 forbids, without being exact.
 
 **Relaxing `MEMBER_OVERLAP`.** Rejected (Q11).
 
