@@ -285,6 +285,22 @@ func TestDecodeReport_EnforcesSizeLimitDirectly(t *testing.T) {
 	}
 }
 
+func TestUnmarshalJSON_EnforcesSizeLimit(t *testing.T) {
+	// Valid JSON over the cap: encoding/json invokes UnmarshalJSON only for
+	// syntactically valid top-level values, so the oversized fixture must
+	// parse before the size gate fires.
+	component := strings.Repeat("c", int(artifactio.MaxReportBytes))
+	oversized := `{"format_version":1,"verdict":"pass","report":{"component":"` + component + `"}}`
+	var persisted artifactio.PersistedReport
+	err := json.Unmarshal([]byte(oversized), &persisted)
+	if err == nil {
+		t.Fatal("json.Unmarshal() succeeded on oversized input, want error")
+	}
+	if !strings.Contains(err.Error(), "byte limit") {
+		t.Errorf("error = %v, want a size-limit diagnostic", err)
+	}
+}
+
 func TestDecodeReport_IgnoresUnknownFields(t *testing.T) {
 	data, err := artifactio.MarshalReport(report.ConformanceReport{Component: "c"})
 	if err != nil {

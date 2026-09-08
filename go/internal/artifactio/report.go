@@ -89,6 +89,12 @@ func (p *PersistedReport) unmarshal(data []byte) error {
 // verdict is checked against the re-derived one. Unknown fields are ignored
 // for forward compatibility (DR-15).
 func decodePersistedReport(data []byte) (PersistedReport, error) {
+	// The shared parser is the single size gate: it covers DecodeReport and
+	// the public json.Unmarshal path (UnmarshalJSON), so no decoding
+	// invocation escapes MaxReportBytes.
+	if len(data) > MaxReportBytes {
+		return PersistedReport{}, fmt.Errorf("decode report artifact: size %d exceeds the %d byte limit", len(data), MaxReportBytes)
+	}
 	var raw struct {
 		FormatVersion *int             `json:"format_version"`
 		Verdict       *string          `json:"verdict"`
