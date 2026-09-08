@@ -236,6 +236,17 @@ def _checked_analysis_action(ctx, manifest, layout, closure_srcs, transitive_man
     rules build (command.bzl), in always-green report-verdict-only mode:
     violations are data in the report, tool errors (exit 2) fail the action.
 
+    The executable is a generated frame-setting wrapper: it recreates the
+    runfiles path frame (paths.bzl) inside the sandbox and then execs the
+    argv below. arcc resolves the manifest's and layout's source paths
+    against its working directory, and a Bazel action's working directory is
+    the execroot — a frame in which those runfiles-root-relative names do not
+    resolve as written. The wrapper's symlinks (`<workspace_name> -> .`, and
+    one `<apparent repo name> -> external/<canonical repo name>` per external
+    repository the frame names) are derived from the declared inputs alone,
+    so the action stays deterministic and hermetic (I5) while keeping the
+    existing layout-driver working-directory contract.
+
     Inputs are exactly the Step 5 transition set (task req 3): the manifest
     and layout, today's source and runfile closure (including the direct
     dependencies' own), the SDK sources today's loader reads, the declared
@@ -243,14 +254,13 @@ def _checked_analysis_action(ctx, manifest, layout, closure_srcs, transitive_man
     ordering inputs (never parsed here — Step 7 replaces
     `ResolveDependencyInterface`). Export data is not an input until Step 8.
 
-    Hermetic per I5: no host cache, no network (block-network), no toolchain
-    binary execution — the generator-free check loads sources through the
-    layout driver — and no environment at all, so the argv and the frame
-    symlinks above fully determine the action.
+    No environment at all: the argv and the frame symlinks fully determine
+    the action; network access is blocked.
     """
     report = ctx.actions.declare_file(ctx.label.name + ".report.json")
     surface = ctx.actions.declare_file(ctx.label.name + ".surface.json")
 
+    wrapper = ctx.actions.declare_file(ctx.label.name + ".arcc-check-wrapper.sh")
     map_file = ctx.attr._stdlib_map[ArccStdlibMapInfo].map
     argv = arcc_check_argv(
         arcc = ctx.executable._arcc.path,
@@ -266,14 +276,15 @@ def _checked_analysis_action(ctx, manifest, layout, closure_srcs, transitive_man
     frame_files += transitive_manifests.to_list() + transitive_layouts.to_list()
     frame_files += dep_runfiles.to_list()
 
-    command = "\n".join(
-        ["set -eu"] +
-        _frame_symlink_commands(frame_files, ctx.workspace_name) +
-        [" ".join([_shell_quote(arg) for arg in argv])],
-    ) + "\n"
+    ctx.actions.write(
+        output = wrapper,
+        content = "\n".join(["#!/bin/bash"] + _frame_symlink_commands(frame_files, ctx.workspace_name) + ["exec \"$@\"", ""]),
+        is_executable = True,
+    )
 
-    ctx.actions.run_shell(
-        command = command,
+    ctx.actions.run(
+        executable = wrapper,
+        arguments = argv,
         inputs = depset(
             direct = [manifest, layout, map_file] + list(closure_srcs) + list(dep_artifacts),
             transitive = [go_sdk_srcs(ctx), transitive_manifests, transitive_layouts, dep_runfiles],

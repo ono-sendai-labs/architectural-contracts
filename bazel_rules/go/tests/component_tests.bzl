@@ -373,6 +373,121 @@ def _deterministic_multi_infra_impl(env, target):
     layout_b_norm = action_layout_b.actual.content.replace("multi_infra_b", "multi_infra_a")
     env.expect.that_str(layout_a).equals(layout_b_norm)
 
+def _checked_action(env, target):
+    """The component's ArccCheck action, as (subject, raw action)."""
+    info = target[ArccComponentInfo]
+    subject = env.expect.that_target(target).action_generating(info.report.short_path)
+    subject.mnemonic().equals("ArccCheck")
+    return subject, subject.actual
+
+def _checked_component_outputs_test(name):
+    analysis_test(
+        name = name,
+        target = _API_COMPONENT,
+        impl = _checked_component_outputs_impl,
+        attr_values = {"size": "small"},
+    )
+
+def _checked_component_outputs_impl(env, target):
+    info = target[ArccComponentInfo]
+
+    # Structural outputs (AC 1): canonical names arcc's dependency-surface
+    # convention keys off in Step 7, one provenance value for a regular
+    # producer, one action producing both.
+    env.expect.that_str(info.provenance).equals("checked")
+    env.expect.that_str(info.report.basename).equals("api_component.report.json")
+    env.expect.that_str(info.surface.basename).equals("api_component.surface.json")
+
+    check_action, raw_action = _checked_action(env, target)
+    surface_action = env.expect.that_target(target).action_generating(info.surface.short_path)
+    surface_action.mnemonic().equals("ArccCheck")
+    env.expect.that_str(str(raw_action)).equals(str(surface_action.actual))
+
+    # Lazy analysis (AC 3): report and surface ride in the `arcc` output
+    # group and appear nowhere in the default outputs, so `bazel build //...`
+    # does not run component analysis.
+    env.expect.that_target(target).default_outputs().contains_exactly([
+        "bazel_rules/go/tests/testdata/api/api_component.component.textproto",
+        "bazel_rules/go/tests/testdata/api/api_component.package-layout.json",
+    ])
+    env.expect.that_target(target).output_group("arcc").contains_exactly([
+        info.report.short_path,
+        info.surface.short_path,
+    ])
+
+def _checked_action_command_test(name):
+    analysis_test(
+        name = name,
+        target = _API_COMPONENT,
+        impl = _checked_action_command_impl,
+        attr_values = {"size": "small"},
+    )
+
+def _checked_action_command_impl(env, target):
+    info = target[ArccComponentInfo]
+    action, _ = _checked_action(env, target)
+
+    # The exact shared command (command.bzl), in report-verdict-only mode.
+    # argv[0] is the generated frame wrapper; argv[1] the arcc tool path
+    # (execroot-relative, Bazel-managed); the rest is the factored command.
+    argv = action.actual.argv
+    env.expect.that_str(argv[2]).equals("check")
+    env.expect.that_str(argv[3]).equals(info.manifest.path)
+    action.contains_flag_values([
+        ("--package-layout", info.layout.path),
+        ("--report-out", info.report.path),
+        ("--surface-out", info.surface.path),
+        ("--format", "json"),
+    ])
+    env.expect.that_collection(argv).contains("--stdlib-map=" + _stdlib_map_path(env, action.actual))
+    env.expect.that_collection(argv).contains("--report-verdict-only")
+
+    # Hermetic (I5): no environment whatsoever.
+    action.env().contains_exactly({})
+
+def _stdlib_map_path(env, action):
+    """The execroot-relative path of the declared stdlib map from the action's inputs."""
+    for f in action.inputs.to_list():
+        if f.basename.endswith(".stdlib-map.json"):
+            return f.path
+    env.fail("ArccCheck action declares no stdlib-map input")
+
+def _checked_action_inputs_test(name):
+    analysis_test(
+        name = name,
+        target = _API_COMPONENT,
+        impl = _checked_action_inputs_impl,
+        attr_values = {"size": "small"},
+    )
+
+def _checked_action_inputs_impl(env, target):
+    info = target[ArccComponentInfo]
+    action, raw = _checked_action(env, target)
+
+    # Step 5 transition inputs (AC 5): manifest, layout, today's source and
+    # runfile closure, SDK sources, stdlib map, and the direct dependency's
+    # report/surface artifacts — the producer edge R8 needs (AC 4).
+    inputs = [f.basename for f in raw.inputs.to_list()]
+    env.expect.that_collection(inputs).contains("api_component.component.textproto")
+    env.expect.that_collection(inputs).contains("api_component.package-layout.json")
+    for src in info.closure.to_list():
+        for s in src.srcs:
+            env.expect.that_collection(inputs).contains(s.basename)
+    env.expect.that_collection(inputs).contains(_stdlib_map_path(env, raw).rsplit("/", 1)[-1])
+    dep_info = None
+    for dep_manifest in info.transitive_manifests.to_list():
+        if dep_manifest.basename == "shared_component.component.textproto":
+            dep_info = dep_manifest
+    env.expect.that_str(dep_info != None).equals(True)
+    env.expect.that_collection(inputs).contains("shared_component.report.json")
+    env.expect.that_collection(inputs).contains("shared_component.surface.json")
+
+    # Outputs: exactly the two structural artifacts (task req 1).
+    env.expect.that_collection([f.basename for f in raw.outputs.to_list()]).contains_exactly([
+        "api_component.report.json",
+        "api_component.surface.json",
+    ])
+
 def go_component_test_suite(name):
     test_suite(
         name = name,
@@ -392,5 +507,8 @@ def go_component_test_suite(name):
             _never_infra_test,
             _authored_wins_infra_test,
             _deterministic_multi_infra_test,
+            _checked_component_outputs_test,
+            _checked_action_command_test,
+            _checked_action_inputs_test,
         ],
     )
