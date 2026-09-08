@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ono-sendai-labs/architectural-contracts/go/internal/checker"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/capanalyzer"
+	"github.com/ono-sendai-labs/architectural-contracts/go/internal/checker"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/facts"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/manifest"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/stdlibauthority"
@@ -229,12 +229,12 @@ func TestClassifyImports_Table(t *testing.T) {
 	auto := depInterface("infra", manifest.InterfaceStylePackageSurface,
 		[]string{"example.com/infra"}, nil)
 	imports := []facts.ImportEdge{
-		importEdge("example.com/comp/api", "example.com/comp/other", facts.ImportResolved, "member/api/api.go", 4),  // member
-		importEdge("example.com/comp/api", "stdinit", facts.ImportResolved, "member/api/api.go", 5),                 // stdlib init
-		importEdge("example.com/comp/api", "example.com/dep", facts.ImportResolved, "member/api/api.go", 6),         // declared dep
-		importEdge("example.com/comp/api", "example.com/infra", facts.ImportResolved, "member/api/api.go", 7),       // auto-attached
-		importEdge("example.com/comp/api", "example.com/unowned", facts.ImportResolved, "member/api/api.go", 8),     // unowned resolved
-		importEdge("example.com/comp/api", "example.com/ghost", facts.ImportUnresolved, "member/api/api.go", 9),     // unowned unresolved
+		importEdge("example.com/comp/api", "example.com/comp/other", facts.ImportResolved, "member/api/api.go", 4), // member
+		importEdge("example.com/comp/api", "stdinit", facts.ImportResolved, "member/api/api.go", 5),                // stdlib init
+		importEdge("example.com/comp/api", "example.com/dep", facts.ImportResolved, "member/api/api.go", 6),        // declared dep
+		importEdge("example.com/comp/api", "example.com/infra", facts.ImportResolved, "member/api/api.go", 7),      // auto-attached
+		importEdge("example.com/comp/api", "example.com/unowned", facts.ImportResolved, "member/api/api.go", 8),    // unowned resolved
+		importEdge("example.com/comp/api", "example.com/ghost", facts.ImportUnresolved, "member/api/api.go", 9),    // unowned unresolved
 	}
 	got, err := classifyAll(t, members, []facts.DependencyInterface{declared, auto}, nil, imports, auth)
 	if err != nil {
