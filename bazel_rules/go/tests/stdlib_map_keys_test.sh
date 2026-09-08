@@ -92,10 +92,15 @@ pass "three distinct target configurations produced three distinct maps"
 # actions therefore actually executed — on this one execution host — and
 # byte-identical canonical bytes are the determinism guarantee the design
 # requires (DR-15), not an artifact of cache sharing.
-if [ "$(sha256sum "$default_map" | cut -d' ' -f1)" != "$(sha256sum "$replica_map" | cut -d' ' -f1)" ]; then
-  fail "two identical configurations (default, replica) produced different bytes"
+if ! cmp -s "$default_map" "$replica_map"; then
+  fail "two identical configurations (default, replica) produced different canonical bytes"
 fi
-pass "identical configurations produce byte-identical maps"
+pass "identical configurations produce byte-identical canonical maps"
+
+if [ "$(sha256sum "$default_map" | cut -d' ' -f1)" != "$(sha256sum "$replica_map" | cut -d' ' -f1)" ]; then
+  fail "two identical configurations (default, replica) produced different digests"
+fi
+pass "identical configurations produce identical digests"
 
 # --- AC 4: representative classifications match the design ---
 

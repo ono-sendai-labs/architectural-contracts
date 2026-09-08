@@ -116,9 +116,6 @@ def _argv_uses_the_explicit_input_path_impl(env, target):
     # mode's four flags, and never a native-discovery flag — the whole target
     # is declared by the config file and package list.
     action = _map_action(target)
-    # The generator is invoked directly (no launcher): the explicit-input
-    # mode's four flags, and never a native-discovery flag — the whole target
-    # is declared by the config file and package list.
     argv = list(action.argv)[1:]
     env.expect.that_collection(argv[:2]).contains_exactly(["stdlibmap", "generate"])
     argv_text = json.encode(argv)
