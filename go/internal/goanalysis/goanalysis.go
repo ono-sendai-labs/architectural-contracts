@@ -1350,6 +1350,16 @@ func getFuncSymbol(fn *ssa.Function) capanalyzer.InterfaceSymbol {
 }
 
 // ResolveDependencyInterface turns a component dependency into its derived facts.
+//
+// STEP 5-ONLY SEMANTIC GAP (deliberate; plan Step 5, task-02 req 7): the
+// implements-closure computed below widens what the *check* admits beyond the
+// declared interface — a direct concrete implementing method can pass the
+// check today. The emitted surface (internal/surface, via symbol.ExtractSurface
+// over the surviving interface files) contains exactly the declared interface
+// with no implements-closure injection, so check and surface disagree by
+// design for this one step. Do NOT widen the surface to match; Step 6 replaces
+// this closure with surface consumption, at which point the disagreement
+// disappears.
 func ResolveDependencyInterface(
 	declaringRoot string,
 	analyzedRoot string,

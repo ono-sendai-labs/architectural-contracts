@@ -19,6 +19,10 @@ component_dependencies {
   manifest: "../stdlibauthority/component.textproto"
 }
 component_dependencies {
+  name: "surface"
+  manifest: "../surface/component.textproto"
+}
+component_dependencies {
   name: "symbol"
   manifest: "../symbol/component.textproto"
 }

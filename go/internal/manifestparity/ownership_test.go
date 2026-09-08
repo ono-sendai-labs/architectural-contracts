@@ -121,6 +121,7 @@ func TestArtifactioDeclaresCoreComponentDependencies(t *testing.T) {
 		"report":          "../report/component.textproto",
 		"schema":          "../schema/component.textproto",
 		"stdlibauthority": "../stdlibauthority/component.textproto",
+		"surface":         "../surface/component.textproto",
 		"symbol":          "../symbol/component.textproto",
 	}
 	got := map[string]string{}
@@ -142,7 +143,7 @@ func TestArtifactioDeclaresCoreComponentDependencies(t *testing.T) {
 	// core package artifactio's production code imports must be a member of a
 	// declared dependency (or of artifactio itself).
 	owners := map[string]string{}
-	for _, name := range []string{"artifactio", "report", "schema", "stdlibauthority", "symbol"} {
+	for _, name := range []string{"artifactio", "report", "schema", "stdlibauthority", "surface", "symbol"} {
 		for _, member := range manifests[name].Members {
 			if strings.HasPrefix(member, modulePrefix) {
 				owners[member] = name

@@ -178,13 +178,13 @@ func sdkKeyProto(k *stdlibauthority.SDKKey) (*gen.SDKKey, error) {
 // authorityProto converts the manifest's structural declaration to the
 // persisted form, preserving the UNKNOWN axis structurally (R11).
 func authorityProto(d manifest.AuthorityDeclaration) *gen.AuthorityDeclaration {
-	authority, capabilities, err := manifest.ToPersisted(d)
-	if err != nil {
-		// ToPersisted only errors on UNKNOWN with non-empty capabilities,
-		// which validateAuthority already rejected.
-		return nil
+	if !d.Known {
+		return &gen.AuthorityDeclaration{Authority: gen.Authority_UNKNOWN}
 	}
-	return &gen.AuthorityDeclaration{Authority: authority, DeclaredAuthority: capabilities}
+	return &gen.AuthorityDeclaration{
+		Authority:         gen.Authority_DECLARED,
+		DeclaredAuthority: slices.Clone(d.Set),
+	}
 }
 
 // validateAuthority rejects the forbidden spellings before conversion.
