@@ -4,7 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
-	"sort"
+	"slices"
 	"strings"
 
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/stdlibauthority"
@@ -49,7 +49,7 @@ type ClassifierRule struct {
 // with an actionable error rather than producing an ambiguous descriptor.
 func CanonicalClassifierText(rules []ClassifierRule) (string, error) {
 	sorted := append([]ClassifierRule(nil), rules...)
-	sort.Slice(sorted, func(i, j int) bool { return sorted[i].Name < sorted[j].Name })
+	slices.SortFunc(sorted, func(a, b ClassifierRule) int { return strings.Compare(a.Name, b.Name) })
 	var sb strings.Builder
 	prev := ""
 	for i, r := range sorted {
@@ -105,7 +105,7 @@ func ClassifierHash(d GenerationDescriptor) string {
 // byte-for-byte stable.
 func DeriveSDKKey(d GenerationDescriptor) stdlibauthority.SDKKey {
 	tags := append([]string(nil), d.Target.BuildTags...)
-	sort.Strings(tags)
+	slices.Sort(tags)
 	return stdlibauthority.SDKKey{
 		ToolchainVersion: d.Target.ToolchainVersion,
 		GOOS:             d.Target.GOOS,

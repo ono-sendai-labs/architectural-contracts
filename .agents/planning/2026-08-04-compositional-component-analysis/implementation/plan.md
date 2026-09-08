@@ -233,8 +233,8 @@ surface yet.
 - CLI: `--report-out`, `--surface-out`, `--report-verdict-only` (exit 0 when analysis
   ran; verdict in the report). Surface derived from manifest, layout and member facts
   via the Step 3 extractor; symbols are the exact declared interface with no
-  implements-closure injection — **note** the workaround still runs for the *check* until
-  Step 6, so emission and check disagree by design for one step; document it.
+  implements-closure injection. *(Resolved in Step 6: the workaround is deleted, and
+  check and surface share the same exact declaring-object interface.)*
 - `go_component`: add the analysis action with declared inputs per N2 (export data and
   dependency surfaces are wired in Steps 7–8; until then the action's inputs are today's
   runfiles). Outputs `<name>.report.json`, `<name>.surface.json`; `OutputGroupInfo(arcc)`;

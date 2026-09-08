@@ -302,17 +302,32 @@ func TestLoadPackageFactsCanonicalizesExternalMemberSpelling(t *testing.T) {
 		}
 		return path
 	}
+	root := t.TempDir()
+	memberFile := filepath.Join(root, "component.go")
+	if err := os.WriteFile(memberFile, []byte("package component\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	loadPackages = func(_ *packages.Config, _ ...string) ([]*packages.Package, error) {
+		// The member package carries the minimal complete data the typed
+		// scan requires (empty maps and syntax are complete for an empty
+		// package).
 		return []*packages.Package{{
 			ID:      "canonical/component",
 			PkgPath: "canonical/component",
-			GoFiles: []string{"component.go"},
+			GoFiles: []string{memberFile},
 			Module:  &packages.Module{Path: "example.com/component"},
+			Fset:    token.NewFileSet(),
+			Syntax:  []*ast.File{},
+			TypesInfo: &types.Info{
+				Uses:       map[*ast.Ident]types.Object{},
+				Selections: map[*ast.SelectorExpr]*types.Selection{},
+			},
+			Imports: map[string]*packages.Package{},
 		}}, nil
 	}
 
 	loaded, err := LoadPackageFacts(LoadRequest{
-		ComponentRoot: t.TempDir(),
+		ComponentRoot: root,
 		Members:       []string{"host/component"},
 	})
 	if err != nil {

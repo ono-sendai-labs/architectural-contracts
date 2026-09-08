@@ -3,7 +3,7 @@ package stdlibmap
 import (
 	"fmt"
 	"go/types"
-	"sort"
+	"slices"
 	"strings"
 
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/symbol"
@@ -163,7 +163,7 @@ func normalizeEntries(entries []PackageEntry) ([]PackageEntry, error) {
 		seen[e.Path] = true
 		out = append(out, PackageEntry{Path: e.Path, Importable: e.Importable})
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].Path < out[j].Path })
+	slices.SortFunc(out, func(a, b PackageEntry) int { return strings.Compare(a.Path, b.Path) })
 	return out, nil
 }
 
@@ -310,7 +310,113 @@ func packageSymbols(pkg *types.Package) ([]observed, error) {
 			obs = append(obs, observed{id: id, obj: m})
 		}
 	}
+	// Referencable-closure inventory (DR-04 promoted rows): members of
+	// unexported same-package named types are externally referencable when
+	// the type is reachable from an exported declaration — through
+	// embedding (go/types' (*object).Name is the canonical case), through
+	// an exported struct field, or as the type of an exported variable
+	// (encoding/binary's littleEndian behind binary.LittleEndian is the
+	// canonical case). The reachable types' exported methods, the reachable
+	// types themselves (field and embedded declarations key the declaring
+	// struct), and exported non-embedded fields belong in the total
+	// inventory: a missing record is a tool error, never purity (R6).
+	for _, named := range referencableClosure(methodTargets, varSeeds(pkg), pkg) {
+		id, err := symbol.FromObject(named.Obj())
+		if err != nil {
+			return nil, fmt.Errorf("inventorying package %q: %w", pkg.Path(), err)
+		}
+		obs = append(obs, observed{id: id, obj: named.Obj()})
+		for i := 0; i < named.NumMethods(); i++ {
+			m := named.Method(i)
+			if !m.Exported() {
+				continue
+			}
+			id, err := symbol.FromObject(m)
+			if err != nil {
+				return nil, fmt.Errorf("inventorying package %q: %w", pkg.Path(), err)
+			}
+			obs = append(obs, observed{id: id, obj: m})
+		}
+		// Exported fields carry no ID of their own: a reference to a field
+		// keys its declaring struct, whose entry this loop already emits.
+	}
 	return obs, nil
+}
+
+// referencableClosure returns the same-package named types reachable from
+// the exported seeds through every member-selection channel: embedded struct
+// fields and embedded interfaces (promotion), and any exported struct field
+// whose type is a named type (method calls on the field's value).
+func referencableClosure(targets, seeds []*types.Named, pkg *types.Package) []*types.Named {
+	seen := make(map[*types.Named]bool)
+	var out []*types.Named
+	queue := make([]*types.Named, 0, len(targets)+len(seeds))
+	queue = append(queue, targets...)
+	queue = append(queue, seeds...)
+	for len(queue) > 0 {
+		named := queue[0]
+		queue = queue[1:]
+		if named == nil || seen[named] {
+			continue
+		}
+		if obj := named.Obj(); obj.Pkg() == nil || obj.Pkg().Path() != pkg.Path() {
+			continue
+		}
+		seen[named] = true
+		out = append(out, named)
+		switch u := named.Underlying().(type) {
+		case *types.Struct:
+			for i := 0; i < u.NumFields(); i++ {
+				f := u.Field(i)
+				if !f.Embedded() && !f.Exported() {
+					continue
+				}
+				if next, ok := baseNamedType(f.Type()); ok {
+					queue = append(queue, next)
+				}
+			}
+		case *types.Interface:
+			for i := 0; i < u.NumEmbeddeds(); i++ {
+				if next, ok := baseNamedType(u.EmbeddedType(i)); ok {
+					queue = append(queue, next)
+				}
+			}
+		}
+	}
+	return out
+}
+
+// varSeeds returns the same-package named types of the package's exported
+// variables and constants: a member selected through such a value
+// (binary.LittleEndian.PutUint64) resolves to the value type's declaring
+// object.
+func varSeeds(pkg *types.Package) []*types.Named {
+	scope := pkg.Scope()
+	var out []*types.Named
+	for _, name := range scope.Names() {
+		obj := scope.Lookup(name)
+		if !obj.Exported() {
+			continue
+		}
+		v, ok := obj.(*types.Var)
+		if !ok {
+			continue
+		}
+		if next, ok := baseNamedType(v.Type()); ok {
+			out = append(out, next)
+		}
+	}
+	return out
+}
+
+// baseNamedType unwraps pointers (and aliases) from a field or embedded type
+// and returns its named type.
+func baseNamedType(t types.Type) (*types.Named, bool) {
+	if ptr, ok := types.Unalias(t).(*types.Pointer); ok {
+		t = ptr.Elem()
+	}
+	named, ok := types.Unalias(t).(*types.Named)
+	return named, ok
 }
 
 // methodScanTarget returns the named type whose methods an exported type
@@ -385,5 +491,5 @@ func mergeObserved(all []observed) ([]symbol.SymbolID, error) {
 }
 
 func sortIDs(ids []symbol.SymbolID) {
-	sort.Slice(ids, func(i, j int) bool { return symbol.Compare(ids[i], ids[j]) < 0 })
+	slices.SortFunc(ids, symbol.Compare)
 }

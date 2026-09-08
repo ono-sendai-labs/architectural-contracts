@@ -23,14 +23,14 @@ import (
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/surface"
 )
 
-// SDKKeyRequest names the inputs the check's SDK-key resolver may consult
-// (plan Step 5 task 3, technical requirement 3). LayoutPlatform is the active
-// package layout's pinned platform declaration (nil when the layout declares
-// no platform or the check runs in native mode). StdlibMapPath is the
-// declared Step 4 stdlib-map artifact path (--stdlib-map); the map is the
-// declared, configuration-keyed source of the target SDK identity in Bazel
-// and layout mode.
-type SDKKeyRequest struct {
+// AuthorityRequest names the inputs the check's stdlib-authority resolver may
+// consult. LayoutPlatform is the active package layout's pinned platform
+// declaration (nil when the layout declares no platform or the check runs in
+// native mode). StdlibMapPath is the declared Step 4 stdlib-map artifact path
+// (--stdlib-map), mandatory in layout/Bazel mode: the map is the declared,
+// configuration-keyed source of every standard-library decision (N3), and its
+// full target SDK key is validated before any verdict forms.
+type AuthorityRequest struct {
 	// LayoutPlatform is the active layout's pinned target declaration as
 	// plain values (nil/unset when the layout is unpinned or the check runs
 	// in native mode); see goanalysis.ActivePlatformIdentity.
@@ -41,10 +41,14 @@ type SDKKeyRequest struct {
 	StdlibMapPath string
 }
 
-// SDKKeyResolver resolves the target SDK identity used for surface emission.
-// The map contributes only the surface's SDK key in this step: its symbol
-// classifications are not consulted by checker decisions until Step 6.
-type SDKKeyResolver func(SDKKeyRequest) (stdlibauthority.SDKKey, error)
+// AuthorityResolver resolves the check's stdlib authority: the validated
+// StdlibAuthority port every stdlib membership and classification decision
+// reads. It fails closed before any verdict or artifact when the map is
+// missing, corrupt, format- or classifier-mismatched, key-mismatched, or
+// inventory-incomplete (AC 2). The production implementation opens the
+// declared map in layout/Bazel mode and the Step 4 native on-demand
+// cache/generator path in native mode.
+type AuthorityResolver func(AuthorityRequest) (stdlibauthority.StdlibAuthority, error)
 
 // SurfaceInputsLoader loads the component's member packages for surface
 // derivation. The production implementation is goanalysis.LoadSurfaceInputs.
@@ -163,11 +167,8 @@ func parseCheckOptions(args []string) (checkOptions, error) {
 	if hasVerdictOnly && !hasReport {
 		return opts, fmt.Errorf("--report-verdict-only requires a report artifact destination (--report-out)")
 	}
-	if hasMap && !hasSurface {
-		return opts, fmt.Errorf("--stdlib-map requires surface emission (--surface-out)")
-	}
-	if hasSurface && hasLayout && !hasMap {
-		return opts, fmt.Errorf("surface emission from a package layout requires the declared stdlib-map artifact (--stdlib-map)")
+	if hasLayout && !hasMap {
+		return opts, fmt.Errorf("a layout-mode check requires the declared stdlib-map artifact (--stdlib-map)")
 	}
 	return opts, nil
 }
@@ -226,57 +227,38 @@ func (r *Runner) runCheck(opts checkOptions, stdout, stderr io.Writer) int {
 		resolvedDeps = append(resolvedDeps, depIface)
 	}
 
-	// 6. Build AnalyzeRequest.PruneAt from the resolved dependencies.
-	pruneSet := make(map[string]bool)
-	for _, di := range resolvedDeps {
-		for _, sym := range di.Symbols {
-			pruneSet[string(sym)] = true
-			// Legacy Capslock capability findings name methods in the
-			// pointer-receiver spelling, while a SymbolID surface stores the
-			// receiver base name only (DR-04). Add the dual spelling so the
-			// Capslock prune set keeps matching until the Task 05 cutover
-			// deletes this path. This widens nothing: it is the same
-			// declared method, not an implements closure.
-			if recv, method, ok := splitSymbolIDMethod(sym); ok {
-				pruneSet["(*"+recv+")."+method] = true
-			}
-		}
-		for _, pkg := range di.Packages {
-			pruneSet["func "+pkg+".init"] = true
-		}
+	// 6. Resolve the stdlib authority. The map is mandatory whenever a check
+	// decision needs it: it is opened and its full target SDK key validated
+	// before any verdict (AC 2), and the same validated key stamps the
+	// surface.
+	layoutPlatform := (*goanalysis.PlatformIdentity)(nil)
+	if identity, ok := goanalysis.ActivePlatformIdentity(); ok {
+		layoutPlatform = &identity
 	}
-	var pruneAt []capanalyzer.InterfaceSymbol
-	for k := range pruneSet {
-		pruneAt = append(pruneAt, capanalyzer.InterfaceSymbol(k))
-	}
-	sort.Slice(pruneAt, func(i, j int) bool { return pruneAt[i] < pruneAt[j] })
-
-	// 7. Analyze the member packages' capability findings.
-	var pkgs []string
-	for _, p := range loadedFacts.Packages {
-		pkgs = append(pkgs, p.ImportPath)
-	}
-	var findings []capanalyzer.CapabilityFinding
-	if len(pkgs) > 0 {
-		findings, err = r.Analyzer.Analyze(capanalyzer.AnalyzeRequest{
-			Packages: pkgs,
-			PruneAt:  pruneAt,
-		})
-		if err != nil {
-			fmt.Fprintf(stderr, "error: capability analysis failed: %v\n", err)
-			return 2
-		}
+	authority, err := r.authorityResolver()(AuthorityRequest{
+		LayoutPlatform: layoutPlatform,
+		InLayoutMode:   goanalysis.LayoutModeActive(),
+		StdlibMapPath:  opts.stdlibMap,
+	})
+	if err != nil {
+		fmt.Fprintf(stderr, "error: %v\n", err)
+		return 2
 	}
 
-	// 8. Check the merged policy.
+	// 7. Check the component against the typed reference/import facts.
 	inputs := checker.Inputs{
 		Manifest:  parsedManifest,
 		Facts:     loadedFacts,
 		DepIfaces: resolvedDeps,
-		Caps:      findings,
+		Authority: authority,
+		SDKKey:    authority.Key(),
 		Policy:    capanalyzer.StrictPolicy(),
 	}
-	conformanceReport := checker.Check(inputs)
+	conformanceReport, err := checker.Check(inputs)
+	if err != nil {
+		fmt.Fprintf(stderr, "error: %v\n", err)
+		return 2
+	}
 	for _, exclusion := range interfaceExclusions {
 		conformanceReport.Warnings = append(conformanceReport.Warnings, report.Finding{
 			Kind:    report.InterfaceFileExcluded,
@@ -298,7 +280,12 @@ func (r *Runner) runCheck(opts checkOptions, stdout, stderr io.Writer) int {
 	// Both artifacts are derived and encoded before either is written, so a
 	// failed key resolution or derivation publishes nothing (AC 1, 4, 5).
 	if opts.reportOut != "" || opts.surfaceOut != "" {
-		if err := r.publishArtifacts(opts, &parsedManifest, manifestBytes, componentRoot, loadedFacts, interfaceExclusions, conformanceReport); err != nil {
+		var surfaceKey *stdlibauthority.SDKKey
+		if opts.surfaceOut != "" {
+			key := authority.Key()
+			surfaceKey = &key
+		}
+		if err := r.publishArtifacts(opts, &parsedManifest, manifestBytes, componentRoot, loadedFacts, interfaceExclusions, surfaceKey, conformanceReport); err != nil {
 			fmt.Fprintf(stderr, "error: %v\n", err)
 			return 2
 		}
@@ -330,11 +317,12 @@ func (r *Runner) runCheck(opts checkOptions, stdout, stderr io.Writer) int {
 	return 0
 }
 
-// publishArtifacts resolves the target SDK identity, derives the exact
-// surface from this invocation's analysis inputs, encodes both artifacts
-// canonically, and writes them atomically. The map contributes only the
-// surface's SDK key in this step; checker decisions still run the old check
-// path (with the implements-closure workaround) until Step 6.
+// publishArtifacts derives the exact surface from this invocation's analysis
+// inputs under the already-validated target SDK key, encodes both artifacts
+// canonically, and writes them atomically. Check decisions and emitted
+// surfaces share the same exact declaring-object interface: the surface's
+// Symbols are the same set the check classifies against (no
+// implements-closure injection on either side).
 func (r *Runner) publishArtifacts(
 	opts checkOptions,
 	parsedManifest *manifest.Manifest,
@@ -342,25 +330,11 @@ func (r *Runner) publishArtifacts(
 	componentRoot string,
 	loadedFacts facts.PackageFacts,
 	interfaceExclusions []goanalysis.InterfaceFileExclusion,
+	sdkKey *stdlibauthority.SDKKey,
 	conformanceReport report.ConformanceReport,
 ) error {
-	var sdkKey *stdlibauthority.SDKKey
-
-	surfaceBytes := []byte(nil)
+	var surfaceBytes []byte
 	if opts.surfaceOut != "" {
-		layoutPlatform := (*goanalysis.PlatformIdentity)(nil)
-		if identity, ok := goanalysis.ActivePlatformIdentity(); ok {
-			layoutPlatform = &identity
-		}
-		key, err := r.keyResolver()(SDKKeyRequest{
-			LayoutPlatform: layoutPlatform,
-			InLayoutMode:   goanalysis.LayoutModeActive(),
-			StdlibMapPath:  opts.stdlibMap,
-		})
-		if err != nil {
-			return fmt.Errorf("resolving the target SDK key: %v", err)
-		}
-		sdkKey = &key
 
 		// Only the surviving interface files reach surface extraction:
 		// build-constraint exclusions are deliberate non-fatal warnings, so
@@ -455,11 +429,11 @@ func (r *Runner) loader() PackageLoader {
 	return goanalysis.LoadPackageFacts
 }
 
-func (r *Runner) keyResolver() SDKKeyResolver {
-	if r.KeyResolver != nil {
-		return r.KeyResolver
+func (r *Runner) authorityResolver() AuthorityResolver {
+	if r.AuthorityResolver != nil {
+		return r.AuthorityResolver
 	}
-	return defaultKeyResolver
+	return defaultAuthorityResolver
 }
 
 func (r *Runner) surfaceInputsLoader() SurfaceInputsLoader {
@@ -478,101 +452,104 @@ func (r *Runner) artifactWriter() ArtifactWriter {
 	}
 }
 
-// defaultKeyResolver is the production SDK-key resolver (technical
-// requirement 3). In layout/Bazel mode it validates and uses the declared
-// Step 4 stdlib-map artifact, checking its key against the layout's pinned
-// target and this arcc's classifier rules. In native mode it uses the Step 4
-// target discovery and cache services.
-func defaultKeyResolver(req SDKKeyRequest) (stdlibauthority.SDKKey, error) {
+// defaultAuthorityResolver is the production stdlib-authority resolver. In
+// layout/Bazel mode it opens and validates the declared stdlib-map artifact;
+// in native mode it uses the Step 4 native target discovery and cache
+// services. A missing, corrupt, format-mismatched, classifier-mismatched,
+// target-mismatched, or inventory-incomplete map fails closed with actionable
+// context (AC 2).
+func defaultAuthorityResolver(req AuthorityRequest) (stdlibauthority.StdlibAuthority, error) {
 	if req.StdlibMapPath != "" {
-		return keyFromDeclaredMap(req)
+		return authorityFromDeclaredMap(req)
 	}
-	return keyFromNativeDiscovery()
+	if req.InLayoutMode {
+		return nil, fmt.Errorf("a layout-mode check requires the declared stdlib-map artifact (--stdlib-map); no check decision may run without a validated stdlib map")
+	}
+	return authorityFromNativeDiscovery()
 }
 
-// keyFromDeclaredMap opens and validates the declared stdlib-map artifact and
-// returns its SDK key. A missing, corrupt, format-mismatched,
-// classifier-mismatched, or target-mismatched map fails closed with actionable
-// context (AC 4).
-func keyFromDeclaredMap(req SDKKeyRequest) (stdlibauthority.SDKKey, error) {
+// authorityFromDeclaredMap opens the declared stdlib-map artifact and
+// validates it against the expected target key. The layout's pinned platform
+// (when declared) is the target this invocation actually analyses; an
+// explicit map made for another target is rejected instead of deciding the
+// check (N3). When no target is declared (an unpinned layout), the map's own
+// configuration is still checked against the classifier rules this arcc
+// applies (I2).
+func authorityFromDeclaredMap(req AuthorityRequest) (stdlibauthority.StdlibAuthority, error) {
 	f, err := os.Open(req.StdlibMapPath)
 	if err != nil {
-		return stdlibauthority.SDKKey{}, fmt.Errorf("opening the declared stdlib-map artifact %s: %v", req.StdlibMapPath, err)
+		return nil, fmt.Errorf("opening the declared stdlib-map artifact %s: %v", req.StdlibMapPath, err)
 	}
 	defer f.Close()
 	m, err := artifactio.DecodeMap(f)
 	if err != nil {
-		return stdlibauthority.SDKKey{}, fmt.Errorf("decoding the declared stdlib-map artifact %s: %v", req.StdlibMapPath, err)
-	}
-	reader, err := artifactio.NewStdlibMapReader(m, nil)
-	if err != nil {
-		return stdlibauthority.SDKKey{}, fmt.Errorf("validating the declared stdlib-map artifact %s: %v", req.StdlibMapPath, err)
-	}
-	key := reader.Key()
-
-	// Classifier mismatch: the map was generated under different classifier
-	// rules than this arcc applies (I2). The expected hash is derived from
-	// the map's own target configuration and the current rules.
-	expected, err := deriveSDKKey(stdlibmap.TargetConfig{
-		ToolchainVersion: key.ToolchainVersion,
-		GOOS:             key.GOOS,
-		GOARCH:           key.GOARCH,
-		CgoEnabled:       key.CgoEnabled,
-		BuildTags:        key.BuildTags,
-		GOEXPERIMENT:     key.GOEXPERIMENT,
-	})
-	if err != nil {
-		return stdlibauthority.SDKKey{}, err
-	}
-	if expected.ClassifierHash != key.ClassifierHash {
-		return stdlibauthority.SDKKey{}, fmt.Errorf("stdlib map %s was generated with classifier_hash %q but this arcc computes %q; regenerate the map", req.StdlibMapPath, key.ClassifierHash, expected.ClassifierHash)
+		return nil, fmt.Errorf("decoding the declared stdlib-map artifact %s: %v", req.StdlibMapPath, err)
 	}
 
-	// Target mismatch (N3): compare the map's key against the target this
-	// invocation actually analyses. In layout mode the declared target is the
-	// layout's pinned platform; an unpinned layout carries no declared
-	// target, so only the map's own key is available. In native mode the
-	// target is discovered from the current toolchain, so an explicit map
-	// made for another target is rejected instead of being stamped into the
-	// surface.
-	if req.LayoutPlatform != nil {
-		expectedKey, err := deriveSDKKey(layoutTarget(req.LayoutPlatform))
+	var expected *stdlibauthority.SDKKey
+	switch {
+	case req.LayoutPlatform != nil:
+		key, err := deriveSDKKey(layoutTarget(req.LayoutPlatform))
 		if err != nil {
-			return stdlibauthority.SDKKey{}, err
+			return nil, err
 		}
-		if fields := stdlibauthority.EqualKeys(key, expectedKey); len(fields) > 0 {
-			return stdlibauthority.SDKKey{}, fmt.Errorf("stdlib map %s key does not match the declared target: mismatched %s", req.StdlibMapPath, strings.Join(fields, ", "))
-		}
-	} else if !req.InLayoutMode {
+		expected = &key
+	case !req.InLayoutMode:
 		target, err := stdlibmap.NativeTargetConfig()
 		if err != nil {
-			return stdlibauthority.SDKKey{}, err
+			return nil, err
 		}
-		expectedKey, err := deriveSDKKey(target)
+		key, err := deriveSDKKey(target)
 		if err != nil {
-			return stdlibauthority.SDKKey{}, err
+			return nil, err
 		}
-		if fields := stdlibauthority.EqualKeys(key, expectedKey); len(fields) > 0 {
-			return stdlibauthority.SDKKey{}, fmt.Errorf("stdlib map %s key does not match the discovered native target: mismatched %s", req.StdlibMapPath, strings.Join(fields, ", "))
+		expected = &key
+	default:
+		// Unpinned layout: validate the map against its own declared target
+		// configuration under the current classifier rules (I2).
+	}
+
+	auth, err := artifactio.NewStdlibMapReader(m, expected)
+	if err != nil {
+		return nil, fmt.Errorf("validating the declared stdlib-map artifact %s: %v", req.StdlibMapPath, err)
+	}
+	if expected == nil && req.InLayoutMode {
+		// Classifier mismatch (I2): the map was generated under different
+		// classifier rules than this arcc applies. Derive the expected key
+		// from the map's own target configuration and compare.
+		mapKey := auth.Key()
+		expected, err := deriveSDKKey(stdlibmap.TargetConfig{
+			ToolchainVersion: mapKey.ToolchainVersion,
+			GOOS:             mapKey.GOOS,
+			GOARCH:           mapKey.GOARCH,
+			CgoEnabled:       mapKey.CgoEnabled,
+			BuildTags:        mapKey.BuildTags,
+			GOEXPERIMENT:     mapKey.GOEXPERIMENT,
+		})
+		if err != nil {
+			return nil, err
+		}
+		if expected.ClassifierHash != mapKey.ClassifierHash {
+			return nil, fmt.Errorf("stdlib map %s was generated with classifier_hash %q but this arcc computes %q; regenerate the map", req.StdlibMapPath, mapKey.ClassifierHash, expected.ClassifierHash)
 		}
 	}
-	return key, nil
+	return auth, nil
 }
 
-// keyFromNativeDiscovery resolves the target SDK identity in native mode via
-// the Step 4 target discovery and cache services: discover the target
-// configuration, derive the expected key, and open (generating on demand) the
-// cached map validated against it.
-func keyFromNativeDiscovery() (stdlibauthority.SDKKey, error) {
+// authorityFromNativeDiscovery resolves the check's stdlib authority in
+// native mode via the Step 4 target discovery and cache services: discover
+// the target configuration, derive the expected key, and open (generating on
+// demand) the cached map validated against it.
+func authorityFromNativeDiscovery() (stdlibauthority.StdlibAuthority, error) {
 	target, err := stdlibmap.NativeTargetConfig()
 	if err != nil {
-		return stdlibauthority.SDKKey{}, err
+		return nil, err
 	}
 	expected, err := deriveSDKKey(target)
 	if err != nil {
-		return stdlibauthority.SDKKey{}, err
+		return nil, err
 	}
-	auth, err := stdlibmap.OpenCachedMap(stdlibmap.CachedMapInput{
+	return stdlibmap.OpenCachedMap(stdlibmap.CachedMapInput{
 		Key: expected,
 		Generation: stdlibmap.GenerationInput{
 			Target:      target,
@@ -583,10 +560,6 @@ func keyFromNativeDiscovery() (stdlibauthority.SDKKey, error) {
 			Loader: &stdlibmap.NativeLoader{Env: stdlibmap.TargetEnv(target)},
 		},
 	})
-	if err != nil {
-		return stdlibauthority.SDKKey{}, err
-	}
-	return auth.Key(), nil
 }
 
 // layoutTarget converts a pinned layout platform identity into the target
@@ -620,19 +593,4 @@ func deriveSDKKey(target stdlibmap.TargetConfig) (stdlibauthority.SDKKey, error)
 		RuleVersion:      stdlibmap.RuleVersion,
 		MapFormatVersion: artifactio.MapFormatVersion,
 	}), nil
-}
-
-// splitSymbolIDMethod splits a method-form SymbolID "(pkg.Type).Method" into
-// its receiver body and method name. Non-method spellings report ok=false.
-func splitSymbolIDMethod(id facts.SymbolID) (recv, method string, ok bool) {
-	s := string(id)
-	if !strings.HasPrefix(s, "(") {
-		return "", "", false
-	}
-	inner := s[1:]
-	idx := strings.Index(inner, ").")
-	if idx < 0 {
-		return "", "", false
-	}
-	return inner[:idx], inner[idx+2:], true
 }

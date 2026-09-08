@@ -25,7 +25,7 @@ package checker
 
 import (
 	"fmt"
-	"sort"
+	"slices"
 	"strings"
 
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/capanalyzer"
@@ -109,12 +109,11 @@ func AggregateAuthority(
 		}
 		out = append(out, *f)
 	}
-	sort.Slice(out, func(i, j int) bool {
-		a, b := out[i], out[j]
+	slices.SortFunc(out, func(a, b AuthorityFinding) int {
 		if a.Class != b.Class {
-			return a.Class < b.Class
+			return strings.Compare(string(a.Class), string(b.Class))
 		}
-		return strings.Compare(a.Capability, b.Capability) < 0
+		return strings.Compare(a.Capability, b.Capability)
 	})
 	return out, nil
 }
@@ -122,12 +121,11 @@ func AggregateAuthority(
 // sortAuthoritySites orders sites by file, line, then referenced SymbolID,
 // removing exact duplicates from the already-sorted list (req 4).
 func sortAuthoritySites(sites []AuthoritySite) []AuthoritySite {
-	sort.SliceStable(sites, func(i, j int) bool {
-		a, b := sites[i], sites[j]
+	slices.SortStableFunc(sites, func(a, b AuthoritySite) int {
 		if c := facts.CompareSourceSite(a.Site, b.Site); c != 0 {
-			return c < 0
+			return c
 		}
-		return symbol.Compare(a.Referent, b.Referent) < 0
+		return symbol.Compare(a.Referent, b.Referent)
 	})
 	out := sites[:0:0]
 	for i, s := range sites {

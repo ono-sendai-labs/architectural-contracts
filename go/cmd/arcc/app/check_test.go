@@ -10,25 +10,28 @@ import (
 
 	"github.com/ono-sendai-labs/architectural-contracts/go/cmd/arcc/app"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/artifactio"
-	"github.com/ono-sendai-labs/architectural-contracts/go/internal/capanalyzer"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/facts"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/goanalysis"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/stdlibauthority"
 )
 
 // seamRunner returns a Runner with hermetic seams: a fake loader whose facts
-// and error are caller-provided, a mock analyzer, a fake surface-inputs
-// loader, a fake SDK-key resolver, and a recording artifact writer that can
-// be made to fail. The manifest and member sources live in dir.
+// and error are caller-provided, a fake authority resolver returning a
+// no-stdlib fake authority (or failing), a fake surface-inputs loader, and a
+// recording artifact writer that can be made to fail. The manifest and member
+// sources live in dir.
 type seamRunnerOpts struct {
-	pkgPath       string
-	loaderErr     error
-	loaderCalled  *bool
-	findings      []capanalyzer.CapabilityFinding
-	resolverErr   error
-	writerErrPath string
-	resolverKey   stdlibauthority.SDKKey
-	writerErr     error
+	pkgPath        string
+	loaderErr      error
+	loaderCalled   *bool
+	bypasses       []facts.BypassObservation
+	refs           []facts.ReferenceEdge
+	imports        []facts.ImportEdge
+	resolverErr    error
+	writerErrPath  string
+	resolverKey    stdlibauthority.SDKKey
+	writerErr      error
+	resolverCalled *bool
 }
 
 func seamRunner(t *testing.T, o seamRunnerOpts) (*app.Runner, map[string][]byte, *[]string) {
@@ -48,17 +51,22 @@ func seamRunner(t *testing.T, o seamRunnerOpts) (*app.Runner, map[string][]byte,
 				return facts.PackageFacts{}, o.loaderErr
 			}
 			return facts.PackageFacts{
-				Packages: []facts.PackageFact{{ImportPath: o.pkgPath}},
+				Packages:   []facts.PackageFact{{ImportPath: o.pkgPath}},
+				Imports:    o.imports,
+				References: o.refs,
+				Bypasses:   o.bypasses,
 			}, nil
 		},
-		Analyzer:            &mockAnalyzer{findings: o.findings},
-		SurfaceInputsLoader: func(goanalysis.LoadRequest) (goanalysis.SurfaceInputs, error) { return goanalysis.SurfaceInputs{}, nil },
-		KeyResolver: func(req app.SDKKeyRequest) (stdlibauthority.SDKKey, error) {
-			if o.resolverErr != nil {
-				return stdlibauthority.SDKKey{}, o.resolverErr
+		AuthorityResolver: func(req app.AuthorityRequest) (stdlibauthority.StdlibAuthority, error) {
+			if o.resolverCalled != nil {
+				*o.resolverCalled = true
 			}
-			return fullKey, nil
+			if o.resolverErr != nil {
+				return nil, o.resolverErr
+			}
+			return seamAuthority{key: fullKey, bypasses: o.bypasses, refs: o.refs}, nil
 		},
+		SurfaceInputsLoader: func(goanalysis.LoadRequest) (goanalysis.SurfaceInputs, error) { return goanalysis.SurfaceInputs{}, nil },
 		ArtifactWriter: func(path string, data []byte) error {
 			if o.writerErr != nil && (o.writerErrPath == "" || o.writerErrPath == path) {
 				return o.writerErr
@@ -70,6 +78,34 @@ func seamRunner(t *testing.T, o seamRunnerOpts) (*app.Runner, map[string][]byte,
 	}
 	return runner, recorded, &written
 }
+
+// seamAuthority is the fake authority behind the AuthorityResolver seam: no
+// stdlib package is enumerated, so the loader's injected facts decide
+// everything.
+type seamAuthority struct {
+	key      stdlibauthority.SDKKey
+	bypasses []facts.BypassObservation
+	refs     []facts.ReferenceEdge
+}
+
+func (seamAuthority) IsStdlibPackage(string) bool { return false }
+
+func (seamAuthority) SymbolAuthority(id facts.SymbolID) (stdlibauthority.Classification, error) {
+	return stdlibauthority.Classification{}, &stdlibauthority.InventoryGapError{
+		Package: facts.SymbolIDPackage(id),
+		Symbol:  id.Format(),
+	}
+}
+
+func (seamAuthority) PackageInitAuthority(pkgPath string) (stdlibauthority.Classification, error) {
+	return stdlibauthority.Classification{}, &stdlibauthority.InventoryGapError{Package: pkgPath}
+}
+
+func (seamAuthority) Evidence(facts.SymbolID, stdlibauthority.Capability) []stdlibauthority.Frame {
+	return nil
+}
+
+func (s seamAuthority) Key() stdlibauthority.SDKKey { return s.key }
 
 var fullSDKKey = stdlibauthority.SDKKey{
 	ToolchainVersion: "go1.26.4",
@@ -158,9 +194,9 @@ func TestRunner_Check_ParseDiagnostics(t *testing.T) {
 			wantPieces: []string{"--report-verdict-only", "--report-out"},
 		},
 		{
-			name:       "stdlib-map without surface-out",
-			args:       []string{"--stdlib-map=m.json"},
-			wantPieces: []string{"--stdlib-map", "--surface-out"},
+			name:       "layout without stdlib-map",
+			args:       []string{"--package-layout=layout.json"},
+			wantPieces: []string{"--stdlib-map"},
 		},
 	}
 	for _, tt := range tests {
@@ -263,14 +299,15 @@ func TestRunner_Check_VerdictOnlySeparatesPolicyFromExecution(t *testing.T) {
 		"--report-verdict-only",
 	}
 
-	// A violating component: analysis ran, so verdict-only exits 0.
-	violating := &mockAnalyzer{findings: []capanalyzer.CapabilityFinding{{
-		Package:    "example.com/temp/verdict",
-		Capability: "FILES",
-		Class:      capanalyzer.TrueAuthority,
-		CallPath:   []capanalyzer.Frame{{Func: "pkg.F", File: "member.go", Line: 3}},
-	}}}
-	runner, recorded, _ := seamRunner(t, seamRunnerOpts{pkgPath: "example.com/temp/verdict", findings: violating.findings})
+	// A violating component (an analysis-defeating bypass under strict
+	// policy): analysis ran, so verdict-only exits 0.
+	runner, recorded, _ := seamRunner(t, seamRunnerOpts{
+		pkgPath: "example.com/temp/verdict",
+		bypasses: []facts.BypassObservation{{
+			Kind: facts.BypassLinkname,
+			Site: facts.SourceSite{File: "member.go", Line: 3},
+		}},
+	})
 	_, _, code := runRunnerFromWorkspace(t, t.TempDir(), runner, args)
 	if code != 0 {
 		t.Fatalf("violating verdict-only exit = %d, want 0", code)
@@ -314,13 +351,13 @@ func TestRunner_Check_OrdinaryExitsPreserved(t *testing.T) {
 	base := []string{"check", manifestPath, "--report-out=" + reportPath}
 
 	// Violation without verdict-only: exit 1.
-	violating := &mockAnalyzer{findings: []capanalyzer.CapabilityFinding{{
-		Package:    "example.com/temp/exits",
-		Capability: "FILES",
-		Class:      capanalyzer.TrueAuthority,
-		CallPath:   []capanalyzer.Frame{{Func: "pkg.F", File: "member.go", Line: 3}},
-	}}}
-	runner, recorded, _ := seamRunner(t, seamRunnerOpts{pkgPath: "example.com/temp/exits", findings: violating.findings})
+	runner, recorded, _ := seamRunner(t, seamRunnerOpts{
+		pkgPath: "example.com/temp/exits",
+		bypasses: []facts.BypassObservation{{
+			Kind: facts.BypassLinkname,
+			Site: facts.SourceSite{File: "member.go", Line: 3},
+		}},
+	})
 	stdout, stderr, code := runRunnerFromWorkspace(t, t.TempDir(), runner, base)
 	if code != 1 {
 		t.Fatalf("violation exit = %d, want 1; stderr = %q", code, stderr)

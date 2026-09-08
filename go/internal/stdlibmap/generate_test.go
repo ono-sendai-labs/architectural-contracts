@@ -686,10 +686,13 @@ func TestGenerateRoundTripsAndKeysTheMap(t *testing.T) {
 	}
 }
 
-// --- the batched-run requirement (req 1) is structural: Generate calls the
-// findings source exactly once with the complete importable batch. ---------------
+// --- the per-package batching requirement (Step 6 cutover finding) is
+// structural: Generate calls the findings source once per importable
+// package, because a whole-stdlib single batch conflates unrelated packages
+// in Capslock's whole-program call graph (net/http's shutdown path attributed
+// to go/types' init). -------------------------------------------------------
 
-func TestGenerateRunsCapslockOnceOverCompleteBatch(t *testing.T) {
+func TestGenerateBatchesFindingsPerPackage(t *testing.T) {
 	calls := 0
 	var gotPaths []string
 	loader := typeCheckLoader(t, map[string]string{"os": genOsSrc, "example.com/genpkg": genGenSrc})
@@ -700,19 +703,19 @@ func TestGenerateRunsCapslockOnceOverCompleteBatch(t *testing.T) {
 		Loader:      loader,
 		Findings: FindingSourceFunc(func(paths []string) ([]capslockadapter.GenerationFinding, error) {
 			calls++
-			gotPaths = slices.Clone(paths)
+			gotPaths = append(gotPaths, strings.Join(paths, ","))
 			return genFindings(), nil
 		}),
 	}
 	if _, err := Generate(in); err != nil {
 		t.Fatalf("Generate: %v", err)
 	}
-	if calls != 1 {
-		t.Fatalf("findings source called %d times; want exactly one batched run", calls)
+	if calls != 2 {
+		t.Fatalf("findings source called %d times; want one batch per importable package", calls)
 	}
 	slices.Sort(gotPaths)
 	if !slices.Equal(gotPaths, []string{"example.com/genpkg", "os"}) {
-		t.Fatalf("batch = %v; want the complete importable set", gotPaths)
+		t.Fatalf("batches = %v; want one single-package batch per importable package", gotPaths)
 	}
 }
 

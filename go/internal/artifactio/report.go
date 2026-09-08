@@ -6,7 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"sort"
+	"slices"
 
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/report"
 )
@@ -188,8 +188,8 @@ func sortDependencies(deps []report.DependencyBoundary) []report.DependencyBound
 	}
 	sorted := make([]report.DependencyBoundary, len(deps))
 	copy(sorted, deps)
-	sort.Slice(sorted, func(i, j int) bool {
-		return sorted[i].Component < sorted[j].Component
+	slices.SortFunc(sorted, func(a, b report.DependencyBoundary) int {
+		return compareStrings(a.Component, b.Component)
 	})
 	return sorted
 }
@@ -203,30 +203,29 @@ func sortFindings(findings []report.Finding) []report.Finding {
 	for i := range sorted {
 		sorted[i].Sites = sortAuthoritySites(sorted[i].Sites)
 	}
-	sort.Slice(sorted, func(i, j int) bool {
-		a, b := sorted[i], sorted[j]
+	slices.SortFunc(sorted, func(a, b report.Finding) int {
 		if c := compareStrings(string(a.Kind), string(b.Kind)); c != 0 {
-			return c < 0
+			return c
 		}
 		if c := compareStrings(a.Message, b.Message); c != 0 {
-			return c < 0
+			return c
 		}
 		if c := compareStrings(a.Location.File, b.Location.File); c != 0 {
-			return c < 0
+			return c
 		}
 		if a.Location.Line != b.Location.Line {
-			return a.Location.Line < b.Location.Line
+			return a.Location.Line - b.Location.Line
 		}
 		if c := compareStrings(a.Class, b.Class); c != 0 {
-			return c < 0
+			return c
 		}
 		if c := compareStrings(a.SDKKey, b.SDKKey); c != 0 {
-			return c < 0
+			return c
 		}
 		if c := compareAuthoritySites(a.Sites, b.Sites); c != 0 {
-			return c < 0
+			return c
 		}
-		return compareStringSlices(a.Evidence, b.Evidence) < 0
+		return compareStringSlices(a.Evidence, b.Evidence)
 	})
 	return sorted
 }
@@ -240,15 +239,14 @@ func sortAuthoritySites(sites []report.AuthoritySite) []report.AuthoritySite {
 	}
 	sorted := make([]report.AuthoritySite, len(sites))
 	copy(sorted, sites)
-	sort.Slice(sorted, func(i, j int) bool {
-		a, b := sorted[i], sorted[j]
+	slices.SortFunc(sorted, func(a, b report.AuthoritySite) int {
 		if c := compareStrings(a.File, b.File); c != 0 {
-			return c < 0
+			return c
 		}
 		if a.Line != b.Line {
-			return a.Line < b.Line
+			return a.Line - b.Line
 		}
-		return compareStrings(a.Symbol, b.Symbol) < 0
+		return compareStrings(a.Symbol, b.Symbol)
 	})
 	out := sorted[:0:0]
 	for i, s := range sorted {

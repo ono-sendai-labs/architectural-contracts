@@ -73,7 +73,7 @@ import (
 	"context"
 	"fmt"
 	"os/exec"
-	"sort"
+	"slices"
 	"strings"
 
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/hostpolicy"
@@ -154,7 +154,7 @@ func NormalizePackageList(paths []string) ([]PackageEntry, error) {
 		seen[p] = true
 		entries = append(entries, PackageEntry{Path: p, Importable: !IsInternalPath(p)})
 	}
-	sort.Slice(entries, func(i, j int) bool { return entries[i].Path < entries[j].Path })
+	slices.SortFunc(entries, func(a, b PackageEntry) int { return strings.Compare(a.Path, b.Path) })
 	if err := hostpolicy.ValidateStdlibPaths(pathsOf(entries)); err != nil {
 		return nil, fmt.Errorf("normalizing the package list: %w", err)
 	}

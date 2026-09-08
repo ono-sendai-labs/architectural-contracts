@@ -13,14 +13,109 @@ import (
 	"testing"
 
 	"github.com/ono-sendai-labs/architectural-contracts/go/cmd/arcc/app"
-	"github.com/ono-sendai-labs/architectural-contracts/go/internal/capslockadapter"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/checker"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/facts"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/goanalysis"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/manifest"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/packagelayout"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/report"
+	"github.com/ono-sendai-labs/architectural-contracts/go/internal/stdlibauthority"
+	"github.com/ono-sendai-labs/architectural-contracts/go/internal/stdlibmap"
+	"github.com/ono-sendai-labs/architectural-contracts/go/internal/symbol"
 )
+
+// layoutTestKey and layoutTestAuthority are the fake authority used by the
+// checker-level assertions of these tests: a map enumerating exactly the mock
+// SDK's packages as safe.
+var layoutTestKey = stdlibauthority.SDKKey{ToolchainVersion: "mock-sdk", GOOS: "linux", GOARCH: "amd64", MapFormatVersion: 1}
+
+type layoutTestAuthority struct{}
+
+func (layoutTestAuthority) IsStdlibPackage(pkgPath string) bool {
+	switch pkgPath {
+	case "fmt", "os", "strings", "syscall":
+		return true
+	}
+	return false
+}
+
+func (layoutTestAuthority) SymbolAuthority(id symbol.SymbolID) (stdlibauthority.Classification, error) {
+	switch facts.SymbolIDPackage(id) {
+	case "fmt", "os", "strings", "syscall":
+		return stdlibauthority.Classification{Safe: true}, nil
+	}
+	return stdlibauthority.Classification{}, &stdlibauthority.InventoryGapError{
+		Package: facts.SymbolIDPackage(id),
+		Symbol:  id.Format(),
+	}
+}
+
+func (layoutTestAuthority) PackageInitAuthority(pkgPath string) (stdlibauthority.Classification, error) {
+	switch pkgPath {
+	case "fmt", "os", "strings", "syscall":
+		return stdlibauthority.Classification{Safe: true}, nil
+	}
+	return stdlibauthority.Classification{}, &stdlibauthority.InventoryGapError{Package: pkgPath}
+}
+
+func (layoutTestAuthority) Evidence(symbol.SymbolID, stdlibauthority.Capability) []stdlibauthority.Frame {
+	return nil
+}
+
+func (layoutTestAuthority) Key() stdlibauthority.SDKKey { return layoutTestKey }
+
+var (
+	sharedMapMu   sync.Mutex
+	sharedMapByOS = map[string]string{}
+	sharedMapErr  error
+)
+
+// nativeToolchainVersion reports the host toolchain's version, the identity
+// the shared maps are generated and validated against.
+func nativeToolchainVersion(t *testing.T) string {
+	t.Helper()
+	target, err := stdlibmap.NativeTargetConfig()
+	if err != nil {
+		t.Fatalf("native target config: %v", err)
+	}
+	return target.ToolchainVersion
+}
+
+// sharedNativeMap generates the real stdlib authority map for a target GOOS
+// once per test process (layout mode requires the declared --stdlib-map
+// artifact, fail-closed before any verdict, and pinned layouts validate its
+// full target key). The mock SDK trees only exercise layout loading, while
+// every standard-library decision reads the map.
+func sharedNativeMap(t *testing.T, goos string) string {
+	t.Helper()
+	sharedMapMu.Lock()
+	defer sharedMapMu.Unlock()
+	if path, ok := sharedMapByOS[goos]; ok {
+		return path
+	}
+	if sharedMapErr != nil {
+		t.Fatalf("shared native map: %v", sharedMapErr)
+	}
+	dir, err := os.MkdirTemp("", "layout-integration-map-*")
+	if err != nil {
+		t.Fatalf("map temp dir: %v", err)
+	}
+	path := filepath.Join(dir, "map-"+goos+".json")
+	args := []string{"stdlibmap", "generate", "--output=" + path, "--goos=" + goos, "--goarch=amd64"}
+	runner := &app.Runner{}
+	var stdout, stderr bytes.Buffer
+	code := runner.Run(args, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("stdlibmap generate (goos=%s): exit %d, stderr: %s", goos, code, stderr.String())
+	}
+	sharedMapByOS[goos] = path
+	return path
+}
+
+func sharedNativeMapDefault(t *testing.T) string {
+	t.Helper()
+	return sharedNativeMap(t, "linux")
+}
 
 // runArccHermetic runs the compiled arcc binary with no Go toolchain reachable
 // on PATH, and is how every layout-mode subprocess test invokes arcc.
@@ -286,7 +381,7 @@ func createPlatformLayoutFixtures(t *testing.T) (string, string, string, string,
 		t.Helper()
 		layout := map[string]any{
 			"go_sdk_root": sdkRoot,
-			"platform":    map[string]any{"goos": goos, "goarch": "amd64", "build_tags": []string{}, "cgo_enabled": false},
+			"platform":    map[string]any{"goos": goos, "goarch": "amd64", "build_tags": []string{}, "cgo_enabled": false, "toolchain_version": nativeToolchainVersion(t)},
 			"roots":       []string{"example.com/member"},
 			"packages":    append([]map[string]any(nil), packages...),
 		}
@@ -484,7 +579,7 @@ func Hello() string {
 	}
 	defer os.Chdir(origWd)
 
-	stdout, stderr, exitCode := runArccHermetic(t, []string{"check", manifestPath, "--package-layout=" + layoutPath})
+	stdout, stderr, exitCode := runArccHermetic(t, []string{"check", manifestPath, "--package-layout=" + layoutPath, "--stdlib-map=" + sharedNativeMapDefault(t)})
 
 	if exitCode != 0 {
 		t.Fatalf("expected exit code 0, got %d. Stderr: %s\nStdout: %s", exitCode, stderr, stdout)
@@ -558,15 +653,32 @@ func TestIntegration_LayoutMode_ExplicitStdlibFactsAndConformance(t *testing.T) 
 	if len(loaded.Packages) != 1 || loaded.Packages[0].ImportPath != "example.com/member" {
 		t.Fatalf("loaded package facts = %+v, want member root", loaded.Packages)
 	}
-	for _, want := range []string{"fmt", "os"} {
-		if !containsString(loaded.StdlibImports, want) {
-			t.Errorf("StdlibImports = %v, want %q", loaded.StdlibImports, want)
+	// The loader produces typed import edges, not stdlib classification:
+	// standard-library membership is the authority map's decision.
+	sawFmt, sawOS := false, false
+	for _, e := range loaded.Imports {
+		switch e.ImportPath {
+		case "fmt":
+			sawFmt = true
+		case "os":
+			sawOS = true
 		}
 	}
-	reportResult := checker.Check(checker.Inputs{
-		Manifest: manifest.Manifest{Name: "explicit-stdlib", InterfaceFiles: []string{"member/api.go"}},
-		Facts:    loaded,
+	if !sawFmt || !sawOS {
+		t.Errorf("import edges = %+v, want fmt and os", loaded.Imports)
+	}
+	// The checker classifies through the authority port: with a map
+	// enumerating fmt and os as safe, the member's imports and references
+	// are not undeclared dependencies.
+	reportResult, checkErr := checker.Check(checker.Inputs{
+		Manifest:  manifest.Manifest{Name: "explicit-stdlib", InterfaceFiles: []string{"member/api.go"}},
+		Facts:     loaded,
+		Authority: layoutTestAuthority{},
+		SDKKey:    layoutTestKey,
 	})
+	if checkErr != nil {
+		t.Fatalf("checker tool error: %v", checkErr)
+	}
 	for _, violation := range reportResult.Violations {
 		if violation.Kind == report.UndeclaredDependency && (strings.Contains(violation.Message, `"fmt"`) || strings.Contains(violation.Message, `"os"`)) {
 			t.Fatalf("stdlib import produced undeclared dependency: %+v", violation)
@@ -606,12 +718,16 @@ func Hello() {}
 		t.Fatalf("change working directory: %v", err)
 	}
 	defer os.Chdir(origWd)
-	stdout, stderr, exitCode := runArccEnv(os.Environ(), []string{"check", manifestPath, "--package-layout=" + layoutPath})
-	if exitCode != 0 {
-		t.Fatalf("expected exit code 0, got %d. Stderr: %s\nStdout: %s", exitCode, stderr, stdout)
+	stdout, stderr, exitCode := runArccEnv(os.Environ(), []string{"check", manifestPath, "--package-layout=" + layoutPath, "--stdlib-map=" + sharedNativeMapDefault(t)})
+	// The loader tolerates a layout-unresolved import, and the typed import
+	// edge reports it at its exact site: an import the map does not
+	// enumerate and no dependency owns is an UNDECLARED_DEPENDENCY, not an
+	// analysis limitation.
+	if exitCode != 1 {
+		t.Fatalf("expected exit code 1, got %d. Stderr: %s\nStdout: %s", exitCode, stderr, stdout)
 	}
-	if !strings.Contains(stdout, "ANALYSIS_LIMITATION") || !strings.Contains(stdout, "member/api.go") || !strings.Contains(stdout, "example.com/missing") {
-		t.Fatalf("stdout = %q, want unresolved-import analysis limitation", stdout)
+	if !strings.Contains(stdout, "UNDECLARED_DEPENDENCY") || !strings.Contains(stdout, "member/api.go") || !strings.Contains(stdout, "example.com/missing") {
+		t.Fatalf("stdout = %q, want the unresolved import as an undeclared dependency", stdout)
 	}
 }
 
@@ -628,9 +744,10 @@ func TestIntegration_LayoutMode_PlatformVariantsUseSameBinary(t *testing.T) {
 
 	for _, tc := range []struct {
 		layoutPath   string
+		goos         string
 		unusedImport string
-	}{{linuxLayout, "windowsdep"}, {windowsLayout, "linuxdep"}} {
-		stdout, stderr, exitCode := runArccHermetic(t, []string{"check", manifestPath, "--package-layout=" + tc.layoutPath})
+	}{{linuxLayout, "linux", "windowsdep"}, {windowsLayout, "windows", "linuxdep"}} {
+		stdout, stderr, exitCode := runArccHermetic(t, []string{"check", manifestPath, "--package-layout=" + tc.layoutPath, "--stdlib-map=" + sharedNativeMap(t, tc.goos)})
 		if exitCode != 0 || stderr != "" {
 			t.Fatalf("platform layout %s failed: exit=%d stderr=%q stdout=%q", tc.layoutPath, exitCode, stderr, stdout)
 		}
@@ -642,7 +759,7 @@ func TestIntegration_LayoutMode_PlatformVariantsUseSameBinary(t *testing.T) {
 		}
 	}
 
-	_, stderr, exitCode := runArccHermetic(t, []string{"check", manifestPath, "--package-layout=" + inconsistentLayout})
+	_, stderr, exitCode := runArccHermetic(t, []string{"check", manifestPath, "--package-layout=" + inconsistentLayout, "--stdlib-map=" + sharedNativeMap(t, "linux")})
 	if exitCode != 2 {
 		t.Fatalf("inconsistent layout exit code = %d, want 2; stderr = %q", exitCode, stderr)
 	}
@@ -669,12 +786,13 @@ func TestIntegration_LayoutMode_InterfaceExclusionFollowsDeclaredPlatform(t *tes
 
 	for _, tc := range []struct {
 		layoutPath string
+		goos       string
 		file       string
 	}{
-		{layoutPath: linuxLayout, file: "platformmember/member/api_windows.go"},
-		{layoutPath: windowsLayout, file: "platformmember/member/api_linux.go"},
+		{layoutPath: linuxLayout, goos: "linux", file: "platformmember/member/api_windows.go"},
+		{layoutPath: windowsLayout, goos: "windows", file: "platformmember/member/api_linux.go"},
 	} {
-		textOutput, stderr, exitCode := runArccHermetic(t, []string{"check", manifestPath, "--package-layout=" + tc.layoutPath})
+		textOutput, stderr, exitCode := runArccHermetic(t, []string{"check", manifestPath, "--package-layout=" + tc.layoutPath, "--stdlib-map=" + sharedNativeMap(t, tc.goos)})
 		if exitCode != 0 || stderr != "" {
 			t.Fatalf("layout %s text check failed: exit=%d stderr=%q stdout=%q", tc.layoutPath, exitCode, stderr, textOutput)
 		}
@@ -682,7 +800,7 @@ func TestIntegration_LayoutMode_InterfaceExclusionFollowsDeclaredPlatform(t *tes
 			t.Fatalf("text output = %q, want exclusion for %s", textOutput, tc.file)
 		}
 
-		jsonOutput, stderr, exitCode := runArccHermetic(t, []string{"check", manifestPath, "--package-layout=" + tc.layoutPath, "--format=json"})
+		jsonOutput, stderr, exitCode := runArccHermetic(t, []string{"check", manifestPath, "--package-layout=" + tc.layoutPath, "--stdlib-map=" + sharedNativeMap(t, tc.goos), "--format=json"})
 		if exitCode != 0 || stderr != "" {
 			t.Fatalf("layout %s JSON check failed: exit=%d stderr=%q stdout=%q", tc.layoutPath, exitCode, stderr, jsonOutput)
 		}
@@ -704,7 +822,7 @@ func TestIntegration_LayoutMode_InterfaceExclusionFollowsDeclaredPlatform(t *tes
 	if err := os.WriteFile(manifestPath, []byte("name: \"all-gated\"\ninterface_files: \"platformmember/member/api_linux.go\"\n"), 0o644); err != nil {
 		t.Fatalf("write all-gated manifest: %v", err)
 	}
-	_, stderr, exitCode := runArccHermetic(t, []string{"check", manifestPath, "--package-layout=" + windowsLayout})
+	_, stderr, exitCode := runArccHermetic(t, []string{"check", manifestPath, "--package-layout=" + windowsLayout, "--stdlib-map=" + sharedNativeMap(t, "windows")})
 	if exitCode != 2 || !strings.Contains(stderr, "no interface file survives") || !strings.Contains(stderr, "member/api_linux.go") {
 		t.Fatalf("all-gated layout result: exit=%d stderr=%q, want fail-closed exclusion error", exitCode, stderr)
 	}
@@ -726,7 +844,7 @@ func TestIntegration_LayoutMode_ExcludedUnresolvedImportHasNoWarning(t *testing.
 	}
 	defer os.Chdir(origWd)
 
-	stdout, stderr, exitCode := runArccHermetic(t, []string{"check", manifestPath, "--package-layout=" + linuxLayout})
+	stdout, stderr, exitCode := runArccHermetic(t, []string{"check", manifestPath, "--package-layout=" + linuxLayout, "--stdlib-map=" + sharedNativeMap(t, "linux")})
 	if exitCode != 0 || stderr != "" {
 		t.Fatalf("excluded unresolved layout failed: exit=%d stderr=%q stdout=%q", exitCode, stderr, stdout)
 	}
@@ -784,7 +902,7 @@ func TestIntegration_LayoutMode_UnresolvedDiagnosticsAreStable(t *testing.T) {
 	other["pkgPath"] = "example.com/other"
 	layout := map[string]any{
 		"go_sdk_root": sdkRoot,
-		"platform":    map[string]any{"goos": "linux", "goarch": "amd64", "build_tags": []string{}, "cgo_enabled": false},
+		"platform":    map[string]any{"goos": "linux", "goarch": "amd64", "build_tags": []string{}, "cgo_enabled": false, "toolchain_version": nativeToolchainVersion(t)},
 		"roots":       []string{"example.com/member", "example.com/other"},
 		"packages":    []map[string]any{member, other},
 	}
@@ -806,31 +924,31 @@ func TestIntegration_LayoutMode_UnresolvedDiagnosticsAreStable(t *testing.T) {
 	}
 	defer os.Chdir(origWd)
 
-	textArgs := []string{"check", manifestPath, "--package-layout=" + layoutPath}
+	textArgs := []string{"check", manifestPath, "--package-layout=" + layoutPath, "--stdlib-map=" + sharedNativeMap(t, "linux")}
 	text1, stderr, exitCode := runArccHermetic(t, textArgs)
-	if exitCode != 0 || stderr != "" {
+	if exitCode != 1 || stderr != "" {
 		t.Fatalf("first text check failed: exit=%d stderr=%q stdout=%q", exitCode, stderr, text1)
 	}
 	text2, stderr, exitCode := runArccHermetic(t, textArgs)
-	if exitCode != 0 || stderr != "" || text1 != text2 {
+	if exitCode != 1 || stderr != "" || text1 != text2 {
 		t.Fatalf("repeated text check differed: exit=%d stderr=%q first=%q second=%q", exitCode, stderr, text1, text2)
 	}
 
 	jsonArgs := append(textArgs, "--format=json")
 	json1, stderr, exitCode := runArccHermetic(t, jsonArgs)
-	if exitCode != 0 || stderr != "" {
+	if exitCode != 1 || stderr != "" {
 		t.Fatalf("first JSON check failed: exit=%d stderr=%q stdout=%q", exitCode, stderr, json1)
 	}
 	json2, stderr, exitCode := runArccHermetic(t, jsonArgs)
-	if exitCode != 0 || stderr != "" || json1 != json2 {
+	if exitCode != 1 || stderr != "" || json1 != json2 {
 		t.Fatalf("repeated JSON check differed: exit=%d stderr=%q first=%q second=%q", exitCode, stderr, json1, json2)
 	}
 	var rendered report.ConformanceReport
 	if err := json.Unmarshal([]byte(json1), &rendered); err != nil {
 		t.Fatalf("decode JSON report: %v", err)
 	}
-	if len(rendered.Violations) != 0 || len(rendered.Warnings) != 3 {
-		t.Fatalf("rendered report = %#v, want three limitation warnings", rendered)
+	if len(rendered.Warnings) != 0 || len(rendered.Violations) != 3 {
+		t.Fatalf("rendered report = %#v, want three undeclared-dependency violations", rendered)
 	}
 	if !strings.Contains(text1, "member/a_linux.go") || !strings.Contains(text1, "member/z_linux.go") || !strings.Contains(text1, "other/impl_linux.go") {
 		t.Fatalf("text report = %q, want all source-level observations", text1)
@@ -874,7 +992,7 @@ func Trap() {
 	}
 	defer os.Chdir(origWd)
 
-	stdout, stderr, exitCode := runArccHermetic(t, []string{"check", manifestPath, "--package-layout=" + layoutPath})
+	stdout, stderr, exitCode := runArccHermetic(t, []string{"check", manifestPath, "--package-layout=" + layoutPath, "--stdlib-map=" + sharedNativeMapDefault(t)})
 
 	if exitCode != 1 {
 		t.Fatalf("expected exit code 1, got %d. Stderr: %s\nStdout: %s", exitCode, stderr, stdout)
@@ -883,11 +1001,14 @@ func Trap() {
 		t.Errorf("expected empty stderr, got %q", stderr)
 	}
 
-	if !strings.Contains(stdout, "UNDECLARED_AUTHORITY") {
-		t.Errorf("expected UNDECLARED_AUTHORITY in stdout: %s", stdout)
+	// The typed check attributes no transitive authority: the member's
+	// reference into example.com/dep, which no declared dependency owns, is
+	// an undeclared dependency at the exact sites.
+	if !strings.Contains(stdout, "UNDECLARED_DEPENDENCY") {
+		t.Errorf("expected UNDECLARED_DEPENDENCY in stdout: %s", stdout)
 	}
-	if !strings.Contains(stdout, `use of undeclared authority "SYSTEM_CALLS"`) {
-		t.Errorf("expected SYSTEM_CALLS violation in stdout: %s", stdout)
+	if !strings.Contains(stdout, `"example.com/dep"`) {
+		t.Errorf("expected the undeclared dependency named in stdout: %s", stdout)
 	}
 }
 
@@ -913,12 +1034,11 @@ func Hello() string { return "layout" }
 	}
 
 	runner := &app.Runner{
-		Loader:   goanalysis.LoadPackageFacts,
-		Analyzer: capslockadapter.NewAdapter(),
+		Loader: goanalysis.LoadPackageFacts,
 	}
 
 	var stdout, stderr bytes.Buffer
-	code1 := runner.Run([]string{"check", manifestPath, "--package-layout=" + layoutPath}, &stdout, &stderr)
+	code1 := runner.Run([]string{"check", manifestPath, "--package-layout=" + layoutPath, "--stdlib-map=" + sharedNativeMapDefault(t)}, &stdout, &stderr)
 
 	// Restore working directory immediately before doing colocated creation
 	if err := os.Chdir(origWd); err != nil {
@@ -988,8 +1108,7 @@ func Helper() {}
 	_, colocatedManifestPath := createTempComponent(t, "con-colocated", colocatedManifest, colocatedFiles)
 
 	runner := &app.Runner{
-		Loader:   goanalysis.LoadPackageFacts,
-		Analyzer: capslockadapter.NewAdapter(),
+		Loader: goanalysis.LoadPackageFacts,
 	}
 
 	var wg sync.WaitGroup
@@ -1018,7 +1137,7 @@ func Helper() {}
 		go func(id int) {
 			defer wg.Done()
 			var stdout, stderr bytes.Buffer
-			code := runner.Run([]string{"check", layoutManifestPath, "--package-layout=" + layoutPath}, &stdout, &stderr)
+			code := runner.Run([]string{"check", layoutManifestPath, "--package-layout=" + layoutPath, "--stdlib-map=" + sharedNativeMapDefault(t)}, &stdout, &stderr)
 			if code != 0 {
 				recordErr(fmt.Sprintf("layout check %d failed with code %d. stderr: %s", id, code, stderr.String()))
 			}
@@ -1212,7 +1331,7 @@ func Hello() {
 	}
 	defer os.Chdir(origWd)
 
-	stdout, stderr, exitCode := runArccHermetic(t, []string{"check", primaryManifestPath, "--package-layout=" + primaryLayoutPath})
+	stdout, stderr, exitCode := runArccHermetic(t, []string{"check", primaryManifestPath, "--package-layout=" + primaryLayoutPath, "--stdlib-map=" + sharedNativeMapDefault(t)})
 
 	if exitCode != 0 {
 		t.Fatalf("expected exit code 0, got %d. Stderr: %s\nStdout: %s", exitCode, stderr, stdout)
@@ -1259,7 +1378,7 @@ func OpenSomething() {
 	}
 	defer os.Chdir(origWd)
 
-	stdout, stderr, exitCode := runArccHermetic(t, []string{"check", manifestPath, "--package-layout=" + layoutPath})
+	stdout, stderr, exitCode := runArccHermetic(t, []string{"check", manifestPath, "--package-layout=" + layoutPath, "--stdlib-map=" + sharedNativeMapDefault(t)})
 
 	if exitCode != 1 {
 		t.Fatalf("expected exit code 1, got %d. Stderr: %s\nStdout: %s", exitCode, stderr, stdout)
@@ -1274,8 +1393,10 @@ func OpenSomething() {
 	if !strings.Contains(stdout, `use of undeclared authority "FILES"`) {
 		t.Errorf("expected FILES violation in stdout: %s", stdout)
 	}
-	if !strings.Contains(stdout, "OpenSomething") {
-		t.Errorf("expected evidence call path in stdout: %s", stdout)
+	// DR-17: the finding carries the sorted member site of the os.Open
+	// reference inside OpenSomething.
+	if !strings.Contains(stdout, "at member/api.go:") {
+		t.Errorf("expected the os.Open reference site in stdout: %s", stdout)
 	}
 }
 
@@ -1314,7 +1435,7 @@ func Hello() {}
 	}
 	defer os.Chdir(origWd)
 
-	stdout, stderr, exitCode := runArccHermetic(t, []string{"check", manifestPath, "--package-layout=" + layoutPath})
+	stdout, stderr, exitCode := runArccHermetic(t, []string{"check", manifestPath, "--package-layout=" + layoutPath, "--stdlib-map=" + sharedNativeMapDefault(t)})
 
 	if exitCode != 2 {
 		t.Fatalf("expected exit code 2, got %d. Stderr: %s\nStdout: %s", exitCode, stderr, stdout)

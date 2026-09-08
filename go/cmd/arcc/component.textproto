@@ -6,10 +6,6 @@ component_dependencies {
   manifest: "../../internal/capanalyzer/component.textproto"
 }
 component_dependencies {
-  name: "capslockadapter"
-  manifest: "../../internal/capslockadapter/component.textproto"
-}
-component_dependencies {
   name: "checker"
   manifest: "../../internal/checker/component.textproto"
 }

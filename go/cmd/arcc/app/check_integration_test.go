@@ -11,7 +11,6 @@ import (
 
 	"github.com/ono-sendai-labs/architectural-contracts/go/cmd/arcc/app"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/artifactio"
-	"github.com/ono-sendai-labs/architectural-contracts/go/internal/capslockadapter"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/goanalysis"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/stdlibmap"
 )
@@ -74,8 +73,7 @@ func writeLayoutManifest(t *testing.T, workspace, pkgPath string) string {
 // fullRunner constructs the production runner exactly as main.go does.
 func fullRunner() *app.Runner {
 	return &app.Runner{
-		Loader:   goanalysis.LoadPackageFacts,
-		Analyzer: capslockadapter.NewAdapter(),
+		Loader: goanalysis.LoadPackageFacts,
 	}
 }
 

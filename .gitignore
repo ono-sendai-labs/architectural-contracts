@@ -6,3 +6,4 @@
 # Bazel convenience symlinks and machine-local config
 /bazel-*
 /user.bazelrc
+go/bin/

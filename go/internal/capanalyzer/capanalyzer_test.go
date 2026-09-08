@@ -15,40 +15,9 @@ func TestCoreTypes(t *testing.T) {
 		t.Errorf("expected AnalysisDefeating, got %q", capanalyzer.AnalysisDefeating.String())
 	}
 
-	// 2. Instantiate and check InterfaceSymbol type
-	var sym capanalyzer.InterfaceSymbol = "example.com/store.Read"
-	if string(sym) != "example.com/store.Read" {
-		t.Errorf("expected example.com/store.Read, got %q", sym)
-	}
-
-	// 3. Instantiate Frame
-	frame := capanalyzer.Frame{
-		Func: "main",
-		File: "main.go",
-		Line: 42,
-	}
-	if frame.Func != "main" || frame.File != "main.go" || frame.Line != 42 {
-		t.Errorf("frame fields mismatch: %+v", frame)
-	}
-
-	// 4. Instantiate CapabilityFinding
-	finding := capanalyzer.CapabilityFinding{
-		Package:    "os",
-		Capability: "FILES",
-		Class:      capanalyzer.TrueAuthority,
-		CallPath:   []capanalyzer.Frame{frame},
-	}
-	if finding.Package != "os" || finding.Capability != "FILES" || finding.Class != capanalyzer.TrueAuthority || len(finding.CallPath) != 1 {
-		t.Errorf("finding fields mismatch: %+v", finding)
-	}
-
-	// 5. Instantiate AnalyzeRequest
-	req := capanalyzer.AnalyzeRequest{
-		Packages: []string{"example.com/foo"},
-		PruneAt:  []capanalyzer.InterfaceSymbol{sym},
-	}
-	if len(req.Packages) != 1 || req.Packages[0] != "example.com/foo" || len(req.PruneAt) != 1 || req.PruneAt[0] != sym {
-		t.Errorf("request fields mismatch: %+v", req)
+	// 2. Class constants carry their string forms
+	if capanalyzer.Class("TrueAuthority") != capanalyzer.TrueAuthority {
+		t.Error("Class spelling changed")
 	}
 }
 

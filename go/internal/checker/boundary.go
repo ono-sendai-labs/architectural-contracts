@@ -29,7 +29,7 @@ package checker
 
 import (
 	"fmt"
-	"sort"
+	"slices"
 	"strings"
 
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/facts"
@@ -109,15 +109,14 @@ func NewBoundaryIndex(members facts.MemberSet, deps []facts.DependencyInterface)
 		}
 	}
 	if len(collisions) > 0 {
-		sort.Slice(collisions, func(i, j int) bool {
-			a, b := collisions[i], collisions[j]
+		slices.SortFunc(collisions, func(a, b overlap) int {
 			if c := strings.Compare(a.pkg, b.pkg); c != 0 {
-				return c < 0
+				return c
 			}
 			if c := strings.Compare(a.first, b.first); c != 0 {
-				return c < 0
+				return c
 			}
-			return strings.Compare(a.second, b.second) < 0
+			return strings.Compare(a.second, b.second)
 		})
 		c := collisions[0]
 		return nil, fmt.Errorf("DEPENDENCY_OVERLAP: package %q is claimed by dependencies %q and %q", c.pkg, c.first, c.second)

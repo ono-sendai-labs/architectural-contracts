@@ -12,7 +12,6 @@ go_library(
     importpath = "github.com/ono-sendai-labs/architectural-contracts/go/internal/facts",
     visibility = ["//go:__subpackages__"],
     deps = [
-        "//go/internal/capanalyzer",
         "//go/internal/manifest",
         "//go/internal/symbol",
     ],

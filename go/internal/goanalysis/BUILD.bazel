@@ -18,21 +18,17 @@ go_library(
     importpath = "github.com/ono-sendai-labs/architectural-contracts/go/internal/goanalysis",
     visibility = ["//go:__subpackages__"],
     deps = [
-        "//go/internal/capanalyzer",
         "//go/internal/facts",
         "//go/internal/hostpolicy",
         "//go/internal/manifest",
         "//go/internal/packagelayout",
         "//go/internal/symbol",
-        "@org_golang_x_tools//go/callgraph/vta",
         "@org_golang_x_tools//go/packages",
-        "@org_golang_x_tools//go/ssa",
-        "@org_golang_x_tools//go/ssa/ssautil",
     ],
 )
 
 # Mirrors the checked-in goanalysis/component.textproto: depends on
-# capanalyzer, facts, manifest, and symbol components; owns //go/internal/hostpolicy,
+# facts, manifest, and symbol components; owns //go/internal/hostpolicy,
 # //go/internal/packagelayout, and the x/tools closure as declared members;
 # declares 8 authorities.
 # hostpolicy, packagelayout, and the x/tools closure are declared members:
@@ -49,16 +45,10 @@ go_component(
         "@org_golang_x_tools//go/ast/edge:edge",
         "@org_golang_x_tools//go/ast/inspector:inspector",
         "@org_golang_x_tools//go/buildutil:buildutil",
-        "@org_golang_x_tools//go/callgraph:callgraph",
-        "@org_golang_x_tools//go/callgraph/internal/chautil:chautil",
-        "@org_golang_x_tools//go/callgraph/vta:vta",
-        "@org_golang_x_tools//go/callgraph/vta/internal/trie:trie",
         "@org_golang_x_tools//go/gcexportdata:gcexportdata",
         "@org_golang_x_tools//go/internal/cgo:cgo",
         "@org_golang_x_tools//go/loader:loader",
         "@org_golang_x_tools//go/packages:packages",
-        "@org_golang_x_tools//go/ssa:ssa",
-        "@org_golang_x_tools//go/ssa/ssautil:ssautil",
         "@org_golang_x_tools//go/types/objectpath:objectpath",
         "@org_golang_x_tools//go/types/typeutil:typeutil",
         "@org_golang_x_tools//internal/aliases:aliases",
@@ -76,7 +66,6 @@ go_component(
         "@org_golang_x_tools//internal/versions:versions",
     ],
     component_deps = [
-        "//go/internal/capanalyzer:capanalyzer_component",
         "//go/internal/facts:facts_component",
         "//go/internal/manifest:manifest_component",
         "//go/internal/symbol:symbol_component",

@@ -260,14 +260,16 @@ func Hello() {
 		t.Errorf("outputs of repeated runs differ.\nRUN 1:\n%q\nRUN 2:\n%q", normalizedStdout1, normalizedStdout2)
 	}
 
-	// Verify against deterministic golden output to assert stability, finding order, and evidence call-paths.
+	// Verify against deterministic golden output to assert stability and the
+	// DR-17 finding model: one counted finding carrying its sorted site and
+	// the map's canned evidence.
 	want := `Component: authorityapp
 
 Violations:
-- [UNDECLARED_AUTHORITY] use of undeclared authority "FILES" in package "github.com/ono-sendai-labs/architectural-contracts/go/examples/csvtool/<TEMP_DIR_NAME>"
+- [UNDECLARED_AUTHORITY] use of undeclared authority "FILES"
+  at main.go:4 (1 sites)
   Evidence:
-    - github.com/ono-sendai-labs/architectural-contracts/go/examples/csvtool/<TEMP_DIR_NAME>.Hello at :0
-    - os.ReadFile at main.go:4
+    - os.ReadFile at :0
 `
 	if strings.TrimSpace(normalizedStdout1) != strings.TrimSpace(want) {
 		t.Errorf("normalized stdout does not match golden output.\nGOT:\n%q\nWANT:\n%q", normalizedStdout1, want)
@@ -420,25 +422,36 @@ func Hello() {
 	if vAuth.Location.File != "" || vAuth.Location.Line != 0 {
 		t.Errorf("vAuth.Location = %+v, expected empty (zero-value)", vAuth.Location)
 	}
-	if len(vAuth.Evidence) != 2 {
-		t.Fatalf("expected 2 evidence entries for UNDECLARED_AUTHORITY, got %d: %v", len(vAuth.Evidence), vAuth.Evidence)
+	// DR-17: the aggregated finding carries every sorted site and the map's
+	// canned evidence for the first site's symbol.
+	if len(vAuth.Evidence) != 1 {
+		t.Fatalf("expected 1 evidence entry for UNDECLARED_AUTHORITY, got %d: %v", len(vAuth.Evidence), vAuth.Evidence)
 	}
-	if !strings.Contains(vAuth.Evidence[0], ".Hello at :0") {
-		t.Errorf("vAuth.Evidence[0] = %q, expected it to contain '.Hello at :0'", vAuth.Evidence[0])
+	if !strings.Contains(vAuth.Evidence[0], "os.ReadFile") {
+		t.Errorf("vAuth.Evidence[0] = %q, expected it to name the map evidence for os.ReadFile", vAuth.Evidence[0])
 	}
-	if !strings.Contains(vAuth.Evidence[1], "os.ReadFile at main.go:9") {
-		t.Errorf("vAuth.Evidence[1] = %q, expected it to contain 'os.ReadFile at main.go:9'", vAuth.Evidence[1])
+	if len(vAuth.Sites) != 1 || vAuth.Sites[0].File != "main.go" || vAuth.Sites[0].Line != 9 {
+		t.Fatalf("vAuth.Sites = %+v, want the single main.go:9 site", vAuth.Sites)
 	}
 
-	// Verify vDep fields
-	if !strings.Contains(vDep.Message, `imports undeclared dependency "github.com/ono-sendai-labs/architectural-contracts/go/examples/csvtool/internal/parsecsv"`) {
-		t.Errorf("vDep.Message = %q, expected parsecsv undeclared dependency", vDep.Message)
+	// Verify vDep fields: the boundary findings are site-specific — one per
+	// (referent, site): the parsecsv import at main.go:5 and the reference
+	// to parsecsv.Parse at main.go:10.
+	var importFinding, refFinding *report.Finding
+	for idx := range rep.Violations {
+		v := &rep.Violations[idx]
+		if v.Kind != report.UndeclaredDependency {
+			continue
+		}
+		if strings.Contains(v.Message, `imports undeclared dependency "github.com/ono-sendai-labs/architectural-contracts/go/examples/csvtool/internal/parsecsv" at main.go:5`) {
+			importFinding = v
+		}
+		if strings.Contains(v.Message, `references undeclared dependency symbol "github.com/ono-sendai-labs/architectural-contracts/go/examples/csvtool/internal/parsecsv.Parse" at main.go:10`) {
+			refFinding = v
+		}
 	}
-	if vDep.Location.File != "main.go" {
-		t.Errorf("vDep.Location.File = %q, expected 'main.go'", vDep.Location.File)
-	}
-	if vDep.Location.Line != 0 {
-		t.Errorf("vDep.Location.Line = %d, expected 0", vDep.Location.Line)
+	if importFinding == nil || refFinding == nil {
+		t.Fatalf("want the import finding at main.go:5 and the Parse reference at main.go:10, got %+v", rep.Violations)
 	}
 
 	// Verify rep.Warnings fields
@@ -473,14 +486,11 @@ func Hello() {
 	if !strings.Contains(normalizedStdoutText, `use of undeclared authority "FILES"`) {
 		t.Errorf("text output missing FILES violation: %s", normalizedStdoutText)
 	}
-	if !strings.Contains(normalizedStdoutText, "os.ReadFile at main.go:9") {
-		t.Errorf("text output missing evidence path: %s", normalizedStdoutText)
+	if !strings.Contains(normalizedStdoutText, "at main.go:9 (1 sites)") {
+		t.Errorf("text output missing the counted site: %s", normalizedStdoutText)
 	}
-	if !strings.Contains(normalizedStdoutText, `imports undeclared dependency "github.com/ono-sendai-labs/architectural-contracts/go/examples/csvtool/internal/parsecsv"`) {
+	if !strings.Contains(normalizedStdoutText, `imports undeclared dependency "github.com/ono-sendai-labs/architectural-contracts/go/examples/csvtool/internal/parsecsv" at main.go:5`) {
 		t.Errorf("text output missing parsecsv undeclared dependency: %s", normalizedStdoutText)
-	}
-	if !strings.Contains(normalizedStdoutText, "at main.go:0") {
-		t.Errorf("text output missing location info: %s", normalizedStdoutText)
 	}
 	if !strings.Contains(normalizedStdoutText, `declared component dependency "toprow" is unused`) {
 		t.Errorf("text output missing unused dependency warning: %s", normalizedStdoutText)
@@ -644,8 +654,11 @@ component_dependencies {
 	if !strings.Contains(stdout, `use of undeclared authority "FILES"`) {
 		t.Fatalf("expected FILES authority violation, got: %s", stdout)
 	}
-	if !strings.Contains(stdout, memberImportPath+".Load") || !strings.Contains(stdout, "load.go") {
-		t.Fatalf("expected evidence to identify member-owned backend.Load, got: %s", stdout)
+	// DR-17: the member-owned backend.Load's authority use appears as the
+	// counted site (load.go:6, the os.ReadFile reference), not as a call
+	// path through the callback.
+	if !strings.Contains(stdout, "at backend/load.go:6 (1 sites)") {
+		t.Fatalf("expected the member-owned backend.Load site, got: %s", stdout)
 	}
 }
 
@@ -820,11 +833,8 @@ component_dependencies {
 	if !strings.Contains(stdout, "CALLS_UNDECLARED_INTERFACE") {
 		t.Errorf("expected stdout to contain CALLS_UNDECLARED_INTERFACE, got: %s", stdout)
 	}
-	if !strings.Contains(stdout, `call from "github.com/ono-sendai-labs/architectural-contracts/go/examples/csvtool/temp-integration-app-private-fail-`) {
-		t.Errorf("expected stdout to contain the caller signature, got: %s", stdout)
-	}
-	if !strings.Contains(stdout, `to undeclared interface symbol "github.com/ono-sendai-labs/architectural-contracts/go/examples/csvtool/csvfile.PrivateExportedHelper" of dependency "csvfile"`) {
-		t.Errorf("expected stdout to contain the callee PrivateExportedHelper, got: %s", stdout)
+	if !strings.Contains(stdout, `references undeclared interface symbol "github.com/ono-sendai-labs/architectural-contracts/go/examples/csvtool/csvfile.PrivateExportedHelper" of dependency "csvfile" at app.go:6`) {
+		t.Errorf("expected the undeclared-interface reference at its exact site, got: %s", stdout)
 	}
 }
 
@@ -933,11 +943,10 @@ func ViolateCorePurity() {
 	if !strings.Contains(stdout, `use of undeclared authority "FILES"`) {
 		t.Errorf("expected stdout to report FILES authority violation, got: %s", stdout)
 	}
-	if !strings.Contains(stdout, "ViolateCorePurity") {
-		t.Errorf("expected stdout evidence to reference ViolateCorePurity function, got: %s", stdout)
-	}
-	if !strings.Contains(stdout, "os.Open at regression_authority.go:") {
-		t.Errorf("expected stdout evidence to reference os.Open at regression_authority.go, got: %s", stdout)
+	// DR-17: the site names the member file and line of the os.Open
+	// reference inside ViolateCorePurity.
+	if !strings.Contains(stdout, "at regression_authority.go:6 (1 sites)") {
+		t.Errorf("expected the os.Open reference site, got: %s", stdout)
 	}
 }
 

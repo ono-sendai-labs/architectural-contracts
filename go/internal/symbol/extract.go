@@ -4,13 +4,14 @@ import (
 	"go/ast"
 	"go/token"
 	"go/types"
-	"sort"
+	"slices"
 )
 
 // ExtractSurface emits the exact declared surface of an already type-checked
 // package (task req 6): every exported package-level function, variable,
 // constant and named/alias type, every exported declared method, and the
-// aggregate init — with no implements-closure injection and nothing else.
+// aggregate init — nothing else. This is both the emitted surface's symbol
+// set and the set the check classifies references against.
 //
 // Under the declaring-object rule (DR-04) interface method specs and struct
 // fields have no ID of their own; references to them are authorised by their
@@ -91,7 +92,7 @@ func ExtractSurface(files []*ast.File, info *types.Info) []SymbolID {
 	for id := range seen {
 		result = append(result, id)
 	}
-	sort.Slice(result, func(i, j int) bool { return Compare(result[i], result[j]) < 0 })
+	slices.SortFunc(result, Compare)
 	return result
 }
 

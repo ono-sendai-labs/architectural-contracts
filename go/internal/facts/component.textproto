@@ -5,10 +5,6 @@ interface_files: "member.go"
 interface_files: "refs.go"
 members: "github.com/ono-sendai-labs/architectural-contracts/go/internal/facts"
 component_dependencies {
-  name: "capanalyzer"
-  manifest: "../capanalyzer/component.textproto"
-}
-component_dependencies {
   name: "manifest"
   manifest: "../manifest/component.textproto"
 }

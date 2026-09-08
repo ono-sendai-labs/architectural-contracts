@@ -1,5 +1,5 @@
 name: "capslockadapter"
-interface_files: "capslockadapter.go"
+interface_files: "generation.go"
 members: "github.com/ono-sendai-labs/architectural-contracts/go/internal/capslockadapter"
 members: "github.com/ono-sendai-labs/architectural-contracts/go/internal/hostpolicy"
 members: "github.com/ono-sendai-labs/architectural-contracts/go/internal/packagelayout"

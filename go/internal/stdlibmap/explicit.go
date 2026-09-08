@@ -6,7 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"sort"
+	"slices"
 	"strings"
 
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/packagelayout"
@@ -184,7 +184,7 @@ func ReconcilePackageList(listed []string, layout *packagelayout.Layout, sdkRoot
 		}
 		return nil, fmt.Errorf("reconciling the package list with the SDK: package %q was discovered in the SDK but the package list omits it", p.PkgPath)
 	}
-	sort.Slice(entries, func(i, j int) bool { return entries[i].Path < entries[j].Path })
+	slices.SortFunc(entries, func(a, b PackageEntry) int { return strings.Compare(a.Path, b.Path) })
 	return entries, nil
 }
 

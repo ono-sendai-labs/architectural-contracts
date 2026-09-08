@@ -2,7 +2,7 @@ package facts
 
 import (
 	"fmt"
-	"sort"
+	"slices"
 )
 
 // BypassKind classifies the analysis-defeating construct of a bypass
@@ -60,9 +60,7 @@ func CompareBypassObservations(a, b BypassObservation) int {
 func SortBypassObservations(obs []BypassObservation) []BypassObservation {
 	out := make([]BypassObservation, len(obs))
 	copy(out, obs)
-	sort.SliceStable(out, func(i, j int) bool {
-		return CompareBypassObservations(out[i], out[j]) < 0
-	})
+	slices.SortStableFunc(out, CompareBypassObservations)
 	return out
 }
 

@@ -1,9 +1,9 @@
-// Package goanalysis loads Go packages and extracts static facts including imports, exported symbols, and static callgraphs.
+// Package goanalysis loads Go packages and extracts static facts including typed reference/import edges and analysis-defeating bypass observations.
 //
 // Component Contract (FR10):
-// - What it does: Analyzes Go syntax trees and types to load package structures, validate interface file correctness, and build a static callgraph.
+// - What it does: Analyzes Go syntax trees and types to load package structures, validate interface file correctness, scan the typed reference/import vocabulary of member sources, and detect analysis-defeating constructs. There is no SSA, no VTA call graph and no check-time Capslock: every stdlib decision is the StdlibAuthority port's.
 // - What it requires: Directory paths on the local filesystem and package manifests to resolve dependency interfaces.
-// - What it provides: Structural package facts and dependency interface symbols for checking component boundaries.
+// - What it provides: Structural package facts (typed reference and import edges, bypass observations) and dependency interface symbols for checking component boundaries.
 // - Ambient Authority: This component is a shell component and requires FILES, EXEC, READ_SYSTEM_STATE, OPERATING_SYSTEM, REFLECT, and UNSAFE_POINTER.
 package goanalysis
 
@@ -18,20 +18,17 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
 
-	"github.com/ono-sendai-labs/architectural-contracts/go/internal/capanalyzer"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/facts"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/hostpolicy"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/manifest"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/packagelayout"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/symbol"
-	"golang.org/x/tools/go/callgraph/vta"
 	"golang.org/x/tools/go/packages"
-	"golang.org/x/tools/go/ssa"
-	"golang.org/x/tools/go/ssa/ssautil"
 )
 
 var (
@@ -176,21 +173,14 @@ func LoadPackageFacts(req LoadRequest) (facts.PackageFacts, error) {
 		return compPkgPaths[hostpolicy.CanonicalizePath(pkgPath)]
 	}
 
-	isStdlib := stdlibClassifier()
-	stdlibImportSet := make(map[string]bool)
-
 	var factsPkgs []facts.PackageFact
 	for _, p := range pkgs {
 		if !isEffectiveMember(p.PkgPath) && !isEffectiveMember(p.ID) {
 			continue
 		}
 		var imports []string
-		for impPath, impPkg := range p.Imports {
-			canonImp := hostpolicy.CanonicalizePath(impPath)
-			imports = append(imports, canonImp)
-			if isStdlib(impPath, impPkg) {
-				stdlibImportSet[canonImp] = true
-			}
+		for impPath := range p.Imports {
+			imports = append(imports, hostpolicy.CanonicalizePath(impPath))
 		}
 		sort.Strings(imports)
 
@@ -213,13 +203,9 @@ func LoadPackageFacts(req LoadRequest) (facts.PackageFacts, error) {
 	}
 
 	// Sort package facts by ImportPath for reproducibility
-	sort.Slice(factsPkgs, func(i, j int) bool {
-		return factsPkgs[i].ImportPath < factsPkgs[j].ImportPath
+	slices.SortFunc(factsPkgs, func(a, b facts.PackageFact) int {
+		return strings.Compare(a.ImportPath, b.ImportPath)
 	})
-
-	// StdlibImports is the loader-authoritative set of standard-library imports,
-	// in canonical form, that the checker skips. Always non-nil after a real load.
-	stdlibImports := normalizeStdlibImports(stdlibImportSet)
 
 	sourceFiles := make(map[string]bool)
 	for _, p := range pkgs {
@@ -241,91 +227,37 @@ func LoadPackageFacts(req LoadRequest) (facts.PackageFacts, error) {
 		}
 	}
 
-	var unresolvedImports []facts.UnresolvedImport
+	// Typed reference/import scan and analysis-defeating bypass scan over
+	// the member packages. Membership is exact; the scan names the
+	// declaring object the source writes (DR-04) — no SSA, no VTA call
+	// graph, and no check-time Capslock.
+	analysisRoot := componentRoot
 	if packagelayout.IsLayoutMode() {
-		layout := packagelayout.GetActiveLayout()
-		workspaceDir := packagelayout.GetActiveWorkspaceDir()
-		for _, observation := range layout.UnresolvedImports {
-			rel, err := filepath.Rel(workspaceDir, observation.SourceFile)
-			if err != nil {
-				continue
-			}
-			unresolvedImports = append(unresolvedImports, facts.UnresolvedImport{
-				Package:    hostpolicy.CanonicalizePath(observation.Package),
-				File:       filepath.ToSlash(filepath.Clean(rel)),
-				ImportPath: hostpolicy.CanonicalizePath(observation.ImportPath),
-			})
-		}
-		sort.Slice(unresolvedImports, func(i, j int) bool {
-			if unresolvedImports[i].Package != unresolvedImports[j].Package {
-				return unresolvedImports[i].Package < unresolvedImports[j].Package
-			}
-			if unresolvedImports[i].File != unresolvedImports[j].File {
-				return unresolvedImports[i].File < unresolvedImports[j].File
-			}
-			return unresolvedImports[i].ImportPath < unresolvedImports[j].ImportPath
-		})
+		analysisRoot = packagelayout.GetActiveWorkspaceDir()
 	}
-
-	// Build SSA and construct the VTA call graph
-	prog, _ := ssautil.AllPackages(pkgs, ssa.InstantiateGenerics)
-	prog.Build()
-
-	allFuncs := ssautil.AllFunctions(prog)
-	cg := vta.CallGraph(allFuncs, nil)
-
-	type edgeKey struct {
-		caller string
-		callee string
+	memberList := make([]string, 0, len(compPkgPaths))
+	for pkgPath := range compPkgPaths {
+		memberList = append(memberList, pkgPath)
 	}
-	edgesMap := make(map[edgeKey]struct{})
-
-	for fn, node := range cg.Nodes {
-		if fn == nil || node == nil {
-			continue
-		}
-		callerPkg := hostpolicy.CanonicalizePath(getFuncPackagePath(fn))
-		if !isEffectiveMember(callerPkg) {
-			continue
-		}
-		callerSym := getFuncSymbol(fn)
-
-		for _, edge := range node.Out {
-			if edge.Callee == nil || edge.Callee.Func == nil {
-				continue
-			}
-			calleeFn := edge.Callee.Func
-			calleePkg := hostpolicy.CanonicalizePath(getFuncPackagePath(calleeFn))
-			if callerPkg == calleePkg {
-				continue
-			}
-			calleeSym := getFuncSymbol(calleeFn)
-
-			key := edgeKey{caller: string(callerSym), callee: string(calleeSym)}
-			edgesMap[key] = struct{}{}
-		}
+	sort.Strings(memberList)
+	members, err := facts.NewMemberSet(memberList...)
+	if err != nil {
+		return facts.PackageFacts{}, fmt.Errorf("building the member set: %w", err)
 	}
-
-	var callEdges []facts.CallEdge
-	for k := range edgesMap {
-		callEdges = append(callEdges, facts.CallEdge{
-			Caller: capanalyzer.InterfaceSymbol(k.caller),
-			Callee: capanalyzer.InterfaceSymbol(k.callee),
-		})
+	referenceEdges, importEdges, err := ScanReferences(pkgs, members, analysisRoot)
+	if err != nil {
+		return facts.PackageFacts{}, err
 	}
-
-	sort.Slice(callEdges, func(i, j int) bool {
-		if callEdges[i].Caller != callEdges[j].Caller {
-			return callEdges[i].Caller < callEdges[j].Caller
-		}
-		return callEdges[i].Callee < callEdges[j].Callee
-	})
+	bypasses, err := ScanAnalysisDefeats(pkgs, members, analysisRoot)
+	if err != nil {
+		return facts.PackageFacts{}, err
+	}
 
 	res := facts.PackageFacts{
-		Packages:          factsPkgs,
-		CallEdges:         callEdges,
-		StdlibImports:     stdlibImports,
-		UnresolvedImports: unresolvedImports,
+		Packages:   factsPkgs,
+		References: referenceEdges,
+		Imports:    importEdges,
+		Bypasses:   bypasses,
 	}
 
 	if len(factsPkgs) > 0 {
@@ -505,81 +437,6 @@ func stripGenericBrackets(s string) string {
 	return s
 }
 
-// packageBelongsToSDK uses go/build's structural GOROOT result rather than an
-// import-path heuristic. FindOnly avoids loading source and does not add a
-// subprocess pass to native package loading.
-func packageBelongsToSDK(pkgPath string) bool {
-	if pkgPath == "" {
-		return false
-	}
-	bpkg, err := build.Default.Import(pkgPath, "", build.FindOnly)
-	return err == nil && bpkg.Goroot
-}
-
-// isStdlibPackage applies native-mode classification in its required order:
-// SDK membership is structural, a non-SDK nil Module is non-stdlib, and the
-// remaining module provenance must agree with the host path policy.
-func isStdlibPackage(p *packages.Package) bool {
-	if p == nil {
-		return false
-	}
-	if packageBelongsToSDK(p.PkgPath) {
-		return true
-	}
-	if p.Module == nil {
-		return false
-	}
-	moduleStdlib := p.Module.Path == "" || p.Module.Path == "std"
-	return moduleStdlib && hostpolicy.IsStdlibPath(p.PkgPath)
-}
-
-// classifyStdlibPackage applies the loader-aware classifier for either mode.
-// A nil package reference has no provenance to consult, so it retains the
-// narrow path-policy fallback required for import recovery.
-func classifyStdlibPackage(pkgPath string, pkg *packages.Package, layout *packagelayout.Layout) bool {
-	if pkg == nil {
-		return hostpolicy.IsStdlibPath(pkgPath)
-	}
-	if layout != nil {
-		return layout.IsStdlibPackage(pkg)
-	}
-	return isStdlibPackage(pkg)
-}
-
-// stdlibClassifier returns a stdlib predicate suitable for the current load mode.
-// Layout mode uses validated layout provenance; native mode uses structural SDK
-// provenance followed by module/path agreement.
-func stdlibClassifier() func(pkgPath string, pkg *packages.Package) bool {
-	if packagelayout.IsLayoutMode() {
-		layout := packagelayout.GetActiveLayout()
-		return func(pkgPath string, pkg *packages.Package) bool {
-			return classifyStdlibPackage(pkgPath, pkg, layout)
-		}
-	}
-	return func(pkgPath string, pkg *packages.Package) bool {
-		return classifyStdlibPackage(pkgPath, pkg, nil)
-	}
-}
-
-// normalizeStdlibImports turns the loader's set representation into the
-// canonical facts representation. A fresh zero-length slice is intentional:
-// every production facts result carries an explicit authoritative value.
-func normalizeStdlibImports(imports map[string]bool) []string {
-	canonical := make(map[string]bool, len(imports))
-	for importPath := range imports {
-		canonical[hostpolicy.CanonicalizePath(importPath)] = true
-	}
-	result := make([]string, 0, len(canonical))
-	for importPath := range canonical {
-		result = append(result, importPath)
-	}
-	sort.Strings(result)
-	if len(result) == 0 {
-		return []string{}
-	}
-	return result
-}
-
 func extractSymbols(p *packages.Package, componentRoot string) ([]facts.ExportedSymbol, error) {
 	var symbols []facts.ExportedSymbol
 
@@ -687,14 +544,14 @@ func extractSymbols(p *packages.Package, componentRoot string) ([]facts.Exported
 		}
 	}
 
-	sort.Slice(symbols, func(i, j int) bool {
-		if symbols[i].File != symbols[j].File {
-			return symbols[i].File < symbols[j].File
+	slices.SortFunc(symbols, func(a, b facts.ExportedSymbol) int {
+		if c := strings.Compare(a.File, b.File); c != 0 {
+			return c
 		}
-		if symbols[i].Kind != symbols[j].Kind {
-			return symbols[i].Kind < symbols[j].Kind
+		if c := strings.Compare(a.Kind, b.Kind); c != 0 {
+			return c
 		}
-		return symbols[i].Name < symbols[j].Name
+		return strings.Compare(a.Name, b.Name)
 	})
 
 	return symbols, nil
@@ -773,11 +630,11 @@ func ValidateInterfaceFiles(componentRoot string, interfaceFiles []string, loade
 		surviving++
 	}
 
-	sort.Slice(exclusions, func(i, j int) bool {
-		if exclusions[i].File != exclusions[j].File {
-			return exclusions[i].File < exclusions[j].File
+	slices.SortFunc(exclusions, func(a, b InterfaceFileExclusion) int {
+		if c := strings.Compare(a.File, b.File); c != 0 {
+			return c
 		}
-		return exclusions[i].Constraint < exclusions[j].Constraint
+		return strings.Compare(a.Constraint, b.Constraint)
 	})
 	if len(interfaceFiles) > 0 && surviving == 0 {
 		var details []string
@@ -1298,66 +1155,17 @@ func balancedBrackets(s string) bool {
 	return depth == 0
 }
 
-// extractPackageFromStr parses the package path from a formatted function/method string.
-func extractPackageFromStr(s string) string {
-	s = stripAllBrackets(s)
-	if strings.HasPrefix(s, "(*") {
-		idx := strings.LastIndex(s, ")")
-		if idx != -1 {
-			receiver := s[2:idx]
-			dotIdx := strings.LastIndex(receiver, ".")
-			if dotIdx != -1 {
-				return receiver[:dotIdx]
-			}
-		}
-	} else if strings.HasPrefix(s, "(") {
-		idx := strings.LastIndex(s, ")")
-		if idx != -1 {
-			receiver := s[1:idx]
-			dotIdx := strings.LastIndex(receiver, ".")
-			if dotIdx != -1 {
-				return receiver[:dotIdx]
-			}
-		}
-	} else {
-		dotIdx := strings.LastIndex(s, ".")
-		if dotIdx != -1 {
-			return s[:dotIdx]
-		}
-	}
-	return ""
-}
-
-// getFuncPackagePath returns the package path of an ssa.Function, falling back to parsing
-// its string representation if Pkg is nil.
-func getFuncPackagePath(fn *ssa.Function) string {
-	if fn == nil {
-		return ""
-	}
-	if fn.Pkg != nil && fn.Pkg.Pkg != nil {
-		return fn.Pkg.Pkg.Path()
-	}
-	return extractPackageFromStr(fn.String())
-}
-
-// getFuncSymbol returns the InterfaceSymbol key of an ssa.Function, with its
-// embedded package path canonicalized so call-edge symbols share one namespace
-// with dependency-interface symbols and package facts.
-func getFuncSymbol(fn *ssa.Function) capanalyzer.InterfaceSymbol {
-	if fn == nil {
-		return ""
-	}
-	return capanalyzer.InterfaceSymbol(canonicalizeSymbol(stripAllBrackets(fn.String())))
-}
-
-// ResolveDependencyInterface turns a component dependency into its derived facts.
+// ResolveDependencyInterface turns a component dependency into its derived
+// facts. Dependency loading stays source-backed (packages.NeedDeps in the
+// load mode) in this step; Step 7 replaces this path with persisted surface
+// consumption and Step 8 introduces export-data loading.
 //
 // The declared-interface symbol set is the exact declaring-object set of the
 // surviving interface files (symbol.ExtractSurface, DR-04): the same
-// extraction the Step 5 surface package emits, with no implements-closure
-// injection. A reference to a concrete implementing method that is not itself
-// declared in an interface file is therefore not authorized — the correct FR5
-// precision (design fixtures 3-5).
+// extraction the surface package emits, so check and surface share one exact
+// interface. A reference to a concrete implementing method that is not itself
+// declared in an interface file is not authorized — the correct FR5 precision
+// (design fixtures 3-5).
 func ResolveDependencyInterface(
 	declaringRoot string,
 	analyzedRoot string,
@@ -1401,7 +1209,6 @@ func ResolveDependencyInterface(
 	var loadDir string
 	var patterns []string
 	var depPkgs []*packages.Package
-	var depLayout *packagelayout.Layout
 
 	if packagelayout.IsLayoutMode() {
 		loadDir = packagelayout.GetActiveWorkspaceDir()
@@ -1523,15 +1330,10 @@ func ResolveDependencyInterface(
 
 	// 7. Collect package facts (extract symbols) and register in loadedFiles for ValidateInterfaceFiles
 	var factsPkgs []facts.PackageFact
-	stdlibImportSet := make(map[string]bool)
 	for _, p := range depPkgs {
 		var imports []string
-		for impPath, impPkg := range p.Imports {
-			canonicalImport := hostpolicy.CanonicalizePath(impPath)
-			imports = append(imports, canonicalImport)
-			if classifyStdlibPackage(impPath, impPkg, depLayout) {
-				stdlibImportSet[canonicalImport] = true
-			}
+		for impPath := range p.Imports {
+			imports = append(imports, hostpolicy.CanonicalizePath(impPath))
 		}
 		sort.Strings(imports)
 
@@ -1553,13 +1355,12 @@ func ResolveDependencyInterface(
 		}))
 	}
 
-	sort.Slice(factsPkgs, func(i, j int) bool {
-		return factsPkgs[i].ImportPath < factsPkgs[j].ImportPath
+	slices.SortFunc(factsPkgs, func(a, b facts.PackageFact) int {
+		return strings.Compare(a.ImportPath, b.ImportPath)
 	})
 
 	depPackageFacts := facts.PackageFacts{
-		Packages:      factsPkgs,
-		StdlibImports: normalizeStdlibImports(stdlibImportSet),
+		Packages: factsPkgs,
 	}
 
 	if depManifest.InterfaceStyle == manifest.InterfaceStylePackageSurface {
@@ -1628,10 +1429,10 @@ func ResolveDependencyInterface(
 	// 9. The exact declared surface over the surviving interface files
 	// (symbol.ExtractSurface, DR-04): every exported declaring object those
 	// files declare — functions, methods, types, fields, interface method
-	// specs, variables, constants, aliases — with no implements-closure
-	// injection. References name the object the source writes; a concrete
-	// implementing method not declared in an interface file is not part of
-	// this set (design fixtures 3-5).
+	// specs, variables, constants, aliases. This is the same set the
+	// emitted surface carries. References name the object the source
+	// writes; a concrete implementing method not declared in an interface
+	// file is not part of this set (design fixtures 3-5).
 	symbolSet := make(map[facts.SymbolID]bool)
 	for _, p := range depPkgs {
 		files := interfaceFileASTs(p, interfaceFilesMap, cleanDepRoot)
@@ -1687,9 +1488,7 @@ func sortedSymbolIDs(set map[facts.SymbolID]bool) []facts.SymbolID {
 	for id := range set {
 		symbols = append(symbols, id)
 	}
-	sort.Slice(symbols, func(i, j int) bool {
-		return facts.CompareSymbolIDs(symbols[i], symbols[j]) < 0
-	})
+	slices.SortFunc(symbols, facts.CompareSymbolIDs)
 	return symbols
 }
 

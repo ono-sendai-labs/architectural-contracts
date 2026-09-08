@@ -32,8 +32,9 @@ func fullKey() *stdlibauthority.SDKKey {
 }
 
 // interfaceOnlyFixture is a two-file package. iface.go is the surviving
-// interface file; impl.go declares the concrete method that only the legacy
-// implements-closure workaround admits into the check (Step 5 gap).
+// interface file; impl.go declares the concrete implementing method the
+// surface deliberately omits (the pre-Step-6 cutover gap, now closed: the
+// check classifies against this same exact set).
 const interfaceFixture = `
 package dep
 

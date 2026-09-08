@@ -1,9 +1,9 @@
 // Package app implements CLI orchestration and formatting of architectural checks.
 //
 // Component Contract (FR10):
-// - What it does: Orchestrates manifest parsing, fact loading, capability analysis, checker execution, report rendering, report-verdict assertion, check artifact emission (canonical report and exact surface from one analysis invocation, with SDK-key resolution behind an injected resolver), and the stdlibmap subcommands (generate native and explicit-input mode, inspect).
-// - What it requires: Command-line arguments specifying the command path and output format, as well as an environment for stdout/stderr output. Explicit-input `stdlibmap generate` declares its whole target (package list, config file, SDK root) and performs no host discovery. `verdict` reads only its named report artifact argument. Check artifact emission reads the declared stdlib-map artifact (--stdlib-map) in layout mode and the Step 4 native discovery/cache services in native mode.
-// - What it provides: Actionable conformance reports and deterministic exit codes, plus the canonical report and exact surface artifacts consumed by Bazel and native workflows. Emitted surfaces are exact (no implements-closure injection) while the check keeps the implements-closure workaround until Step 6, by design for this one step.
+// - What it does: Orchestrates manifest parsing, fact loading, stdlib-authority resolution, checker execution over the typed reference/import facts, report rendering, report-verdict assertion, check artifact emission (canonical report and exact surface from one analysis invocation), and the stdlibmap subcommands (generate native and explicit-input mode, inspect).
+// - What it requires: Command-line arguments specifying the command path and output format, as well as an environment for stdout/stderr output. Explicit-input `stdlibmap generate` declares its whole target (package list, config file, SDK root) and performs no host discovery. `verdict` reads only its named report artifact argument. Every check decision reads the declared stdlib-map artifact (--stdlib-map) in layout mode and the Step 4 native discovery/cache services in native mode; the map is validated fail-closed before any verdict.
+// - What it provides: Actionable conformance reports and deterministic exit codes, plus the canonical report and exact surface artifacts consumed by Bazel and native workflows. Check and emitted surface share the same exact declaring-object interface.
 // - Ambient Authority: This component is a shell component and holds FILES, REFLECT, READ_SYSTEM_STATE, and UNSAFE_POINTER. Explicit-input map generation adds no EXEC beyond arcc's own self-exec layout driver: it never runs the toolchain (`go env`, `go list`), while native mode runs the host toolchain.
 package app
 
@@ -14,7 +14,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/ono-sendai-labs/architectural-contracts/go/internal/capanalyzer"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/facts"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/goanalysis"
 )
@@ -25,14 +24,14 @@ const version = "0.0.0-dev"
 type PackageLoader func(goanalysis.LoadRequest) (facts.PackageFacts, error)
 
 // Runner orchestrates the CLI execution of the architectural contracts check.
-// The Loader, Analyzer, KeyResolver, SurfaceInputsLoader, and ArtifactWriter
+// The Loader, AuthorityResolver, SurfaceInputsLoader, and ArtifactWriter
 // fields are injection seams: a nil field uses the production operation, and
 // tests substitute fakes to exercise exit policy and artifact publication
-// without host loading (plan Step 5 task 3).
+// without host loading. The authority resolver is the narrow stdlib seam:
+// there is no check-time capability analyzer.
 type Runner struct {
 	Loader              PackageLoader
-	Analyzer            capanalyzer.CapabilityAnalyzer
-	KeyResolver         SDKKeyResolver
+	AuthorityResolver   AuthorityResolver
 	SurfaceInputsLoader SurfaceInputsLoader
 	ArtifactWriter      ArtifactWriter
 }
@@ -133,14 +132,11 @@ func printUsage(w io.Writer) {
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "check artifact emission: --report-out writes the canonical report JSON and")
 	fmt.Fprintln(w, "--surface-out writes the exact canonical surface JSON, both atomically from")
-	fmt.Fprintln(w, "one analysis invocation. The declared stdlib-map artifact (--stdlib-map)")
-	fmt.Fprintln(w, "supplies the target SDK identity for the surface; its symbol")
-	fmt.Fprintln(w, "classifications are not consulted by checker decisions until Step 6.")
+	fmt.Fprintln(w, "one analysis invocation. Check and surface share the same exact")
+	fmt.Fprintln(w, "declaring-object interface: no implements-closure injection on either side.")
+	fmt.Fprintln(w, "The declared stdlib-map artifact (--stdlib-map) is mandatory in layout mode")
+	fmt.Fprintln(w, "and supplies the validated target SDK identity and every standard-library")
+	fmt.Fprintln(w, "classification the check decides from; native mode uses the on-demand cache.")
 	fmt.Fprintln(w, "--report-verdict-only requires --report-out and exits 0 for both pass and")
 	fmt.Fprintln(w, "fail after analysis and publication; tool errors still exit 2.")
-	fmt.Fprintln(w)
-	fmt.Fprintln(w, "Note (Step 5): emitted surfaces are exact — the declared interface with no")
-	fmt.Fprintln(w, "implements-closure injection — while the check still resolves dependency")
-	fmt.Fprintln(w, "interfaces through the implements-closure workaround until Step 6, so")
-	fmt.Fprintln(w, "check and surface can disagree for this one step by design.")
 }

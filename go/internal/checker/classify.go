@@ -32,6 +32,7 @@ package checker
 
 import (
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 
@@ -65,6 +66,7 @@ type AuthorityObservation struct {
 // Referent is empty for import edges (the violation names ReferentPackage).
 type BoundaryObservation struct {
 	Kind            report.Kind
+	FromPackage     string
 	ReferentPackage string
 	Referent        facts.SymbolID
 	Site            facts.SourceSite
@@ -133,6 +135,7 @@ func ClassifyEdges(
 		if kind := decision.ViolationKind(); kind != "" {
 			out.Boundary = append(out.Boundary, BoundaryObservation{
 				Kind:            report.Kind(kind),
+				FromPackage:     e.FromPackage,
 				ReferentPackage: e.ReferentPackage,
 				Referent:        e.Referent,
 				Site:            e.Site,
@@ -172,6 +175,7 @@ func ClassifyEdges(
 		}
 		out.Boundary = append(out.Boundary, BoundaryObservation{
 			Kind:            report.UndeclaredDependency,
+			FromPackage:     e.ImportingPackage,
 			ReferentPackage: e.ImportPath,
 			Site:            e.Site,
 		})
@@ -281,18 +285,17 @@ func (b *BoundaryIndex) owningDependency(pkg string) (string, bool) {
 // sortAuthorityObservations orders observations deterministically: by site,
 // then referent, then class, then capability.
 func sortAuthorityObservations(obs []AuthorityObservation) []AuthorityObservation {
-	sort.SliceStable(obs, func(i, j int) bool {
-		a, b := obs[i], obs[j]
+	slices.SortStableFunc(obs, func(a, b AuthorityObservation) int {
 		if c := facts.CompareSourceSite(a.Site, b.Site); c != 0 {
-			return c < 0
+			return c
 		}
 		if c := symbol.Compare(a.Referent, b.Referent); c != 0 {
-			return c < 0
+			return c
 		}
 		if a.Class != b.Class {
-			return a.Class < b.Class
+			return strings.Compare(string(a.Class), string(b.Class))
 		}
-		return strings.Compare(a.Capability, b.Capability) < 0
+		return strings.Compare(a.Capability, b.Capability)
 	})
 	return obs
 }
@@ -300,21 +303,20 @@ func sortAuthorityObservations(obs []AuthorityObservation) []AuthorityObservatio
 // sortBoundaryObservations orders observations deterministically: by kind,
 // referent package, referent, site, then dependency.
 func sortBoundaryObservations(obs []BoundaryObservation) []BoundaryObservation {
-	sort.SliceStable(obs, func(i, j int) bool {
-		a, b := obs[i], obs[j]
+	slices.SortStableFunc(obs, func(a, b BoundaryObservation) int {
 		if a.Kind != b.Kind {
-			return a.Kind < b.Kind
+			return strings.Compare(string(a.Kind), string(b.Kind))
 		}
 		if c := strings.Compare(a.ReferentPackage, b.ReferentPackage); c != 0 {
-			return c < 0
+			return c
 		}
 		if c := symbol.Compare(a.Referent, b.Referent); c != 0 {
-			return c < 0
+			return c
 		}
 		if c := facts.CompareSourceSite(a.Site, b.Site); c != 0 {
-			return c < 0
+			return c
 		}
-		return strings.Compare(a.Dependency, b.Dependency) < 0
+		return strings.Compare(a.Dependency, b.Dependency)
 	})
 	return obs
 }

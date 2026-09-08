@@ -243,8 +243,14 @@ func TestScanReferences_MemberOnlyInspection(t *testing.T) {
 
 func TestScanReferences_BadRoot(t *testing.T) {
 	pkgs, ms, root := loadRefScan(t)
+	// Without module provenance there is no site root to widen to: a root
+	// that does not contain the member files must fail closed naming the
+	// escaping site.
+	for _, p := range pkgs {
+		p.Module = nil
+	}
 	_, _, err := goanalysis.ScanReferences(pkgs, ms, filepath.Join(root, "nowhere"))
-	if err == nil || !strings.Contains(err.Error(), `"../member/builtins/builtins.go"`) {
+	if err == nil || !strings.Contains(err.Error(), "outside the component root") {
 		t.Errorf("expected an actionable error naming the escaping site, got: %v", err)
 	}
 }

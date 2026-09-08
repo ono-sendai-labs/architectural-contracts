@@ -11,25 +11,19 @@
 package toprow
 
 import (
-	"sort"
+	"cmp"
+	"slices"
 
 	"github.com/ono-sendai-labs/architectural-contracts/go/examples/csvtool/internal/parsecsv"
 )
 
-// byColumn is a concrete sort.Interface. The Step-0 spike confirmed sort.Sort
-// and sort.Slice are both acceptable under the strict-safe stdlib envelope.
-type byColumn struct {
-	rows [][]string
-	col  int
-}
-
-func (b byColumn) Len() int           { return len(b.rows) }
-func (b byColumn) Less(i, j int) bool { return b.rows[i][b.col] > b.rows[j][b.col] }
-func (b byColumn) Swap(i, j int)      { b.rows[i], b.rows[j] = b.rows[j], b.rows[i] }
-
 // Pick sorts already-parsed rows descending by col and returns the first n.
+// The stdlib authority map classifies slices.SortFunc and cmp.Compare as
+// SAFE (proved-pure), so the sort stays inside the strict-safe stdlib
+// envelope; sort.Sort/sort.Slice are UNANALYZED in the map and would be
+// analysis-defeating findings under the typed reference check.
 func Pick(rows [][]string, col, n int) [][]string {
-	sort.Sort(byColumn{rows: rows, col: col})
+	slices.SortFunc(rows, func(a, b []string) int { return cmp.Compare(b[col], a[col]) })
 	if n > len(rows) {
 		n = len(rows)
 	}

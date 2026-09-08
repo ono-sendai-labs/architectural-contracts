@@ -35,17 +35,9 @@ func TestFactsRoundTrip(t *testing.T) {
 		ExportedSymbols: []facts.ExportedSymbol{symMethod, symInit, symFunc},
 	}
 
-	// 3. Construct CallEdge
-	edge := facts.CallEdge{
-		Caller: "example.com/caller.Run",
-		Callee: "(*example.com/store.DB).Get",
-	}
-
-	// 4. Construct PackageFacts
+	// 3. Construct PackageFacts
 	pkgFacts := facts.PackageFacts{
-		Packages:      []facts.PackageFact{pkgFact},
-		CallEdges:     []facts.CallEdge{edge},
-		StdlibImports: []string{"os"},
+		Packages: []facts.PackageFact{pkgFact},
 	}
 
 	// 5. Construct DependencyInterface
@@ -63,9 +55,6 @@ func TestFactsRoundTrip(t *testing.T) {
 	p := pkgFacts.Packages[0]
 	if p.ImportPath != "example.com/store" {
 		t.Errorf("expected import path example.com/store, got %q", p.ImportPath)
-	}
-	if len(pkgFacts.StdlibImports) != 1 || pkgFacts.StdlibImports[0] != "os" {
-		t.Errorf("unexpected stdlib imports: %v", pkgFacts.StdlibImports)
 	}
 	if len(p.Imports) != 2 || p.Imports[0] != "os" || p.Imports[1] != "github.com/ono-sendai-labs/architectural-contracts/go/internal/capanalyzer" {
 		t.Errorf("unexpected imports: %v", p.Imports)
@@ -85,14 +74,6 @@ func TestFactsRoundTrip(t *testing.T) {
 	s2 := p.ExportedSymbols[2]
 	if s2.Name != "example.com/store.Read" || s2.File != "api.go" || s2.Kind != "func" || s2.Receiver != "" {
 		t.Errorf("unexpected s2 fields: %+v", s2)
-	}
-
-	if len(pkgFacts.CallEdges) != 1 {
-		t.Fatalf("expected 1 call edge, got %d", len(pkgFacts.CallEdges))
-	}
-	e := pkgFacts.CallEdges[0]
-	if e.Caller != "example.com/caller.Run" || e.Callee != "(*example.com/store.DB).Get" {
-		t.Errorf("unexpected call edge fields: %+v", e)
 	}
 
 	// Verify depIface round-trip fields

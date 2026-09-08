@@ -19,11 +19,56 @@ import (
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/manifest"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/packagelayout"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/report"
+	"github.com/ono-sendai-labs/architectural-contracts/go/internal/stdlibauthority"
+	"github.com/ono-sendai-labs/architectural-contracts/go/internal/symbol"
 )
 
 func loadPackageFacts(root string) (facts.PackageFacts, error) {
 	return goanalysis.LoadPackageFacts(goanalysis.LoadRequest{ComponentRoot: root})
 }
+
+// verticalSliceAuthority is the fixture authority extended with the fmt
+// closure the success fixture legitimately imports: the stdlib enumeration
+// decides membership, not the path.
+type verticalSliceAuthority struct {
+	stdlibauthority.StdlibAuthority
+}
+
+func newVerticalSliceAuthority(t *testing.T) stdlibauthority.StdlibAuthority {
+	t.Helper()
+	base := &extendedAuthority{fixtureAuthority: newFixtureAuthority(t), packages: map[string]bool{}}
+	base.packages["fmt"] = true
+	return base
+}
+
+type extendedAuthority struct {
+	fixtureAuthority *fixtureAuthority
+	packages         map[string]bool
+}
+
+func (e *extendedAuthority) IsStdlibPackage(pkgPath string) bool {
+	return e.packages[pkgPath] || e.fixtureAuthority.IsStdlibPackage(pkgPath)
+}
+
+func (e *extendedAuthority) SymbolAuthority(id symbol.SymbolID) (stdlibauthority.Classification, error) {
+	if facts.SymbolIDPackage(id) == "fmt" {
+		return stdlibauthority.Classification{Safe: true}, nil
+	}
+	return e.fixtureAuthority.SymbolAuthority(id)
+}
+
+func (e *extendedAuthority) PackageInitAuthority(pkgPath string) (stdlibauthority.Classification, error) {
+	if pkgPath == "fmt" {
+		return stdlibauthority.Classification{Safe: true}, nil
+	}
+	return e.fixtureAuthority.PackageInitAuthority(pkgPath)
+}
+
+func (e *extendedAuthority) Evidence(id symbol.SymbolID, cap stdlibauthority.Capability) []stdlibauthority.Frame {
+	return e.fixtureAuthority.Evidence(id, cap)
+}
+
+func (e *extendedAuthority) Key() stdlibauthority.SDKKey { return e.fixtureAuthority.Key() }
 
 func TestLoadPackageFacts_Success(t *testing.T) {
 	// Find absolute path to testdata/success
@@ -56,10 +101,6 @@ func TestLoadPackageFacts_Success(t *testing.T) {
 	}
 	if pkgB.ImportPath != expectedB {
 		t.Errorf("expected package 1 path to be %q, got %q", expectedB, pkgB.ImportPath)
-	}
-
-	if factsResult.StdlibImports == nil || !reflect.DeepEqual(factsResult.StdlibImports, []string{"fmt"}) {
-		t.Errorf("expected non-nil sorted stdlib imports [fmt], got %v", factsResult.StdlibImports)
 	}
 
 	// Check sorted direct imports for package A: "fmt" and "github.com/ono-sendai-labs/architectural-contracts/go/internal/facts"
@@ -126,77 +167,36 @@ func TestLoadPackageFacts_Success(t *testing.T) {
 		t.Errorf("expected package b exported symbols to match. Expected:\n%+v\nGot:\n%+v", expectedSymbolsB, pkgB.ExportedSymbols)
 	}
 
-	// Expected inter-package call edges sorted alphabetically by Caller then Callee
-	expectedCallEdges := []facts.CallEdge{
-		{
-			Caller: "github.com/ono-sendai-labs/architectural-contracts/go/internal/goanalysis/testdata/success/a.CallWithFunc",
-			Callee: "github.com/ono-sendai-labs/architectural-contracts/go/internal/goanalysis/testdata/success/a/b.callback",
-		},
-		{
-			Caller: "github.com/ono-sendai-labs/architectural-contracts/go/internal/goanalysis/testdata/success/a.Hello",
-			Callee: "fmt.Println",
-		},
-		{
-			Caller: "github.com/ono-sendai-labs/architectural-contracts/go/internal/goanalysis/testdata/success/a.ProcessString",
-			Callee: "github.com/ono-sendai-labs/architectural-contracts/go/internal/goanalysis/testdata/success/a/b.stringCallback",
-		},
-		{
-			Caller: "github.com/ono-sendai-labs/architectural-contracts/go/internal/goanalysis/testdata/success/a.init",
-			Callee: "fmt.init",
-		},
-		{
-			Caller: "github.com/ono-sendai-labs/architectural-contracts/go/internal/goanalysis/testdata/success/a.init",
-			Callee: "github.com/ono-sendai-labs/architectural-contracts/go/internal/facts.init",
-		},
-		{
-			Caller: "github.com/ono-sendai-labs/architectural-contracts/go/internal/goanalysis/testdata/success/a.init#1",
-			Callee: "fmt.Println",
-		},
-		{
-			Caller: "github.com/ono-sendai-labs/architectural-contracts/go/internal/goanalysis/testdata/success/a/b.CallGreet",
-			Callee: "(github.com/ono-sendai-labs/architectural-contracts/go/internal/goanalysis/testdata/success/a.GreeterImpl).Greet",
-		},
-		{
-			Caller: "github.com/ono-sendai-labs/architectural-contracts/go/internal/goanalysis/testdata/success/a/b.Greet",
-			Callee: "github.com/ono-sendai-labs/architectural-contracts/go/internal/goanalysis/testdata/success/a.Hello",
-		},
-		{
-			Caller: "github.com/ono-sendai-labs/architectural-contracts/go/internal/goanalysis/testdata/success/a/b.TriggerGenericFunc",
-			Callee: "github.com/ono-sendai-labs/architectural-contracts/go/internal/goanalysis/testdata/success/a.Identity",
-		},
-		{
-			Caller: "github.com/ono-sendai-labs/architectural-contracts/go/internal/goanalysis/testdata/success/a/b.TriggerGenericMethods",
-			Callee: "(*github.com/ono-sendai-labs/architectural-contracts/go/internal/goanalysis/testdata/success/a.Box).Get",
-		},
-		{
-			Caller: "github.com/ono-sendai-labs/architectural-contracts/go/internal/goanalysis/testdata/success/a/b.TriggerGenericMethods",
-			Callee: "(github.com/ono-sendai-labs/architectural-contracts/go/internal/goanalysis/testdata/success/a.Box).GetVal",
-		},
-		{
-			Caller: "github.com/ono-sendai-labs/architectural-contracts/go/internal/goanalysis/testdata/success/a/b.TriggerHigherOrder",
-			Callee: "github.com/ono-sendai-labs/architectural-contracts/go/internal/goanalysis/testdata/success/a.CallWithFunc",
-		},
-		{
-			Caller: "github.com/ono-sendai-labs/architectural-contracts/go/internal/goanalysis/testdata/success/a/b.TriggerHigherOrderNamed",
-			Callee: "github.com/ono-sendai-labs/architectural-contracts/go/internal/goanalysis/testdata/success/a.ProcessString",
-		},
-		{
-			Caller: "github.com/ono-sendai-labs/architectural-contracts/go/internal/goanalysis/testdata/success/a/b.init",
-			Callee: "github.com/ono-sendai-labs/architectural-contracts/go/internal/goanalysis/testdata/success/a.init",
-		},
+	// The typed reference vocabulary replaces call edges: the inter-package
+	// edges of this fixture are import and reference edges (Uses/Selections),
+	// sorted and duplicate-free.
+	if len(factsResult.Imports) == 0 {
+		t.Errorf("expected import edges, got none")
+	}
+	for _, e := range factsResult.Imports {
+		if e.ImportingPackage == expectedA {
+			continue
+		}
+		if e.ImportingPackage != expectedB {
+			t.Errorf("import edge from non-member %q leaked into the facts: %+v", e.ImportingPackage, e)
+		}
+	}
+	for _, e := range factsResult.References {
+		if e.FromPackage != expectedA && e.FromPackage != expectedB {
+			t.Errorf("reference edge from non-member %q leaked into the facts: %+v", e.FromPackage, e)
+		}
 	}
 
-	if !reflect.DeepEqual(factsResult.CallEdges, expectedCallEdges) {
-		t.Errorf("expected CallEdges to match.\nExpected (%d):\n%+v\nGot (%d):\n%+v", len(expectedCallEdges), expectedCallEdges, len(factsResult.CallEdges), factsResult.CallEdges)
-	}
-
-	// Verify repeat-load determinism and duplicate-edge coverage (AC5)
+	// Verify repeat-load determinism (AC5)
 	factsResult2, err := loadPackageFacts(root)
 	if err != nil {
 		t.Fatalf("unexpected error on repeated load: %v", err)
 	}
-	if !reflect.DeepEqual(factsResult.CallEdges, factsResult2.CallEdges) {
-		t.Errorf("expected CallEdges to be identical on repeated load.\nFirst load:\n%+v\nSecond load:\n%+v", factsResult.CallEdges, factsResult2.CallEdges)
+	if !reflect.DeepEqual(factsResult.References, factsResult2.References) {
+		t.Errorf("expected References to be identical on repeated load.\nFirst:\n%+v\nSecond:\n%+v", factsResult.References, factsResult2.References)
+	}
+	if !reflect.DeepEqual(factsResult.Imports, factsResult2.Imports) {
+		t.Errorf("expected Imports to be identical on repeated load.\nFirst:\n%+v\nSecond:\n%+v", factsResult.Imports, factsResult2.Imports)
 	}
 }
 
@@ -206,7 +206,7 @@ func TestLoadPackageFacts_Errors(t *testing.T) {
 	if err == nil {
 		t.Errorf("expected error on nonexistent component root, got nil")
 	}
-	if len(invalidFacts.Packages) != 0 || len(invalidFacts.CallEdges) != 0 {
+	if len(invalidFacts.Packages) != 0 || len(invalidFacts.References) != 0 {
 		t.Errorf("expected empty facts on invalid root error, got %+v", invalidFacts)
 	}
 
@@ -219,7 +219,7 @@ func TestLoadPackageFacts_Errors(t *testing.T) {
 	if err == nil {
 		t.Fatalf("expected error on package load with broken syntax, got nil")
 	}
-	if len(brokenFacts.Packages) != 0 || len(brokenFacts.CallEdges) != 0 {
+	if len(brokenFacts.Packages) != 0 || len(brokenFacts.References) != 0 {
 		t.Errorf("expected empty facts on broken-package load error, got %+v", brokenFacts)
 	}
 
@@ -455,29 +455,35 @@ func TestVerticalSliceVerdict(t *testing.T) {
 		Manifest:  testManifest,
 		Facts:     loadedFacts,
 		DepIfaces: nil,
-		Caps:      nil,
+		Authority: newVerticalSliceAuthority(t),
+		SDKKey:    testSDKKey(),
 	}
-	conformanceReport := checker.Check(inputs)
+	conformanceReport, checkErr := checker.Check(inputs)
+	if checkErr != nil {
+		t.Fatalf("unexpected tool error: %v", checkErr)
+	}
 
-	// 5. Assert the rendered Pillar-1 report contains the expected undeclared dependency
-	if len(conformanceReport.Violations) != 1 {
-		t.Fatalf("expected 1 violation, got %d", len(conformanceReport.Violations))
-	}
-	v := conformanceReport.Violations[0]
-	if v.Kind != report.UndeclaredDependency {
-		t.Errorf("expected violation kind %s, got %s", report.UndeclaredDependency, v.Kind)
-	}
+	// 5. Assert the rendered Pillar-1 report contains the expected undeclared
+	// dependency. The typed scan also reports every unowned reference at its
+	// exact site, so the fixture's references into the facts package are
+	// additional UNDECLARED_DEPENDENCY violations; the pinned edge is the
+	// import of the facts package.
 	expectedImport := "github.com/ono-sendai-labs/architectural-contracts/go/internal/facts"
-	if !strings.Contains(v.Message, expectedImport) {
-		t.Errorf("expected violation to contain %q, got: %q", expectedImport, v.Message)
+	var sawFactsImport bool
+	for _, v := range conformanceReport.Violations {
+		if v.Kind != report.UndeclaredDependency {
+			t.Errorf("expected violation kind %s, got %s: %s", report.UndeclaredDependency, v.Kind, v.Message)
+		}
+		if strings.Contains(v.Message, `imports undeclared dependency "`+expectedImport+`"`) {
+			sawFactsImport = true
+		}
+	}
+	if !sawFactsImport {
+		t.Fatalf("expected the facts-package import violation, got %+v", conformanceReport.Violations)
 	}
 
 	renderedReport := report.RenderText(conformanceReport)
-	expectedRendered := `Component: success-component
-
-Violations:
-- [UNDECLARED_DEPENDENCY] package "github.com/ono-sendai-labs/architectural-contracts/go/internal/goanalysis/testdata/success/a" imports undeclared dependency "github.com/ono-sendai-labs/architectural-contracts/go/internal/facts"
-`
+	expectedRendered := `- [UNDECLARED_DEPENDENCY] package "github.com/ono-sendai-labs/architectural-contracts/go/internal/goanalysis/testdata/success/a" imports undeclared dependency "github.com/ono-sendai-labs/architectural-contracts/go/internal/facts" at a/a.go:5`
 	if !strings.Contains(renderedReport, expectedRendered) {
 		t.Errorf("rendered report does not match expected pattern. Got:\n%s\nExpected to contain:\n%s", renderedReport, expectedRendered)
 	}
@@ -598,9 +604,14 @@ func TestGenericReceiverMethodOutsideInterfaceIsDetected(t *testing.T) {
 			Name:           "generic-component",
 			InterfaceFiles: interfaceFiles,
 		},
-		Facts: loadedFacts,
+		Facts:     loadedFacts,
+		Authority: newVerticalSliceAuthority(t),
+		SDKKey:    testSDKKey(),
 	}
-	conformanceReport := checker.Check(inputs)
+	conformanceReport, checkErr := checker.Check(inputs)
+	if checkErr != nil {
+		t.Fatalf("unexpected tool error: %v", checkErr)
+	}
 
 	var found bool
 	for _, v := range conformanceReport.Violations {

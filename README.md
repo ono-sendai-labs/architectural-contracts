@@ -274,13 +274,14 @@ consume, from one analysis invocation:
 - Artifact output is canonical and independent of `--format`: stdout display
   is preserved as usual.
 
-The map is used only for identity in this step — standard-library authority
-classification is not yet consulted by checker decisions (Step 6).
-
-**Step 5 note:** emitted surfaces are exact — the declared interface with no
-implements-closure injection — while the check still resolves dependency
-interfaces through the implements-closure workaround until Step 6. Check and
-surface can therefore disagree for this one step by design.
+Every check decision reads the map: standard-library membership and each
+referenced symbol's classification come from the authority map, `UNANALYZED`
+records surface as analysis-defeating findings, and dependency boundaries are
+decided against the dependency's exact declaring-object interface. Check and
+emitted surface share that same exact interface — there is no
+implements-closure injection on either side. `--stdlib-map` is mandatory in
+layout/Bazel mode; native mode resolves the map from the on-demand cache
+whenever a check runs, not only when a surface is emitted.
 
 
 `arcc stdlibmap generate` produces the canonical standard-library authority

@@ -110,9 +110,20 @@ func Generate(in GenerationInput) (*GeneratedMap, error) {
 			return capslockadapter.GenerationFindingsForEnv(env, paths)
 		})
 	}
-	findings, err := findingsSource.Findings(importable)
-	if err != nil {
-		return nil, fmt.Errorf("generating the stdlib map: %w", err)
+	// One Capslock batch per importable package (DR-05): Capslock's
+	// whole-program call graph conflates unrelated packages when they are
+	// analysed as one program — at full-stdlib scale it attributes
+	// net/http's shutdown path to go/types' init (Step 6 cutover finding).
+	// Per-package batches bound the analysis to each package's own closure,
+	// so every root's verdict describes that package only. The cost is
+	// linear in the importable count and paid once per SDK configuration.
+	findings := make([]capslockadapter.GenerationFinding, 0, 1024)
+	for _, pkgPath := range importable {
+		batch, err := findingsSource.Findings([]string{pkgPath})
+		if err != nil {
+			return nil, fmt.Errorf("generating the stdlib map: package %q: %w", pkgPath, err)
+		}
+		findings = append(findings, batch...)
 	}
 	// Provenance for SAFE roots comes from the generation classifier itself:
 	// curated-safe and minting-reclassified roots produce NO findings, so

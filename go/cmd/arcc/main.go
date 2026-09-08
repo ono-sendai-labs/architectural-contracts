@@ -5,6 +5,10 @@
 // - What it requires: Command-line arguments specifying the check path and output format, as well as an environment for stdout/stderr output.
 // - What it provides: Actionable conformance reports and deterministic exit codes.
 // - Ambient Authority: This component is a shell component and holds FILES, REFLECT, READ_SYSTEM_STATE, and UNSAFE_POINTER.
+//
+// The production runner wires only the loader; stdlib authority resolves
+// through the declared map (layout mode) or the native on-demand cache, and
+// there is no check-time Capslock.
 package main
 
 import (
@@ -12,7 +16,6 @@ import (
 	"os"
 
 	"github.com/ono-sendai-labs/architectural-contracts/go/cmd/arcc/app"
-	"github.com/ono-sendai-labs/architectural-contracts/go/internal/capslockadapter"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/goanalysis"
 )
 
@@ -22,8 +25,7 @@ func main() {
 
 func run(args []string, stdout, stderr io.Writer) int {
 	runner := &app.Runner{
-		Loader:   goanalysis.LoadPackageFacts,
-		Analyzer: capslockadapter.NewAdapter(),
+		Loader: goanalysis.LoadPackageFacts,
 	}
 	return runner.Run(args, stdout, stderr)
 }

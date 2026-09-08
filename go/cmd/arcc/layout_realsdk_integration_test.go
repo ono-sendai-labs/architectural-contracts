@@ -108,7 +108,7 @@ interface_files: "member/api.go"
 declared_authority: "FILES"
 `
 		ws, manifestPath, layoutPath := writeFixture(t, manifest, sdkSrc)
-		stdout, stderr, code := runFrom(t, ws, []string{"check", manifestPath, "--package-layout=" + layoutPath})
+		stdout, stderr, code := runFrom(t, ws, []string{"check", manifestPath, "--package-layout=" + layoutPath, "--stdlib-map=" + sharedNativeMapDefault(t)})
 
 		if code != 0 {
 			t.Fatalf("expected exit 0, got %d.\nstdout: %s\nstderr: %s", code, stdout, stderr)
@@ -123,7 +123,7 @@ declared_authority: "FILES"
 interface_files: "member/api.go"
 `
 		ws, manifestPath, layoutPath := writeFixture(t, manifest, sdkSrc)
-		stdout, stderr, code := runFrom(t, ws, []string{"check", manifestPath, "--package-layout=" + layoutPath})
+		stdout, stderr, code := runFrom(t, ws, []string{"check", manifestPath, "--package-layout=" + layoutPath, "--stdlib-map=" + sharedNativeMapDefault(t)})
 
 		if code != 1 {
 			t.Fatalf("expected exit 1, got %d.\nstdout: %s\nstderr: %s", code, stdout, stderr)
@@ -136,17 +136,26 @@ interface_files: "member/api.go"
 		}
 	})
 
-	t.Run("missing SDK root is a tool error", func(t *testing.T) {
-		// The negative control: with no go_sdk_root, the recovered os/strings
-		// edges cannot be resolved, so the check fails as a tool error (exit 2)
-		// rather than reporting a spurious verdict. This proves the SDK
-		// enumeration is load-bearing, not incidentally satisfied.
+	t.Run("missing member source is a tool error", func(t *testing.T) {
+		// The negative control: a layout that names a member file the
+		// workspace does not contain is a load-graph fault - the check
+		// fails as a tool error (exit 2) rather than reporting a spurious
+		// verdict. (Standard-library decisions no longer depend on the
+		// layout's SDK enumeration: the declared map decides them.)
 		manifest := `name: "cleanmember"
 interface_files: "member/api.go"
 declared_authority: "FILES"
 `
 		ws, manifestPath, layoutPath := writeFixture(t, manifest, "")
-		stdout, stderr, code := runFrom(t, ws, []string{"check", manifestPath, "--package-layout=" + layoutPath})
+		layoutBytes, err := os.ReadFile(layoutPath)
+		if err != nil {
+			t.Fatalf("read layout: %v", err)
+		}
+		mutated := strings.Replace(string(layoutBytes), "member/api.go", "member/nonexistent.go", 1)
+		if err := os.WriteFile(layoutPath, []byte(mutated), 0o644); err != nil {
+			t.Fatalf("write mutated layout: %v", err)
+		}
+		stdout, stderr, code := runFrom(t, ws, []string{"check", manifestPath, "--package-layout=" + layoutPath, "--stdlib-map=" + sharedNativeMapDefault(t)})
 
 		if code != 2 {
 			t.Fatalf("expected exit 2, got %d.\nstdout: %s\nstderr: %s", code, stdout, stderr)

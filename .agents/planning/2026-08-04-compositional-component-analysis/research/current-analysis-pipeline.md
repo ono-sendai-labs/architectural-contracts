@@ -269,3 +269,47 @@ not checked. See idea-honing Q11.
 `collectBodilessAbsorbedPackages` (`goanalysis.go:328-329`), and the testdata under
 `goanalysis/testdata/escapes/`. The README walkthrough at `README.md:296-340` teaches
 absorption as its `UNDECLARED_AUTHORITY` example.
+
+---
+
+## Step 6 post-cutover measurement (reference-scan check, SSA/VTA and Capslock removed)
+
+**Date:** 2026-09-08, immediately after the Step 6 Task 05 cutover. Same machine,
+same toolchain (`go1.26.4 linux/amd64`, 16 cores), `bin/arcc` built once with
+`just build`; one discarded warm-up run, then five timed runs of
+`bin/arcc check <manifest>` (whole-process user+sys CPU, resource-usage deltas).
+The native stdlib map was pre-warmed in the on-demand cache; the ~2m18s one-time
+per-SDK generation cost (see below) is excluded from the per-check figures.
+
+| Component | Baseline (Step 1, mean of 5) | Post-cutover (mean of 5) | Delta |
+| --- | --- | --- | --- |
+| `internal/goanalysis` (196-package closure) | 3.62 s wall / 13.4 s CPU | **1.46 s wall / 6.28 s CPU** (exit 1: the cutover's honest findings on the x/tools member closure; see the self-hosting note below) | −59% wall / −53% CPU |
+| `examples/csvtool/app` (4 packages, 69-package closure) | 1.90 s wall / 6.05 s CPU | **0.78 s wall / 2.87 s CPU** (exit 0) | −59% wall / −53% CPU |
+
+**Attribution.** The removed categories (b) closure type-checking *partially*,
+(c) SSA 11%, (d) VTA 5%, (e) Capslock 42% of Step 1 CPU, are gone as phases; what
+remains is (a) member + closure `packages.Load` (source loading stays until
+Steps 7–8), the typed reference scan, the map lookups, and the checker. The
+improvement being ~53% rather than the ~88–90% projected from the Step 1 phase
+sums is expected and honest: dependency sources are still type-checked from
+source — both the closure `packages.Load` (`NeedDeps` retained by design in this
+step) and the per-dependency source loads (`ResolveDependencyInterface`) remain.
+Steps 7 (surface consumption) and 8 (export-data loading) remove those phases;
+their savings are NOT included in these numbers.
+
+**One-time cost moved out of the check:** stdlib authority is now a precomputed
+map. Native generation over the full non-internal stdlib (190 importable
+packages) with the per-package Capslock batching adopted at the cutover takes
+≈2m18s wall / ≈6m37s CPU on this machine, once per SDK configuration (cached,
+regenerated on toolchain/classifier change; Bazel builds it as a declared
+artifact). This is the Step 1 "Stdlib SSA rebuilt every invocation" cost source,
+amortized instead of paid per check.
+
+**Self-hosting note (honest result):** `internal/goanalysis` and
+`internal/artifactio` currently report violations — the x/tools and transitional
+protobuf member closures reference stdlib symbols the map preserves as
+`UNANALYZED` (`sort.Slice`, `sync.Once.Do`, `unsafe.Pointer`, ...) and use
+capabilities their manifests do not declare. Under DR-11 these are correct,
+fail-closed findings; resolving them (policy downgrades / the Step 7
+protobuf-runtime component) is later-step work recorded in the Step 6 task
+escalation.

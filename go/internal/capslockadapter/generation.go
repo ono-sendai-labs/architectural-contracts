@@ -22,12 +22,60 @@ import (
 // unanalysable stdlib bodies such as sort.Slice into apparent purity (spike
 // finding 5); generation must preserve them as terminal UNANALYZED records.
 
+// fileHandleUseMethods are the (*os.File) methods Capslock's builtin map
+// classifies CAPABILITY_FILES but which, under the object-capability model, are
+// capability use (operating on an already-obtained handle) rather than ambient
+// authority. Reclassifying them SAFE attributes filesystem authority to the
+// minting site (os.Open/os.ReadFile/... which take an ambient path) instead of
+// to every downstream consumer of the handle.
+//
+// Deliberately EXCLUDES (*os.File).Chdir, which Capslock classifies as
+// MODIFY_SYSTEM_STATE: it mutates process-global cwd (genuine ambient authority),
+// not the designated file, so it stays classified.
+//
+// Generation-only (I2, I4): this minting-site reclassification is material
+// hashed into the SDK key's classifier_hash; it is never consulted at check
+// time, where every stdlib decision reads the map.
+var fileHandleUseMethods = []string{
+	"(*os.File).Chmod", "(*os.File).Chown", "(*os.File).Close", "(*os.File).Fd",
+	"(*os.File).Name", "(*os.File).Read", "(*os.File).ReadAt", "(*os.File).ReadDir",
+	"(*os.File).ReadFrom", "(*os.File).Readdir", "(*os.File).Readdirnames",
+	"(*os.File).Seek", "(*os.File).SetDeadline", "(*os.File).SetReadDeadline",
+	"(*os.File).SetWriteDeadline", "(*os.File).Stat", "(*os.File).Sync",
+	"(*os.File).SyscallConn", "(*os.File).Truncate", "(*os.File).Write",
+	"(*os.File).WriteAt", "(*os.File).WriteString",
+}
+
+// buildClassifierText constructs the generation classifier's raw rule text:
+// the minting-site reclassification of the (*os.File) handle-use methods as
+// CAPABILITY_SAFE, with no per-symbol prune keys (pruning is structural; the
+// boundary-prune classifier is gone).
+func buildClassifierText() (string, error) {
+	var b strings.Builder
+	seenFunc := make(map[string]bool)
+
+	for _, k := range fileHandleUseMethods {
+		if seenFunc[k] {
+			continue
+		}
+		seenFunc[k] = true
+		fmt.Fprintf(&b, "func %s CAPABILITY_SAFE\n", k)
+	}
+
+	return b.String(), nil
+}
+
+// The generation classifier deliberately does NOT wrap the merged classifier
+// in interesting.ClassifierExcludingUnanalyzed: the wrapper deletes
+// CAPABILITY_UNANALYZED findings, which would launder unanalysable stdlib
+// bodies such as sort.Slice into apparent purity (spike finding 5). Generation
+// must preserve them as terminal UNANALYZED records.
+
 // GenerationClassifierText returns the generation classifier's source text:
-// exactly the minting-site reclassification lines. It shares the check-time
-// builder so the two classifiers cannot drift, and its rules material is the
+// exactly the minting-site reclassification lines. Its rules material is the
 // source hashed into the SDK key's classifier_hash (I2, task req 2).
 func GenerationClassifierText() (string, error) {
-	return buildClassifierText(nil)
+	return buildClassifierText()
 }
 
 // builtinPinSeparator/entry delimit the canonical builtin-content rendering

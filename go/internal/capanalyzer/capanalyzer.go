@@ -1,9 +1,10 @@
-// Package capanalyzer defines the port/interface and types for analyzing capabilities of Go packages.
+// Package capanalyzer defines the capability classes, policies, and policy
+// classification shared by the stdlib authority classification and the report.
 //
 // Component Contract (FR10):
-// - What it does: Defines the abstract CapabilityAnalyzer port, finding structures, and capability policies.
-// - What it requires: The caller must provide valid AnalyzeRequest configurations (packages and prune symbols).
-// - What it provides: An injection seam for capability analysis and policy classification of identified findings.
+// - What it does: Defines the capability Class taxonomy (TrueAuthority, AnalysisDefeating) and the CapabilityPolicy decision model.
+// - What it requires: Nothing; pure data and pure classification.
+// - What it provides: Class, CapabilityPolicy, StrictPolicy, and Classify.
 // - Ambient Authority: This component is guaranteed-pure and holds no ambient authority (no I/O, no filesystem, and no environment access).
 package capanalyzer
 
@@ -18,51 +19,6 @@ const (
 // String returns the string representation of Class.
 func (c Class) String() string {
 	return string(c)
-}
-
-// Frame represents a single call-stack frame in a capanalyzer finding.
-type Frame struct {
-	Func string
-	File string
-	Line int
-}
-
-// CapabilityFinding is one capability reached transitively by a component's code.
-type CapabilityFinding struct {
-	Package    string  // import path where the capability is incurred
-	Capability string  // e.g. "FILES", "NETWORK", "REFLECT"
-	Class      Class   // TrueAuthority | AnalysisDefeating
-	CallPath   []Frame // example path: caller -> ... -> privileged callee
-}
-
-// InterfaceSymbol identifies one declared-interface symbol of a component, in the
-// key form Capslock/go-types use, e.g. "example.com/store.Read" or
-// "(*example.com/store.DB).Get". It is the shared primitive behind both the
-// boundary check (Pillar 1) and capability pruning (Pillar 3).
-//
-// Normalization Contract (A4):
-// - Generic type-argument brackets are stripped from SSA names before comparison.
-// - Methods are emitted in BOTH pointer- and value-receiver key forms.
-// - Examples of valid key formats: "pkg.Name" and "(*pkg.Type).Method".
-type InterfaceSymbol string
-
-// AnalyzeRequest asks the analyzer for the capabilities of a component's packages.
-//
-// Scope Semantics:
-//   - Analyzes every function in Packages (Capslock's native behavior).
-//   - "_test.go" files are excluded by construction.
-//   - Traversal is pruned per-symbol at PruneAt, the only boundary-pruning input.
-//     Symbols declared at a dependency boundary (including package initializer
-//     keys of the form "func pkg.init") are treated as capability-safe.
-type AnalyzeRequest struct {
-	Packages []string
-	PruneAt  []InterfaceSymbol
-}
-
-// CapabilityAnalyzer is the port the checker depends on; the Capslock adapter
-// (in the shell) implements it. Injecting it keeps the checker pure and testable.
-type CapabilityAnalyzer interface {
-	Analyze(req AnalyzeRequest) ([]CapabilityFinding, error)
 }
 
 // CapabilityPolicy decides, per capability, whether a finding is allowed, a warning, or a violation.

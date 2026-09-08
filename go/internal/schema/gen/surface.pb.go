@@ -68,8 +68,8 @@ type SurfaceManifest struct {
 	Packages []string `protobuf:"bytes,5,rep,name=packages,proto3" json:"packages,omitempty"`
 	// Symbol identifiers of the declared interface (declared-interface style
 	// only; empty for PACKAGE_SURFACE), in the shared versioned textual grammar
-	// (DR-04). This is the exact declared set with no implements-closure
-	// injection. Sort key: lexicographic byte order.
+	// (DR-04). This is the exact declared set — the same set the check
+	// classifies references against. Sort key: lexicographic byte order.
 	Symbols []string `protobuf:"bytes,6,rep,name=symbols,proto3" json:"symbols,omitempty"`
 	// hostpolicy.NamespaceID of the emitter. A consumer reading a surface whose
 	// namespace differs from its own fails with a tool error — never a

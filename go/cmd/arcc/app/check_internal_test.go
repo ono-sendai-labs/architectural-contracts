@@ -60,48 +60,48 @@ func writeMapArtifact(t *testing.T, m *gen.StdlibMap) string {
 	return path
 }
 
-// TestKeyFromDeclaredMapNativeTargetMismatch fails an explicit map made for
+// TestAuthorityFromDeclaredMapNativeTargetMismatch fails an explicit map made for
 // another native target (review round 1, finding 1): in native mode the
 // resolver discovers the current target and rejects a map whose key differs.
-func TestKeyFromDeclaredMapNativeTargetMismatch(t *testing.T) {
+func TestAuthorityFromDeclaredMapNativeTargetMismatch(t *testing.T) {
 	target := stdlibmap.TargetConfig{
 		ToolchainVersion: "go1.26.4",
 		GOOS:             "plan9",
 		GOARCH:           "amd64",
 	}
 	path := writeMapArtifact(t, fixtureMap(t, target))
-	_, err := keyFromDeclaredMap(SDKKeyRequest{StdlibMapPath: path, InLayoutMode: false})
+	_, err := authorityFromDeclaredMap(AuthorityRequest{StdlibMapPath: path, InLayoutMode: false})
 	if err == nil {
 		t.Fatal("expected a native target mismatch error")
 	}
-	if !strings.Contains(err.Error(), "discovered native target") {
-		t.Errorf("error = %q, want it to name the discovered native target", err)
+	if !strings.Contains(err.Error(), "mismatched fields: goos") {
+		t.Errorf("error = %q, want it to name the mismatched target field", err)
 	}
 	if !strings.Contains(err.Error(), path) {
 		t.Errorf("error = %q, want it to name the artifact path", err)
 	}
 }
 
-// TestKeyFromDeclaredMapNativeTargetMatch accepts an explicit map whose key
+// TestAuthorityFromDeclaredMapNativeTargetMatch accepts an explicit map whose key
 // matches the discovered native target.
-func TestKeyFromDeclaredMapNativeTargetMatch(t *testing.T) {
+func TestAuthorityFromDeclaredMapNativeTargetMatch(t *testing.T) {
 	discovered, err := stdlibmap.NativeTargetConfig()
 	if err != nil {
 		t.Skipf("no native toolchain target available: %v", err)
 	}
 	path := writeMapArtifact(t, fixtureMap(t, discovered))
-	key, err := keyFromDeclaredMap(SDKKeyRequest{StdlibMapPath: path, InLayoutMode: false})
+	auth, err := authorityFromDeclaredMap(AuthorityRequest{StdlibMapPath: path, InLayoutMode: false})
 	if err != nil {
-		t.Fatalf("keyFromDeclaredMap: %v", err)
+		t.Fatalf("authorityFromDeclaredMap: %v", err)
 	}
-	if key.GOOS != discovered.GOOS || key.GOARCH != discovered.GOARCH {
+	if key := auth.Key(); key.GOOS != discovered.GOOS || key.GOARCH != discovered.GOARCH {
 		t.Errorf("key = %+v, want the discovered target", key)
 	}
 }
 
-// TestKeyFromDeclaredMapClassifierMismatch fails a map stamped with a
+// TestAuthorityFromDeclaredMapClassifierMismatch fails a map stamped with a
 // classifier hash this arcc does not compute (I2).
-func TestKeyFromDeclaredMapClassifierMismatch(t *testing.T) {
+func TestAuthorityFromDeclaredMapClassifierMismatch(t *testing.T) {
 	discovered, err := stdlibmap.NativeTargetConfig()
 	if err != nil {
 		t.Skipf("no native toolchain target available: %v", err)
@@ -109,7 +109,7 @@ func TestKeyFromDeclaredMapClassifierMismatch(t *testing.T) {
 	m := fixtureMap(t, discovered)
 	m.Key.ClassifierHash = "stale-classifier-hash"
 	path := writeMapArtifact(t, m)
-	_, err = keyFromDeclaredMap(SDKKeyRequest{StdlibMapPath: path, InLayoutMode: false})
+	_, err = authorityFromDeclaredMap(AuthorityRequest{StdlibMapPath: path, InLayoutMode: false})
 	if err == nil {
 		t.Fatal("expected a classifier mismatch error")
 	}
@@ -118,9 +118,9 @@ func TestKeyFromDeclaredMapClassifierMismatch(t *testing.T) {
 	}
 }
 
-// TestKeyFromDeclaredMapFormatMismatch fails a map with an unsupported
+// TestAuthorityFromDeclaredMapFormatMismatch fails a map with an unsupported
 // format version.
-func TestKeyFromDeclaredMapFormatMismatch(t *testing.T) {
+func TestAuthorityFromDeclaredMapFormatMismatch(t *testing.T) {
 	discovered, err := stdlibmap.NativeTargetConfig()
 	if err != nil {
 		t.Skipf("no native toolchain target available: %v", err)
@@ -143,7 +143,7 @@ func TestKeyFromDeclaredMapFormatMismatch(t *testing.T) {
 	if err := os.WriteFile(path, tampered, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	_, err = keyFromDeclaredMap(SDKKeyRequest{StdlibMapPath: path, InLayoutMode: false})
+	_, err = authorityFromDeclaredMap(AuthorityRequest{StdlibMapPath: path, InLayoutMode: false})
 	if err == nil {
 		t.Fatal("expected a format mismatch error")
 	}
@@ -152,9 +152,9 @@ func TestKeyFromDeclaredMapFormatMismatch(t *testing.T) {
 	}
 }
 
-// TestKeyFromDeclaredMapLayoutTargetMismatch fails a map whose key differs
+// TestAuthorityFromDeclaredMapLayoutTargetMismatch fails a map whose key differs
 // from the layout's pinned platform (N3).
-func TestKeyFromDeclaredMapLayoutTargetMismatch(t *testing.T) {
+func TestAuthorityFromDeclaredMapLayoutTargetMismatch(t *testing.T) {
 	target := stdlibmap.TargetConfig{ToolchainVersion: "go1.26.4", GOOS: "linux", GOARCH: "amd64"}
 	path := writeMapArtifact(t, fixtureMap(t, target))
 	platform := goanalysis.PlatformIdentity{
@@ -162,18 +162,18 @@ func TestKeyFromDeclaredMapLayoutTargetMismatch(t *testing.T) {
 		GOOS:             "darwin",
 		GOARCH:           "arm64",
 	}
-	_, err := keyFromDeclaredMap(SDKKeyRequest{StdlibMapPath: path, InLayoutMode: true, LayoutPlatform: &platform})
+	_, err := authorityFromDeclaredMap(AuthorityRequest{StdlibMapPath: path, InLayoutMode: true, LayoutPlatform: &platform})
 	if err == nil {
 		t.Fatal("expected a declared target mismatch error")
 	}
-	if !strings.Contains(err.Error(), "declared target") {
-		t.Errorf("error = %q, want it to name the declared target", err)
+	if !strings.Contains(err.Error(), "mismatched fields: goarch") {
+		t.Errorf("error = %q, want it to name the mismatched target field", err)
 	}
 }
 
-// TestKeyFromDeclaredMapLayoutTargetMatch accepts a map matching the pinned
+// TestAuthorityFromDeclaredMapLayoutTargetMatch accepts a map matching the pinned
 // layout platform and returns its key.
-func TestKeyFromDeclaredMapLayoutTargetMatch(t *testing.T) {
+func TestAuthorityFromDeclaredMapLayoutTargetMatch(t *testing.T) {
 	target := stdlibmap.TargetConfig{ToolchainVersion: "go1.26.4", GOOS: "linux", GOARCH: "amd64"}
 	path := writeMapArtifact(t, fixtureMap(t, target))
 	platform := goanalysis.PlatformIdentity{
@@ -181,11 +181,11 @@ func TestKeyFromDeclaredMapLayoutTargetMatch(t *testing.T) {
 		GOOS:             target.GOOS,
 		GOARCH:           target.GOARCH,
 	}
-	key, err := keyFromDeclaredMap(SDKKeyRequest{StdlibMapPath: path, InLayoutMode: true, LayoutPlatform: &platform})
+	auth, err := authorityFromDeclaredMap(AuthorityRequest{StdlibMapPath: path, InLayoutMode: true, LayoutPlatform: &platform})
 	if err != nil {
-		t.Fatalf("keyFromDeclaredMap: %v", err)
+		t.Fatalf("authorityFromDeclaredMap: %v", err)
 	}
-	if key.GOOS != target.GOOS || key.ToolchainVersion != target.ToolchainVersion {
+	if key := auth.Key(); key.GOOS != target.GOOS || key.ToolchainVersion != target.ToolchainVersion {
 		t.Errorf("key = %+v, want the pinned target", key)
 	}
 }

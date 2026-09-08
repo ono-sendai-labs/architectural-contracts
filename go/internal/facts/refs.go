@@ -2,7 +2,7 @@ package facts
 
 import (
 	"fmt"
-	"sort"
+	"slices"
 	"strings"
 
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/symbol"
@@ -220,9 +220,7 @@ func CompareReferenceEdges(a, b ReferenceEdge) int {
 func SortReferenceEdges(edges []ReferenceEdge) []ReferenceEdge {
 	out := make([]ReferenceEdge, len(edges))
 	copy(out, edges)
-	sort.SliceStable(out, func(i, j int) bool {
-		return CompareReferenceEdges(out[i], out[j]) < 0
-	})
+	slices.SortStableFunc(out, CompareReferenceEdges)
 	return out
 }
 
@@ -344,9 +342,7 @@ func CompareImportEdges(a, b ImportEdge) int {
 func SortImportEdges(edges []ImportEdge) []ImportEdge {
 	out := make([]ImportEdge, len(edges))
 	copy(out, edges)
-	sort.SliceStable(out, func(i, j int) bool {
-		return CompareImportEdges(out[i], out[j]) < 0
-	})
+	slices.SortStableFunc(out, CompareImportEdges)
 	return out
 }
 

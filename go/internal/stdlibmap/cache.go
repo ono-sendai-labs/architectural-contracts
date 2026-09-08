@@ -23,7 +23,7 @@ import (
 // RuleVersion is the production version of the generation classification
 // rules (GenerationInput.RuleVersion): bumped whenever the rules' semantics
 // change, so the stamped classifier_hash cannot mask a rule change (I2).
-const RuleVersion = "stdlibmap-generation-rules-v1"
+const RuleVersion = "stdlibmap-generation-rules-v2"
 
 // CacheKeyDigest returns the cache filename stem for an SDK key: the
 // hex-encoded SHA-256 digest of a canonical, NUL-separated encoding of every

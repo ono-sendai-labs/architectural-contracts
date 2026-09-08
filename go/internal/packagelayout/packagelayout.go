@@ -47,6 +47,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -560,8 +561,8 @@ func discoverStdlibTree(sdkRoot string, bctx build.Context) ([]*packages.Package
 	for _, item := range discovered {
 		pkgs = append(pkgs, item.pkg)
 	}
-	sort.Slice(pkgs, func(i, j int) bool {
-		return pkgs[i].ID < pkgs[j].ID
+	slices.SortFunc(pkgs, func(a, b *packages.Package) int {
+		return strings.Compare(a.ID, b.ID)
 	})
 
 	return pkgs, noGoDirs, nil
@@ -656,8 +657,8 @@ func (l *Layout) MarshalJSON() ([]byte, error) {
 	if l.Packages != nil {
 		pkgs = make([]*packages.Package, len(l.Packages))
 		copy(pkgs, l.Packages)
-		sort.Slice(pkgs, func(i, j int) bool {
-			return pkgs[i].ID < pkgs[j].ID
+		slices.SortFunc(pkgs, func(a, b *packages.Package) int {
+			return strings.Compare(a.ID, b.ID)
 		})
 	} else {
 		pkgs = []*packages.Package{}
@@ -1020,14 +1021,14 @@ func ValidateAndResolve(l *Layout, workspaceDir string) error {
 			}
 		}
 	}
-	sort.Slice(unresolvedImports, func(i, j int) bool {
-		if unresolvedImports[i].Package != unresolvedImports[j].Package {
-			return unresolvedImports[i].Package < unresolvedImports[j].Package
+	slices.SortFunc(unresolvedImports, func(a, b UnresolvedImport) int {
+		if c := strings.Compare(a.Package, b.Package); c != 0 {
+			return c
 		}
-		if unresolvedImports[i].SourceFile != unresolvedImports[j].SourceFile {
-			return unresolvedImports[i].SourceFile < unresolvedImports[j].SourceFile
+		if c := strings.Compare(a.SourceFile, b.SourceFile); c != 0 {
+			return c
 		}
-		return unresolvedImports[i].ImportPath < unresolvedImports[j].ImportPath
+		return strings.Compare(a.ImportPath, b.ImportPath)
 	})
 	uniqueUnresolved := unresolvedImports[:0]
 	for _, observation := range unresolvedImports {
@@ -1267,8 +1268,8 @@ func HandleDriverRequest(l *Layout, req *packages.DriverRequest, patterns []stri
 	// Ensure the response Packages list is also deterministic by sorting by ID.
 	pkgsCopy := make([]*packages.Package, len(l.Packages))
 	copy(pkgsCopy, l.Packages)
-	sort.Slice(pkgsCopy, func(i, j int) bool {
-		return pkgsCopy[i].ID < pkgsCopy[j].ID
+	slices.SortFunc(pkgsCopy, func(a, b *packages.Package) int {
+		return strings.Compare(a.ID, b.ID)
 	})
 
 	// The driver response's Arch becomes go/packages' types.Sizes target. A

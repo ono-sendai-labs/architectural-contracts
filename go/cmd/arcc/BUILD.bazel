@@ -7,7 +7,6 @@ go_library(
     visibility = ["//visibility:private"],
     deps = [
         "//go/cmd/arcc/app",
-        "//go/internal/capslockadapter",
         "//go/internal/goanalysis",
     ],
 )

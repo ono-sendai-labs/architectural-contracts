@@ -71,7 +71,7 @@ func scanBypassPackage(
 	for _, file := range allDeclaredFiles(p) {
 		switch {
 		case isAssemblyFile(file):
-			if err := addBypassSite(p.Fset, root, file, 0, facts.BypassAssembly, obs); err != nil {
+			if err := addBypassSite(p, root, file, 0, facts.BypassAssembly, obs); err != nil {
 				return err
 			}
 			continue
@@ -90,7 +90,7 @@ func scanBypassPackage(
 		if syntax.fset != nil {
 			fset = syntax.fset
 		}
-		if err := scanBypassSyntax(fset, root, file, syntax.file, obs); err != nil {
+		if err := scanBypassSyntax(fset, p, root, file, syntax.file, obs); err != nil {
 			return err
 		}
 	}
@@ -190,17 +190,21 @@ func parseDeclaredFile(file string) (parsedFile, error) {
 // `import "C"` declaration, at their exact source lines.
 func scanBypassSyntax(
 	fset *token.FileSet,
+	p *packages.Package,
 	root string,
 	file string,
 	f *ast.File,
 	obs map[facts.BypassKey]struct{},
 ) error {
+	if fset == nil {
+		fset = p.Fset
+	}
 	for _, cg := range f.Comments {
 		for _, c := range cg.List {
 			if !isLinknameDirective(c.Text) {
 				continue
 			}
-			if err := addBypassSite(fset, root, file, fset.Position(c.Pos()).Line, facts.BypassLinkname, obs); err != nil {
+			if err := addBypassSite(p, root, file, fset.Position(c.Pos()).Line, facts.BypassLinkname, obs); err != nil {
 				return err
 			}
 		}
@@ -215,7 +219,7 @@ func scanBypassSyntax(
 			if !ok || importSpec.Path == nil || importSpec.Path.Value != `"C"` {
 				continue
 			}
-			if err := addBypassSite(fset, root, file, fset.Position(importSpec.Pos()).Line, facts.BypassCgo, obs); err != nil {
+			if err := addBypassSite(p, root, file, fset.Position(importSpec.Pos()).Line, facts.BypassCgo, obs); err != nil {
 				return err
 			}
 		}
@@ -236,14 +240,14 @@ func isLinknameDirective(text string) bool {
 // addBypassSite converts a position to a validated component-relative site
 // and records the observation.
 func addBypassSite(
-	fset *token.FileSet,
+	p *packages.Package,
 	root string,
 	file string,
 	line int,
 	kind facts.BypassKind,
 	obs map[facts.BypassKey]struct{},
 ) error {
-	site, err := bypassSite(fset, root, file, line)
+	site, err := bypassSite(p, root, file, line)
 	if err != nil {
 		return fmt.Errorf("scan analysis defeats: %w", err)
 	}
@@ -251,19 +255,21 @@ func addBypassSite(
 	return nil
 }
 
-// bypassSite makes a component-relative site for a declared member file. An
-// explicit line (a directive or import) is used directly; a file-level
-// construct such as assembly uses line 1, the first line of the file.
-func bypassSite(fset *token.FileSet, root string, file string, line int) (facts.SourceSite, error) {
-	if fset == nil {
-		fset = token.NewFileSet()
+// bypassSite makes a component-relative site for a declared member file,
+// computed against the file's site root (memberSiteRoot). An explicit line
+// (a directive or import) is used directly; a file-level construct such as
+// assembly uses line 1, the first line of the file.
+func bypassSite(p *packages.Package, root string, file string, line int) (facts.SourceSite, error) {
+	siteRoot, err := memberSiteRoot(p, root, file)
+	if err != nil {
+		return facts.SourceSite{}, err
 	}
 	if line < 1 {
 		line = 1
 	}
-	rel, err := filepath.Rel(root, file)
+	rel, err := filepath.Rel(siteRoot, file)
 	if err != nil {
-		return facts.SourceSite{}, fmt.Errorf("resolving %q relative to component root: %w", file, err)
+		return facts.SourceSite{}, fmt.Errorf("resolving %q relative to site root %q: %w", file, siteRoot, err)
 	}
 	rel = filepath.ToSlash(filepath.Clean(rel))
 	site := facts.SourceSite{File: rel, Line: line}

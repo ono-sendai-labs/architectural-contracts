@@ -57,8 +57,8 @@ message SurfaceManifest {
 
   // Symbol identifiers of the declared interface (declared-interface style
   // only; empty for PACKAGE_SURFACE), in the shared versioned textual grammar
-  // (DR-04). This is the exact declared set with no implements-closure
-  // injection. Sort key: lexicographic byte order.
+  // (DR-04). This is the exact declared set — the same set the check
+  // classifies references against. Sort key: lexicographic byte order.
   repeated string symbols = 6;
 
   // hostpolicy.NamespaceID of the emitter. A consumer reading a surface whose

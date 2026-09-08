@@ -12,22 +12,37 @@ import (
 	"testing"
 
 	"github.com/ono-sendai-labs/architectural-contracts/go/cmd/arcc/app"
-	"github.com/ono-sendai-labs/architectural-contracts/go/internal/capanalyzer"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/facts"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/goanalysis"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/report"
+	"github.com/ono-sendai-labs/architectural-contracts/go/internal/stdlibauthority"
+	"github.com/ono-sendai-labs/architectural-contracts/go/internal/symbol"
 )
 
-type mockAnalyzer struct {
-	calledWith capanalyzer.AnalyzeRequest
-	findings   []capanalyzer.CapabilityFinding
-	err        error
+// testAuthority is a fake StdlibAuthority that enumerates no stdlib
+// packages: every stdlib decision in these unit tests is driven by explicit
+// facts injected through the loader seam. It carries the shared full SDK key
+// so surface emission stamps it.
+type testAuthority struct{}
+
+func (testAuthority) IsStdlibPackage(string) bool { return false }
+
+func (testAuthority) SymbolAuthority(id symbol.SymbolID) (stdlibauthority.Classification, error) {
+	return stdlibauthority.Classification{}, &stdlibauthority.InventoryGapError{
+		Package: facts.SymbolIDPackage(id),
+		Symbol:  id.Format(),
+	}
 }
 
-func (m *mockAnalyzer) Analyze(req capanalyzer.AnalyzeRequest) ([]capanalyzer.CapabilityFinding, error) {
-	m.calledWith = req
-	return m.findings, m.err
+func (testAuthority) PackageInitAuthority(pkgPath string) (stdlibauthority.Classification, error) {
+	return stdlibauthority.Classification{}, &stdlibauthority.InventoryGapError{Package: pkgPath}
 }
+
+func (testAuthority) Evidence(symbol.SymbolID, stdlibauthority.Capability) []stdlibauthority.Frame {
+	return nil
+}
+
+func (testAuthority) Key() stdlibauthority.SDKKey { return fullSDKKey }
 
 func TestRunner_VersionAndHelp(t *testing.T) {
 	runner := &app.Runner{}
@@ -249,10 +264,12 @@ func TestRunner_Check_LayoutMembershipMismatchIsToolError(t *testing.T) {
 				Loader: func(req goanalysis.LoadRequest) (facts.PackageFacts, error) {
 					return goanalysis.LoadPackageFacts(req)
 				},
-				Analyzer: &mockAnalyzer{},
 			}
 			_, stderr, exitCode := runRunnerFromWorkspace(t, workspace, runner, []string{
 				"check", manifestPath, "--package-layout=" + layoutPath,
+				// The map flag satisfies the layout-mode usage rule; the
+				// loader's membership validation fails first.
+				"--stdlib-map=unused.json",
 			})
 			if exitCode != 2 {
 				t.Fatalf("Run() exit = %d, want tool error 2; stderr = %q", exitCode, stderr)
@@ -303,7 +320,6 @@ members: "example.com/overlap/member"
 		Loader: func(goanalysis.LoadRequest) (facts.PackageFacts, error) {
 			return facts.PackageFacts{Packages: []facts.PackageFact{{ImportPath: "example.com/overlap/member"}}}, nil
 		},
-		Analyzer: &mockAnalyzer{},
 	}
 
 	stdout, stderr, exitCode := runRunnerFromWorkspace(t, workspace, runner, []string{"check", manifestPath})
@@ -334,11 +350,7 @@ interface_files: "api.go"
 		return goanalysis.LoadPackageFacts(req)
 	}
 
-	analyzer := &mockAnalyzer{}
-	runner := &app.Runner{
-		Loader:   loader,
-		Analyzer: analyzer,
-	}
+	runner := &app.Runner{Loader: loader}
 
 	var stdout, stderr bytes.Buffer
 	exitCode := runner.Run([]string{"check", manifestPath}, &stdout, &stderr)
@@ -351,14 +363,6 @@ interface_files: "api.go"
 	want := `Component "test-comp" conforms; does not exceed declared authority`
 	if !strings.Contains(got, want) {
 		t.Errorf("stdout = %q, want to contain %q", got, want)
-	}
-
-	// Verify analyzer request was correct
-	if len(analyzer.calledWith.Packages) != 1 || analyzer.calledWith.Packages[0] != "example.com/temp/success" {
-		t.Errorf("analyzer called with packages %v, want ['example.com/temp/success']", analyzer.calledWith.Packages)
-	}
-	if len(analyzer.calledWith.PruneAt) != 0 {
-		t.Errorf("analyzer called with PruneAt %v, want empty", analyzer.calledWith.PruneAt)
 	}
 }
 
@@ -375,8 +379,7 @@ interface_files: "gated.go"
 	}
 	_, manifestPath := createTempComponent(t, "excluded-interface", manifestContent, files)
 	runner := &app.Runner{
-		Loader:   func(req goanalysis.LoadRequest) (facts.PackageFacts, error) { return goanalysis.LoadPackageFacts(req) },
-		Analyzer: &mockAnalyzer{},
+		Loader: func(req goanalysis.LoadRequest) (facts.PackageFacts, error) { return goanalysis.LoadPackageFacts(req) },
 	}
 
 	for _, args := range [][]string{{"check", manifestPath}, {"check", manifestPath, "--format=json"}} {
@@ -417,8 +420,7 @@ interface_files: "gated.go"
 	}
 	_, manifestPath := createTempComponent(t, "all-excluded-interface", manifestContent, files)
 	runner := &app.Runner{
-		Loader:   func(req goanalysis.LoadRequest) (facts.PackageFacts, error) { return goanalysis.LoadPackageFacts(req) },
-		Analyzer: &mockAnalyzer{},
+		Loader: func(req goanalysis.LoadRequest) (facts.PackageFacts, error) { return goanalysis.LoadPackageFacts(req) },
 	}
 
 	var stdout, stderr bytes.Buffer
@@ -446,7 +448,7 @@ members: "example.com/temp/loader-request"
 		gotRequest = req
 		return goanalysis.LoadPackageFacts(req)
 	}
-	runner := &app.Runner{Loader: loader, Analyzer: &mockAnalyzer{}}
+	runner := &app.Runner{Loader: loader}
 
 	var stdout, stderr bytes.Buffer
 	if exitCode := runner.Run([]string{"check", manifestPath}, &stdout, &stderr); exitCode != 0 {
@@ -506,17 +508,10 @@ members: "example.com/workspace/outside"
 		}
 		return got, err
 	}
-	analyzer := &mockAnalyzer{findings: []capanalyzer.CapabilityFinding{{
-		Package:    "os",
-		Capability: "FILES",
-		Class:      capanalyzer.TrueAuthority,
-		CallPath: []capanalyzer.Frame{{
-			Func: "example.com/workspace/outside.Outside",
-			File: "../outside/outside.go",
-			Line: 5,
-		}},
-	}}}
-	runner := &app.Runner{Loader: loader, Analyzer: analyzer}
+	// The production authority path decides os.Getwd's classification from
+	// the native map: the outside member's READ_SYSTEM_STATE/FILES use is a
+	// declared-authority violation.
+	runner := &app.Runner{Loader: loader}
 
 	var stdout, stderr bytes.Buffer
 	if exitCode := runner.Run([]string{"check", manifestPath}, &stdout, &stderr); exitCode != 1 {
@@ -526,10 +521,6 @@ members: "example.com/workspace/outside"
 		t.Fatalf("declared run output = %q, want authority finding", stdout.String())
 	}
 	assertDeclaredOutsideFacts(t, loaded)
-	wantDeclaredPackages := []string{"example.com/workspace/component", "example.com/workspace/outside"}
-	if !reflect.DeepEqual(analyzer.calledWith.Packages, wantDeclaredPackages) {
-		t.Fatalf("declared analyzer packages = %v, want %v", analyzer.calledWith.Packages, wantDeclaredPackages)
-	}
 
 	if err := os.WriteFile(manifestPath, []byte(`
 name: "component"
@@ -537,15 +528,10 @@ interface_files: "api.go"
 `), 0644); err != nil {
 		t.Fatal(err)
 	}
-	analyzer.findings = nil
 	stdout.Reset()
 	stderr.Reset()
 	if exitCode := runner.Run([]string{"check", manifestPath}, &stdout, &stderr); exitCode != 0 {
 		t.Fatalf("FR1 fallback exit code = %d, want 0; stdout=%s stderr=%s", exitCode, stdout.String(), stderr.String())
-	}
-	wantFR1Packages := []string{"example.com/workspace/component", "example.com/workspace/component/unrelated"}
-	if !reflect.DeepEqual(analyzer.calledWith.Packages, wantFR1Packages) {
-		t.Fatalf("FR1 analyzer packages = %v, want %v", analyzer.calledWith.Packages, wantFR1Packages)
 	}
 	for _, pkg := range loaded.Packages {
 		if pkg.ImportPath == "example.com/workspace/outside" {
@@ -580,14 +566,23 @@ func assertDeclaredOutsideFacts(t *testing.T, loaded facts.PackageFacts) {
 	if !foundSymbol {
 		t.Fatalf("outside symbols = %+v, want Outside", outside.ExportedSymbols)
 	}
-	foundCall := false
-	for _, edge := range loaded.CallEdges {
-		if strings.HasPrefix(string(edge.Caller), "example.com/workspace/outside.Outside") && strings.HasPrefix(string(edge.Callee), "os.") {
-			foundCall = true
+	foundImport := false
+	for _, edge := range loaded.Imports {
+		if edge.ImportingPackage == "example.com/workspace/outside" && edge.ImportPath == "os" {
+			foundImport = true
 		}
 	}
-	if !foundCall {
-		t.Fatalf("outside call edges = %+v, want Outside -> os edge", loaded.CallEdges)
+	if !foundImport {
+		t.Fatalf("outside import edges = %+v, want the os import edge", loaded.Imports)
+	}
+	foundReference := false
+	for _, edge := range loaded.References {
+		if edge.FromPackage == "example.com/workspace/outside" && facts.SymbolIDPackage(edge.Referent) == "os" {
+			foundReference = true
+		}
+	}
+	if !foundReference {
+		t.Fatalf("outside reference edges = %+v, want an os reference edge", loaded.References)
 	}
 }
 
@@ -605,11 +600,7 @@ interface_files: "api.go"
 		return goanalysis.LoadPackageFacts(req)
 	}
 
-	analyzer := &mockAnalyzer{}
-	runner := &app.Runner{
-		Loader:   loader,
-		Analyzer: analyzer,
-	}
+	runner := &app.Runner{Loader: loader}
 
 	var stdout, stderr bytes.Buffer
 	exitCode := runner.Run([]string{"check", manifestPath, "--format=json"}, &stdout, &stderr)
@@ -644,7 +635,7 @@ name: "test-comp"
 interface_files: "api.go"
 `
 	files := map[string]string{
-		"api.go": "package main\n\nfunc Hello() {}\n",
+		"api.go": "package main\n\nimport \"os\"\n\nfunc Hello() { _, _ = os.ReadFile(\"x\") }\n",
 	}
 	_, manifestPath := createTempComponent(t, "violation", manifestContent, files)
 
@@ -652,22 +643,9 @@ interface_files: "api.go"
 		return goanalysis.LoadPackageFacts(req)
 	}
 
-	analyzer := &mockAnalyzer{
-		findings: []capanalyzer.CapabilityFinding{
-			{
-				Package:    "example.com/temp/violation",
-				Capability: "FILES",
-				Class:      capanalyzer.TrueAuthority,
-				CallPath: []capanalyzer.Frame{
-					{Func: "main.Hello", File: "api.go", Line: 3},
-				},
-			},
-		},
-	}
-	runner := &app.Runner{
-		Loader:   loader,
-		Analyzer: analyzer,
-	}
+	// The production native authority classifies os.ReadFile as FILES, so
+	// strict policy fails the component.
+	runner := &app.Runner{Loader: loader}
 
 	var stdout, stderr bytes.Buffer
 	exitCode := runner.Run([]string{"check", manifestPath}, &stdout, &stderr)
@@ -689,7 +667,7 @@ interface_files: "api.go"
 declared_authority: "FILES"
 `
 	files := map[string]string{
-		"api.go": "package main\n\nfunc Hello() {}\n",
+		"api.go": "package main\n\nimport \"os\"\n\nfunc Hello() { _, _ = os.ReadFile(\"x\") }\n",
 	}
 	_, manifestPath := createTempComponent(t, "declared-auth", manifestContent, files)
 
@@ -697,22 +675,7 @@ declared_authority: "FILES"
 		return goanalysis.LoadPackageFacts(req)
 	}
 
-	analyzer := &mockAnalyzer{
-		findings: []capanalyzer.CapabilityFinding{
-			{
-				Package:    "example.com/temp/declared-auth",
-				Capability: "FILES",
-				Class:      capanalyzer.TrueAuthority,
-				CallPath: []capanalyzer.Frame{
-					{Func: "main.Hello", File: "api.go", Line: 3},
-				},
-			},
-		},
-	}
-	runner := &app.Runner{
-		Loader:   loader,
-		Analyzer: analyzer,
-	}
+	runner := &app.Runner{Loader: loader}
 
 	var stdout, stderr bytes.Buffer
 	exitCode := runner.Run([]string{"check", manifestPath}, &stdout, &stderr)
@@ -762,11 +725,7 @@ interface_files: "../escaping.go"
 				return goanalysis.LoadPackageFacts(req)
 			}
 
-			analyzer := &mockAnalyzer{}
-			runner := &app.Runner{
-				Loader:   loader,
-				Analyzer: analyzer,
-			}
+			runner := &app.Runner{Loader: loader}
 
 			var stdout, stderr bytes.Buffer
 			exitCode := runner.Run([]string{"check", manifestPath}, &stdout, &stderr)
@@ -782,11 +741,6 @@ interface_files: "../escaping.go"
 
 			if stdout.Len() != 0 {
 				t.Errorf("stdout = %q, want empty", stdout.String())
-			}
-
-			// Assert that the analyzer was NOT called
-			if len(analyzer.calledWith.Packages) != 0 {
-				t.Errorf("analyzer was called despite interface validation error")
 			}
 		})
 	}
@@ -806,10 +760,7 @@ interface_files: "api.go"
 		return facts.PackageFacts{}, fmt.Errorf("injected loader error")
 	}
 
-	runner := &app.Runner{
-		Loader:   loader,
-		Analyzer: &mockAnalyzer{},
-	}
+	runner := &app.Runner{Loader: loader}
 
 	var stdout, stderr bytes.Buffer
 	exitCode := runner.Run([]string{"check", manifestPath}, &stdout, &stderr)
@@ -828,7 +779,7 @@ interface_files: "api.go"
 	}
 }
 
-func TestRunner_Check_AnalyzerError(t *testing.T) {
+func TestRunner_Check_AuthorityResolverError(t *testing.T) {
 	manifestContent := `
 name: "test-comp"
 interface_files: "api.go"
@@ -836,18 +787,17 @@ interface_files: "api.go"
 	files := map[string]string{
 		"api.go": "package main\n\nfunc Hello() {}\n",
 	}
-	_, manifestPath := createTempComponent(t, "analyzer-error", manifestContent, files)
+	_, manifestPath := createTempComponent(t, "authority-error", manifestContent, files)
 
 	loader := func(req goanalysis.LoadRequest) (facts.PackageFacts, error) {
 		return goanalysis.LoadPackageFacts(req)
 	}
 
-	analyzer := &mockAnalyzer{
-		err: fmt.Errorf("injected analyzer error"),
-	}
 	runner := &app.Runner{
-		Loader:   loader,
-		Analyzer: analyzer,
+		Loader: loader,
+		AuthorityResolver: func(app.AuthorityRequest) (stdlibauthority.StdlibAuthority, error) {
+			return nil, fmt.Errorf("injected authority error")
+		},
 	}
 
 	var stdout, stderr bytes.Buffer
@@ -858,8 +808,8 @@ interface_files: "api.go"
 	}
 
 	gotErr := stderr.String()
-	if !strings.Contains(gotErr, "injected analyzer error") {
-		t.Errorf("stderr = %q, want to mention injected analyzer error", gotErr)
+	if !strings.Contains(gotErr, "injected authority error") {
+		t.Errorf("stderr = %q, want to mention injected authority error", gotErr)
 	}
 
 	if stdout.Len() != 0 {
@@ -882,27 +832,13 @@ interface_files: "api.go"
 		return goanalysis.LoadPackageFacts(req)
 	}
 
-	analyzer := &mockAnalyzer{}
-	runner := &app.Runner{
-		Loader:   loader,
-		Analyzer: analyzer,
-	}
+	runner := &app.Runner{Loader: loader}
 
 	var stdout, stderr bytes.Buffer
 	exitCode := runner.Run([]string{"check", manifestPath}, &stdout, &stderr)
 
 	if exitCode != 0 {
 		t.Fatalf("Run() returned %d, want 0. Stderr: %s", exitCode, stderr.String())
-	}
-
-	wantPkgs := []string{"example.com/temp/multipackage", "example.com/temp/multipackage/subpkg"}
-	if len(analyzer.calledWith.Packages) != 2 ||
-		analyzer.calledWith.Packages[0] != wantPkgs[0] ||
-		analyzer.calledWith.Packages[1] != wantPkgs[1] {
-		t.Errorf("analyzer called with packages %v, want %v", analyzer.calledWith.Packages, wantPkgs)
-	}
-	if len(analyzer.calledWith.PruneAt) != 0 {
-		t.Errorf("analyzer called with PruneAt %v, want empty", analyzer.calledWith.PruneAt)
 	}
 }
 
@@ -957,11 +893,7 @@ component_dependencies: {
 		return goanalysis.LoadPackageFacts(req)
 	}
 
-	analyzer := &mockAnalyzer{}
-	runner := &app.Runner{
-		Loader:   loader,
-		Analyzer: analyzer,
-	}
+	runner := &app.Runner{Loader: loader}
 
 	var stdout, stderr bytes.Buffer
 	exitCode := runner.Run([]string{"check", manifestPath}, &stdout, &stderr)
@@ -1036,11 +968,7 @@ component_dependencies: {
 		return goanalysis.LoadPackageFacts(req)
 	}
 
-	analyzer := &mockAnalyzer{}
-	runner := &app.Runner{
-		Loader:   loader,
-		Analyzer: analyzer,
-	}
+	runner := &app.Runner{Loader: loader}
 
 	var stdout, stderr bytes.Buffer
 	exitCode := runner.Run([]string{"check", manifestPath}, &stdout, &stderr)
@@ -1048,7 +976,11 @@ component_dependencies: {
 		t.Fatalf("Run() returned %d, want 1. Stderr: %s\nStdout: %s", exitCode, stderr.String(), stdout.String())
 	}
 
-	// Assert that the boundary violations and warnings are emitted correctly in the output
+	// Assert that the boundary violations are emitted correctly in the
+	// output. The declaring-object rule rejects the undeclared function
+	// reference at its exact site; the declared FetchData/HigherOrder
+	// references and the passed member callback are silent (no
+	// higher-order workaround finding remains).
 	gotOut := stdout.String()
 	if !strings.Contains(gotOut, "CALLS_UNDECLARED_INTERFACE") {
 		t.Errorf("expected stdout to contain CALLS_UNDECLARED_INTERFACE, got: %s", gotOut)
@@ -1058,42 +990,11 @@ component_dependencies: {
 	if strings.Contains(gotOut, higherOrderBoundaryCallStr) {
 		t.Errorf("expected stdout to NOT contain %s, got: %s", higherOrderBoundaryCallStr, gotOut)
 	}
-	if !strings.Contains(gotOut, `call from "example.com/temp/analyzed.Hello" to undeclared interface symbol "example.com/temp/dep-a.UndeclaredFunc" of dependency "dep-a"`) {
-		t.Errorf("expected stdout to contain the undeclared call violation message, got: %s", gotOut)
+	if !strings.Contains(gotOut, `references undeclared interface symbol "example.com/temp/dep-a.UndeclaredFunc" of dependency "dep-a" at api.go:9`) {
+		t.Errorf("expected stdout to contain the undeclared reference violation message, got: %s", gotOut)
 	}
 	if strings.Contains(gotOut, `passes function value`) {
 		t.Errorf("expected stdout to NOT contain the higher-order warning message, got: %s", gotOut)
-	}
-
-	// 3. Verify that PruneAt contains both dependency interface symbols and package init keys, sorted
-	expectedPruneAt := []string{
-		"example.com/temp/dep-a.FetchData",
-		"example.com/temp/dep-a.HigherOrder",
-		"func example.com/temp/dep-a.init",
-	}
-
-	if len(analyzer.calledWith.PruneAt) != len(expectedPruneAt) {
-		t.Errorf("expected %d prune keys, got %v", len(expectedPruneAt), analyzer.calledWith.PruneAt)
-	}
-
-	for _, exp := range expectedPruneAt {
-		found := false
-		for _, got := range analyzer.calledWith.PruneAt {
-			if string(got) == exp {
-				found = true
-				break
-			}
-		}
-		if !found {
-			t.Errorf("expected prune key %q not found in PruneAt: %v", exp, analyzer.calledWith.PruneAt)
-		}
-	}
-
-	// Verify deterministic alphabetical sorting of PruneAt
-	for i := 1; i < len(analyzer.calledWith.PruneAt); i++ {
-		if analyzer.calledWith.PruneAt[i] < analyzer.calledWith.PruneAt[i-1] {
-			t.Errorf("PruneAt is not sorted alphabetically: %v", analyzer.calledWith.PruneAt)
-		}
 	}
 
 	// 4. Test error case: dependency resolution failure yields exit code 2
@@ -1220,36 +1121,20 @@ component_dependencies: {
 		t.Fatal(err)
 	}
 
-	analyzer := &mockAnalyzer{}
 	runner := &app.Runner{
-		Loader:   func(req goanalysis.LoadRequest) (facts.PackageFacts, error) { return goanalysis.LoadPackageFacts(req) },
-		Analyzer: analyzer,
+		Loader: func(req goanalysis.LoadRequest) (facts.PackageFacts, error) { return goanalysis.LoadPackageFacts(req) },
 	}
 
 	var stdout, stderr bytes.Buffer
-	if exitCode := runner.Run([]string{"check", manifestPath}, &stdout, &stderr); exitCode != 0 {
-		t.Fatalf("Run() returned %d, want 0. Stderr: %s", exitCode, stderr.String())
+	// Two direct dependencies claim the same package: the boundary index
+	// fails closed with a DEPENDENCY_OVERLAP tool error before any verdict
+	// forms (R14). The legacy last-wins lookup is gone.
+	exitCode := runner.Run([]string{"check", manifestPath}, &stdout, &stderr)
+	if exitCode != 2 {
+		t.Fatalf("Run() returned %d, want 2 (tool error). Stderr: %s\nStdout: %s", exitCode, stderr.String(), stdout.String())
 	}
-
-	// Package-surface dependencies contribute symbols and init keys to PruneAt
-	// (Capslock package-wide suppression is gone; symbol-level pruning remains).
-	mustPruneAt := []string{
-		"example.com/temp/dep-decl.DeclFunc",
-		"func example.com/temp/dep-decl.init",
-		"example.com/temp/shared-dep/pkga.AFunc",
-		"func example.com/temp/shared-dep/pkga.init",
-	}
-	for _, expected := range mustPruneAt {
-		found := false
-		for _, got := range analyzer.calledWith.PruneAt {
-			if string(got) == expected {
-				found = true
-				break
-			}
-		}
-		if !found {
-			t.Errorf("PruneAt = %v, missing expected key %q", analyzer.calledWith.PruneAt, expected)
-		}
+	if !strings.Contains(stderr.String(), "DEPENDENCY_OVERLAP") || !strings.Contains(stderr.String(), "example.com/temp/shared-dep/pkga") {
+		t.Errorf("stderr = %q, want a DEPENDENCY_OVERLAP error naming the colliding package", stderr.String())
 	}
 }
 
@@ -1298,8 +1183,7 @@ component_dependencies: {
 	}
 
 	runner := &app.Runner{
-		Loader:   func(req goanalysis.LoadRequest) (facts.PackageFacts, error) { return goanalysis.LoadPackageFacts(req) },
-		Analyzer: &mockAnalyzer{},
+		Loader: func(req goanalysis.LoadRequest) (facts.PackageFacts, error) { return goanalysis.LoadPackageFacts(req) },
 	}
 
 	// 1. Text mode

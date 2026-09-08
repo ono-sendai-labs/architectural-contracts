@@ -7,6 +7,7 @@ import (
 	"go/types"
 	"path/filepath"
 	"strconv"
+	"strings"
 
 	"golang.org/x/tools/go/packages"
 
@@ -120,7 +121,7 @@ func scanPackage(
 		if err != nil {
 			return fmt.Errorf("scanning references of %s: %w", fromPkg, err)
 		}
-		site, err := sourceSite(p.Fset, root, ident.Pos())
+		site, err := memberSourceSite(p, root, ident.Pos())
 		if err != nil {
 			return fmt.Errorf("scanning references of %s: %w", fromPkg, err)
 		}
@@ -136,7 +137,7 @@ func scanPackage(
 		if err != nil {
 			return fmt.Errorf("scanning references of %s: %w", fromPkg, err)
 		}
-		site, err := sourceSite(p.Fset, root, sel.Sel.Pos())
+		site, err := memberSourceSite(p, root, sel.Sel.Pos())
 		if err != nil {
 			return fmt.Errorf("scanning references of %s: %w", fromPkg, err)
 		}
@@ -170,7 +171,7 @@ func scanPackage(
 				if err != nil || path == "" {
 					return fmt.Errorf("scanning imports of %s: malformed import path %q", fromPkg, importSpec.Path.Value)
 				}
-				site, err := sourceSite(p.Fset, root, importSpec.Path.Pos())
+				site, err := memberSourceSite(p, root, importSpec.Path.Pos())
 				if err != nil {
 					return fmt.Errorf("scanning imports of %s: %w", fromPkg, err)
 				}
@@ -244,15 +245,21 @@ func classifyingReference(obj types.Object) (facts.ReferenceKind, facts.SymbolID
 	return kind, id, nil
 }
 
-// sourceSite converts an AST position to a validated component-relative site.
-func sourceSite(fset *token.FileSet, root string, pos token.Pos) (facts.SourceSite, error) {
-	position := fset.Position(pos)
+// memberSourceSite converts an AST position to a validated component-relative
+// site, computed against the site root of the file the position is in (see
+// memberSiteRoot).
+func memberSourceSite(p *packages.Package, root string, pos token.Pos) (facts.SourceSite, error) {
+	position := p.Fset.Position(pos)
 	if !position.IsValid() {
 		return facts.SourceSite{}, fmt.Errorf("object position is not valid")
 	}
-	rel, err := filepath.Rel(root, position.Filename)
+	siteRoot, err := memberSiteRoot(p, root, position.Filename)
 	if err != nil {
-		return facts.SourceSite{}, fmt.Errorf("resolving %q relative to component root: %w", position.Filename, err)
+		return facts.SourceSite{}, err
+	}
+	rel, err := filepath.Rel(siteRoot, position.Filename)
+	if err != nil {
+		return facts.SourceSite{}, fmt.Errorf("resolving %q relative to site root %q: %w", position.Filename, siteRoot, err)
 	}
 	rel = filepath.ToSlash(filepath.Clean(rel))
 	site := facts.SourceSite{File: rel, Line: position.Line}
@@ -260,6 +267,29 @@ func sourceSite(fset *token.FileSet, root string, pos token.Pos) (facts.SourceSi
 		return facts.SourceSite{}, err
 	}
 	return site, nil
+}
+
+// memberSiteRoot returns the root a member file's component-relative site is
+// computed against: the component root for files under it, or — for the
+// transitional out-of-root members self-hosting retains until the Step 7
+// surface cutover (the duplicated protobuf-runtime closure) — the declaring
+// module's directory, so site paths stay clean, deterministic relative paths
+// without leaking the host's module cache location. A member file under
+// neither root is a fail-closed tool error.
+func memberSiteRoot(p *packages.Package, root, file string) (string, error) {
+	if underDir(root, file) {
+		return root, nil
+	}
+	if p.Module != nil && p.Module.Dir != "" && underDir(p.Module.Dir, file) {
+		return p.Module.Dir, nil
+	}
+	return "", fmt.Errorf("member file %q of %q is outside the component root and its module", file, p.PkgPath)
+}
+
+// underDir reports whether path is dir itself or lies beneath it.
+func underDir(dir, path string) bool {
+	rel, err := filepath.Rel(dir, path)
+	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }
 
 func siteKey(kind facts.ReferenceKind, fromPkg string, id facts.SymbolID, site facts.SourceSite) facts.ReferenceKey {

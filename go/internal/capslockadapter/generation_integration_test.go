@@ -8,8 +8,9 @@ import (
 
 // TestGenerationClassifierPreservesUnanalyzed is the I4 regression pin: the
 // generation classifier keeps CAPABILITY_UNANALYZED (io.ReadAll is a
-// curated-unanalyzed helper), while the check-time classifier strips it. The
-// map generator must run under the generation classifier only.
+// curated-unanalyzed helper). The check-time classifier — and with it the
+// ClassifierExcludingUnanalyzed wrapper — is deleted with the Capslock check
+// path; only the generation classifier remains.
 func TestGenerationClassifierPreservesUnanalyzed(t *testing.T) {
 	gen, err := NewGenerationClassifier()
 	if err != nil {
@@ -17,12 +18,5 @@ func TestGenerationClassifierPreservesUnanalyzed(t *testing.T) {
 	}
 	if got := gen.FunctionCategory("", "io.ReadAll"); got != "UNANALYZED" {
 		t.Fatalf("generation classifier io.ReadAll = %q; want UNANALYZED (I4)", got)
-	}
-	check, err := buildClassifier(nil)
-	if err != nil {
-		t.Fatalf("buildClassifier: %v", err)
-	}
-	if got := check.FunctionCategory("", "io.ReadAll"); got != "" {
-		t.Fatalf("check-time classifier io.ReadAll = %q; want empty (excluded)", got)
 	}
 }

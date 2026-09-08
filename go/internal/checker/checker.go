@@ -5,14 +5,15 @@
 // no dependencies on ambient authority.
 //
 // Component Contract (FR10):
-// - What it does: Evaluates Go packages against their declared manifests to verify dependency, interface boundary, and authority conformance.
-// - What it requires: Receives fully resolved inputs including parsed manifest, package facts, dependency interface symbols, and capability findings.
+// - What it does: Evaluates Go packages against their declared manifests to verify dependency, interface boundary, and authority conformance. Every boundary and authority decision comes from the typed reference/import facts and the resolved stdlib authority map: boundary edges through ClassifyEdges, capability findings through AggregateAuthority and the policy.
+// - What it requires: Fully resolved inputs — parsed manifest, package facts carrying the typed reference/import/bypass edges, dependency interfaces, the StdlibAuthority port, the target SDK key, and the capability policy. Fail-closed tool errors (dependency overlap, stdlib inventory gaps, missing type data) are returned as errors, not findings.
 // - What it provides: A deterministic ConformanceReport indicating compliance and detailing any architectural violations or warnings.
 // - Ambient Authority: This component is guaranteed-pure and holds no ambient authority (no filesystem I/O, no network, no reflection, and no process execution).
 package checker
 
 import (
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 
@@ -20,98 +21,57 @@ import (
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/facts"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/manifest"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/report"
+	"github.com/ono-sendai-labs/architectural-contracts/go/internal/stdlibauthority"
 )
 
 // Inputs contains all injected facts and configurations required for check execution.
 type Inputs struct {
 	Manifest  manifest.Manifest
 	Facts     facts.PackageFacts
-	DepIfaces []facts.DependencyInterface     // resolved direct component dependencies
-	Caps      []capanalyzer.CapabilityFinding // injected capability findings (pre-pruned at boundaries)
-	Policy    capanalyzer.CapabilityPolicy    // capability check policy
+	DepIfaces []facts.DependencyInterface // resolved direct component dependencies
+	// Authority is the resolved stdlib authority port (the Step 4 map);
+	// SDKKey is the target configuration the classification is expected to
+	// have been decided under (N3). A nil Authority is a tool error.
+	Authority stdlibauthority.StdlibAuthority
+	SDKKey    stdlibauthority.SDKKey
+	Policy    capanalyzer.CapabilityPolicy // capability check policy
 }
 
-// Check evaluates the injected inputs against architectural contracts and returns a ConformanceReport.
-// This function is completely pure and is a basis for the checker being ambient-authority-free.
+// Check evaluates the injected inputs against architectural contracts and
+// returns a ConformanceReport. A non-nil error is a fail-closed tool error
+// (dependency overlap, stdlib inventory gap, missing type data): no verdict
+// is produced and the caller must not publish artifacts.
 //
 // Implements:
-// - FR3 (dependency allowlist rules)
+// - FR3 (dependency allowlist rules, via the typed import classification)
 // - FR4 (well-formedness rule: Method placement)
-// - FR5 (cross-component call-boundary rule)
+// - FR5 (cross-component call-boundary rule, via the declaring-object rule)
 // - FR6 (policy-aware ambient-authority rule, using StrictPolicy() merged with declared_authority)
+// - DR-11 (analysis-defeating constructs, via the bypass aggregation)
 // - M7 (member-overlap check)
-//
-// Check is now feature-complete for all pure-core rules (FR3/FR4/FR5/FR6). Findings in Caps are pre-pruned
-// at dependency boundaries (Step 9) by the analyzer shell before being passed here.
-//
-// MVP matching is call-only. Real call edges and resolved interfaces are injected by the shell (Step 9).
-func Check(in Inputs) report.ConformanceReport {
+func Check(in Inputs) (report.ConformanceReport, error) {
 	// 1. Build component membership set. Facts may include transitive packages
 	// needed for type checking, so only the resulting set is swept as owned code.
 	compPkgs := buildMembership(in.Manifest, in.Facts.Packages)
-
-	// 1b. Standard-library imports are skipped using only the loader-provided
-	// authoritative fact. Nil and empty slices both represent an empty set.
-	stdlibSet := make(map[string]bool, len(in.Facts.StdlibImports))
-	for _, imp := range in.Facts.StdlibImports {
-		stdlibSet[imp] = true
-	}
-	isStdlibImport := func(imp string) bool {
-		return stdlibSet[imp]
+	members, err := facts.NewMemberSet(sortedKeys(compPkgs)...)
+	if err != nil {
+		return report.ConformanceReport{}, fmt.Errorf("building the component membership: %w", err)
 	}
 
-	// 2. Build allowed component dependency packages map (points to dependency name)
-	allowedPkgToCompDep := make(map[string]string)
-	for _, di := range in.DepIfaces {
-		for _, pkg := range di.Packages {
-			allowedPkgToCompDep[pkg] = di.Component
-		}
+	// 2. Classify every typed reference and import edge against the exact
+	// declaring-object boundary and the stdlib authority map (FR3/FR5,
+	// DR-10). Fails closed on tool errors before any verdict forms.
+	classified, err := ClassifyEdges(members, in.DepIfaces, in.Facts.References, in.Facts.Imports, in.Authority, in.SDKKey)
+	if err != nil {
+		return report.ConformanceReport{}, err
 	}
-
-	// 3. Track matches for declared dependencies
-	compDepMatched := make(map[string]bool)
 
 	var violations []report.Finding
-
-	// 4. Sweep each component package and check its imports
-	for _, pkg := range in.Facts.Packages {
-		if !compPkgs[pkg.ImportPath] {
-			continue
-		}
-		for _, imp := range pkg.Imports {
-			// Skip standard library imports
-			if isStdlibImport(imp) {
-				continue
-			}
-
-			// Skip intra-component imports
-			if compPkgs[imp] {
-				continue
-			}
-
-			// Check if allowed by resolved component dependencies
-			if compDep, exists := allowedPkgToCompDep[imp]; exists {
-				compDepMatched[compDep] = true
-				continue
-			}
-
-			// Undeclared non-stdlib import -> Violation
-			var file string
-			if len(pkg.ExportedSymbols) > 0 {
-				file = pkg.ExportedSymbols[0].File
-			}
-
-			violations = append(violations, report.Finding{
-				Kind:    report.UndeclaredDependency,
-				Message: fmt.Sprintf("package %q imports undeclared dependency %q", pkg.ImportPath, imp),
-				Location: report.Location{
-					File: file,
-				},
-			})
-		}
+	for _, b := range classified.Boundary {
+		violations = append(violations, boundaryReportFinding(b))
 	}
 
-	// 4b. FR4 Method placement check
+	// 3. FR4 Method placement check
 	typeDeclFiles := make(map[string]string)
 	for _, pkg := range in.Facts.Packages {
 		if !compPkgs[pkg.ImportPath] {
@@ -152,8 +112,9 @@ func Check(in Inputs) report.ConformanceReport {
 		}
 	}
 
-	// 4c. Member overlap checks (M7). Effective members must not also be
+	// 4. Member overlap checks (M7). Effective members must not also be
 	// covered by a resolved component dependency.
+	var warnings []report.Finding
 	for _, di := range in.DepIfaces {
 		var overlapping []string
 		for _, dpkg := range di.Packages {
@@ -170,89 +131,17 @@ func Check(in Inputs) report.ConformanceReport {
 		}
 	}
 
-	// 4d. FR5 Cross-component Call Boundary Checks (design §5.3b)
-	// Build package -> DepIface lookup & per-dependency normalized symbols map
-	type depInfo struct {
-		di          *facts.DependencyInterface
-		normSymbols map[string]bool
+	// 5. Check for unused declared dependencies: a dependency is used when an
+	// import edge resolved behind its boundary (declared or auto-attached).
+	usedDeps := make(map[string]bool, len(classified.UsedDependencies))
+	for _, dep := range classified.UsedDependencies {
+		usedDeps[dep] = true
 	}
-	pkgToDep := make(map[string]*depInfo)
-	for i := range in.DepIfaces {
-		di := &in.DepIfaces[i]
-		normSyms := make(map[string]bool)
-		for _, sym := range di.Symbols {
-			// SymbolID values are already canonical declaring-object keys
-			// (DR-04); the legacy callee normalization below strips the
-			// pointer marker from VTA spellings into the same form.
-			normSyms[string(sym)] = true
-		}
-		info := &depInfo{
-			di:          di,
-			normSymbols: normSyms,
-		}
-		for _, pkg := range di.Packages {
-			pkgToDep[pkg] = info
-		}
-	}
-
-	var warnings []report.Finding
-	for _, unresolved := range in.Facts.UnresolvedImports {
-		warnings = append(warnings, report.Finding{
-			Kind:    report.AnalysisLimitation,
-			Message: fmt.Sprintf("unresolved import %q in source file %q of package %q is an analysis limitation", unresolved.ImportPath, unresolved.File, unresolved.Package),
-			Location: report.Location{
-				File: unresolved.File,
-			},
-		})
-	}
-
-	for _, edge := range in.Facts.CallEdges {
-		calleePkg := ExtractPackagePath(string(edge.Callee))
-		if info, exists := pkgToDep[calleePkg]; exists {
-			// Skip package initializers since they are language-runtime-invoked and cannot be declared as interface symbols
-			calleeStr := string(edge.Callee)
-			if lastDot := strings.LastIndex(calleeStr, "."); lastDot != -1 {
-				funcName := calleeStr[lastDot+1:]
-				if funcName == "init" || strings.HasPrefix(funcName, "init#") || strings.HasPrefix(funcName, "init$") {
-					continue
-				}
-				// Legacy-path compatibility for the Step 6 transition (task-02
-				// req 9): values typed as the universal stdlib error interface
-				// reach any dependency type's Error method without naming it,
-				// so a VTA-resolved ".Error" callee must not require a
-				// declaration. The typed reference path (Task 05 cutover)
-				// replaces this exemption with the exact declaring-object
-				// facts; until then it is deleted from
-				// ResolveDependencyInterface (no types.Implements expansion)
-				// and approximated here on legacy call edges only.
-				if funcName == "Error" {
-					continue
-				}
-			}
-
-			if info.di.InterfaceStyle == manifest.InterfaceStylePackageSurface {
-				continue
-			}
-
-			normCallee := NormalizeInterfaceSymbol(edge.Callee)
-			if !info.normSymbols[normCallee] {
-				// Undeclared call -> Violation
-				violations = append(violations, report.Finding{
-					Kind:    report.CallsUndeclaredInterface,
-					Message: fmt.Sprintf("call from %q to undeclared interface symbol %q of dependency %q", edge.Caller, edge.Callee, info.di.Component),
-				})
-			}
-		}
-	}
-
-	// 5. Check for unused declared dependencies
-
-	// Check component dependencies
 	for _, dep := range in.Manifest.ComponentDependencies {
 		if dep.AutoAttached {
 			continue
 		}
-		if !compDepMatched[dep.Name] {
+		if !usedDeps[dep.Name] {
 			warnings = append(warnings, report.Finding{
 				Kind:    report.UnusedDependency,
 				Message: fmt.Sprintf("declared component dependency %q is unused", dep.Name),
@@ -260,60 +149,36 @@ func Check(in Inputs) report.ConformanceReport {
 		}
 	}
 
-	// 5b. FR6 Policy-aware ambient-authority rule (design §5.4)
+	// 6. FR6 policy-aware ambient-authority rule (DR-11, DR-17): aggregate
+	// the stdlib classifications and bypass observations, then apply the
+	// effective policy.
 	effectivePolicy := deriveEffectivePolicy(in.Policy, in.Manifest.DeclaredAuthority)
-
-	for _, capFinding := range in.Caps {
-		decision := capanalyzer.Classify(capFinding.Capability, effectivePolicy)
-		switch decision {
-		case capanalyzer.DecisionViolation:
-			evidence := make([]string, len(capFinding.CallPath))
-			for idx, frame := range capFinding.CallPath {
-				evidence[idx] = fmt.Sprintf("%s at %s:%d", frame.Func, frame.File, frame.Line)
-			}
-			violations = append(violations, report.Finding{
-				Kind:     report.UndeclaredAuthority,
-				Message:  fmt.Sprintf("use of undeclared authority %q in package %q", capFinding.Capability, capFinding.Package),
-				Evidence: evidence,
-			})
-		case capanalyzer.DecisionWarn:
-			var kind report.Kind
-			if capFinding.Class == capanalyzer.AnalysisDefeating {
-				kind = report.AnalysisLimitation
-			} else {
-				kind = report.AllowedWithWarning
-			}
-			var msg string
-			if kind == report.AnalysisLimitation {
-				msg = fmt.Sprintf("capability %q in package %q is an analysis limitation", capFinding.Capability, capFinding.Package)
-			} else {
-				msg = fmt.Sprintf("capability %q in package %q allowed with warning", capFinding.Capability, capFinding.Package)
-			}
-			warnings = append(warnings, report.Finding{
-				Kind:    kind,
-				Message: msg,
-			})
-		}
+	authorityFindings, err := AggregateAuthority(classified.Authority, in.Facts.Bypasses, in.SDKKey)
+	if err != nil {
+		return report.ConformanceReport{}, err
 	}
+	authorityViolations, authorityWarnings := ApplyAuthorityPolicy(authorityFindings, effectivePolicy)
+	violations = append(violations, authorityViolations...)
+	warnings = append(warnings, authorityWarnings...)
 
-	// 6. Ensure deterministic sorting (sorted alphabetically by Message, then Location)
-	sort.Slice(violations, func(i, j int) bool {
-		if violations[i].Message != violations[j].Message {
-			return violations[i].Message < violations[j].Message
+	// 7. Ensure deterministic sorting (sorted alphabetically by Message, then Location)
+	slices.SortFunc(violations, func(a, b report.Finding) int {
+		if c := strings.Compare(a.Message, b.Message); c != 0 {
+			return c
 		}
-		if violations[i].Location.File != violations[j].Location.File {
-			return violations[i].Location.File < violations[j].Location.File
+		if c := strings.Compare(a.Location.File, b.Location.File); c != 0 {
+			return c
 		}
-		return violations[i].Location.Line < violations[j].Location.Line
+		return a.Location.Line - b.Location.Line
 	})
-	sort.Slice(warnings, func(i, j int) bool {
-		if warnings[i].Message != warnings[j].Message {
-			return warnings[i].Message < warnings[j].Message
+	slices.SortFunc(warnings, func(a, b report.Finding) int {
+		if c := strings.Compare(a.Message, b.Message); c != 0 {
+			return c
 		}
-		if warnings[i].Location.File != warnings[j].Location.File {
-			return warnings[i].Location.File < warnings[j].Location.File
+		if c := strings.Compare(a.Location.File, b.Location.File); c != 0 {
+			return c
 		}
-		return warnings[i].Location.Line < warnings[j].Location.Line
+		return a.Location.Line - b.Location.Line
 	})
 
 	var depBoundaries []report.DependencyBoundary
@@ -322,8 +187,8 @@ func Check(in Inputs) report.ConformanceReport {
 			Component: di.Component,
 		})
 	}
-	sort.Slice(depBoundaries, func(i, j int) bool {
-		return depBoundaries[i].Component < depBoundaries[j].Component
+	slices.SortFunc(depBoundaries, func(a, b report.DependencyBoundary) int {
+		return strings.Compare(a.Component, b.Component)
 	})
 
 	return report.ConformanceReport{
@@ -331,6 +196,39 @@ func Check(in Inputs) report.ConformanceReport {
 		Dependencies: depBoundaries,
 		Violations:   violations,
 		Warnings:     warnings,
+	}, nil
+}
+
+// boundaryReportFinding converts one boundary observation to its report
+// finding: the exact site is the location, and the message names the
+// referent, the owning dependency (when the edge reached one), and the site.
+func boundaryReportFinding(b BoundaryObservation) report.Finding {
+	switch b.Kind {
+	case report.CallsUndeclaredInterface:
+		return report.Finding{
+			Kind:     b.Kind,
+			Message:  fmt.Sprintf("package %q references undeclared interface symbol %q of dependency %q at %s:%d", b.FromPackage, b.Referent, b.Dependency, b.Site.File, b.Site.Line),
+			Location: report.Location{File: b.Site.File, Line: b.Site.Line},
+		}
+	case report.UndeclaredDependency:
+		if b.Referent == "" {
+			return report.Finding{
+				Kind:     b.Kind,
+				Message:  fmt.Sprintf("package %q imports undeclared dependency %q at %s:%d", b.FromPackage, b.ReferentPackage, b.Site.File, b.Site.Line),
+				Location: report.Location{File: b.Site.File, Line: b.Site.Line},
+			}
+		}
+		return report.Finding{
+			Kind:     b.Kind,
+			Message:  fmt.Sprintf("package %q references undeclared dependency symbol %q at %s:%d", b.FromPackage, b.Referent, b.Site.File, b.Site.Line),
+			Location: report.Location{File: b.Site.File, Line: b.Site.Line},
+		}
+	default:
+		return report.Finding{
+			Kind:     b.Kind,
+			Message:  fmt.Sprintf("boundary violation %s at %s:%d", b.Kind, b.Site.File, b.Site.Line),
+			Location: report.Location{File: b.Site.File, Line: b.Site.Line},
+		}
 	}
 }
 
@@ -390,62 +288,6 @@ func cleanReceiverType(receiver string) string {
 	return res
 }
 
-// StripGenericBrackets removes type-parameter brackets (e.g., "Foo[int]" -> "Foo").
-func StripGenericBrackets(s string) string {
-	var sb strings.Builder
-	depth := 0
-	for _, ch := range s {
-		if ch == '[' {
-			depth++
-		} else if ch == ']' {
-			if depth > 0 {
-				depth--
-			}
-		} else if depth == 0 {
-			sb.WriteRune(ch)
-		}
-	}
-	return sb.String()
-}
-
-// NormalizeInterfaceSymbol normalizes a symbol for A4 comparison.
-func NormalizeInterfaceSymbol(sym capanalyzer.InterfaceSymbol) string {
-	s := string(sym)
-	s = StripGenericBrackets(s)
-	s = strings.ReplaceAll(s, "(*", "(")
-	return s
-}
-
-// ExtractPackagePath parses the package path from a symbol.
-func ExtractPackagePath(sym string) string {
-	s := StripGenericBrackets(sym)
-	if strings.HasPrefix(s, "(*") {
-		idx := strings.LastIndex(s, ")")
-		if idx != -1 {
-			receiver := s[2:idx]
-			dotIdx := strings.LastIndex(receiver, ".")
-			if dotIdx != -1 {
-				return receiver[:dotIdx]
-			}
-		}
-	} else if strings.HasPrefix(s, "(") {
-		idx := strings.LastIndex(s, ")")
-		if idx != -1 {
-			receiver := s[1:idx]
-			dotIdx := strings.LastIndex(receiver, ".")
-			if dotIdx != -1 {
-				return receiver[:dotIdx]
-			}
-		}
-	} else {
-		dotIdx := strings.LastIndex(s, ".")
-		if dotIdx != -1 {
-			return s[:dotIdx]
-		}
-	}
-	return ""
-}
-
 // deriveEffectivePolicy builds the effective policy by merging the manifest's declared authority
 // into Allowed, leaving the original Policy unchanged.
 func deriveEffectivePolicy(policy capanalyzer.CapabilityPolicy, declaredAuth []string) capanalyzer.CapabilityPolicy {
@@ -460,4 +302,14 @@ func deriveEffectivePolicy(policy capanalyzer.CapabilityPolicy, declaredAuth []s
 		Allowed: allowed,
 		Warn:    policy.Warn,
 	}
+}
+
+// sortedKeys returns the map's keys in sorted order.
+func sortedKeys(set map[string]bool) []string {
+	keys := make([]string, 0, len(set))
+	for k := range set {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
 }

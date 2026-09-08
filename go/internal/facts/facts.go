@@ -23,46 +23,29 @@
 package facts
 
 import (
-	"github.com/ono-sendai-labs/architectural-contracts/go/internal/capanalyzer"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/manifest"
 )
 
 // PackageFacts aggregates the loaded information for the component's internal packages,
-// including all direct imports, exported symbols, and inter-package static call edges.
+// including its typed cross-boundary reference and import edges and any
+// analysis-defeating bypass observations.
 type PackageFacts struct {
 	Packages []PackageFact
 
-	// CallEdges is legacy compatibility data from the SSA/VTA pipeline,
-	// kept only until the Step 6 Task 05 cutover replaces call edges with
-	// ReferenceEdge. It is not converted to or from reference facts.
-	CallEdges []CallEdge
+	// References are the typed object-reference edges of the member
+	// packages (Uses/Selections under the declaring-object rule, DR-04),
+	// sorted and duplicate-free. Every boundary and stdlib authority
+	// decision is made from these edges.
+	References []ReferenceEdge
 
-	// StdlibImports is the loader-authoritative set of direct standard-library
-	// imports across all component packages. Paths are canonical, unique, and
-	// deterministically sorted. Every loader initializes the slice, including
-	// when the authoritative result is empty; the pure checker treats nil and
-	// empty values as an empty authoritative set.
-	//
-	// Legacy compatibility data kept until the Task 05 cutover; import
-	// edges are superseded by ImportEdge.
-	StdlibImports []string
+	// Imports are the typed import edges of the member packages, sorted and
+	// duplicate-free. Package imports are edges so that init-time authority
+	// is attributed (R3).
+	Imports []ImportEdge
 
-	// UnresolvedImports records source-level imports that survived layout
-	// filtering but did not resolve to a layout or SDK package. The loader owns
-	// this observation; the pure checker renders it as an analysis limitation.
-	//
-	// Legacy compatibility data kept until the Task 05 cutover; the
-	// observation is superseded by ImportEdge with ImportUnresolved
-	// resolution.
-	UnresolvedImports []UnresolvedImport
-}
-
-// UnresolvedImport is a pure observation of an import edge that the loader
-// could not resolve. File is component-relative when produced by goanalysis.
-type UnresolvedImport struct {
-	Package    string
-	File       string
-	ImportPath string
+	// Bypasses records the analysis-defeating constructs (DR-11) found in
+	// member sources: linkname directives, assembly files and cgo use.
+	Bypasses []BypassObservation
 }
 
 // PackageFact represents metadata and extracted facts about a single loaded Go package.
@@ -87,13 +70,6 @@ type ExportedSymbol struct {
 	Receiver string
 }
 
-// CallEdge represents a static call from a caller symbol to a callee symbol.
-// Used for the FR5 cross-component interface-boundary check.
-type CallEdge struct {
-	Caller capanalyzer.InterfaceSymbol // calling function/method (in some package)
-	Callee capanalyzer.InterfaceSymbol // called function/method
-}
-
 // DependencyInterface is a direct component dependency's manifest and interface files
 // resolved into its logical declared-interface symbol set (the FR4 symbol set).
 //
@@ -103,8 +79,8 @@ type CallEdge struct {
 //
 // Symbols are shared symbol.SymbolID values under the declaring-object rule
 // (DR-04): the exact exported declaring objects of the surviving interface
-// files, with no implements-closure expansion and no dual pointer/value
-// receiver keys.
+// files — the same set the emitted surface carries — with no dual
+// pointer/value receiver keys.
 type DependencyInterface struct {
 	Component string
 
