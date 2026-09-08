@@ -38,9 +38,9 @@ func TestSortAndDedupBypassObservations(t *testing.T) {
 		mk(facts.BypassLinkname, "a/a.go", 9), // exact duplicate
 	}
 	want := []facts.BypassObservation{
-		mk(facts.BypassAssembly, "a/a.s", 1),
 		mk(facts.BypassLinkname, "a/a.go", 2),
 		mk(facts.BypassLinkname, "a/a.go", 9),
+		mk(facts.BypassAssembly, "a/a.s", 1),
 		mk(facts.BypassCgo, "b/b.go", 3),
 	}
 	got := facts.DedupBypassObservations(facts.SortBypassObservations(in))
