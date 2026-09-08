@@ -18,5 +18,12 @@ ArccStdlibMapInfo = provider(
         "cgo_enabled": "bool — the target cgo state the map describes.",
         "build_tags": "tuple of strings — the target build tags, sorted.",
         "goexperiment": "string — the target GOEXPERIMENT.",
+        # Step 5 task 05 (req 5): the generator-owned identity fields, so the
+        # asserted surface writer can assemble the complete SDK key in
+        # Starlark. Their mirrored values live in go/private:arcc_metadata.bzl
+        # and are pinned against the stamped map and the checked emitter's
+        # surface by //bazel_rules/go/tests:asserted_surface_sdk_key_test.
+        "classifier_hash": "string — the classifier fingerprint the generator stamped into the map.",
+        "map_format_version": "int — the stdlib-map format version the key is derived for.",
     },
 )

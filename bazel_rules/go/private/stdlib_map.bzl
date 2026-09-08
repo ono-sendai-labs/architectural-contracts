@@ -30,6 +30,7 @@ map without changing check execution.
 """
 
 load("//bazel_rules/go:providers.bzl", "ArccStdlibMapInfo")
+load(":arcc_metadata.bzl", "CLASSIFIER_HASH", "MAP_FORMAT_VERSION")
 load(
     ":go_adapter.bzl",
     "ARCC_TARGET",
@@ -145,6 +146,12 @@ def _arcc_stdlib_map_impl(ctx):
             cgo_enabled = mode.cgo_enabled,
             build_tags = mode.tags,
             goexperiment = mode.goexperiment,
+            # The generator stamps the same values into the map's SDK key
+            # (task req 5). Starlark cannot compute the classifier hash, so
+            # the values are mirrored from arcc in arcc_metadata.bzl and
+            # pinned against the stamped artifact by asserted_surface_sdk_key_test.
+            classifier_hash = CLASSIFIER_HASH,
+            map_format_version = MAP_FORMAT_VERSION,
         ),
     ]
 

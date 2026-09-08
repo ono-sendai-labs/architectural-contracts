@@ -201,6 +201,24 @@ def _provider_and_default_availability_impl(env, target):
     env.expect.that_collection(list(info.build_tags)).contains_exactly([])
     env.expect.that_str(info.map.extension).equals("json")
 
+def _provider_carries_the_complete_sdk_key_metadata_test(name):
+    analysis_test(
+        name = name,
+        target = _PROBE,
+        impl = _provider_carries_the_complete_sdk_key_metadata_impl,
+    )
+
+def _provider_carries_the_complete_sdk_key_metadata_impl(env, target):
+    # Step 5 task 05 (req 5): the surface SDK key is only assemblable in
+    # Starlark if the map provider carries the generator-owned identity fields
+    # alongside the target-configuration fields. Both must be present and
+    # well-formed; their VALUES are pinned against the stamped map artifact
+    # and the checked emitter's surface by //bazel_rules/go/tests:asserted_surface_sdk_key_test.
+    info = target[ArccStdlibMapInfo]
+    # The classifier hash is a hex-encoded SHA-256 digest (stdlibmap.ClassifierHash).
+    env.expect.that_int(len(info.classifier_hash)).equals(64)
+    env.expect.that_int(info.map_format_version).equals(1)
+
 def _default_seam_is_available_test(name):
     analysis_test(
         name = name,
@@ -276,6 +294,7 @@ def stdlib_map_test_suite(name):
             _action_is_hermetic_by_execution_requirements_test,
             _config_file_carries_the_target_key_test,
             _provider_and_default_availability_test,
+            _provider_carries_the_complete_sdk_key_metadata_test,
             _default_seam_is_available_test,
             _build_tag_propagates_to_the_key_test,
             _cross_compile_propagates_to_the_key_test,
