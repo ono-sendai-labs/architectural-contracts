@@ -288,7 +288,9 @@ Expands to:
     providers, so only those component targets can be used as a `deps`
     entry in place of the interface library.
   * `name.check` — a hermetic test that asserts the component's report
-    verdict (checked components only). `bazel test` it to enforce the
+    verdict with `arcc verdict <name>.report.json --expect=pass|fail`
+    (checked components only). It consumes the analysis action's canonical
+    report and never re-runs the analysis. `bazel test` it to enforce the
     component's contract; running it builds the component's analysis action
     and its dependencies'. Its tags are the component's tags plus
     `check_tags`: a fixture whose check deliberately fails uses

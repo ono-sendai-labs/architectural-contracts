@@ -3,11 +3,13 @@ component surface producer (Step 5 tasks 04 and 05).
 
 Everything here happens at analysis time. The write actions produce the
 manifest arcc checks and the layout arcc loads through. A checked component
-runs the ArccCheck action — the exact command the `.check` assertion rules
-build (command.bzl) in always-green report-verdict-only mode — publishing
+runs the ArccCheck action — `command.bzl`'s analysis argv, in always-green
+report-verdict-only mode — publishing
 `<name>.report.json` and `<name>.surface.json` through `OutputGroupInfo(arcc)`
 — never as default outputs, so `bazel build //...` runs no component analysis
-unless asked. A manual-tagged component takes the asserted producer instead
+unless asked. The `.check` assertion rules (check.bzl) consume the action's
+persisted report; this action is the one analysis command. A manual-tagged
+component takes the asserted producer instead
 (design I6): its package-level asserted surface is written at analysis time,
 with no symbols and the empty digest, `report = None` and
 `provenance = "asserted"`; Step 11 replaces the tag-based selection with
@@ -289,9 +291,12 @@ def _frame_symlink_commands(files, workspace_name):
 def _checked_analysis_action(ctx, manifest, layout, closure_srcs, transitive_manifests, transitive_layouts, dep_artifacts, dep_runfiles, sdk_root_file):
     """The checked-component analysis action (design R8, task reqs 1/3/5/6).
 
-    One ordinary action running the exact `arcc check` command the assertion
-    rules build (command.bzl), in always-green report-verdict-only mode:
+    One ordinary action running `command.bzl`'s analysis argv — the exact
+    command `arcc_checked_analysis_test` re-executes — in always-green
+    report-verdict-only mode:
     violations are data in the report, tool errors (exit 2) fail the action.
+    The `.check` assertion rules consume this action's persisted report
+    (check.bzl); they never run a second analysis command.
 
     The executable is a generated frame-setting wrapper: it recreates the
     runfiles path frame (paths.bzl) inside the sandbox and then execs the

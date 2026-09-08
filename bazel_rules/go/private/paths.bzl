@@ -7,8 +7,10 @@ the one frame in which a main-repo source and an external-repo source can both
 be named without `..` segments, which arcc rejects as escaping the workspace.
 
 The `_go_component` rule writes paths in this frame; the `arcc_check_test`
-launcher `cd`s to the runfiles root so those paths resolve. They must therefore
-agree on how the frame is computed, which is why this lives in one place.
+launcher and the analysis action's frame wrapper (component.bzl) run in it
+(`cd` to the runfiles root / recreated symlinks) so those paths resolve. They
+must therefore agree on how the frame is computed, which is why this lives in
+one place.
 """
 
 def runfiles_path(ctx, file):

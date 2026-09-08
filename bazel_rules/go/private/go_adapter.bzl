@@ -30,7 +30,8 @@ GO_PROVIDERS = [GoInfo, GoArchive]
 # Toolchains the component rule requests, to reach the Go SDK.
 GO_TOOLCHAINS = ["@rules_go//go:toolchain"]
 
-# The arcc binary that arcc_check_test runs. Upstream builds it at the repo root;
+# The arcc binary the component's analysis action and the check assertion rules
+# run. Upstream builds it at the repo root;
 # a host that builds arcc under a different label overrides this in its adapter,
 # so check.bzl stays byte-identical across hosts.
 ARCC_TARGET = "//:arcc"
