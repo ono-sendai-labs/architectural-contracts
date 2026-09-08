@@ -193,12 +193,19 @@ The layout the rules emit is documented for emitter authors in
 reading before writing a second emitter, since two of its fields (`is_stdlib`
 and the platform block) have an obvious implementation that is wrong.
 
-`go_component` expands to two targets:
+`go_component` expands to two targets, plus a lazy analysis output group:
 
 | Target | What it is |
 |---|---|
-| `csvfile_component` | generates `csvfile_component.component.textproto` + `csvfile_component.package-layout.json`, and forwards the interface library's Go providers, so it can be used as a `deps` entry |
-| `csvfile_component.check` | a hermetic test that runs `arcc check` on the generated manifest |
+| `csvfile_component` | generates `csvfile_component.component.textproto` + `csvfile_component.package-layout.json`, runs the checked analysis action, and forwards the interface library's Go providers, so it can be used as a `deps` entry |
+| `csvfile_component.check` | a hermetic test that asserts the component's report verdict |
+| `arcc` output group | `bazel build //csvtool/csvfile:csvfile_component --output_groups=+arcc` additionally produces `csvfile_component.report.json` (the check report, verdict included) and `csvfile_component.surface.json` (the canonical surface manifest) |
+
+Ordinary builds never run component analysis: the report and surface ride in
+the `arcc` output group, so `bazel build //...` stays analysis-free until a
+consumer or test requests the artifacts. Testing a `.check` builds its
+component's analysis action — and, through the action's declared inputs, the
+direct dependencies' producer chain.
 
 Enforce a component's contract by testing its `.check`:
 

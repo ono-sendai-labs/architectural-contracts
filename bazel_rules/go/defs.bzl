@@ -239,11 +239,25 @@ There are two authoring styles:
 Expands to:
 
   * `name` — generates `name.component.textproto` and
-    `name.package-layout.json`. Declared-style targets also forward the
-    interface library's Go providers, so only those component targets can be
-    used as a `deps` entry in place of the interface library.
-  * `name.check` — a hermetic test that runs `arcc check` on the generated
-    manifest and layout. `bazel test` it to enforce the component's contract.
+    `name.package-layout.json` (the layout's platform block pins
+    `toolchain_version` and `goexperiment` for the target SDK identity).
+    The target also owns the checked analysis action: one ordinary action
+    running `arcc check` in report-verdict-only mode — violations are data
+    in the report, tool errors fail the action — producing
+    `name.report.json` and `name.surface.json` in the `arcc` output group
+    (`bazel build :name --output_groups=+arcc`). They are deliberately not
+    default outputs, so `bazel build //...` runs no component analysis;
+    building the group, or any consumer of the artifacts, builds the
+    analysis. Direct `component_deps` checked artifacts are declared inputs
+    of the action, so building a dependent's analysis orders its
+    dependencies' producer chain. The provider's `surface`, `report` and
+    `provenance = "checked"` fields carry the results.
+    Declared-style targets also forward the interface library's Go
+    providers, so only those component targets can be used as a `deps`
+    entry in place of the interface library.
+  * `name.check` — a hermetic test that asserts the component's report
+    verdict. `bazel test` it to enforce the component's contract; running
+    it builds the component's analysis action and its dependencies'.
 
 Example:
 

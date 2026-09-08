@@ -114,6 +114,19 @@ Two details worth knowing before you debug an error from this:
 A package left with **no** Go sources after filtering is a load error, not an
 empty package.
 
+**Pinning the toolchain.** The platform block may carry two optional
+identity fields, `toolchain_version` (`go1.N.M`) and `goexperiment`. When
+present they pin the loader's release tags and tool (GOEXPERIMENT) tags to
+the named toolchain instead of the host arcc runs under, which is what makes
+the emitted surface's SDK key reproducible from the layout alone. Omit a
+field when it is empty — a present-but-empty `toolchain_version` is a
+validation error, and a present-but-empty `goexperiment` pins
+`GOEXPERIMENT=none`. An emitter whose check stamps surfaces against a
+declared stdlib-map artifact (the Bazel rules' analysis action) must pin
+both fields to exactly the target configuration the map was generated for;
+the loader fails closed on any key mismatch between the pinned platform and
+the declared map.
+
 ## 4. `is_stdlib` — provenance, never a heuristic
 
 Each emitter-listed package carries an `is_stdlib` boolean. It must record

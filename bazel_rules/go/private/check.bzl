@@ -1,5 +1,5 @@
-"""The `arcc_check_test` rule: run `arcc check` on a generated component,
-hermetically, as a Bazel test.
+"""The `.check` assertion rules: run `arcc check` on a generated component,
+hermetically, as Bazel tests.
 
 This ties the pieces together: Step 4's generated manifest and layout, Step 1's
 package-layout loading mode, and Step 5a's SDK stdlib resolution. The test's
@@ -8,6 +8,12 @@ in the manifest and layout is expressed in (design §5.4) — and execs arcc
 there. No `local`/`external` tags: with the layout's sources and the rules_go
 SDK stdlib declared as runfiles, the check is sandboxed and cacheable, and
 needs no `go.mod` or `go` binary (design §4.5).
+
+`arcc_checked_analysis_test` is the execution half of the checked-component
+action (Step 5 task 04): it re-runs the exact command the component's
+ArccCheck action runs and requires byte-identical artifacts and the expected
+verdict. Both rule families build their commands through `command.bzl`, so
+the assertion and the action cannot drift (R7).
 """
 
 load("//bazel_rules:providers.bzl", "ArccComponentInfo")

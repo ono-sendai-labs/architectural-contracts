@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Compares the manifest and layout `go_component` generates for the fixture
-# graph against checked-in goldens. The rule's whole output is two files, so
-# this is the test that says what they contain — the analysis tests can only
-# see the providers.
+# graph against checked-in goldens. The rule's default outputs are two files
+# (the analysis artifacts ride in the `arcc` output group), so this is the
+# test that says what they contain — the analysis tests can only see the
+# providers.
 #
 # To update the goldens after an intentional change:
 #
