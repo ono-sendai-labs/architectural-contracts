@@ -37,6 +37,9 @@ go_component(
         "//go/internal/schema",
         "//go/internal/schema/gen",
     ],
-    tags = ["manual"],
+    # Its generated `.check` is excluded from `bazel test //...`
+    # (`check_tags = ["manual"]`); the component itself stays checked
+    # (Step 5 task 05 fixture migration: not an unowned component).
+    check_tags = ["manual"],
     visibility = ["//go:__subpackages__"],
 )

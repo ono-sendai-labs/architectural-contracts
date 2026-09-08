@@ -262,14 +262,25 @@ Expands to:
   * `name` — generates `name.component.textproto` and
     `name.package-layout.json` (the layout's platform block pins
     `toolchain_version` and `goexperiment` for the target SDK identity).
-    The target also owns the checked analysis action: one ordinary action
+    The target also owns the component's surface producer. A component
+    tagged `manual` is an ASSERTED component (design I6): it is not
+    analysed, and its `name.surface.json` is written at analysis time from
+    data already known to the rule — member packages, namespace, SDK key,
+    format and producer versions, with no symbols and the empty digest.
+    It publishes `provenance = "asserted"` with `report = None`, has no
+    analysis action, and generates no `.check` (there is no checked verdict
+    to assert; an asserted surface must never masquerade as a passing
+    check). A manual component must be `PACKAGE_SURFACE`; a declared
+    interface cannot be asserted, and the target fails analysis saying so.
+    Step 11 replaces this tag-based branch with `authority: UNKNOWN`.
+    Any other component is a CHECKED component: one ordinary action
     running `arcc check` in report-verdict-only mode — violations are data
     in the report, tool errors fail the action — producing
     `name.report.json` and `name.surface.json` in the `arcc` output group
     (`bazel build :name --output_groups=+arcc`). They are deliberately not
     default outputs, so `bazel build //...` runs no component analysis;
     building the group, or any consumer of the artifacts, builds the
-    analysis. Direct `component_deps` checked artifacts are declared inputs
+    analysis. Direct `component_deps` artifacts are declared inputs
     of the action, so building a dependent's analysis orders its
     dependencies' producer chain. The provider's `surface`, `report` and
     `provenance = "checked"` fields carry the results.
@@ -277,8 +288,16 @@ Expands to:
     providers, so only those component targets can be used as a `deps`
     entry in place of the interface library.
   * `name.check` — a hermetic test that asserts the component's report
-    verdict. `bazel test` it to enforce the component's contract; running
-    it builds the component's analysis action and its dependencies'.
+    verdict (checked components only). `bazel test` it to enforce the
+    component's contract; running it builds the component's analysis action
+    and its dependencies'. Its tags are the component's tags plus
+    `check_tags`: a fixture whose check deliberately fails uses
+    `check_tags = ["manual"]` to stay out of `bazel test //...` while the
+    component itself remains checked.
+
+How a surface was produced is established by the producer and the build
+graph — the provider edge and the absence or presence of the report —
+never by a flag inside the file (R8, DR-01).
 
 Example:
 

@@ -1,16 +1,20 @@
 """The `_go_component` rule: manifest and package-layout generation, plus the
-checked-component analysis action (Step 5 task 04).
+component surface producer (Step 5 tasks 04 and 05).
 
 Everything here happens at analysis time. The write actions produce the
-manifest arcc checks and the layout arcc loads through, and the ArccCheck
-action runs the exact command the `.check` assertion rules run (command.bzl)
-in always-green report-verdict-only mode, publishing `<name>.report.json` and
-`<name>.surface.json` through `OutputGroupInfo(arcc)` — never as default
-outputs, so `bazel build //...` runs no component analysis unless asked. The
-rule classifies the union of the interface and declared member package
-closures into component-dep-covered and member packages (design §3.1, §4.8),
-and forwards the interface library's Go providers so the component target is
-usable as a `deps` entry.
+manifest arcc checks and the layout arcc loads through. A checked component
+runs the ArccCheck action — the exact command the `.check` assertion rules
+build (command.bzl) in always-green report-verdict-only mode — publishing
+`<name>.report.json` and `<name>.surface.json` through `OutputGroupInfo(arcc)`
+— never as default outputs, so `bazel build //...` runs no component analysis
+unless asked. A manual-tagged component takes the asserted producer instead
+(design I6): its package-level asserted surface is written at analysis time,
+with no symbols and the empty digest, `report = None` and
+`provenance = "asserted"`; Step 11 replaces the tag-based selection with
+`authority: UNKNOWN`. The rule classifies the union of the interface and
+declared member package closures into component-dep-covered and member
+packages (design §3.1, §4.8), and forwards the interface library's Go
+providers so the component target is usable as a `deps` entry.
 """
 
 load("//bazel_rules:authority.bzl", "ALL_AUTHORITIES")
@@ -703,6 +707,7 @@ go_component_rule = rule(
     toolchains = GO_TOOLCHAINS,
     provides = [ArccComponentInfo],
     doc = "Generates an arcc manifest and package layout for a Go component, " +
-          "and runs the checked-component analysis action whose report and " +
-          "surface ride in the `arcc` output group.",
+          "and produces its surface through the checked analysis action — or, " +
+          "for manual-tagged components, the asserted package-level write " +
+          "(design I6) — with the artifacts riding in the `arcc` output group.",
 )

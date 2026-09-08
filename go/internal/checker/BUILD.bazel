@@ -43,8 +43,10 @@ go_component(
 
 # Deliberately broken fixture component mirroring checker_component with
 # //go/internal/report:report_component omitted from component_deps.
-# Tagged manual so its macro-generated .check target is omitted from
-# `bazel test //...`.
+# Its generated `.check` deliberately fails (the missing edge is the
+# point); `check_tags = ["manual"]` keeps it out of `bazel test //...`
+# while the component itself stays checked (Step 5 task 05 fixture
+# migration).
 #
 # What keeps this honest: it must stay a copy of checker_component minus exactly
 # one edge (report_component), so that if checker's real dependency set changes,
@@ -58,7 +60,7 @@ go_component(
         "//go/internal/manifest:manifest_component",
     ],
     interface = ":checker",
-    tags = ["manual"],
+    check_tags = ["manual"],
     visibility = ["//bazel_rules:__subpackages__"],
 )
 
