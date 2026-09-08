@@ -555,10 +555,12 @@ func TestSelfHostingManifests(t *testing.T) {
 			name:           "checker",
 			interfaceFiles: []string{"checker.go"},
 			dependencies: map[string]string{
-				"capanalyzer": "../capanalyzer/component.textproto",
-				"facts":       "../facts/component.textproto",
-				"manifest":    "../manifest/component.textproto",
-				"report":      "../report/component.textproto",
+				"capanalyzer":     "../capanalyzer/component.textproto",
+				"facts":           "../facts/component.textproto",
+				"manifest":        "../manifest/component.textproto",
+				"report":          "../report/component.textproto",
+				"stdlibauthority": "../stdlibauthority/component.textproto",
+				"symbol":          "../symbol/component.textproto",
 			},
 		},
 	}

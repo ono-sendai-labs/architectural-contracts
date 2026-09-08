@@ -20,3 +20,11 @@ component_dependencies {
   name: "report"
   manifest: "../report/component.textproto"
 }
+component_dependencies {
+  name: "stdlibauthority"
+  manifest: "../stdlibauthority/component.textproto"
+}
+component_dependencies {
+  name: "symbol"
+  manifest: "../symbol/component.textproto"
+}

@@ -15,6 +15,6 @@ import (
 
 func Use() {
 	_ = dep.NewGreeter() // the declared dependency's listed interface object
-	_ = sort.Ints   // unowned resolved package: UNDECLARED_DEPENDENCY
+	_ = sort.Ints        // unowned resolved package: UNDECLARED_DEPENDENCY
 	_ = globals.ReadConfig
 }
