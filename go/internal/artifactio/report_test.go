@@ -387,3 +387,63 @@ func TestReadReportFile_RejectsOversizedInput(t *testing.T) {
 		t.Errorf("error = %v, want a size-limit diagnostic", err)
 	}
 }
+
+func TestMarshalReport_SitesClassAndSDKKeyCanonical(t *testing.T) {
+	sitesFwd := []report.AuthoritySite{
+		{File: "member/c.go", Line: 11, Symbol: "os.Create"},
+		{File: "member/a.go", Line: 3, Symbol: "os.ReadFile"},
+		{File: "member/a.go", Line: 3, Symbol: "os.Create"},
+		{File: "member/a.go", Line: 3, Symbol: "os.ReadFile"}, // exact duplicate
+	}
+	sitesRev := []report.AuthoritySite{
+		{File: "member/a.go", Line: 3, Symbol: "os.ReadFile"},
+		{File: "member/a.go", Line: 3, Symbol: "os.ReadFile"},
+		{File: "member/a.go", Line: 3, Symbol: "os.Create"},
+		{File: "member/a.go", Line: 3, Symbol: "os.Create"},
+		{File: "member/c.go", Line: 11, Symbol: "os.Create"},
+	}
+	mk := func(sites []report.AuthoritySite) report.ConformanceReport {
+		return report.ConformanceReport{
+			Component: "c",
+			Violations: []report.Finding{{
+				Kind:     report.UndeclaredAuthority,
+				Message:  "use of undeclared authority \"FILES\"",
+				Class:    "TrueAuthority",
+				SDKKey:   "sdk{toolchain_version:\"go1.26.4\" goos:\"linux\" goarch:\"amd64\" cgo_enabled:false build_tags:[] goexperiment:\"\" classifier_hash:\"\" map_format_version:1}",
+				Sites:    sites,
+				Evidence: []string{"os.ReadFile at os/file.go:331"},
+			}},
+		}
+	}
+	first, err := artifactio.MarshalReport(mk(sitesFwd))
+	if err != nil {
+		t.Fatalf("MarshalReport error = %v", err)
+	}
+	second, err := artifactio.MarshalReport(mk(sitesRev))
+	if err != nil {
+		t.Fatalf("MarshalReport error = %v", err)
+	}
+	if string(first) != string(second) {
+		t.Fatalf("reordered sites produced different bytes:\n%s\n---\n%s", first, second)
+	}
+
+	decoded, err := artifactio.DecodeReport(first)
+	if err != nil {
+		t.Fatalf("DecodeReport error = %v", err)
+	}
+	v := decoded.Report.Violations[0]
+	if v.Class != "TrueAuthority" || v.SDKKey == "" {
+		t.Errorf("round trip lost class/sdk_key: %+v", v)
+	}
+	wantSites := []report.AuthoritySite{
+		{File: "member/a.go", Line: 3, Symbol: "os.Create"},
+		{File: "member/a.go", Line: 3, Symbol: "os.ReadFile"},
+		{File: "member/c.go", Line: 11, Symbol: "os.Create"},
+	}
+	if !reflect.DeepEqual(v.Sites, wantSites) {
+		t.Errorf("canonical sites = %+v, want %+v", v.Sites, wantSites)
+	}
+	if !reflect.DeepEqual(v.Evidence, []string{"os.ReadFile at os/file.go:331"}) {
+		t.Errorf("round trip lost first-site evidence: %+v", v)
+	}
+}

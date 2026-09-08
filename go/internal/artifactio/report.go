@@ -170,9 +170,10 @@ func DecodeReport(data []byte) (PersistedReport, error) {
 }
 
 // canonicalReport returns a deterministic copy of r: dependency boundaries
-// sorted by component, findings sorted by kind, message, file, line, and
-// evidence (a full tie-break order over all compared fields); nil slices
-// preserved as nil.
+// sorted by component, findings sorted by kind, message, file, line, class,
+// SDK key, sites, and evidence (a full tie-break order over all compared
+// fields), each finding's authority sites sorted (file, line, referenced
+// symbol) with exact duplicates removed, and nil slices preserved as nil.
 func canonicalReport(r report.ConformanceReport) report.ConformanceReport {
 	c := r
 	c.Dependencies = sortDependencies(r.Dependencies)
@@ -199,6 +200,9 @@ func sortFindings(findings []report.Finding) []report.Finding {
 	}
 	sorted := make([]report.Finding, len(findings))
 	copy(sorted, findings)
+	for i := range sorted {
+		sorted[i].Sites = sortAuthoritySites(sorted[i].Sites)
+	}
 	sort.Slice(sorted, func(i, j int) bool {
 		a, b := sorted[i], sorted[j]
 		if c := compareStrings(string(a.Kind), string(b.Kind)); c != 0 {
@@ -213,9 +217,80 @@ func sortFindings(findings []report.Finding) []report.Finding {
 		if a.Location.Line != b.Location.Line {
 			return a.Location.Line < b.Location.Line
 		}
+		if c := compareStrings(a.Class, b.Class); c != 0 {
+			return c < 0
+		}
+		if c := compareStrings(a.SDKKey, b.SDKKey); c != 0 {
+			return c < 0
+		}
+		if c := compareAuthoritySites(a.Sites, b.Sites); c != 0 {
+			return c < 0
+		}
 		return compareStringSlices(a.Evidence, b.Evidence) < 0
 	})
 	return sorted
+}
+
+// sortAuthoritySites orders a finding's authority sites by file, line, then
+// referenced symbol, removing exact duplicates, so reordered input
+// observations produce byte-identical artifacts.
+func sortAuthoritySites(sites []report.AuthoritySite) []report.AuthoritySite {
+	if len(sites) < 2 {
+		return sites
+	}
+	sorted := make([]report.AuthoritySite, len(sites))
+	copy(sorted, sites)
+	sort.Slice(sorted, func(i, j int) bool {
+		a, b := sorted[i], sorted[j]
+		if c := compareStrings(a.File, b.File); c != 0 {
+			return c < 0
+		}
+		if a.Line != b.Line {
+			return a.Line < b.Line
+		}
+		return compareStrings(a.Symbol, b.Symbol) < 0
+	})
+	out := sorted[:0:0]
+	for i, s := range sorted {
+		if i > 0 && sorted[i-1] == s {
+			continue
+		}
+		out = append(out, s)
+	}
+	return out
+}
+
+// compareAuthoritySites compares element-wise; a prefix sorts first and nil
+// is treated as empty, giving equal-key findings a deterministic site order.
+func compareAuthoritySites(a, b []report.AuthoritySite) int {
+	n := len(a)
+	if len(b) < n {
+		n = len(b)
+	}
+	for i := 0; i < n; i++ {
+		if c := compareStrings(a[i].File, b[i].File); c != 0 {
+			return c
+		}
+		if a[i].Line != b[i].Line {
+			switch {
+			case a[i].Line < b[i].Line:
+				return -1
+			default:
+				return 1
+			}
+		}
+		if c := compareStrings(a[i].Symbol, b[i].Symbol); c != 0 {
+			return c
+		}
+	}
+	switch {
+	case len(a) < len(b):
+		return -1
+	case len(a) > len(b):
+		return 1
+	default:
+		return 0
+	}
 }
 
 func compareStrings(a, b string) int {
