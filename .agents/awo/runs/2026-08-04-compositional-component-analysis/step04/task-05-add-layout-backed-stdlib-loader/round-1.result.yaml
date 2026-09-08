@@ -1,0 +1,104 @@
+result:
+  task_file: .agents/tasks/2026-08-04-compositional-component-analysis/step04/task-05-add-layout-backed-stdlib-loader.code-task.md
+  change_id: xprvmtpp
+  status: completed
+  schema_version: 2
+  produced_at: 2026-09-07T17:20:00Z
+
+acceptance_criteria:
+  - text: "The layout describes the pinned target, not the running binary"
+    addressed: yes
+    evidence: |
+      Platform gained toolchain_version/goexperiment (packagelayout.go);
+      BuildContextForLayout derives ReleaseTags from the version and
+      ToolTags from the baseline+override experiments and target-arch
+      defaults; HandleDriverRequest reports the platform GOARCH. Tests:
+      TestPlatformToolchainVersionDerivesReleaseTags,
+      TestPlatformGoexperimentDerivesToolTags, TestDriverArchReportsPlatformGOARCH,
+      TestPlatformFidelityThroughFixtureFiles (go1.27 file excluded,
+      experiment file included, amd64-suffix file excluded on arm64,
+      packagelayout_test.go:2660+); layout-without-platform unchanged
+      (TestBuildContextForLayout, existing suite green).
+  - text: "The whole-stdlib layout matches the native oracle"
+    addressed: yes
+    evidence: |
+      TestStdlibLayoutMatchesGoListStd (packagelayout_integration_test.go,
+      -tags=integration) compares StdlibLayout against `go list -json std`:
+      identical package sets (360 packages) and per-package GoFiles equality;
+      passes.
+  - text: "Explicit-input generation executes no toolchain binary"
+    addressed: yes
+    evidence: |
+      TestExplicitGenerateHermeticAndByteIdentical
+      (stdlibmap_explicit_integration_test.go): arcc stdlibmap generate in
+      explicit mode with PATH=empty, GOROOT/GOCACHE/GOPACKAGESDRIVER unset
+      succeeds; the map's key matches the config file (inspect
+      --expect-key) and classifications are terminal. Unit-level:
+      TestLayoutLoaderLoadsThroughDriver and
+      TestGenerateViaLayoutRunsUnderDriver run the same way (empty PATH).
+  - text: "Explicit and native generation agree"
+    addressed: yes
+    evidence: |
+      Same integration test asserts the explicit map is byte-identical to
+      the native map generated from `go list std` over the same SDK root and
+      configuration; passes.
+  - text: "The oracle cross-check is total"
+    addressed: yes
+    evidence: |
+      TestReconcilePackageList (explicit_test.go): listed-and-discovered
+      enumeration under the internal rule, build-excluded directory →
+      importable:false, listed package with no directory → error naming it,
+      omitted discovered package → error naming it. Rework round 1: the
+      inventory normalizer now retains the explicit oracle's non-importable
+      public verdict (inventory.go normalizeEntries), and
+      TestGenerateExplicitKeepsBuildExcludedPackage covers generation end to
+      end: the listed all-excluded package is enumerated importable:false
+      with no symbol or init records in the emitted map.
+  - text: "Explicit mode fails closed on its inputs"
+    addressed: yes
+    evidence: |
+      TestStdlibmapGenerateExplicitUsage (stdlibmap_test.go): partial flag
+      set, duplicate --sdk-root, each native flag alongside the explicit
+      trio, malformed cgo_enabled, and cgo_enabled=true (error names the
+      design's out-of-scope decision) all exit 2 with the expected
+      diagnostics, under an emptied PATH so no host discovery can occur.
+  - text: "`--expect-key tag=<v>` verifies the build tags"
+    addressed: yes
+    evidence: |
+      TestInspectExpectKeyTag (stdlibmap_test.go) uses a map keyed with build
+      tag probe: --expect-key=tag=other exits 2 naming build_tags, tag=probe
+      exits 0; the test failed on the pre-fix code (tag=other exited 0).
+  - text: "Integration remains green"
+    addressed: yes
+    evidence: |
+      `just ci` run after the final commit: Go lint/build/test/
+      test-integration, self-check, bazel build //..., bazel test //...
+      (84 tests pass), and the two Bazel shell validation scripts all green.
+
+artifacts:
+  scratchpad_dir: .agents/scratchpad/2026-08-04-compositional-component-analysis/step04/task-05-add-layout-backed-stdlib-loader/
+  files:
+    - context.md
+    - plan.md
+    - progress.md
+    - work.log
+    - result.yaml
+
+notes: |
+  Implemented the layout-backed stdlib loader end to end: platform fidelity
+  (toolchain_version, goexperiment with baseline/override semantics,
+  target-arch tool tags, target GOARCH in the driver response), the
+  StdlibLayout whole-stdlib builder made exactly equal to the `go list std`
+  oracle (nested modules, tool-scratch dirs, builtin, cgo-off runtime/cgo,
+  source-less test-only packages), the LayoutLoader/Capslock loads through
+  the self-exec driver, the total oracle reconciliation, the explicit-input
+  CLI with cgo fail-closed rejection, and the expect-key tag fix. Rework
+  round 1 addressed the reviewer's critical AC5 finding (the inventory
+  normalizer now retains the explicit oracle's build-excluded
+  non-importable verdict, with an end-to-end generation test), the
+  important legacy-ToolTags finding (toolchain_version/goexperiment are
+  pointer fields; a platform naming neither keeps build.Default behaviour,
+  with a regression test), and the dead-helper suggestion (experiment names
+  are validated by effectiveExperimentTags, failing naming
+  platform.goexperiment). The superseded first-attempt changes
+  (rpskorut…rnvkqvqq) were read for reference only and remain unmerged.

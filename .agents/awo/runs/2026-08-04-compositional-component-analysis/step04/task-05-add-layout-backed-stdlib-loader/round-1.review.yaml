@@ -1,0 +1,148 @@
+review:
+  task_file: .agents/tasks/2026-08-04-compositional-component-analysis/step04/task-05-add-layout-backed-stdlib-loader.code-task.md
+  change_id: xprvmtpposqsqkkptvrrluuszptqulpp
+  reviewed_at: 2026-09-08T00:22:05Z
+  verdict: approved
+  schema_version: 2
+  lsp_coverage: covered
+
+merge_request:
+  title: "feat(stdlibmap): add layout-backed hermetic generation [Compositional Analysis: Step 04/Task 05]"
+  body: |
+    Reviews the complete ordered series from the specification-repair base through
+    the round-1 rework: packagelayout target fidelity and StdlibLayout
+    (vsuwwnnv), explicit config/package-list/oracle parsing (umntrssk),
+    layout-driver loading (mpnrltuo), CLI explicit mode and the expect-key fix
+    (yyuvpwvw), go-list fidelity corrections and integration coverage (ovrqsrpz),
+    FR10/component metadata (vsusskut), Bazel source/dependency declarations
+    (rqrmrnsv), temporary probe removal (xmumyotx), and the fresh rework
+    xprvmtpp. The rework preserves public build-excluded packages in generated
+    maps, restores legacy platform behavior when optional metadata is absent, and
+    validates malformed experiment names.
+
+summary: |
+  All prior critical and important findings are resolved in the fresh rework:
+  public build-excluded packages now survive end-to-end generation with
+  importable:false, and pointer-valued optional platform fields preserve legacy
+  host tag behavior. The prior dead-helper suggestion is also addressed, and the
+  ordinary and integration Go suites, vet, gofmt, and LSP checks are clean. One
+  non-blocking documentation suggestion remains because PackageEntry's comment
+  still describes the pre-rework internal-only meaning of importable:false.
+
+acceptance_criteria:
+  - text: |
+      1. **The layout describes the pinned target, not the running binary**
+         - Given a layout whose platform names `toolchain_version: go1.26.4` and one enabled experiment, and a fixture package with files constrained by `//go:build go1.27`, `//go:build goexperiment.<name>`, and a GOARCH suffix for a non-host architecture
+         - When the layout is validated and served through the driver
+         - Then the `go1.27` file is excluded, the experiment file is included, the driver response reports the platform's GOARCH, and a layout without a platform block behaves exactly as before.
+    status: pass
+    evidence: |
+      The round-1 pointer fields and pinned/legacy split are implemented at
+      go/internal/packagelayout/packagelayout.go:109-122 and :237-264.
+      Release, experiment, fixture-file, and driver-architecture coverage is at
+      go/internal/packagelayout/packagelayout_test.go:2657-2831, including the
+      new legacy-platform regression at :2769-2782. This explicitly addresses
+      the prior important finding.
+  - text: |
+      2. **The whole-stdlib layout matches the native oracle**
+         - Given the host SDK root and the host configuration (integration test)
+         - When the layout builder runs and `go list std` runs for the same configuration
+         - Then the set of importable packages is identical and every package's file list equals `go list`'s `GoFiles`.
+    status: pass
+    evidence: |
+      go/internal/packagelayout/packagelayout_integration_test.go:25-83
+      compares the discovered package set and each GoFiles list with
+      `go list -json std`; it passed in the round-1 review run with
+      `go test -tags=integration ./...`.
+  - text: |
+      3. **Explicit-input generation executes no toolchain binary**
+         - Given a package-list file, a config file, and an SDK root, with `PATH` set to an empty directory and `GOROOT`, `GOCACHE` and `GOPACKAGESDRIVER` unset
+         - When `arcc stdlibmap generate` runs in explicit mode
+         - Then it succeeds, the map's key matches the config file, and every symbol of every importable package has a terminal classification.
+    status: pass
+    evidence: |
+      The driver-backed loader tests at
+      go/internal/stdlibmap/layoutloader_test.go:12-76 and the end-to-end
+      hermetic test at go/cmd/arcc/app/stdlibmap_explicit_integration_test.go:23-110
+      clear the toolchain environment and verify successful generation and key
+      output. The integration test passed in the round-1 review run.
+  - text: |
+      4. **Explicit and native generation agree**
+         - Given the host toolchain's own configuration (integration test)
+         - When a map is generated natively and one is generated in explicit mode from the same SDK root with a package list produced from `go list std`
+         - Then the two maps are byte-identical; any difference is a task failure, not a documented deviation.
+    status: pass
+    evidence: |
+      go/cmd/arcc/app/stdlibmap_explicit_integration_test.go:55-95 generates
+      native and explicit maps from the same SDK inputs and asserts byte identity;
+      the assertion passed with integration tests enabled.
+  - text: |
+      5. **The oracle cross-check is total**
+         - Given a package list with (a) a package whose files are all build-excluded for the target, (b) a package with no directory, and (c) a list omitting one discovered package
+         - When explicit generation runs
+         - Then (a) is enumerated `importable: false`, and (b) and (c) each fail with an error naming the package.
+    status: pass
+    evidence: |
+      The prior critical finding is addressed by the rework in
+      go/internal/stdlibmap/inventory.go:142-167: public non-importable entries
+      are retained while internal-marked-importable entries still fail.
+      TestGenerateExplicitKeepsBuildExcludedPackage at
+      go/internal/stdlibmap/explicit_test.go:179-214 now exercises generation
+      end to end and checks the package has no symbols or init. The missing-dir,
+      omitted-discovery, and reconciliation cases remain covered at
+      explicit_test.go:119-177.
+  - text: |
+      6. **Explicit mode fails closed on its inputs**
+         - Given `--config-file` without `--package-list`, a duplicate `--sdk-root`, `--goos` alongside the explicit flags, a config file with a malformed `cgo_enabled`, and a config file with `cgo_enabled=true`
+         - When `arcc stdlibmap generate` runs
+         - Then each exits 2 with a usage or actionable error, and nothing is discovered from the host in any of them.
+    status: pass
+    evidence: |
+      The all-or-nothing, duplicate, native-flag, malformed-cgo, and cgo
+      out-of-scope cases are covered by
+      go/cmd/arcc/app/stdlibmap_test.go:185-295. The explicit branch precedes
+      NativeTargetConfig at stdlibmap.go:151-214, and the usage tests passed with
+      an empty PATH.
+  - text: |
+      7. **`--expect-key tag=<v>` verifies the build tags**
+         - Given a map whose key carries build tag `probe`
+         - When `inspect --expect-key tag=other` runs
+         - Then it fails, and `tag=probe` passes; the test fails on the code before the fix.
+    status: pass
+    evidence: |
+      go/cmd/arcc/app/stdlibmap_test.go:166-183 asserts that tag=other fails
+      with build_tags diagnostics while tag=probe succeeds. The canonical alias
+      handling is at stdlibmap.go:430-470.
+  - text: |
+      8. **Integration remains green**
+         - Given the driver changes, loader, CLI and metadata
+         - When `just ci` runs
+         - Then Go and Bazel tests, generation cleanness, self-check and the existing component checks all pass.
+    status: pass
+    evidence: |
+      The round-1 work log records `just ci` green at
+      .agents/scratchpad/2026-08-04-compositional-component-analysis/step04/task-05-add-layout-backed-stdlib-loader/work.log:102-106.
+      The review independently ran `go test ./...`,
+      `go test -tags=integration ./...`, `go vet ./...`, and gofmt checks
+      successfully.
+
+findings:
+  - severity: suggestion
+    category: style
+    file: go/internal/stdlibmap/stdlibmap.go
+    line: 82
+    title: "PackageEntry documentation omits public excluded packages"
+    details: |
+      The rework correctly broadens the inventory contract so the explicit oracle
+      can retain public build-excluded packages as Importable:false
+      (inventory.go:142-167), but PackageEntry's comment still says a package is
+      non-importable exactly when an import-path segment is `internal`
+      (stdlibmap.go:82-85). The implementation and the new inventory test now
+      intentionally disagree with that stale description.
+    suggested_action: |
+      Update the PackageEntry comment to document both non-importable cases, or
+      name the explicit-oracle/build-excluded provenance separately if the API
+      needs to distinguish it from an internal package.
+    source: built-in
+
+ecosystem_reviews: []

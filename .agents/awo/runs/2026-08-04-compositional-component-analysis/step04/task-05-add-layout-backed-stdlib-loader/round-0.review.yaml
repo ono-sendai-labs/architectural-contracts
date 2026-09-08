@@ -1,0 +1,186 @@
+review:
+  task_file: .agents/tasks/2026-08-04-compositional-component-analysis/step04/task-05-add-layout-backed-stdlib-loader.code-task.md
+  change_id: xmumyotxvnyuoswzkvruwvqkmsqrkqmv
+  reviewed_at: 2026-09-08T00:08:40Z
+  verdict: changes_requested
+  schema_version: 2
+  lsp_coverage: unavailable
+
+merge_request:
+  title: "feat(stdlibmap): add layout-backed hermetic generation [Compositional Analysis: Step 04/Task 05]"
+  body: |
+    Reviews the complete ordered series from the specification-repair base through
+    the current change: the initial packagelayout target-fidelity and StdlibLayout
+    implementation (vsuwwnnv), explicit config/package-list/oracle parsing
+    (umntrssk), layout-driver loading (mpnrltuo), CLI explicit mode and the
+    expect-key fix (yyuvpwvw), the go-list fidelity corrections and integration
+    coverage (ovrqsrpz), FR10/component metadata (vsusskut), Bazel source/dependency
+    declarations (rqrmrnsv), and removal of the temporary loader probe test
+    (xmumyotx). The series has one fixable acceptance failure for public
+    build-excluded packages and one backward-compatibility issue in platform tag
+    derivation.
+
+summary: |
+  The layout driver, explicit CLI mode, hermetic loader, oracle reconciliation,
+  metadata, and expect-key fix are implemented, and the ordinary and integration
+  Go test suites pass in this review environment. The explicit oracle path produces
+  importable:false entries for public build-excluded packages, but the existing
+  inventory normalizer rejects those entries before a map can be generated, so AC5
+  is not met. Platform layouts that omit the new optional metadata also lose their
+  legacy ToolTags behavior.
+
+acceptance_criteria:
+  - text: |
+      1. **The layout describes the pinned target, not the running binary**
+         - Given a layout whose platform names `toolchain_version: go1.26.4` and one enabled experiment, and a fixture package with files constrained by `//go:build go1.27`, `//go:build goexperiment.<name>`, and a GOARCH suffix for a non-host architecture
+         - When the layout is validated and served through the driver
+         - Then the `go1.27` file is excluded, the experiment file is included, the driver response reports the platform's GOARCH, and a layout without a platform block behaves exactly as before.
+    status: pass
+    evidence: |
+      BuildContextForLayout derives pinned release and tool tags at
+      go/internal/packagelayout/packagelayout.go:210-249, and the driver selects
+      the platform architecture at packagelayout.go:1255-1265. The fixture tests
+      cover release-tag exclusion, experiment inclusion, target-architecture
+      suffix filtering, and driver Arch at
+      go/internal/packagelayout/packagelayout_test.go:2657-2825.
+  - text: |
+      2. **The whole-stdlib layout matches the native oracle**
+         - Given the host SDK root and the host configuration (integration test)
+         - When the layout builder runs and `go list std` runs for the same configuration
+         - Then the set of importable packages is identical and every package's file list equals `go list`'s `GoFiles`.
+    status: pass
+    evidence: |
+      The integration oracle comparison at
+      go/internal/packagelayout/packagelayout_integration_test.go:25-83 compares
+      the discovered package set and each GoFiles list with `go list -json std`.
+      The test passed in the review run with `go test -tags=integration ./...`.
+  - text: |
+      3. **Explicit-input generation executes no toolchain binary**
+         - Given a package-list file, a config file, and an SDK root, with `PATH` set to an empty directory and `GOROOT`, `GOCACHE` and `GOPACKAGESDRIVER` unset
+         - When `arcc stdlibmap generate` runs in explicit mode
+         - Then it succeeds, the map's key matches the config file, and every symbol of every importable package has a terminal classification.
+    status: pass
+    evidence: |
+      The driver-backed loader and full generation hermetic tests are at
+      go/internal/stdlibmap/layoutloader_test.go:12-76 and
+      go/cmd/arcc/app/stdlibmap_explicit_integration_test.go:23-110. They clear
+      PATH/GOROOT/GOCACHE/GOPACKAGESDRIVER and verify the generated key and
+      terminal map output; the integration test passed in the review run.
+  - text: |
+      4. **Explicit and native generation agree**
+         - Given the host toolchain's own configuration (integration test)
+         - When a map is generated natively and one is generated in explicit mode from the same SDK root with a package list produced from `go list std`
+         - Then the two maps are byte-identical; any difference is a task failure, not a documented deviation.
+    status: pass
+    evidence: |
+      go/cmd/arcc/app/stdlibmap_explicit_integration_test.go:55-95 generates
+      native and explicit maps from the same SDK inputs and asserts byte identity.
+      This assertion passed in the review run with integration tests enabled.
+  - text: |
+      5. **The oracle cross-check is total**
+         - Given a package list with (a) a package whose files are all build-excluded for the target, (b) a package with no directory, and (c) a list omitting one discovered package
+         - When explicit generation runs
+         - Then (a) is enumerated `importable: false`, and (b) and (c) each fail with an error naming the package.
+    status: fail
+    evidence: |
+      ReconcilePackageList emits a public build-excluded directory as
+      Importable:false at go/internal/stdlibmap/explicit.go:169-175, but
+      GenerateExplicit passes that entry into Generate at
+      go/internal/stdlibmap/layoutloader.go:161-188, where
+      BuildInventory's normalizer rejects every non-internal Importable:false
+      entry at go/internal/stdlibmap/inventory.go:147-162. The current unit test
+      at go/internal/stdlibmap/explicit_test.go:150-160 stops after reconciliation
+      and therefore does not exercise generation of the required entry.
+  - text: |
+      6. **Explicit mode fails closed on its inputs**
+         - Given `--config-file` without `--package-list`, a duplicate `--sdk-root`, `--goos` alongside the explicit flags, a config file with a malformed `cgo_enabled`, and a config file with `cgo_enabled=true`
+         - When `arcc stdlibmap generate` runs
+         - Then each exits 2 with a usage or actionable error, and nothing is discovered from the host in any of them.
+    status: pass
+    evidence: |
+      The all-or-nothing, duplicate, native-flag, malformed-cgo, and cgo
+      out-of-scope cases are covered by
+      go/cmd/arcc/app/stdlibmap_test.go:185-295. The explicit branch is selected
+      before NativeTargetConfig at go/cmd/arcc/app/stdlibmap.go:151-214, and the
+      usage tests passed with an empty PATH.
+  - text: |
+      7. **`--expect-key tag=<v>` verifies the build tags**
+         - Given a map whose key carries build tag `probe`
+         - When `inspect --expect-key tag=other` runs
+         - Then it fails, and `tag=probe` passes; the test fails on the code before the fix.
+    status: pass
+    evidence: |
+      go/cmd/arcc/app/stdlibmap_test.go:166-183 asserts that tag=other fails
+      with build_tags diagnostics while tag=probe succeeds. The canonical alias
+      handling is implemented at go/cmd/arcc/app/stdlibmap.go:430-470.
+  - text: |
+      8. **Integration remains green**
+         - Given the driver changes, loader, CLI and metadata
+         - When `just ci` runs
+         - Then Go and Bazel tests, generation cleanness, self-check and the existing component checks all pass.
+    status: pass
+    evidence: |
+      The scratchpad records the final `just ci` green result at
+      .agents/scratchpad/2026-08-04-compositional-component-analysis/step04/task-05-add-layout-backed-stdlib-loader/work.log:84-88.
+      The review independently ran `go test ./...` and
+      `go test -tags=integration ./...`, both successfully.
+
+findings:
+  - severity: critical
+    category: acceptance_criteria
+    file: go/internal/stdlibmap/explicit.go
+    line: 173
+    title: "Public excluded packages are rejected during generation"
+    details: |
+      The explicit oracle requirement says a listed package whose directory exists
+      but whose files are all excluded must remain in the generated enumeration
+      with importable:false. ReconcilePackageList creates that entry for a public
+      path such as the fixture's `pinned`, but inventory.normalizeEntries still
+      computes importability solely from the `internal` path rule and returns an
+      error when a public path is false (inventory.go:154-157). Thus the required
+      AC5(a) case cannot produce a map; only the intermediate reconciliation test
+      passes. This is fixable in another implementation round.
+    suggested_action: |
+      Preserve the explicit oracle's non-importable state for directories excluded
+      by target constraints while continuing to reject inconsistent internal-path
+      entries. Add an end-to-end GenerateExplicit test with a public all-excluded
+      package and assert that the emitted package inventory contains it with
+      importable:false.
+    source: built-in
+  - severity: important
+    category: architecture
+    file: go/internal/packagelayout/packagelayout.go
+    line: 247
+    title: "Optional platform metadata changes legacy ToolTags"
+    details: |
+      BuildContextForLayout copies build.Default.ToolTags, but unconditionally
+      replaces them with target-architecture and baseline experiment tags whenever
+      a Platform block exists. A hand-written platform containing only the existing
+      goos/goarch/build_tags/cgo_enabled fields therefore changes behavior even
+      though toolchain_version and goexperiment are absent, contrary to technical
+      requirement 1's promise that omitted optional fields preserve behavior.
+      The existing regression coverage checks a layout with no Platform block, not
+      this legacy Platform shape (packagelayout_test.go:2394-2426).
+    suggested_action: |
+      Keep the legacy copied ToolTags when the new optional metadata is absent, or
+      represent field presence explicitly so target-derived defaults are applied
+      only to pinned layouts. Add a regression test for a Platform with no
+      toolchain_version or goexperiment and verify its build context remains
+      compatible with the pre-task behavior.
+    source: built-in
+  - severity: suggestion
+    category: style
+    file: go/internal/packagelayout/packagelayout.go
+    line: 331
+    title: "Unused experiment-name validator remains"
+    details: |
+      isGoIdentifier is defined at packagelayout.go:331-344 but has no callers
+      after effectiveExperimentTags was refactored. The dead helper also means the
+      current experiment override parser no longer performs the validation its
+      original implementation provided.
+    suggested_action: |
+      Remove the unused helper or use it while parsing experiment overrides, with a
+      focused test for malformed experiment names if validation is retained.
+    source: built-in
+
+ecosystem_reviews: []
