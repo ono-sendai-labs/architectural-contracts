@@ -1,0 +1,266 @@
+review:
+  project: 2026-08-04-compositional-component-analysis
+  plan_path: .agents/planning/2026-08-04-compositional-component-analysis/implementation/plan.md
+  design_path: .agents/planning/2026-08-04-compositional-component-analysis/design/detailed-design.md
+  reviewed_at: 2026-09-08T01:22:34Z
+  schema_version: 1
+  steps_in_scope: [4]
+  commits_in_scope: 44
+  remediation_step: .agents/tasks/2026-08-04-compositional-component-analysis/step04/
+  verdict: remediation_required
+
+summary: |
+  Step 4 delivers the total package/symbol/init inventory, fail-closed reader,
+  native cache and CLI, and hermetic Bazel artifact through the repaired I5
+  layout-driver path; the six task seams otherwise cohere and both native and
+  Bazel modes expose the same canonical map semantics. One load-bearing keying
+  defect remains: classifier_hash is derived from prose summaries rather than
+  the actual Capslock builtin classifier and project classifier source, so a
+  classifier change can silently reuse a stale native map under the same SDK
+  key. One remediation task is required before the step objective is complete.
+  Two stale comments are recorded as non-blocking documentation suggestions.
+
+architecture:
+  - element: Core StdlibAuthority port and artifact reader
+    expected: |
+      A core-side, protobuf-free port defines map membership, terminal symbol
+      and package-init lookup, evidence, and SDK identity; the shell reader
+      validates artifacts and returns inventory gaps and key mismatches rather
+      than interpreting absence as purity.
+    actual: |
+      stdlibauthority defines the pure port and terminal domain model, while
+      artifactio decodes and indexes validated artifacts with defensive copies,
+      direct package-enumeration membership, and typed fail-closed errors.
+    status: aligned
+    files:
+      - go/internal/stdlibauthority/stdlibauthority.go
+      - go/internal/artifactio/stdlibmapreader.go
+      - go/internal/artifactio/stdlibmap.go
+    notes: ""
+
+  - element: Independent total SDK inventory
+    expected: |
+      Native go-list or explicit toolchain-package-list enumeration is retained
+      in full, importable packages are loaded in one target configuration, and
+      go/types inventories every exported top-level object, declared exported
+      method, and aggregate init independently of Capslock.
+    actual: |
+      Package normalization and explicit-oracle reconciliation retain internal
+      and public build-excluded packages as non-importable. BuildInventory
+      batch-loads only importable packages and produces sorted, duplicate-free
+      symbols and one init per importable package, rejecting partial loads and
+      canonical-ID collisions.
+    status: aligned
+    files:
+      - go/internal/stdlibmap/stdlibmap.go
+      - go/internal/stdlibmap/explicit.go
+      - go/internal/stdlibmap/inventory.go
+    notes: |
+      PackageEntry's local comment still describes only the internal-package
+      case; this is documentation residue, not a defect in the inventory.
+
+  - element: Total Capslock-backed authority-map generation
+    expected: |
+      One GranularityFunction Capslock batch preserves UNANALYZED, normalizes
+      roots through the independent inventory, applies the explicit object-kind,
+      variable, unsafe, init, provenance, and evidence rules, and refuses every
+      inventory or analyzer-accounting gap before canonical emission.
+    actual: |
+      Generate and BuildAuthorityMap perform the batched load, structured root
+      reconciliation, two-pass method/variable classification, aggregate-init
+      completion, deterministic evidence selection, exact record assembly, and
+      canonical validation. Representative SAFE, capability, UNANALYZED,
+      variable, unsafe, and init cases are covered by unit and integration tests.
+    status: aligned
+    files:
+      - go/internal/capslockadapter/generation.go
+      - go/internal/stdlibmap/generate.go
+      - go/internal/stdlibmap/generate_test.go
+      - go/internal/stdlibmap/generate_integration_test.go
+    notes: ""
+
+  - element: Target SDK key and classifier fingerprint
+    expected: |
+      SDKKey includes the complete target configuration, map format, and a
+      classifier_hash over the actual generation classifier semantics: Capslock
+      builtins, the minting-site classifier source, and project variable/unsafe
+      rules plus an explicit rule version.
+    actual: |
+      Target fields and map format are stamped correctly, but sdkKeyProto hashes
+      CanonicalClassifierText(GenerationClassifierRules()). That descriptor
+      contains human-readable summaries and method names; it does not contain or
+      cryptographically pin Capslock's embedded builtin classifier and does not
+      include capslockadapter.GenerationClassifierText itself.
+    status: drifted
+    files:
+      - go/internal/stdlibmap/generate.go
+      - go/internal/stdlibmap/sdkkey.go
+      - go/internal/capslockadapter/generation.go
+    notes: |
+      The implementation has a useful deterministic descriptor, but it is not
+      the classifier source material required by design I2. This permits an old
+      native cache entry to survive a real classifier change under the same key.
+
+  - element: Native generation, cache, and inspection path
+    expected: |
+      Native mode discovers through the target toolchain, generates on demand,
+      caches by the full SDK key with atomic replacement and corruption recovery,
+      bounds reads, and exposes deterministic generate and inspect commands.
+    actual: |
+      Native discovery and loading share the complete target environment;
+      OpenCachedMap validates hits and fresh output against the requested key,
+      regenerates malformed or mismatched content, and writes atomically. The CLI
+      exposes generation and exact symbol/init inspection without changing the
+      pre-Step-6 check path.
+    status: aligned
+    files:
+      - go/internal/stdlibmap/nativeloader.go
+      - go/internal/stdlibmap/cache.go
+      - go/cmd/arcc/app/stdlibmap.go
+    notes: |
+      The cache is intentionally awaiting its Step 6 consumer; that staged state
+      is required by Step 4's sequencing and is not dead-code drift.
+
+  - element: Pinned-target layout driver
+    expected: |
+      Explicit generation builds a whole-stdlib layout from declared SDK sources,
+      derives release and tool tags from the pinned target, reports target GOARCH
+      to go/packages, reconciles the explicit oracle, and executes no toolchain
+      binary.
+    actual: |
+      Platform carries toolchain_version and GOEXPERIMENT, BuildContextForLayout
+      derives target release/experiment/default-arch tags, StdlibLayout builds and
+      validates the transitive SDK graph, and both inventory and Capslock loads
+      run under the GOPACKAGESDRIVER self-exec environment.
+    status: aligned
+    files:
+      - go/internal/packagelayout/packagelayout.go
+      - go/internal/stdlibmap/layoutloader.go
+      - go/internal/stdlibmap/explicit.go
+    notes: |
+      This matches the repaired design invariant I5; the abandoned go-list-in-
+      action attempt is not in this stack and was not reviewed.
+
+  - element: Hermetic Bazel stdlib-map artifact and future consumer seam
+    expected: |
+      A public arcc_stdlib_map rule builds one target-keyed canonical artifact
+      from SDK sources, package list, target config, and the arcc tool only;
+      network and the default environment are disabled, cgo-on analysis fails,
+      and a private default attribute is available for Step 5.
+    actual: |
+      The rules_go adapter is the only toolchain-facing layer. The map action has
+      the intended minimal declared inputs, no Go/tool binary or cache input,
+      block-network and no default shell environment, cross-target/tag coverage,
+      analysis-time cgo rejection, a public rule, provider, and private default
+      _stdlib_map helper.
+    status: aligned
+    files:
+      - bazel_rules/go/private/go_adapter.bzl
+      - bazel_rules/go/private/stdlib_map.bzl
+      - bazel_rules/go/providers.bzl
+      - bazel_rules/go/defs.bzl
+      - bazel_rules/go/tests/stdlib_map_tests.bzl
+      - bazel_rules/go/tests/stdlib_map_keys_test.sh
+    notes: |
+      Step 5 deliberately owns attachment to the not-yet-created analysis action;
+      Step 4 correctly stops at the provider/default-attribute seam.
+
+doc_code_alignment:
+  - artifact: .agents/planning/2026-08-04-compositional-component-analysis/design/detailed-design.md
+    section: The stdlib authority map (classifier_hash)
+    issue: |
+      Design I2 requires classifier_hash to cover the generation classifier's
+      actual builtin and project rule source. The code hashes prose descriptors
+      that do not change automatically with Capslock builtin classifier content.
+    suggested_action: update_code
+    related_finding: F1
+
+  - artifact: go/internal/stdlibmap/stdlibmap.go
+    section: PackageEntry documentation
+    issue: |
+      The comment says non-importable means exactly an internal path, while the
+      repaired explicit oracle also uses importable:false for public packages
+      whose files are all excluded by target constraints.
+    suggested_action: update_doc
+    related_finding: F2
+
+  - artifact: justfile
+    section: Self-check leg relationship
+    issue: |
+      The comment calls every listed self-checked component pure even though
+      goanalysis and artifactio are shell components with declared authority.
+    suggested_action: update_doc
+    related_finding: F3
+
+findings:
+  - id: F1
+    severity: critical
+    category: architecture
+    file: go/internal/stdlibmap/generate.go
+    line: 208
+    title: Classifier hash does not fingerprint the classifier actually executed
+    details: |
+      sdkKeyProto hashes CanonicalClassifierText(GenerationClassifierRules()),
+      but the `capslock.builtins` rule at generate.go:216-220 is only a prose
+      statement that builtins are included. The minting rule similarly lists
+      method names rather than hashing capslockadapter.GenerationClassifierText,
+      even though NewGenerationClassifier loads that text together with
+      Capslock's embedded builtin classifier at
+      go/internal/capslockadapter/generation.go:21-41. Therefore changing a
+      Capslock builtin classification (for example through a dependency update)
+      can leave classifier_hash, SDKKey, and CacheKeyDigest unchanged. Native
+      OpenCachedMap may then accept and reuse a map generated under different
+      authority semantics, violating I2, N3, and Step 4's fail-closed objective.
+      Existing tests only prove that arbitrary descriptor text or RuleVersion
+      changes alter the hash and that listed minting methods appear in both
+      representations; they do not tie the hash to the executed classifier.
+    suggested_action: |
+      Derive classifier_hash from a canonical fingerprint of every semantic
+      classifier input actually executed: the exact project overlay text, the
+      variable/unsafe rules, and either the Capslock builtin classifier content
+      itself or a cryptographically stable pin to that exact content. Add a
+      regression that changes each semantic input and observes a distinct
+      classifier hash, SDK key, and native cache path/key mismatch.
+    source: built-in
+    addressed_by: step04/task-07-remediate-classifier-fingerprint.code-task.md
+
+  - id: F2
+    severity: suggestion
+    category: doc_divergence
+    file: go/internal/stdlibmap/stdlibmap.go
+    line: 82
+    title: PackageEntry comment omits public build-excluded packages
+    details: |
+      normalizeEntries at inventory.go:142-167 correctly retains a public
+      package as importable:false when the explicit oracle reports that all of
+      its files are excluded. PackageEntry still says non-importable occurs
+      exactly for internal paths. This is the open suggestion from Task 05's
+      final review and does not affect generation behavior.
+    suggested_action: |
+      Document both internal and target-build-excluded non-importable cases when
+      this API comment is next touched.
+    source: built-in
+
+  - id: F3
+    severity: suggestion
+    category: doc_divergence
+    file: justfile
+    line: 38
+    title: Self-check comment labels shell components pure
+    details: |
+      The self-check list includes goanalysis and artifactio, both of which are
+      shell components with ambient-authority declarations, while its heading
+      calls the full list pure. This is unchanged residue from Task 01's final
+      review; it does not affect the self-check or Step 4 behavior.
+    suggested_action: |
+      Replace "pure components checked here" with "components checked here" or
+      otherwise distinguish pure core components from shell components.
+    source: built-in
+
+remediation_tasks:
+  - path: .agents/tasks/2026-08-04-compositional-component-analysis/step04/task-07-remediate-classifier-fingerprint.code-task.md
+    title: Repair the Generation Classifier Fingerprint
+    addresses_findings: [F1]
+    sequence: 1
+
+ecosystem_reviews: []
