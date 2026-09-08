@@ -16,6 +16,7 @@ usable as a `deps` entry.
 load("//bazel_rules:authority.bzl", "ALL_AUTHORITIES")
 load("//bazel_rules:providers.bzl", "ArccComponentInfo")
 load("//bazel_rules/go:providers.bzl", "ArccPackageInfo", "ArccStdlibMapInfo")
+load(":arcc_metadata.bzl", "ARCC_PRODUCER_VERSION", "DEFAULT_NAMESPACE", "SURFACE_FORMAT_VERSION", "arcc_sdk_key_fields")
 load(":aspect.bzl", "arcc_deps_aspect", "merge_by_importpath")
 load(":command.bzl", "arcc_check_argv")
 load(
@@ -188,6 +189,58 @@ def _classify(ctx, merged, effective_members, covered):
         # The checker reports the remaining frontier as UNDECLARED_DEPENDENCY.
 
     return sorted(members)
+
+def _asserted_surface_sdk_key(key):
+    """The asserted surface's SDK-key object, in the schema's field order.
+
+    Mirrors protojson's canonical zero-value omission: cgo off, no build tags
+    and no GOEXPERIMENT are the zero states of their fields and are omitted,
+    exactly as the checked emitter's canonical encoder omits them (DR-15).
+    """
+    sdk_key = {
+        "toolchainVersion": key.toolchain_version,
+        "goos": key.goos,
+        "goarch": key.goarch,
+    }
+    if key.cgo_enabled:
+        sdk_key["cgoEnabled"] = True
+    if key.build_tags:
+        sdk_key["buildTags"] = list(key.build_tags)
+    if key.goexperiment:
+        sdk_key["goexperiment"] = key.goexperiment
+    sdk_key["classifierHash"] = key.classifier_hash
+    sdk_key["mapFormatVersion"] = key.map_format_version
+    return sdk_key
+
+def _asserted_surface_content(component_name, packages, key):
+    """The canonical asserted-surface JSON, written at analysis time (I6).
+
+    An asserted surface is an assertion *about* the component, never a
+    derivation *from* its code (design I6): it carries only what Bazel
+    analysis already knows — the member packages from the layout, the
+    canonical namespace, the complete target SDK key, the format and producer
+    versions — and nothing derived. Its symbol list is empty and its digest is
+    the empty string, both of which the canonical encoder omits as zero
+    values: absence records that no content was derived, and consumers MUST
+    NOT read it as a content claim (design §The surface manifest).
+
+    The field order, indentation and trailing newline follow the canonical
+    artifact contract (DR-15), so this write is byte-identical to what the
+    checked emitter's encoder would produce for the same asserted content.
+    The SDK key is assembled through arcc_metadata.bzl's single seam and is
+    pinned against the checked emitter's key by asserted_surface_sdk_key_test
+    (task req 5) — never duplicated here.
+    """
+    return json.encode_indent({
+        "formatVersion": SURFACE_FORMAT_VERSION,
+        "component": component_name,
+        "interfaceStyle": "INTERFACE_STYLE_PACKAGE_SURFACE",
+        "authority": {"authority": "UNKNOWN"},
+        "packages": list(packages),
+        "namespace": DEFAULT_NAMESPACE,
+        "sdkKey": _asserted_surface_sdk_key(key),
+        "producerVersion": ARCC_PRODUCER_VERSION,
+    }, indent = "  ") + "\n"
 
 def _shell_quote(arg):
     """Shell-quote one argv element for the generated frame wrapper (see check.bzl)."""
@@ -491,12 +544,39 @@ def go_component_impl(ctx, attachment_fn = go_attached_infra):
 
     report = None
     surface = None
-    if layout:
-        # Every component takes the checked path here, `manual`-tagged ones
-        # included: that is deliberate until Task 5 introduces the asserted
-        # branch (Task 5 owns detecting the tag, auditing every current use,
-        # and migrating fixture-only uses). This transitional state is
-        # specified by Task 4 req 4, not a defect.
+    provenance = None
+    if "manual" in ctx.attr.tags:
+        # The asserted producer path (design I6, Step 5 task 05): a manual
+        # component is not analysed. Its surface is asserted ABOUT it —
+        # package-level, no symbols, empty digest — written here at analysis
+        # time from data already known to the rule. Step 11 replaces this
+        # tag-based selection with the `authority: UNKNOWN` attribute.
+        if interface:
+            fail(("component %s: a manual (asserted) component cannot have a declared interface. " +
+                  "Asserted surfaces are package-level (design I6): Bazel analysis has no type " +
+                  "information, so an asserted surface carries no symbols and a declared-interface " +
+                  "component cannot be asserted. Check the component (remove the manual tag), or " +
+                  "migrate it to interface_style = PACKAGE_SURFACE.") % ctx.label.name)
+        if ctx.attr.declared_authority:
+            fail(("component %s: a manual (asserted) component is not analysed, so its authority is " +
+                  "UNKNOWN (design R10); declared_authority must be empty. Declared authority is " +
+                  "only ever established by a checked analysis.") % ctx.label.name)
+        if not layout:
+            fail(("component %s: a manual (asserted) component must be PACKAGE_SURFACE with at " +
+                  "least one member, so its layout exists and its packages are known.") % ctx.label.name)
+        surface = ctx.actions.declare_file(ctx.label.name + ".surface.json")
+        ctx.actions.write(
+            output = surface,
+            content = _asserted_surface_content(
+                component_name = ctx.label.name,
+                packages = members,
+                key = arcc_sdk_key_fields(ctx.attr._stdlib_map[ArccStdlibMapInfo]),
+            ),
+        )
+        provenance = "asserted"
+    elif layout:
+        # The checked producer path (design R8, task 04): one ordinary action
+        # running `arcc check` in report-verdict-only mode.
         dep_runfiles = depset(transitive = [
             dep[DefaultInfo].default_runfiles.files
             for dep in ctx.attr.component_deps
@@ -515,6 +595,7 @@ def go_component_impl(ctx, attachment_fn = go_attached_infra):
             dep_runfiles = dep_runfiles,
             sdk_root_file = go_stdlib_toolchain(ctx).root_file,
         )
+        provenance = "checked"
 
     base_runfiles = ctx.runfiles(
         files = closure_srcs,
@@ -546,18 +627,25 @@ def go_component_impl(ctx, attachment_fn = go_attached_infra):
             contracts = contracts,
             surface = surface,
             report = report,
-            # Transitional (Task 4 req 4): "checked" for every producer,
-            # manual-tagged ones included, until Task 5's asserted branch
-            # splits manual components onto provenance = "asserted".
-            provenance = "checked" if report != None else None,
+            # Structural provenance (R8): the asserted producer publishes
+            # "asserted" with report = None; the checked producer publishes
+            # "checked" with its report. The distinction is the producer and
+            # the build graph, never a flag inside the surface file (I6, DR-01).
+            provenance = provenance,
         ),
     ]
-    if report != None:
+    if surface != None:
         # Lazy analysis (design §Build topology): the report and surface ride
         # in the `arcc` output group, never in DefaultInfo, so `bazel build
         # //...` runs no component analysis unless the group — or a consumer
-        # — requests it.
-        providers.append(OutputGroupInfo(arcc = depset([report, surface])))
+        # — requests it. An asserted component's output group carries only
+        # the asserted surface: there is no report artifact at all (task
+        # req 4).
+        providers.append(OutputGroupInfo(arcc = depset([
+            artifact
+            for artifact in (report, surface)
+            if artifact != None
+        ])))
     if interface:
         providers.extend(forward_go_providers(interface))
     return providers

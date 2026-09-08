@@ -2,6 +2,7 @@ load("@rules_go//go:def.bzl", "go_test")
 load("@rules_shell//shell:sh_test.bzl", "sh_test")
 load("//bazel_rules/go/private:check.bzl", "arcc_check_grep_test", "arcc_check_report_golden_test", "arcc_check_test", "arcc_checked_analysis_test")
 load(":aspect_tests.bzl", "arcc_deps_aspect_test_suite")
+load(":asserted_surface_tests.bzl", "asserted_surface_test_suite")
 load(":component_tests.bzl", "go_component_test_suite")
 load(":pattern_match_test.bzl", "pattern_match_test_suite")
 load(":probe.bzl", "checked_analysis_surface", "transitioned_checked_map", "transitioned_checked_surface", "transitioned_component_layout")
@@ -94,6 +95,33 @@ sh_test(
 arcc_deps_aspect_test_suite(name = "arcc_deps_aspect_tests")
 
 go_component_test_suite(name = "go_component_tests")
+
+asserted_surface_test_suite(name = "asserted_surface_tests")
+
+# SDK-key equality between the asserted writer's Starlark-assembled key and
+# the checked emitter's (Step 5 task 05 req 5): the mirrored constants in
+# arcc_metadata.bzl are proven against a built checked surface and the
+# stamped map artifact.
+checked_analysis_surface(
+    name = "asserted_surface",
+    component = "//bazel_rules/go/tests/testdata/reportboundary/manual:manual_component",
+)
+
+sh_test(
+    name = "asserted_surface_sdk_key_test",
+    srcs = ["asserted_surface_sdk_key_test.sh"],
+    size = "small",
+    args = [
+        "$(rootpath :default_surface)",
+        "$(rootpath :asserted_surface)",
+        "$(rootpath //:arcc_stdlib_map)",
+    ],
+    data = [
+        "//:arcc_stdlib_map",
+        ":asserted_surface",
+        ":default_surface",
+    ],
+)
 
 pattern_match_test_suite(name = "pattern_match_tests")
 

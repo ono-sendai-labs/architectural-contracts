@@ -1,4 +1,4 @@
-load("@rules_arcc//bazel_rules/go:defs.bzl", "go_component")
+load("@rules_arcc//bazel_rules/go:defs.bzl", "PACKAGE_SURFACE", "go_component")
 load("@rules_go//go:def.bzl", "go_library")
 
 go_library(
@@ -8,11 +8,18 @@ go_library(
     visibility = ["//bazel_rules:__subpackages__"],
 )
 
-# The generated check is deliberately excluded so the report must retain an
-# asserted annotation for consumers that cross this boundary.
+# The one genuine asserted fixture (Step 5 task 05): this component is not
+# analysed, so consumers that cross this boundary receive an asserted
+# surface (provenance = "asserted", report = None) through the provider.
+# Asserted surfaces are package-level (design I6), so the component is
+# PACKAGE_SURFACE: its complete surface is its member set. The `manual` tag
+# also keeps the target out of wildcard builds.
+#
+# Step 11 replaces the tag-based asserted branch with `authority: UNKNOWN`.
 go_component(
     name = "manual_component",
-    interface = ":manual",
+    interface_style = PACKAGE_SURFACE,
+    members = [":manual"],
     tags = ["manual"],
     visibility = ["//bazel_rules:__subpackages__"],
 )
