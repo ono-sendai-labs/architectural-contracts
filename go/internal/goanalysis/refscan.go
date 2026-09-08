@@ -54,11 +54,17 @@ func ScanReferences(
 	imports := make(map[facts.ImportKey]struct{})
 
 	for _, p := range pkgs {
-		if p == nil || p.TypesInfo == nil || p.Fset == nil {
+		if p == nil {
 			continue
 		}
 		if !members.Contains(hostpolicy.CanonicalizePath(p.PkgPath)) {
 			continue
+		}
+		// Incomplete member type information is a fail-closed tool error, not
+		// a silent omission: a member package whose Uses/Selections/imports
+		// cannot be fully walked must never yield a partial-facts pass.
+		if p.TypesInfo == nil || p.Fset == nil || p.Syntax == nil {
+			return nil, nil, fmt.Errorf("scanning references: member package %q has incomplete type or syntax data", p.PkgPath)
 		}
 		if err := scanPackage(p, members, root, refs, imports); err != nil {
 			return nil, nil, err
@@ -156,8 +162,15 @@ func scanPackage(
 					return fmt.Errorf("scanning imports of %s: %w", fromPkg, err)
 				}
 				resolution := facts.ImportUnresolved
-				if _, resolved := p.Imports[path]; resolved {
-					resolution = facts.ImportResolved
+				if imp, resolved := p.Imports[path]; resolved {
+					// A nil import-package entry means the loader knows the
+					// path but presents no type data for it: the deliberate
+					// missing-type-data state, never a resolved pass.
+					if imp == nil {
+						resolution = facts.ImportMissingTypeData
+					} else {
+						resolution = facts.ImportResolved
+					}
 				}
 				imports[facts.ImportKey{
 					ImportingPackage: fromPkg,

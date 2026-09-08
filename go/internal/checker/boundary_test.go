@@ -200,3 +200,30 @@ func TestBoundaryIndex_MalformedEdge(t *testing.T) {
 		t.Errorf("expected an error for a malformed edge")
 	}
 }
+
+func TestBoundaryIndex_DependencyOverlap_MultipleCollisions(t *testing.T) {
+	ms, err := facts.NewMemberSet("example.com/comp/member")
+	if err != nil {
+		t.Fatalf("member set: %v", err)
+	}
+	// Two independent collisions: alpha/beta on pkg-a, gamma/delta on pkg-b.
+	first := depInterface("alpha", manifest.InterfaceStyleUnspecified, []string{"example.com/pkg-a"}, nil)
+	second := depInterface("beta", manifest.InterfaceStyleUnspecified, []string{"example.com/pkg-a"}, nil)
+	third := depInterface("gamma", manifest.InterfaceStyleUnspecified, []string{"example.com/pkg-b"}, nil)
+	fourth := depInterface("delta", manifest.InterfaceStyleUnspecified, []string{"example.com/pkg-b"}, nil)
+
+	forward, errF := checker.NewBoundaryIndex(ms, []facts.DependencyInterface{first, second, third, fourth})
+	reversed, errR := checker.NewBoundaryIndex(ms, []facts.DependencyInterface{fourth, third, second, first})
+	if errF == nil || errR == nil {
+		t.Fatalf("expected DEPENDENCY_OVERLAP errors, got %v / %v", errF, errR)
+	}
+	if errF.Error() != errR.Error() {
+		t.Errorf("overlap error must be order-independent even with multiple collisions:\n%v\n%v", errF, errR)
+	}
+	// The reported collision is the lexicographically first by package.
+	if !strings.Contains(errF.Error(), "example.com/pkg-a") || !strings.Contains(errF.Error(), "alpha") || !strings.Contains(errF.Error(), "beta") {
+		t.Errorf("expected the lexicographically first collision (pkg-a, alpha/beta), got: %v", errF)
+	}
+	_ = forward
+	_ = reversed
+}

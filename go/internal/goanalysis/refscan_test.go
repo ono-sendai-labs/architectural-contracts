@@ -247,3 +247,43 @@ func TestScanReferences_BadRoot(t *testing.T) {
 		t.Errorf("expected an actionable error naming the escaping site, got: %v", err)
 	}
 }
+
+func TestScanReferences_IncompleteMemberTypeInfo(t *testing.T) {
+	pkgs, ms, root := loadRefScan(t)
+	// Simulate incomplete type information for one member package: the scan
+	// must fail closed with an actionable error naming the package, not
+	// silently omit its facts.
+	for _, p := range pkgs {
+		if p.PkgPath == refscanMember+"/kinds" {
+			p.TypesInfo = nil
+		}
+	}
+	_, _, err := goanalysis.ScanReferences(pkgs, ms, root)
+	if err == nil || !strings.Contains(err.Error(), refscanMember+"/kinds") {
+		t.Errorf("expected a fail-closed error naming the incomplete member package, got: %v", err)
+	}
+}
+
+func TestScanReferences_IncompleteImportPackageData(t *testing.T) {
+	pkgs, ms, root := loadRefScan(t)
+	// A nil import-package entry must not be classified as resolved type
+	// data: the deliberate missing-type-data state is preserved.
+	for _, p := range pkgs {
+		if p.PkgPath == refscanMember+"/builtins" {
+			p.Imports["fmt"] = nil
+		}
+	}
+	_, imports, err := goanalysis.ScanReferences(pkgs, ms, root)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	for _, e := range imports {
+		if e.ImportingPackage == refscanMember+"/builtins" && e.ImportPath == "fmt" {
+			if e.Resolution != facts.ImportMissingTypeData {
+				t.Errorf("nil import package data must not be ImportResolved, got %q", e.Resolution)
+			}
+			return
+		}
+	}
+	t.Fatalf("the fmt import edge of the builtins package was not observed")
+}

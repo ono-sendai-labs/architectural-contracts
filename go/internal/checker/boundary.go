@@ -29,6 +29,7 @@ package checker
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/facts"
@@ -88,23 +89,55 @@ type BoundaryIndex struct {
 
 // NewBoundaryIndex builds the index. If two resolved direct dependencies
 // claim the same package, construction fails with a deterministic
-// DEPENDENCY_OVERLAP tool error naming the package and both components,
-// independent of dependency order (R14) — the legacy last-wins behavior must
-// not return.
+// DEPENDENCY_OVERLAP tool error naming the package and both components —
+// lexicographically first by package, so the reported collision (and the
+// error text) is byte-identical in any dependency order (R14). The legacy
+// last-wins behavior must not return.
 func NewBoundaryIndex(members facts.MemberSet, deps []facts.DependencyInterface) (*BoundaryIndex, error) {
+	owners := make(map[string]string)
+	var collisions []overlap
+	for i := range deps {
+		di := &deps[i]
+		for _, pkg := range di.Packages {
+			prev, exists := owners[pkg]
+			if exists && prev != di.Component {
+				first, second := sortedPair(prev, di.Component)
+				collisions = append(collisions, overlap{pkg: pkg, first: first, second: second})
+				continue
+			}
+			owners[pkg] = di.Component
+		}
+	}
+	if len(collisions) > 0 {
+		sort.Slice(collisions, func(i, j int) bool {
+			a, b := collisions[i], collisions[j]
+			if c := strings.Compare(a.pkg, b.pkg); c != 0 {
+				return c < 0
+			}
+			if c := strings.Compare(a.first, b.first); c != 0 {
+				return c < 0
+			}
+			return strings.Compare(a.second, b.second) < 0
+		})
+		c := collisions[0]
+		return nil, fmt.Errorf("DEPENDENCY_OVERLAP: package %q is claimed by dependencies %q and %q", c.pkg, c.first, c.second)
+	}
 	pkgToDep := make(map[string]*facts.DependencyInterface)
 	for i := range deps {
 		di := &deps[i]
 		for _, pkg := range di.Packages {
-			prev, exists := pkgToDep[pkg]
-			if exists && prev.Component != di.Component {
-				first, second := sortedPair(prev.Component, di.Component)
-				return nil, fmt.Errorf("DEPENDENCY_OVERLAP: package %q is claimed by dependencies %q and %q", pkg, first, second)
-			}
 			pkgToDep[pkg] = di
 		}
 	}
 	return &BoundaryIndex{members: members, pkgToDep: pkgToDep}, nil
+}
+
+// overlap is one cross-component package collision, normalized so the pair
+// order cannot depend on the input order.
+type overlap struct {
+	pkg    string
+	first  string
+	second string
 }
 
 // sortedPair returns its two inputs in byte order, so an overlap error is
