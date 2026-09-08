@@ -110,7 +110,7 @@ func TestVerdict_ExitCodes(t *testing.T) {
 			if got != tt.wantExit {
 				t.Errorf("Run(%q) exit = %d, want %d (stderr: %q)", tt.args, got, tt.wantExit, stderr.String())
 			}
-			if tt.wantStderr != "" && !bytes.Contains([]byte(stderr.String()), []byte(tt.wantStderr)) {
+			if tt.wantStderr != "" && !bytes.Contains(stderr.Bytes(), []byte(tt.wantStderr)) {
 				t.Errorf("stderr = %q, want containing %q", stderr.String(), tt.wantStderr)
 			}
 		})

@@ -80,6 +80,64 @@ func TestMarshalReport_DeterministicAcrossOrderings(t *testing.T) {
 	}
 }
 
+func TestMarshalReport_DeterministicAcrossDependencyAndEvidenceOrderings(t *testing.T) {
+	evidenceA := []string{"alpha frame", "beta frame"}
+	evidenceB := []string{"beta frame", "alpha frame"}
+	forward := report.ConformanceReport{
+		Component: "c",
+		Dependencies: []report.DependencyBoundary{
+			{Component: "zeta"},
+			{Component: "alpha"},
+		},
+		Violations: []report.Finding{
+			{Kind: report.UndeclaredAuthority, Message: "same", Location: report.Location{File: "a.go", Line: 1}, Evidence: evidenceA},
+			{Kind: report.UndeclaredAuthority, Message: "same", Location: report.Location{File: "a.go", Line: 1}, Evidence: evidenceB},
+		},
+	}
+	reverse := report.ConformanceReport{
+		Component: "c",
+		Dependencies: []report.DependencyBoundary{
+			{Component: "alpha"},
+			{Component: "zeta"},
+		},
+		Violations: []report.Finding{
+			{Kind: report.UndeclaredAuthority, Message: "same", Location: report.Location{File: "a.go", Line: 1}, Evidence: evidenceB},
+			{Kind: report.UndeclaredAuthority, Message: "same", Location: report.Location{File: "a.go", Line: 1}, Evidence: evidenceA},
+		},
+	}
+
+	first, err := artifactio.MarshalReport(forward)
+	if err != nil {
+		t.Fatalf("MarshalReport(forward) error = %v", err)
+	}
+	again, err := artifactio.MarshalReport(reverse)
+	if err != nil {
+		t.Fatalf("MarshalReport(reverse) error = %v", err)
+	}
+	if string(first) != string(again) {
+		t.Fatalf("canonical bytes differ between dependency/evidence orderings:\n%s\n---\n%s", first, again)
+	}
+}
+
+func TestMarshalReport_DirectJSONCannotStampContradictoryVerdict(t *testing.T) {
+	stamped := artifactio.PersistedReport{
+		FormatVersion: artifactio.ReportFormatVersion,
+		Verdict:       report.VerdictFail,
+		Report:        report.ConformanceReport{Component: "clean"},
+	}
+	data, err := json.Marshal(stamped)
+	if err != nil {
+		t.Fatalf("json.Marshal(PersistedReport) error = %v", err)
+	}
+	var got artifactio.PersistedReport
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatalf("round-trip of a stamped value failed: %v", err)
+	}
+	if got.Verdict != report.VerdictPass {
+		t.Errorf("direct serialization emitted verdict %q; the derivation must always win over a stamped value", got.Verdict)
+	}
+}
+
 func TestDecodeReport_RoundTrip(t *testing.T) {
 	input := report.ConformanceReport{
 		Component: "c",
@@ -163,6 +221,26 @@ func TestDecodeReport_RejectsInvalidInput(t *testing.T) {
 			input:   string(stampVerdict(t, failing, "pass")),
 			wantErr: artifactio.ErrVerdictMismatch,
 		},
+		{
+			name:    "missing report field",
+			input:   `{"format_version":1,"verdict":"pass"}`,
+			wantErr: artifactio.ErrMalformedReport,
+		},
+		{
+			name:    "null report field",
+			input:   `{"format_version":1,"verdict":"pass","report":null}`,
+			wantErr: artifactio.ErrMalformedReport,
+		},
+		{
+			name:    "missing verdict field",
+			input:   `{"format_version":1,"report":{"component":"c"}}`,
+			wantErr: artifactio.ErrUnknownVerdict,
+		},
+		{
+			name:    "missing format_version field",
+			input:   `{"verdict":"pass","report":{"component":"c"}}`,
+			wantErr: artifactio.ErrUnsupportedReportVersion,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -193,6 +271,17 @@ func TestDecodeReport_RejectsUnsupportedFormatVersion(t *testing.T) {
 	}
 	if _, err := artifactio.DecodeReport(bumped); !errors.Is(err, artifactio.ErrUnsupportedReportVersion) {
 		t.Errorf("DecodeReport() error = %v, want wrapping ErrUnsupportedReportVersion", err)
+	}
+}
+
+func TestDecodeReport_EnforcesSizeLimitDirectly(t *testing.T) {
+	oversized := strings.Repeat("a", int(artifactio.MaxReportBytes)+1)
+	_, err := artifactio.DecodeReport([]byte(oversized))
+	if err == nil {
+		t.Fatal("DecodeReport() succeeded on oversized input, want error")
+	}
+	if !strings.Contains(err.Error(), "byte limit") {
+		t.Errorf("error = %v, want a size-limit diagnostic", err)
 	}
 }
 

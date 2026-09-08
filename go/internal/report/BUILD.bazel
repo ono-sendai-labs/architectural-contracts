@@ -11,7 +11,7 @@ go_library(
 go_test(
     name = "report_test",
     size = "small",
-    srcs = ["report_test.go"],
+    srcs = ["artifact_test.go", "report_test.go"],
     deps = [":report"],
 )
 
