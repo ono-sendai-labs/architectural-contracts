@@ -1,7 +1,11 @@
 package capslockadapter
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
+	"reflect"
+	"sort"
 	"strings"
 
 	"github.com/google/capslock/analyzer"
@@ -24,6 +28,83 @@ import (
 // source hashed into the SDK key's classifier_hash (I2, task req 2).
 func GenerationClassifierText() (string, error) {
 	return buildClassifierText(nil)
+}
+
+// builtinPinSeparator/entry delimit the canonical builtin-content rendering
+// hashed by classifierContentDigest; the separators never appear in the
+// extracted keys or values.
+const (
+	builtinPinEntry     = "\x1f"
+	builtinPinSeparator = "\x1e"
+)
+
+// BuiltinClassifierPin returns a cryptographically stable content pin for
+// Capslock's embedded builtin classifier (design I2, task req 2): the hex
+// SHA-256 of a canonical, order-independent rendering of the classifier's
+// exact semantic content — every function and package classification, every
+// unanalyzed declaration, every ignored edge and cgo suffix. Any change to
+// the builtin classifier content (for example through a Capslock dependency
+// update) necessarily changes the pin, and with it the SDK key's
+// classifier_hash and the native cache identity.
+func BuiltinClassifierPin() (string, error) {
+	return classifierContentDigest(interesting.DefaultClassifier())
+}
+
+// classifierContentDigest renders one classifier's full semantic content
+// canonically and digests it. Capslock's Classifier exposes its content only
+// through unexported map fields, so the rendering reads those fields with
+// reflection; read-only reflection is sufficient (the read-only flag permits
+// Len, MapKeys/MapIndex, Index and String). The extraction fails loudly — an
+// error, never a partial pin — if a Capslock upgrade changes the classifier's
+// field structure, so generation fails closed rather than fingerprinting a
+// silently weakened description.
+func classifierContentDigest(c *interesting.Classifier) (string, error) {
+	if c == nil {
+		return "", fmt.Errorf("digesting the builtin classifier: the classifier is nil")
+	}
+	v := reflect.ValueOf(c).Elem()
+	var lines []string
+	addMap := func(name string, renderKey func(reflect.Value) string, hasValue bool) error {
+		f := v.FieldByName(name)
+		if !f.IsValid() || f.Kind() != reflect.Map {
+			return fmt.Errorf("digesting the builtin classifier: field %q is missing or not a map (Capslock's Classifier structure changed)", name)
+		}
+		// Capslock's own loader panics when the embedded builtin map is
+		// empty (parseInternalMapOrDie), so no empty-classifier guard is
+		// needed here; the digest is simply faithful to the content.
+		for _, k := range f.MapKeys() {
+			line := name + builtinPinEntry + renderKey(k)
+			if hasValue {
+				line += builtinPinEntry + f.MapIndex(k).String()
+			}
+			lines = append(lines, line)
+		}
+		return nil
+	}
+	if err := addMap("functionCategory", func(k reflect.Value) string { return k.String() }, true); err != nil {
+		return "", err
+	}
+	if err := addMap("unanalyzedCategory", func(k reflect.Value) string { return k.String() }, true); err != nil {
+		return "", err
+	}
+	if err := addMap("packageCategory", func(k reflect.Value) string { return k.String() }, true); err != nil {
+		return "", err
+	}
+	if err := addMap("ignoredEdges", func(k reflect.Value) string {
+		return k.Index(0).String() + builtinPinEntry + k.Index(1).String()
+	}, false); err != nil {
+		return "", err
+	}
+	sfx := v.FieldByName("cgoSuffixes")
+	if !sfx.IsValid() || sfx.Kind() != reflect.Slice {
+		return "", fmt.Errorf("digesting the builtin classifier: field %q is missing or not a slice (Capslock's Classifier structure changed)", "cgoSuffixes")
+	}
+	for i := 0; i < sfx.Len(); i++ {
+		lines = append(lines, "cgoSuffix"+builtinPinEntry+sfx.Index(i).String())
+	}
+	sort.Strings(lines)
+	h := sha256.Sum256([]byte(strings.Join(lines, builtinPinSeparator)))
+	return hex.EncodeToString(h[:]), nil
 }
 
 // NewGenerationClassifier constructs the generation classifier: Capslock's
