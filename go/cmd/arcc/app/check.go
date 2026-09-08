@@ -13,6 +13,7 @@ import (
 
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/artifactio"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/capanalyzer"
+	"github.com/ono-sendai-labs/architectural-contracts/go/internal/capslockadapter"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/checker"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/facts"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/goanalysis"
@@ -189,7 +190,7 @@ func (r *Runner) runCheck(opts checkOptions, stdout, stderr io.Writer) int {
 	}
 
 	// 3. Load facts for that root.
-	loadedFacts, err := r.Loader(goanalysis.LoadRequest{
+	loadedFacts, err := r.loader()(goanalysis.LoadRequest{
 		ComponentName:  parsedManifest.Name,
 		ComponentRoot:  componentRoot,
 		Members:        parsedManifest.Members,
@@ -241,7 +242,7 @@ func (r *Runner) runCheck(opts checkOptions, stdout, stderr io.Writer) int {
 	}
 	var findings []capanalyzer.CapabilityFinding
 	if len(pkgs) > 0 {
-		findings, err = r.Analyzer.Analyze(capanalyzer.AnalyzeRequest{
+		findings, err = r.analyzer().Analyze(capanalyzer.AnalyzeRequest{
 			Packages: pkgs,
 			PruneAt:  pruneAt,
 		})
@@ -408,6 +409,20 @@ func producerVersion() string {
 }
 
 // --- default seams -----------------------------------------------------------
+
+func (r *Runner) loader() PackageLoader {
+	if r.Loader != nil {
+		return r.Loader
+	}
+	return goanalysis.LoadPackageFacts
+}
+
+func (r *Runner) analyzer() capanalyzer.CapabilityAnalyzer {
+	if r.Analyzer != nil {
+		return r.Analyzer
+	}
+	return capslockadapter.NewAdapter()
+}
 
 func (r *Runner) keyResolver() SDKKeyResolver {
 	if r.KeyResolver != nil {

@@ -1,9 +1,9 @@
 // Package app implements CLI orchestration and formatting of architectural checks.
 //
 // Component Contract (FR10):
-// - What it does: Orchestrates manifest parsing, fact loading, capability analysis, checker execution, report rendering, report-verdict assertion, and the stdlibmap subcommands (generate native and explicit-input mode, inspect).
-// - What it requires: Command-line arguments specifying the command path and output format, as well as an environment for stdout/stderr output. Explicit-input `stdlibmap generate` declares its whole target (package list, config file, SDK root) and performs no host discovery. `verdict` reads only its named report artifact argument.
-// - What it provides: Actionable conformance reports and deterministic exit codes.
+// - What it does: Orchestrates manifest parsing, fact loading, capability analysis, checker execution, report rendering, report-verdict assertion, check artifact emission (canonical report and exact surface from one analysis invocation, with SDK-key resolution behind an injected resolver), and the stdlibmap subcommands (generate native and explicit-input mode, inspect).
+// - What it requires: Command-line arguments specifying the command path and output format, as well as an environment for stdout/stderr output. Explicit-input `stdlibmap generate` declares its whole target (package list, config file, SDK root) and performs no host discovery. `verdict` reads only its named report artifact argument. Check artifact emission reads the declared stdlib-map artifact (--stdlib-map) in layout mode and the Step 4 native discovery/cache services in native mode.
+// - What it provides: Actionable conformance reports and deterministic exit codes, plus the canonical report and exact surface artifacts consumed by Bazel and native workflows. Emitted surfaces are exact (no implements-closure injection) while the check keeps the implements-closure workaround until Step 6, by design for this one step.
 // - Ambient Authority: This component is a shell component and holds FILES, REFLECT, READ_SYSTEM_STATE, and UNSAFE_POINTER. Explicit-input map generation adds no EXEC beyond arcc's own self-exec layout driver: it never runs the toolchain (`go env`, `go list`), while native mode runs the host toolchain.
 package app
 
@@ -122,9 +122,24 @@ func printUsage(w io.Writer) {
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "Usage:")
 	fmt.Fprintln(w, "  arcc check <manifest> [--package-layout=<layout>] [--format=json]")
+	fmt.Fprintln(w, "        [--report-out=<path>] [--surface-out=<path>] [--stdlib-map=<artifact>]")
+	fmt.Fprintln(w, "        [--report-verdict-only]")
 	fmt.Fprintln(w, "  arcc verdict <report> --expect=pass|fail")
 	fmt.Fprintln(w, "  arcc stdlibmap generate --output=<path> [--toolchain=<version>] [--goos=<os>] [--goarch=<arch>] [--cgo] [--tags=<t1,t2>] [--goexperiment=<exp>]")
 	fmt.Fprintln(w, "  arcc stdlibmap generate --output=<path> --package-list=<file> --config-file=<file> --sdk-root=<dir>  (explicit-input mode)")
 	fmt.Fprintln(w, "  arcc stdlibmap inspect <artifact> [--expect-key=<field=value,...>] [summary | symbol <id> | init <pkg>]...")
 	fmt.Fprintln(w, "  arcc --version")
+	fmt.Fprintln(w)
+	fmt.Fprintln(w, "check artifact emission: --report-out writes the canonical report JSON and")
+	fmt.Fprintln(w, "--surface-out writes the exact canonical surface JSON, both atomically from")
+	fmt.Fprintln(w, "one analysis invocation. The declared stdlib-map artifact (--stdlib-map)")
+	fmt.Fprintln(w, "supplies the target SDK identity for the surface; its symbol")
+	fmt.Fprintln(w, "classifications are not consulted by checker decisions until Step 6.")
+	fmt.Fprintln(w, "--report-verdict-only requires --report-out and exits 0 for both pass and")
+	fmt.Fprintln(w, "fail after analysis and publication; tool errors still exit 2.")
+	fmt.Fprintln(w)
+	fmt.Fprintln(w, "Note (Step 5): emitted surfaces are exact — the declared interface with no")
+	fmt.Fprintln(w, "implements-closure injection — while the check still resolves dependency")
+	fmt.Fprintln(w, "interfaces through the implements-closure workaround until Step 6, so")
+	fmt.Fprintln(w, "check and surface can disagree for this one step by design.")
 }

@@ -227,10 +227,52 @@ arcc checks Go architectural component contracts.
 
 Usage:
   arcc check <manifest>
+        [--report-out=<path>] [--surface-out=<path>] [--stdlib-map=<artifact>]
+        [--report-verdict-only]
+  arcc verdict <report> --expect=pass|fail
   arcc stdlibmap generate --output=<path> [--toolchain=<version>] [--goos=<os>] [--goarch=<arch>] [--cgo] [--tags=<t1,t2>] [--goexperiment=<exp>]
   arcc stdlibmap inspect <artifact> [--expect-key=<field=value,...>] [summary | symbol <id> | init <pkg>]...
   arcc --version
 ```
+
+### Check artifact emission
+
+`arcc check` can publish the canonical artifacts Bazel and native workflows
+consume, from one analysis invocation:
+
+- `--report-out=<path>` writes the canonical report JSON
+  (`<name>.report.json` shape): the completed report plus its explicitly
+  derived verdict. Written atomically; identical inputs produce byte-identical
+  artifacts.
+- `--surface-out=<path>` writes the exact canonical surface JSON after the
+  manifest/interface validation and member fact load have succeeded. The
+  surface needs the target SDK identity, which comes from the declared
+  Step 4 stdlib-map artifact:
+  - **Layout/Bazel mode**: pass `--stdlib-map=<artifact>`; the declared map
+    is validated (decode, format version, classifier hash, and — when the
+    layout pins a platform — the target key) and its key becomes the
+    surface's SDK identity. A missing, corrupt, format-mismatched,
+    classifier-mismatched, or target-mismatched map fails closed with exit 2.
+  - **Native mode**: without `--stdlib-map`, the target is discovered via the
+    Step 4 services (`go env`) and the map is resolved from the on-demand
+    cache (generated on a miss). Passing `--stdlib-map` in native mode uses
+    the declared artifact instead.
+- `--report-verdict-only` requires `--report-out` and separates policy from
+  execution for the Bazel analysis action: after analysis and artifact
+  publication both a passing and a violating component exit 0 (the verdict is
+  recorded in the report), while every usage, loading, analysis, key, or
+  write error still exits 2. Without it, the exit codes below are unchanged.
+- Artifact output is canonical and independent of `--format`: stdout display
+  is preserved as usual.
+
+The map is used only for identity in this step — standard-library authority
+classification is not yet consulted by checker decisions (Step 6).
+
+**Step 5 note:** emitted surfaces are exact — the declared interface with no
+implements-closure injection — while the check still resolves dependency
+interfaces through the implements-closure workaround until Step 6. Check and
+surface can therefore disagree for this one step by design.
+
 
 `arcc stdlibmap generate` produces the canonical standard-library authority
 map for a target configuration: by default the current toolchain (`go env`
