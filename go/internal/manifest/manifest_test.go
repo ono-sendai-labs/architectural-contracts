@@ -539,10 +539,11 @@ func TestSelfHostingManifests(t *testing.T) {
 		},
 		"../facts/component.textproto": {
 			name:           "facts",
-			interfaceFiles: []string{"facts.go"},
+			interfaceFiles: []string{"facts.go", "member.go", "refs.go"},
 			dependencies: map[string]string{
 				"capanalyzer": "../capanalyzer/component.textproto",
 				"manifest":    "../manifest/component.textproto",
+				"symbol":      "../symbol/component.textproto",
 			},
 		},
 		"../report/component.textproto": {

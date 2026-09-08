@@ -5,7 +5,6 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/ono-sendai-labs/architectural-contracts/go/internal/hostpolicy"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/symbol"
 )
 
@@ -97,10 +96,10 @@ func (e ReferenceEdge) Validate() error {
 	if e.FromPackage == "" {
 		return fmt.Errorf("reference edge to %s: empty FromPackage", e.Referent)
 	}
-	if err := hostpolicy.ValidateCanonicalPath(e.FromPackage); err != nil {
+	if err := symbol.ValidateCanonicalPath(e.FromPackage); err != nil {
 		return fmt.Errorf("reference edge to %s: %w", e.Referent, err)
 	}
-	if err := hostpolicy.ValidateCanonicalPath(e.ReferentPackage); err != nil {
+	if err := symbol.ValidateCanonicalPath(e.ReferentPackage); err != nil {
 		return fmt.Errorf("reference edge to %s: %w", e.Referent, err)
 	}
 	id, err := symbol.Parse(string(e.Referent))
@@ -254,13 +253,13 @@ func (e ImportEdge) Validate() error {
 	if e.ImportingPackage == "" {
 		return fmt.Errorf("import edge for %q: empty ImportingPackage", e.ImportPath)
 	}
-	if err := hostpolicy.ValidateCanonicalPath(e.ImportingPackage); err != nil {
+	if err := symbol.ValidateCanonicalPath(e.ImportingPackage); err != nil {
 		return fmt.Errorf("import edge for %q: %w", e.ImportPath, err)
 	}
 	if e.ImportPath == "" {
 		return fmt.Errorf("import edge in %s: empty ImportPath", e.ImportingPackage)
 	}
-	if err := hostpolicy.ValidateCanonicalPath(e.ImportPath); err != nil {
+	if err := symbol.ValidateCanonicalPath(e.ImportPath); err != nil {
 		return fmt.Errorf("import edge in %s: %w", e.ImportingPackage, err)
 	}
 	if e.Site.File == "" {

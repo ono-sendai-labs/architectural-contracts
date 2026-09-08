@@ -3,22 +3,32 @@ load("@rules_go//go:def.bzl", "go_library", "go_test")
 
 go_library(
     name = "facts",
-    srcs = ["facts.go"],
+    srcs = [
+        "facts.go",
+        "member.go",
+        "refs.go",
+    ],
     importpath = "github.com/ono-sendai-labs/architectural-contracts/go/internal/facts",
     visibility = ["//go:__subpackages__"],
     deps = [
         "//go/internal/capanalyzer",
         "//go/internal/manifest",
+        "//go/internal/symbol",
     ],
 )
 
 go_test(
     name = "facts_test",
     size = "small",
-    srcs = ["facts_test.go"],
+    srcs = [
+        "facts_test.go",
+        "member_test.go",
+        "refs_test.go",
+    ],
     deps = [
         ":facts",
         "//go/internal/capanalyzer",
+        "//go/internal/hostpolicy",
         "//go/internal/manifest",
     ],
 )
@@ -29,6 +39,7 @@ go_component(
     component_deps = [
         "//go/internal/capanalyzer:capanalyzer_component",
         "//go/internal/manifest:manifest_component",
+        "//go/internal/symbol:symbol_component",
     ],
     interface = ":facts",
     visibility = ["//go:__subpackages__"],

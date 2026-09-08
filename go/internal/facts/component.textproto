@@ -1,5 +1,7 @@
 name: "facts"
 interface_files: "facts.go"
+interface_files: "member.go"
+interface_files: "refs.go"
 members: "github.com/ono-sendai-labs/architectural-contracts/go/internal/facts"
 component_dependencies {
   name: "capanalyzer"
@@ -8,4 +10,8 @@ component_dependencies {
 component_dependencies {
   name: "manifest"
   manifest: "../manifest/component.textproto"
+}
+component_dependencies {
+  name: "symbol"
+  manifest: "../symbol/component.textproto"
 }

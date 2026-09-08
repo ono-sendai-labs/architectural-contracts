@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/ono-sendai-labs/architectural-contracts/go/internal/hostpolicy"
+	"github.com/ono-sendai-labs/architectural-contracts/go/internal/symbol"
 )
 
 // MemberSet is the minimal effective-member set of a component: the exact
@@ -35,7 +35,7 @@ func NewMemberSet(paths ...string) (MemberSet, error) {
 		if i > 0 && p == prev {
 			return MemberSet{}, fmt.Errorf("member set: duplicate package path %q", p)
 		}
-		if err := hostpolicy.ValidateCanonicalPath(p); err != nil {
+		if err := symbol.ValidateCanonicalPath(p); err != nil {
 			return MemberSet{}, fmt.Errorf("member set: %w", err)
 		}
 		ms.pkgs = append(ms.pkgs, p)

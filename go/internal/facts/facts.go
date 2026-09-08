@@ -1,15 +1,24 @@
 // Package facts defines the pure data models that represent findings, packages,
-// and cross-component call boundaries. These data structures are core-defined but
-// shell-produced: the checker in the pure core consumes them to decide conformance,
-// while the loading logic in `goanalysis` (a shell package, Steps 6/9) builds them
-// from the concrete Go packages. Dependencies point inward so that core components
-// never import the shell.
+// cross-component reference and import edges, and dependency interfaces. These
+// data structures are core-defined but shell-produced: the checker in the pure
+// core consumes them to decide conformance, while the loading logic in
+// `goanalysis` (a shell package) builds them from the concrete Go packages.
+// Dependencies point inward so that core components never import the shell.
 //
 // Component Contract (FR10):
-// - What it does: Defines pure structs for packages, exported symbols, static call edges, and dependency interfaces.
-// - What it requires: Constructed by the shell from static analysis or tests; holds no active logic or behaviors.
-// - What it provides: The plain data representation of component facts used throughout the checker analysis.
-// - Ambient Authority: This component is guaranteed-pure and holds no ambient authority (performs no filesystem, process, environment, or network operations).
+//   - What it does: Defines pure structs for packages, exported symbols, static
+//     call edges, dependency interfaces, and the Step 6 typed reference
+//     vocabulary — ReferenceEdge, ImportEdge, SourceSite and the exact
+//     MemberSet — with validation and total deterministic comparison
+//     (refs.go, member.go).
+//   - What it requires: Constructed by the shell from static analysis or
+//     tests; holds no active logic or behaviors. Reference and import edges
+//     carry symbol.SymbolID identities only.
+//   - What it provides: The plain data representation of component facts used
+//     throughout the checker analysis.
+//   - Ambient Authority: This component is guaranteed-pure and holds no
+//     ambient authority (performs no filesystem, process, environment, or
+//     network operations).
 package facts
 
 import (
@@ -20,19 +29,30 @@ import (
 // PackageFacts aggregates the loaded information for the component's internal packages,
 // including all direct imports, exported symbols, and inter-package static call edges.
 type PackageFacts struct {
-	Packages  []PackageFact
-	CallEdges []CallEdge // inter-package static call edges (from VTA call graph)
+	Packages []PackageFact
+
+	// CallEdges is legacy compatibility data from the SSA/VTA pipeline,
+	// kept only until the Step 6 Task 05 cutover replaces call edges with
+	// ReferenceEdge. It is not converted to or from reference facts.
+	CallEdges []CallEdge
 
 	// StdlibImports is the loader-authoritative set of direct standard-library
 	// imports across all component packages. Paths are canonical, unique, and
 	// deterministically sorted. Every loader initializes the slice, including
 	// when the authoritative result is empty; the pure checker treats nil and
 	// empty values as an empty authoritative set.
+	//
+	// Legacy compatibility data kept until the Task 05 cutover; import
+	// edges are superseded by ImportEdge.
 	StdlibImports []string
 
 	// UnresolvedImports records source-level imports that survived layout
 	// filtering but did not resolve to a layout or SDK package. The loader owns
 	// this observation; the pure checker renders it as an analysis limitation.
+	//
+	// Legacy compatibility data kept until the Task 05 cutover; the
+	// observation is superseded by ImportEdge with ImportUnresolved
+	// resolution.
 	UnresolvedImports []UnresolvedImport
 }
 

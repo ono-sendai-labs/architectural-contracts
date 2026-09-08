@@ -27,6 +27,8 @@ import (
 	"strings"
 	"unicode"
 	"unicode/utf8"
+
+	"github.com/ono-sendai-labs/architectural-contracts/go/internal/hostpolicy"
 )
 
 // GrammarVersion is the version of the textual grammar Parse accepts and
@@ -80,6 +82,17 @@ func (id SymbolID) Format() string {
 // String implements fmt.Stringer, returning the canonical v1 text.
 func (id SymbolID) String() string {
 	return string(id)
+}
+
+// ValidateCanonicalPath checks that a package import path is canonical under
+// the current host policy. SymbolIDs and their package-path prefixes always
+// name canonical paths (canonicalID routes through hostpolicy.CanonicalizePath),
+// so pure-core producers of IDs — surfaces, the reference facts, the map —
+// validate candidate paths through this helper rather than importing
+// hostpolicy directly. It is the hostpolicy check, unchanged; it never
+// rewrites the path.
+func ValidateCanonicalPath(path string) error {
+	return hostpolicy.ValidateCanonicalPath(path)
 }
 
 // Parse strictly parses a v1 grammar spelling into a SymbolID. It rejects
