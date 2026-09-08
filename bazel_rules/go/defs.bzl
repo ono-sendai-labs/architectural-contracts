@@ -153,6 +153,19 @@ def _go_component_impl(name, visibility, **kwargs):
     # defaults for those, not a null.
     set_kwargs = {key: value for key, value in kwargs.items() if value != None}
 
+    # `check_tags` is the macro's own attribute: tags for the generated
+    # `.check` test only. A component tagged `manual` is an asserted
+    # component (design I6) and has no `.check` at all — there is no checked
+    # verdict to assert, and an asserted surface must never masquerade as a
+    # passing check (task req 7). Every other component keeps the hermetic
+    # `.check`; its tags are the component's own tags plus `check_tags`, so a
+    # fixture whose check deliberately fails stays out of `bazel test //...`
+    # with `check_tags = ["manual"]` while the component itself remains a
+    # checked component (Step 5 task 05's migration of the fixture-only
+    # `manual` uses).
+    check_tags = list(set_kwargs.pop("check_tags", []))
+    component_is_asserted = "manual" in (set_kwargs.get("tags") or [])
+
     raw_members = set_kwargs.get("members", [])
     target_members = []
     for m in raw_members:
@@ -172,21 +185,23 @@ def _go_component_impl(name, visibility, **kwargs):
         **set_kwargs
     )
 
-    # Every component gets a hermetic `.check` (design §4.2). It inherits the
-    # component's `tags` and `testonly`, so a component tagged `manual` — the
-    # deliberate analysis-failure fixtures — keeps its check out of
-    # `bazel test //...` too, and never fails there for reasons the component
-    # target already covers.
-    check_kwargs = {key: set_kwargs[key] for key in ("tags", "testonly") if key in set_kwargs}
-    arcc_check_test(
-        name = name + ".check",
-        component = ":" + name,
-        # The check runs in a few seconds; "small" keeps Bazel from warning that
-        # the default "medium" size overshoots its runtime (design §4.2).
-        size = "small",
-        visibility = visibility,
-        **check_kwargs
-    )
+    if not component_is_asserted:
+        # Every checked component gets a hermetic `.check` (design §4.2). Its
+        # tags are the component's tags plus the macro's `check_tags`; a
+        # fixture whose check deliberately fails uses `check_tags = ["manual"]`
+        # to stay out of `bazel test //...` without leaving the checked path.
+        check_kwargs = {key: set_kwargs[key] for key in ("tags", "testonly") if key in set_kwargs}
+        if check_tags:
+            check_kwargs["tags"] = list(check_kwargs.get("tags", [])) + check_tags
+        arcc_check_test(
+            name = name + ".check",
+            component = ":" + name,
+            # The check runs in a few seconds; "small" keeps Bazel from warning that
+            # the default "medium" size overshoots its runtime (design §4.2).
+            size = "small",
+            visibility = visibility,
+            **check_kwargs
+        )
 
 go_component = macro(
     implementation = _go_component_impl,
@@ -222,6 +237,12 @@ go_component = macro(
             configurable = False,
             doc = "The ambient authority this component declares, as constants from this file " +
                   "(FILES, NETWORK, ...). Empty means the component claims to be authority-free.",
+        ),
+        "check_tags": attr.string_list(
+            configurable = False,
+            doc = "Tags for the generated `.check` test only (not the component). Use " +
+                  "`check_tags = [\"manual\"]` on a fixture whose check deliberately fails, so " +
+                  "it stays out of `bazel test //...` while the component remains checked.",
         ),
     },
     doc = """Declares a checkable arcc component.

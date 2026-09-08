@@ -8,9 +8,53 @@ which can compare built artifacts; the structural assertions live here.
 """
 
 load("@rules_testing//lib:analysis_test.bzl", "analysis_test", "test_suite")
+load("@rules_testing//lib:truth.bzl", "matching")
 load("//bazel_rules:providers.bzl", "ArccComponentInfo")
 
 _ASSERTED_COMPONENT = "//bazel_rules/go/tests/testdata/reportboundary/manual:manual_component"
+_DECLARED_MANUAL_COMPONENT = "//bazel_rules/go/tests/testdata/reportboundary/manual:declared_manual_component"
+
+def _declared_interface_cannot_be_asserted_test(name):
+    # AC 2b (design I6): a manual declared-interface component fails
+    # analysis naming the target and the reason, rather than emitting a
+    # partial or symbol-less declared-interface surface.
+    analysis_test(
+        name = name,
+        target = _DECLARED_MANUAL_COMPONENT,
+        expect_failure = True,
+        impl = _declared_interface_cannot_be_asserted_impl,
+        attr_values = {"size": "small"},
+    )
+
+def _declared_interface_cannot_be_asserted_impl(env, target):
+    env.expect.that_target(target).failures().contains_predicate(
+        matching.contains("declared_manual_component"),
+    )
+    env.expect.that_target(target).failures().contains_predicate(
+        matching.contains("package-level"),
+    )
+
+def _explicit_check_of_asserted_component_fails_test(name):
+    # AC 5 (task req 7): an explicitly requested `.check` of an asserted
+    # component fails analysis with a clear no-checked-report diagnostic;
+    # it must never run a check the asserted path avoided and pass from the
+    # asserted surface. The guarded arcc_check_test target lives in
+    # bazel_rules/go/tests/BUILD.bazel.
+    analysis_test(
+        name = name,
+        target = "//bazel_rules/go/tests:asserted_component_check_rejected_test",
+        expect_failure = True,
+        impl = _explicit_check_of_asserted_component_fails_impl,
+        attr_values = {"size": "small"},
+    )
+
+def _explicit_check_of_asserted_component_fails_impl(env, target):
+    env.expect.that_target(target).failures().contains_predicate(
+        matching.contains("asserted component"),
+    )
+    env.expect.that_target(target).failures().contains_predicate(
+        matching.contains("no checked report"),
+    )
 
 def _asserted_surface_action(env, target):
     """The FileWrite action producing the asserted `<name>.surface.json`."""
@@ -155,5 +199,7 @@ def asserted_surface_test_suite(name):
             _surface_content_is_package_level_test,
             _surface_schema_has_no_provenance_bit_test,
             _default_outputs_unchanged_test,
+            _declared_interface_cannot_be_asserted_test,
+            _explicit_check_of_asserted_component_fails_test,
         ],
     )

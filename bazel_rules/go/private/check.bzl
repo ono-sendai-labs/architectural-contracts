@@ -91,6 +91,26 @@ def _checked_launcher_arg(arg):
 
 _CHECKED_VERDICTS = ("pass", "fail")
 
+def _require_checked_component(info, rule_name, label):
+    """Fails analysis when the component is an asserted one (task req 7, AC 5).
+
+    An asserted component has no checked report: running the assertion rules
+    against it would execute a full check the asserted path deliberately
+    avoided and let an asserted surface masquerade as a passing check —
+    exactly what design I6/R8 forbid. The macro simply omits the `.check`
+    for asserted components; this guard catches an explicit, hand-written
+    target and fails with a diagnostic naming both targets.
+    """
+    if info.report == None:
+        fail(("%s %s: component %s is an asserted component (provenance %r); it has no checked " +
+              "report, so there is no checked verdict to assert. An asserted surface must never " +
+              "be treated as a passing check (design I6, R8).") % (
+            rule_name,
+            label,
+            info.component_name,
+            info.provenance,
+        ))
+
 def _validated_verdict(attr_value, label):
     """The expected report verdict, validated at analysis time.
 
@@ -185,6 +205,7 @@ def _checked_analysis_launcher(argv, expected_report, expected_surface, expect_v
 
 def _arcc_checked_analysis_impl(ctx):
     info = ctx.attr.component[ArccComponentInfo]
+    _require_checked_component(info, "arcc_checked_analysis_test", ctx.label)
     expect_verdict = _validated_verdict(ctx.attr.expect_verdict, ctx.label)
 
     map_file = ctx.attr._stdlib_map[ArccStdlibMapInfo].map
@@ -254,6 +275,7 @@ arcc_checked_analysis_test = rule(
 
 def _arcc_check_impl(ctx):
     info = ctx.attr.component[ArccComponentInfo]
+    _require_checked_component(info, "arcc_check_test", ctx.label)
 
     layout_path = runfiles_path(ctx, info.layout) if info.layout != None else ""
     argv = arcc_check_argv(

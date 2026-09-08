@@ -23,3 +23,15 @@ go_component(
     tags = ["manual"],
     visibility = ["//bazel_rules:__subpackages__"],
 )
+
+# Negative fixture (Step 5 task 05 AC 2b): a manual declared-interface
+# component cannot be asserted — analysis must fail naming the target and
+# stating that asserted surfaces are package-level (design I6). The `manual`
+# tag keeps the deliberately failing analysis out of wildcard builds;
+# //bazel_rules/go/tests asserts on the failure directly.
+go_component(
+    name = "declared_manual_component",
+    interface = ":manual",
+    tags = ["manual"],
+    visibility = ["//bazel_rules:__subpackages__"],
+)

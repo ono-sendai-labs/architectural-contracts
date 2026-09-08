@@ -98,6 +98,18 @@ go_component_test_suite(name = "go_component_tests")
 
 asserted_surface_test_suite(name = "asserted_surface_tests")
 
+# AC 5 (task req 7): an explicitly requested `.check` of an asserted
+# component must fail analysis with a clear no-checked-report diagnostic —
+# never silently pass from the asserted surface. The analysis test asserting
+# the diagnostic lives in asserted_surface_tests.bzl; the `manual` tag keeps
+# this deliberately failing target out of `bazel test //...`.
+arcc_check_test(
+    name = "asserted_component_check_rejected_test",
+    size = "small",
+    component = "//bazel_rules/go/tests/testdata/reportboundary/manual:manual_component",
+    tags = ["manual"],
+)
+
 # SDK-key equality between the asserted writer's Starlark-assembled key and
 # the checked emitter's (Step 5 task 05 req 5): the mirrored constants in
 # arcc_metadata.bzl are proven against a built checked surface and the

@@ -105,17 +105,26 @@ def testing_go_component(name, visibility = None, **kwargs):
 
     set_kwargs["members"] = target_members
 
+    # Mirror the production macro (defs.bzl): a manual-tagged component is
+    # asserted (design I6) and has no `.check`; `check_tags` are tags for the
+    # generated `.check` only, for fixtures whose check deliberately fails.
+    check_tags = list(set_kwargs.pop("check_tags", []))
+    component_is_asserted = "manual" in (set_kwargs.get("tags") or [])
+
     testing_go_component_rule(
         name = name,
         visibility = visibility,
         **set_kwargs
     )
 
-    check_kwargs = {key: set_kwargs[key] for key in ("tags", "testonly") if key in set_kwargs}
-    arcc_check_test(
-        name = name + ".check",
-        component = ":" + name,
-        size = "small",
-        visibility = visibility,
-        **check_kwargs
-    )
+    if not component_is_asserted:
+        check_kwargs = {key: set_kwargs[key] for key in ("tags", "testonly") if key in set_kwargs}
+        if check_tags:
+            check_kwargs["tags"] = list(check_kwargs.get("tags", [])) + check_tags
+        arcc_check_test(
+            name = name + ".check",
+            component = ":" + name,
+            size = "small",
+            visibility = visibility,
+            **check_kwargs
+        )
