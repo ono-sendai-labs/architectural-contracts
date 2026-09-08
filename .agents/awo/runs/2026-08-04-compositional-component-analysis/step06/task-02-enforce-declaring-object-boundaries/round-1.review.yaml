@@ -1,0 +1,182 @@
+review:
+  task_file: .agents/tasks/2026-08-04-compositional-component-analysis/step06/task-02-enforce-declaring-object-boundaries.code-task.md
+  change_id: urrmkvnvvlyynstwlrksstoyywmsyqum
+  reviewed_at: 2026-09-08T20:58:59Z
+  verdict: changes_requested
+  schema_version: 2
+  lsp_coverage: unavailable
+
+merge_request:
+  title: "feat: enforce declaring-object boundaries [Compositional Analysis: Step 06/Task 02]"
+  body: |
+    Reviews the complete four-change series: the initial typed reference scanner,
+    exact SymbolID dependency extraction, and atomic implements-closure deletion;
+    the pure boundary classifier; the design fixtures; and the round-1 rework.
+    The rework makes overlap diagnostics order-independent and adds fail-closed
+    handling for nil member type/syntax data and nil import-package entries.
+
+summary: |
+  The round-1 rework resolves both prior important findings: multi-collision
+  overlap errors are now deterministic, and nil member package data no longer
+  yields a successful partial scan. Focused checker, scanner, and fixture tests
+  pass, but two remaining scanner issues keep the review at changes_requested:
+  nil maps inside a non-nil types.Info still silently suppress facts, and import
+  resolution compares an uncanonicalized source path against the loader map.
+  The full integration suite remains cache-limited in this environment by
+  read-only/missing Go build-cache entries; the recorded work log reports green
+  full validation.
+
+acceptance_criteria:
+  - text: |
+      1. **Every typed reference and import is observed**
+         - Given member source containing function values, all design reference kinds, normal imports, and blank imports plus loaded transitive non-member syntax
+         - When `ScanReferences` runs
+         - Then it emits canonical site-bearing edges only from member source, sees non-call references and every written import, and excludes closure-originating observations
+    status: partial
+    evidence: |
+      The prior nil-pointer case is now fail-closed at
+      go/internal/goanalysis/refscan.go:60-69 and is covered by
+      go/internal/goanalysis/refscan_test.go:251-265; nil import-package entries
+      are classified as ImportMissingTypeData at :164-174 and tested at :267-289.
+      Normal member-only observation remains covered by refscan_test.go:65-241.
+      However, a non-nil types.Info with nil Uses or Selections maps still ranges
+      as empty at refscan.go:111-139, and a nil Imports map makes written imports
+      look unresolved at :164-174. The raw import lookup also bypasses canonical
+      path normalization, as detailed in the findings below.
+  - text: |
+      2. **Uses and selections deduplicate per site**
+         - Given a selector represented in both `Uses` and `Selections`
+         - When the scanner runs repeatedly over nondeterministic type-info map order
+         - Then the declaring object appears once at that site, remains distinct at another site, and complete output order is deterministic
+    status: pass
+    evidence: |
+      go/internal/goanalysis/refscan_test.go:171-217 verifies the overlapping
+      Box.Get selector, distinct Base-field sites, and repeated deterministic
+      output. The key accumulation and sort/dedup implementation is at
+      go/internal/goanalysis/refscan.go:53-95.
+  - text: |
+      3. **Interface dispatch uses the named declaration**
+         - Given design fixture 3, where member code invokes `dep.Greeter.Greet()` and the runtime implementation is unexported
+         - When the typed reference is classified against a declared-interface dependency listing `Greeter`
+         - Then the check passes because the source names the declared interface object, with no dynamically discovered implementor in the allowed set
+    status: pass
+    evidence: |
+      go/internal/goanalysis/fixture_test.go:95-134 asserts the dispatch edge
+      names dep.Greeter, that Greeter is listed without an implementor, and
+      that BoundaryIndex authorizes it. The source site is pinned at
+      go/internal/goanalysis/testdata/refscan/member/dispatch/dispatch.go:7-9.
+  - text: |
+      4. **Concrete implementation access is rejected**
+         - Given design fixture 4, where source directly reaches an implementation method that is not in the dependency interface
+         - When the typed reference is classified
+         - Then it produces `CALLS_UNDECLARED_INTERFACE` at the exact site even if the concrete type implements a listed interface; this fixture must demonstrate the precision correction from today's false pass
+    status: pass
+    evidence: |
+      go/internal/goanalysis/fixture_test.go:137-175 checks both concrete type
+      and method references, exact site behavior, violation kind, and dependency
+      provenance. The source is go/internal/goanalysis/testdata/refscan/member/concrete/concrete.go:7-9.
+  - text: |
+      5. **The reference-kind matrix is exact**
+         - Given design fixture 5 covering field, var, const, type, alias, embedded/promoted member, generic instantiation, pointer/value selection, and duplicate `Uses`/`Selections`
+         - When each reference is checked against a declared-interface dependency and a `PACKAGE_SURFACE` dependency
+         - Then every declared-interface outcome matches the declaring-object table, every package-surface reference is authorized, and duplicate observations do not duplicate findings
+    status: pass
+    evidence: |
+      go/internal/goanalysis/fixture_test.go:177-270 covers the full field,
+      variable, constant, type, alias, promotion, generic, receiver,
+      function-value, duplicate, and undeclared-subpackage matrix against both
+      dependency styles. The source matrix is at
+      go/internal/goanalysis/testdata/refscan/member/kinds/kinds.go:10-28.
+  - text: |
+      6. **Source resolution and emitted surfaces agree**
+         - Given one dependency loaded by the existing `ResolveDependencyInterface` and derived by the Step 5 surface package
+         - When their package and symbol sets are compared
+         - Then the exact sets are equal and neither contains a symbol admitted only through `types.Implements`
+    status: pass
+    evidence: |
+      go/internal/goanalysis/fixture_test.go:273-330 compares the production
+      resolver with symbol.ExtractSurface over the surviving interface file and
+      rejects implementation-only IDs. The resolver extraction is at
+      go/internal/goanalysis/goanalysis.go:1628-1651.
+  - text: |
+      7. **Scanner and workaround deletion are atomic**
+         - Given the single implementation commit produced for this task
+         - When its diff and resulting code are inspected
+         - Then it both introduces the typed scanner and removes all implementor-closure helpers/`types.Implements` expansion, while scanner/boundary fixtures pass before Task 05 changes the full production capability path
+    status: pass
+    evidence: |
+      The original atomic change sltzltlrluswzxsqtoqzkymzqxsmmplm adds
+      ScanReferences and removes the closure in one diff; the round-1 rework
+      does not alter that atomicity. The recorded inspection is in
+      .agents/scratchpad/2026-08-04-compositional-component-analysis/step06/task-02-enforce-declaring-object-boundaries/work.log:60-80, and focused fixtures pass after rework.
+  - text: |
+      8. **Overlapping owners fail deterministically**
+         - Given two resolved direct dependencies that claim the same package
+         - When the boundary index is constructed
+         - Then classification stops with a `DEPENDENCY_OVERLAP` tool error naming the package and both components, independent of dependency order
+    status: pass
+    evidence: |
+      NewBoundaryIndex now gathers and sorts all collisions by package and
+      normalized component pair at go/internal/checker/boundary.go:96-123.
+      The original two-way order test remains at boundary_test.go:117-145, and
+      the new two-collision permutation test is at boundary_test.go:204-228.
+  - text: |
+      9. **Each commit remains green**
+         - Given the temporary coexistence of legacy execution and the new classifier
+         - When `just ci` runs
+         - Then all tests pass without restoring the workaround or consuming persisted surfaces
+    status: pass
+    evidence: |
+      The rework work log records focused RED/GREEN validation and final
+      SELFCHECK_OK / BAZEL_OK / VET_OK plus Go unit and integration success at
+      .agents/scratchpad/2026-08-04-compositional-component-analysis/step06/task-02-enforce-declaring-object-boundaries/work.log:88-99.
+
+findings:
+  - severity: important
+    category: acceptance_criteria
+    file: go/internal/goanalysis/refscan.go
+    line: 66
+    title: Nil types.Info maps still yield partial facts
+    details: |
+      The rework correctly rejects a nil TypesInfo pointer, Fset, or Syntax,
+      but it accepts a non-nil types.Info whose Uses or Selections map is nil.
+      The scanner then ranges those nil maps at go/internal/goanalysis/refscan.go:111-139
+      and returns success without observing references. Likewise, a nil Imports
+      map makes every written import fall through to ImportUnresolved at
+      :164-174, even though the loader did not provide enough metadata to make
+      that distinction. The new tests cover only the nil package-entry case
+      (go/internal/goanalysis/refscan_test.go:267-289), leaving this incomplete-
+      info path capable of producing a false boundary pass.
+    suggested_action: |
+      Treat the reference maps required by this scanner (Uses and Selections),
+      and the import metadata needed for syntax imports, as required input for
+      a member package. Return a deterministic incomplete-data error, or use an
+      explicit missing-type-data state where the caller can classify it, rather
+      than silently ranging nil maps or labeling all imports unresolved. Add
+      tests with a non-nil types.Info whose Uses/Selections maps are nil and
+      with missing import metadata.
+    source: built-in
+  - severity: important
+    category: architecture
+    file: go/internal/goanalysis/refscan.go
+    line: 165
+    title: Import resolution bypasses path canonicalization
+    details: |
+      The scanner looks up p.Imports using the raw source literal `path` at
+      go/internal/goanalysis/refscan.go:165, but stores the emitted ImportPath
+      after hostpolicy.CanonicalizePath at :175-180. The repository's coding
+      convention requires every goanalysis import path to be canonicalized
+      before comparison (.agents/summary/coding_style.md:197-198), and a
+      non-identity host policy can therefore mark a
+      loaded import ImportUnresolved when the loader map is keyed by its
+      canonical spelling. This creates a wrong import fact at the host boundary
+      even though the ordinary identity-policy fixture passes.
+    suggested_action: |
+      Canonicalize the written path once and resolve p.Imports by canonicalized
+      key (or iterate the map comparing canonicalized keys), while preserving
+      the nil-entry ImportMissingTypeData behavior. Add a host-policy test where
+      the source spelling and loader spelling differ but canonicalize to the
+      same package.
+    source: built-in
+
+ecosystem_reviews: []

@@ -1,0 +1,90 @@
+result:
+  task_file: .agents/tasks/2026-08-04-compositional-component-analysis/step06/task-02-enforce-declaring-object-boundaries.code-task.md
+  change_id: urrmkvnvvlyynstwlrksstoyywmsyqum
+  status: completed
+  schema_version: 2
+  produced_at: 2026-09-08T21:20:00Z
+
+acceptance_criteria:
+  - text: "Every typed reference and import is observed"
+    addressed: yes
+    evidence: |
+      goanalysis/refscan.go ScanReferences now fails closed on a member
+      package with incomplete type/syntax data (naming the package) instead
+      of silently omitting its facts, and classifies a nil import-package
+      entry as ImportMissingTypeData rather than ImportResolved.
+      refscan_test.go TestScanReferences_IncompleteMemberTypeInfo and
+      TestScanReferences_IncompleteImportPackageData drive both conditions;
+      TestScanReferences_ObservesAllSites covers the full edge table.
+  - text: "Uses and selections deduplicate per site"
+    addressed: yes
+    evidence: |
+      refscan_test.go TestScanReferences_DedupsUsesAndSelections: the
+      overlapping Box.Get selector collapses to one edge, distinct field
+      sites stay distinct, repeated scans are byte-identical. Unchanged this
+      round; reviewer marked pass.
+  - text: "Interface dispatch uses the named declaration"
+    addressed: yes
+    evidence: |
+      fixture_test.go TestFixture3_InterfaceDispatch: the dispatch edge names
+      (dep.Greeter), the declared set lists Greeter, no implementor appears,
+      and the BoundaryIndex authorizes it. Unchanged; reviewer marked pass.
+  - text: "Concrete implementation access is rejected"
+    addressed: yes
+    evidence: |
+      fixture_test.go TestFixture4_ConcreteImplementationRejected: dep.Impl
+      and (dep.Impl).Greet produce CALLS_UNDECLARED_INTERFACE at the exact
+      site with dependency provenance. Unchanged; reviewer marked pass.
+  - text: "The reference-kind matrix is exact"
+    addressed: yes
+    evidence: |
+      fixture_test.go TestFixture5_ReferenceKindMatrix pins every kind
+      against both dependency styles with distinct-site preservation.
+      Unchanged; reviewer marked pass.
+  - text: "Source resolution and emitted surfaces agree"
+    addressed: yes
+    evidence: |
+      fixture_test.go TestFixture6_ResolutionMatchesSurface: resolved symbols
+      equal symbol.ExtractSurface over the surviving interface files, no
+      implements-only symbol. Unchanged; reviewer marked pass.
+  - text: "Scanner and workaround deletion are atomic"
+    addressed: yes
+    evidence: |
+      Change sltzltlrluswzxsqtoqzkymzqxsmmplm adds ScanReferences and deletes
+      every types.Implements expansion in one diff (work.log inspection
+      evidence). Unchanged; reviewer marked pass.
+  - text: "Overlapping owners fail deterministically"
+    addressed: yes
+    evidence: |
+      checker/boundary.go NewBoundaryIndex collects all cross-component
+      collisions, normalizes each pair, and reports the lexicographically
+      first collision by package, so the error is byte-identical in any
+      dependency order even with multiple simultaneous collisions.
+      boundary_test.go TestBoundaryIndex_DependencyOverlap_MultipleCollisions
+      drives two collisions in both orderings.
+  - text: "Each commit remains green"
+    addressed: yes
+    evidence: |
+      The rework commit was validated with go test, go test -tags=integration,
+      go vet/gofmt, selfcheck and bazel-test before jj commit (work.log
+      "Rework round 1: final validation").
+
+artifacts:
+  scratchpad_dir: .agents/scratchpad/2026-08-04-compositional-component-analysis/step06/task-02-enforce-declaring-object-boundaries/
+  files:
+    - context.md
+    - plan.md
+    - progress.md
+    - work.log
+    - result.yaml
+
+notes: |
+  Rework round 1 addressed both important findings in a fresh child change
+  (urrmkvnvvlyynstwlrksstoyywmsyqum) without touching the three prior task
+  commits. Overlap detection now selects the lexicographically first
+  collision across all packages, making the tool error order-independent
+  even with multiple simultaneous collisions, proven by a two-collision test
+  in both dependency orders. The reference scan now fails closed on
+  incomplete member type/syntax data and never treats a nil import-package
+  entry as resolved type data, with simulated-condition tests. All suites
+  (unit, integration, vet/gofmt, selfcheck, bazel) are green.

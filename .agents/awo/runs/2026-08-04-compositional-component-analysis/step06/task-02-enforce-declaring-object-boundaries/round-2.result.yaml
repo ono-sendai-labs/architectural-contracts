@@ -1,0 +1,88 @@
+result:
+  task_file: .agents/tasks/2026-08-04-compositional-component-analysis/step06/task-02-enforce-declaring-object-boundaries.code-task.md
+  change_id: uxwqntstsmzmtnqqrlmpypxpvqpxmxvp
+  status: completed
+  schema_version: 2
+  produced_at: 2026-09-08T21:40:00Z
+
+acceptance_criteria:
+  - text: "Every typed reference and import is observed"
+    addressed: yes
+    evidence: |
+      goanalysis/refscan.go now requires every map it walks: a member package
+      with a non-nil types.Info whose Uses or Selections map is nil, nil
+      Syntax, or a nil Imports map fails closed with an error naming the
+      package (no silent empty-range suppression of facts). refscan_test.go
+      TestScanReferences_NilTypeInfoMaps drives all three cases. Import
+      resolution is keyed by the canonical path — canonical written path,
+      canonicalized loader keys, canonical emitted ImportPath — with nil
+      entries preserved as ImportMissingTypeData;
+      TestScanReferences_ImportResolvedByCanonicalKey proves a host policy
+      whose canonical spelling differs from the source literal resolves the
+      import through the canonical loader key.
+  - text: "Uses and selections deduplicate per site"
+    addressed: yes
+    evidence: |
+      refscan_test.go TestScanReferences_DedupsUsesAndSelections: overlapping
+      selector collapses to one edge, distinct sites stay distinct, repeated
+      scans byte-identical. Unchanged; reviewer marked pass.
+  - text: "Interface dispatch uses the named declaration"
+    addressed: yes
+    evidence: |
+      fixture_test.go TestFixture3_InterfaceDispatch. Unchanged; reviewer
+      marked pass.
+  - text: "Concrete implementation access is rejected"
+    addressed: yes
+    evidence: |
+      fixture_test.go TestFixture4_ConcreteImplementationRejected. Unchanged;
+      reviewer marked pass.
+  - text: "The reference-kind matrix is exact"
+    addressed: yes
+    evidence: |
+      fixture_test.go TestFixture5_ReferenceKindMatrix. Unchanged; reviewer
+      marked pass.
+  - text: "Source resolution and emitted surfaces agree"
+    addressed: yes
+    evidence: |
+      fixture_test.go TestFixture6_ResolutionMatchesSurface. Unchanged;
+      reviewer marked pass.
+  - text: "Scanner and workaround deletion are atomic"
+    addressed: yes
+    evidence: |
+      Change sltzltlrluswzxsqtoqzkymzqxsmmplm adds ScanReferences and removes
+      every types.Implements expansion in one diff; rework rounds do not
+      alter that atomicity. Reviewer marked pass.
+  - text: "Overlapping owners fail deterministically"
+    addressed: yes
+    evidence: |
+      checker/boundary.go reports the lexicographically first collision across
+      all packages; TestBoundaryIndex_DependencyOverlap and
+      TestBoundaryIndex_DependencyOverlap_MultipleCollisions. Reviewer marked
+      pass.
+  - text: "Each commit remains green"
+    addressed: yes
+    evidence: |
+      The round-2 rework commit was validated with go test,
+      go test -tags=integration, go vet/gofmt, selfcheck and bazel-test
+      before jj commit (work.log "Rework round 2: final validation").
+
+artifacts:
+  scratchpad_dir: .agents/scratchpad/2026-08-04-compositional-component-analysis/step06/task-02-enforce-declaring-object-boundaries/
+  files:
+    - context.md
+    - plan.md
+    - progress.md
+    - work.log
+    - result.yaml
+
+notes: |
+  Round 2 fixed the general forms of the two sibling paths flagged by the
+  reviewer, in a fresh child change (uxwqntstsmzmtnqqrlmpypxpvqpxmxvp) that
+  leaves all four prior task commits untouched. The scanner now fails closed
+  whenever any map it walks (Uses, Selections, Imports) or the syntax/fileset
+  is missing for a member package, eliminating every silent partial-facts
+  path, and import resolution is performed entirely in the canonical
+  namespace with nil loader entries still classified
+  ImportMissingTypeData. Host-policy, nil-map, and nil-entry behaviors are
+  each pinned by tests, and the full suite (unit, integration, vet/gofmt,
+  selfcheck, bazel) is green.

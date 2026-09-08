@@ -1,0 +1,98 @@
+result:
+  task_file: .agents/tasks/2026-08-04-compositional-component-analysis/step06/task-02-enforce-declaring-object-boundaries.code-task.md
+  change_id: kkqpwylzmkyvxukytknnrurswnmszwwq
+  status: completed
+  schema_version: 2
+  produced_at: 2026-09-08T13:45:00Z
+
+acceptance_criteria:
+  - text: "Every typed reference and import is observed"
+    addressed: yes
+    evidence: |
+      goanalysis/refscan.go ScanReferences inspects only member packages,
+      emits References/Imports from Uses+Selections and every written import
+      (named, dot, blank). goanalysis/refscan_test.go
+      TestScanReferences_ObservesAllSites asserts the full edge table incl.
+      non-call func values, blank/dot imports, builtin/label/universe
+      exclusion, and member-only edges over loaded closure syntax.
+  - text: "Uses and selections deduplicate per site"
+    addressed: yes
+    evidence: |
+      refscan_test.go TestScanReferences_DedupsUsesAndSelections: the
+      bx.Get() selector (present in both Uses and Selections) yields exactly
+      one edge; distinct field sites (kinds.go:12/:17) stay distinct; two
+      scans produce identical sorted output.
+  - text: "Interface dispatch uses the named declaration"
+    addressed: yes
+    evidence: |
+      goanalysis/fixture_test.go TestFixture3_InterfaceDispatch: edge names
+      (dep.Greeter), the declared interface lists Greeter, greeterImpl/Impl
+      appear nowhere in the allowed set, decision = declared_dependency.
+  - text: "Concrete implementation access is rejected"
+    addressed: yes
+    evidence: |
+      fixture_test.go TestFixture4_ConcreteImplementationRejected:
+      (dep.Impl).Greet and dep.Impl yield CALLS_UNDECLARED_INTERFACE at
+      kinds/concrete.go:9 with provenance dep — the precision correction.
+  - text: "The reference-kind matrix is exact"
+    addressed: yes
+    evidence: |
+      fixture_test.go TestFixture5_ReferenceKindMatrix: field/var/const/
+      type/alias/embedded/generic/pointer-value/func-value edges each pinned
+      CALLS_UNDECLARED_INTERFACE against the declared-interface dep and
+      declared_dependency against the PACKAGE_SURFACE dep; distinct sites
+      (4 Base field sites) stay distinct; duplicate observations collapse.
+  - text: "Source resolution and emitted surfaces agree"
+    addressed: yes
+    evidence: |
+      fixture_test.go TestFixture6_ResolutionMatchesSurface:
+      ResolveDependencyInterface symbols are reflect.DeepEqual with
+      symbol.ExtractSurface over the same surviving interface file, and no
+      implements-only symbol appears. The resolver now uses
+      symbol.ExtractSurface directly (goanalysis.go, step 9).
+  - text: "Scanner and workaround deletion are atomic"
+    addressed: yes
+    evidence: |
+      Artifact inspection of change sltzltlrluswzxsqtoqzkymzqxsmmplm (jj
+      diff -r sltzltlr --git): the same change adds
+      "+func ScanReferences(" and deletes all "-types.Implements",
+      "-concreteMethods", "-interfaceTypes", "-addSurfaceSymbol" lines;
+      repo-wide grep finds no remaining implements closure outside tests.
+  - text: "Overlapping owners fail deterministically"
+    addressed: yes
+    evidence: |
+      checker/boundary.go NewBoundaryIndex returns the DEPENDENCY_OVERLAP
+      tool error naming package and both components (byte-identical in both
+      orders); checker/boundary_test.go TestBoundaryIndex_DependencyOverlap.
+  - text: "Each commit remains green"
+    addressed: yes
+    evidence: |
+      Each of the three commits was validated with go test,
+      go test -tags=integration, go vet/gofmt, selfcheck and bazel-test
+      before jj commit; a final `just ci` run is green (work.log "Final:
+      just ci").
+
+artifacts:
+  scratchpad_dir: .agents/scratchpad/2026-08-04-compositional-component-analysis/step06/task-02-enforce-declaring-object-boundaries/
+  files:
+    - context.md
+    - plan.md
+    - progress.md
+    - work.log
+    - result.yaml
+
+notes: |
+  Landed the typed ScanReferences (Uses+Selections over member packages,
+  declaring-object SymbolIDs, per-site dedup, deterministic output, fail-on-
+  malformed) and converted ResolveDependencyInterface to exact
+  symbol.ExtractSurface declared sets in facts.SymbolID form, deleting the
+  complete implements closure (steps 9-12b incl. the universal-error
+  expansion) in the same atomic change; fixtures 3-5 and the resolution ==
+  surface parity proof are pinned end to end through the new checker
+  BoundaryIndex with deterministic DEPENDENCY_OVERLAP. Legacy-path
+  compatibility stays narrowly additive (Capslock prune dual spelling;
+  checker skips VTA init$/Error callees) and is deleted at the Task 05
+  cutover. Two scope-adjacent moves were required to keep every commit
+  green: hostpolicy became its own dependency-only component (so goanalysis
+  could declare the symbol component without the Bazel covered-member
+  conflict), and goanalysis' self-manifest/BUILD gained the symbol dep.

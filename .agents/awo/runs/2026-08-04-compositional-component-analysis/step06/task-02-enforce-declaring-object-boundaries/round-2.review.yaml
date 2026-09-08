@@ -1,0 +1,137 @@
+review:
+  task_file: .agents/tasks/2026-08-04-compositional-component-analysis/step06/task-02-enforce-declaring-object-boundaries.code-task.md
+  change_id: uxwqntstsmzmtnqqrlmpypxpvqpxmxvp
+  reviewed_at: 2026-09-08T21:07:22Z
+  verdict: approved
+  schema_version: 2
+  lsp_coverage: unavailable
+
+merge_request:
+  title: "feat: enforce declaring-object boundaries [Compositional Analysis: Step 06/Task 02]"
+  body: |
+    Reviews the complete five-change series: the initial typed reference
+    scanner, exact SymbolID dependency extraction, and atomic
+    implements-closure deletion; the pure boundary classifier; the design
+    fixtures; round-1 overlap and fail-closed rework; and round-2 nil-map and
+    canonical-import rework. The final series includes focused regression tests
+    for all repaired paths and retains the intended pre-Task-05 legacy path.
+
+summary: |
+  Round 2 resolves both prior important findings and all previously partial
+  acceptance criteria: overlap selection is deterministic across multiple
+  collisions, incomplete reference/import maps fail closed, and import lookup
+  uses the canonical namespace. Focused checker, scanner, and design-fixture
+  tests pass; no test deletions or regressions were introduced by either rework
+  round. The recorded full validation is green, although the independent full
+  integration rerun in this environment remains limited by read-only/missing
+  Go build-cache entries; LSP diagnostics were likewise unavailable.
+
+acceptance_criteria:
+  - text: |
+      1. **Every typed reference and import is observed**
+         - Given member source containing function values, all design reference kinds, normal imports, and blank imports plus loaded transitive non-member syntax
+         - When `ScanReferences` runs
+         - Then it emits canonical site-bearing edges only from member source, sees non-call references and every written import, and excludes closure-originating observations
+    status: pass
+    evidence: |
+      The normal member-only reference/import table is covered by
+      go/internal/goanalysis/refscan_test.go:65-241. Round 1 added fail-closed
+      handling for nil TypesInfo/Fset/Syntax and nil import entries at
+      go/internal/goanalysis/refscan.go:60-71 and :177-188; round 2 extends
+      this to nil Uses, Selections, and Imports maps and tests all three cases
+      at refscan_test.go:292-327. Canonical import resolution is implemented
+      at refscan.go:146-153 and :177-192 and exercised by
+      refscan_test.go:329-366.
+  - text: |
+      2. **Uses and selections deduplicate per site**
+         - Given a selector represented in both `Uses` and `Selections`
+         - When the scanner runs repeatedly over nondeterministic type-info map order
+         - Then the declaring object appears once at that site, remains distinct at another site, and complete output order is deterministic
+    status: pass
+    evidence: |
+      go/internal/goanalysis/refscan_test.go:171-217 verifies the overlapping
+      Box.Get selector, distinct Base-field sites, and repeated deterministic
+      output. Structural accumulation and sorting/deduplication are at
+      go/internal/goanalysis/refscan.go:53-99.
+  - text: |
+      3. **Interface dispatch uses the named declaration**
+         - Given design fixture 3, where member code invokes `dep.Greeter.Greet()` and the runtime implementation is unexported
+         - When the typed reference is classified against a declared-interface dependency listing `Greeter`
+         - Then the check passes because the source names the declared interface object, with no dynamically discovered implementor in the allowed set
+    status: pass
+    evidence: |
+      go/internal/goanalysis/fixture_test.go:95-134 asserts the dispatch edge
+      names dep.Greeter, that the declared set contains Greeter without an
+      implementor, and that BoundaryIndex authorizes the edge.
+  - text: |
+      4. **Concrete implementation access is rejected**
+         - Given design fixture 4, where source directly reaches an implementation method that is not in the dependency interface
+         - When the typed reference is classified
+         - Then it produces `CALLS_UNDECLARED_INTERFACE` at the exact site even if the concrete type implements a listed interface; this fixture must demonstrate the precision correction from today's false pass
+    status: pass
+    evidence: |
+      go/internal/goanalysis/fixture_test.go:137-175 checks concrete type and
+      method references, exact site behavior, violation kind, and dependency
+      provenance. The source is pinned at
+      go/internal/goanalysis/testdata/refscan/member/concrete/concrete.go:7-9.
+  - text: |
+      5. **The reference-kind matrix is exact**
+         - Given design fixture 5 covering field, var, const, type, alias, embedded/promoted member, generic instantiation, pointer/value selection, and duplicate `Uses`/`Selections`
+         - When each reference is checked against a declared-interface dependency and a `PACKAGE_SURFACE` dependency
+         - Then every declared-interface outcome matches the declaring-object table, every package-surface reference is authorized, and duplicate observations do not duplicate findings
+    status: pass
+    evidence: |
+      go/internal/goanalysis/fixture_test.go:177-270 covers the field,
+      variable, constant, type, alias, promotion, generic, receiver,
+      function-value, duplicate, and undeclared-subpackage matrix against both
+      dependency styles. The source matrix is at
+      go/internal/goanalysis/testdata/refscan/member/kinds/kinds.go:10-28.
+  - text: |
+      6. **Source resolution and emitted surfaces agree**
+         - Given one dependency loaded by the existing `ResolveDependencyInterface` and derived by the Step 5 surface package
+         - When their package and symbol sets are compared
+         - Then the exact sets are equal and neither contains a symbol admitted only through `types.Implements`
+    status: pass
+    evidence: |
+      go/internal/goanalysis/fixture_test.go:273-330 compares the production
+      resolver with symbol.ExtractSurface over the surviving interface file and
+      rejects implementation-only IDs. The resolver extraction is at
+      go/internal/goanalysis/goanalysis.go:1628-1651.
+  - text: |
+      7. **Scanner and workaround deletion are atomic**
+         - Given the single implementation commit produced for this task
+         - When its diff and resulting code are inspected
+         - Then it both introduces the typed scanner and removes all implementor-closure helpers/`types.Implements` expansion, while scanner/boundary fixtures pass before Task 05 changes the full production capability path
+    status: pass
+    evidence: |
+      sltzltlrluswzxsqtoqzkymzqxsmmplm adds ScanReferences and removes every
+      implements-closure expansion in the same atomic change. The three later
+      child changes only add classifier/fixture or fail-closed/determinism
+      coverage; the original atomicity is documented at
+      .agents/scratchpad/2026-08-04-compositional-component-analysis/step06/task-02-enforce-declaring-object-boundaries/work.log:60-80.
+  - text: |
+      8. **Overlapping owners fail deterministically**
+         - Given two resolved direct dependencies that claim the same package
+         - When the boundary index is constructed
+         - Then classification stops with a `DEPENDENCY_OVERLAP` tool error naming the package and both components, independent of dependency order
+    status: pass
+    evidence: |
+      Round 1 changed NewBoundaryIndex to collect and sort collisions by
+      package and normalized component pair at
+      go/internal/checker/boundary.go:96-123. The original two-way order test
+      remains at boundary_test.go:117-145, and the multiple-collision
+      permutation test is at boundary_test.go:204-228.
+  - text: |
+      9. **Each commit remains green**
+         - Given the temporary coexistence of legacy execution and the new classifier
+         - When `just ci` runs
+         - Then all tests pass without restoring the workaround or consuming persisted surfaces
+    status: pass
+    evidence: |
+      The round-2 work log records focused RED/GREEN validation and final
+      SELFCHECK_OK / BAZEL_OK / VET_OK plus Go unit and integration success at
+      .agents/scratchpad/2026-08-04-compositional-component-analysis/step06/task-02-enforce-declaring-object-boundaries/work.log:103-111.
+
+findings: []
+
+ecosystem_reviews: []

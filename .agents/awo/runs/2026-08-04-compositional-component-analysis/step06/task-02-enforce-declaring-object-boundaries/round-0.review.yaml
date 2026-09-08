@@ -1,0 +1,178 @@
+review:
+  task_file: .agents/tasks/2026-08-04-compositional-component-analysis/step06/task-02-enforce-declaring-object-boundaries.code-task.md
+  change_id: kkqpwylzmkyvxukytknnrurswnmszwwq
+  reviewed_at: 2026-09-08T20:48:09Z
+  verdict: changes_requested
+  schema_version: 2
+  lsp_coverage: unavailable
+
+merge_request:
+  title: "feat: enforce declaring-object boundaries [Compositional Analysis: Step 06/Task 02]"
+  body: |
+    Reviews the complete three-change series: the atomic typed reference scanner,
+    exact SymbolID dependency extraction, and implements-closure deletion; the
+    pure boundary classifier with dependency-overlap handling; and the design
+    fixtures covering dispatch, concrete access, the reference-kind matrix, and
+    surface parity. The series also includes the necessary facts, legacy-path
+    compatibility, and component-boundary updates.
+
+summary: |
+  The typed scanner, exact declaring-object extraction, boundary classifier, and
+  fixtures cover the normal fully loaded path well, and the focused new tests pass.
+  Two important correctness gaps remain: incomplete member type information is
+  silently omitted, and overlap errors are not globally deterministic when more
+  than one package collision exists. The full integration suite could not be run
+  to completion in this environment because several existing go/packages tests
+  require missing read-only Go build-cache entries; the new scanner and fixture
+  tests passed, and the recorded work log reports a green `just ci`.
+
+acceptance_criteria:
+  - text: |
+      1. **Every typed reference and import is observed**
+         - Given member source containing function values, all design reference kinds, normal imports, and blank imports plus loaded transitive non-member syntax
+         - When `ScanReferences` runs
+         - Then it emits canonical site-bearing edges only from member source, sees non-call references and every written import, and excludes closure-originating observations
+    status: partial
+    evidence: |
+      The normal fixture path is covered by go/internal/goanalysis/refscan_test.go:65-168
+      and the member-only assertions at :224-241; ScanReferences sorts and emits the
+      accumulated edges at go/internal/goanalysis/refscan.go:48-91. However,
+      go/internal/goanalysis/refscan.go:56-59 silently skips a member package with
+      nil TypesInfo or Fset, returning success with partial facts instead of handling
+      incomplete member type information as a fail-closed error.
+  - text: |
+      2. **Uses and selections deduplicate per site**
+         - Given a selector represented in both `Uses` and `Selections`
+         - When the scanner runs repeatedly over nondeterministic type-info map order
+         - Then the declaring object appears once at that site, remains distinct at another site, and complete output order is deterministic
+    status: pass
+    evidence: |
+      go/internal/goanalysis/refscan_test.go:171-217 checks the overlapping Box.Get
+      selector, preserves two distinct Base-field sites, and compares repeated scan
+      output. The implementation accumulates structural keys and sorts/deduplicates
+      both edge kinds at go/internal/goanalysis/refscan.go:53-89.
+  - text: |
+      3. **Interface dispatch uses the named declaration**
+         - Given design fixture 3, where member code invokes `dep.Greeter.Greet()` and the runtime implementation is unexported
+         - When the typed reference is classified against a declared-interface dependency listing `Greeter`
+         - Then the check passes because the source names the declared interface object, with no dynamically discovered implementor in the allowed set
+    status: pass
+    evidence: |
+      go/internal/goanalysis/fixture_test.go:95-134 asserts that the dispatch edge
+      names dep.Greeter, that Greeter is listed, that the unexported implementor is
+      absent, and that BoundaryIndex authorizes the edge. The source fixture is
+      go/internal/goanalysis/testdata/refscan/member/dispatch/dispatch.go:7-9.
+  - text: |
+      4. **Concrete implementation access is rejected**
+         - Given design fixture 4, where source directly reaches an implementation method that is not in the dependency interface
+         - When the typed reference is classified
+         - Then it produces `CALLS_UNDECLARED_INTERFACE` at the exact site even if the concrete type implements a listed interface; this fixture must demonstrate the precision correction from today's false pass
+    status: pass
+    evidence: |
+      go/internal/goanalysis/fixture_test.go:137-175 checks both the concrete type
+      and method sites, including the exact CALLS_UNDECLARED_INTERFACE kind and
+      dependency provenance. The source access is at
+      go/internal/goanalysis/testdata/refscan/member/concrete/concrete.go:7-9.
+  - text: |
+      5. **The reference-kind matrix is exact**
+         - Given design fixture 5 covering field, var, const, type, alias, embedded/promoted member, generic instantiation, pointer/value selection, and duplicate `Uses`/`Selections`
+         - When each reference is checked against a declared-interface dependency and a `PACKAGE_SURFACE` dependency
+         - Then every declared-interface outcome matches the declaring-object table, every package-surface reference is authorized, and duplicate observations do not duplicate findings
+    status: pass
+    evidence: |
+      go/internal/goanalysis/fixture_test.go:177-270 covers the field, variable,
+      constant, type, alias, promotion, generic, receiver, function-value, duplicate,
+      and undeclared-subpackage cases against both dependency styles. The source
+      matrix is pinned in go/internal/goanalysis/testdata/refscan/member/kinds/kinds.go:10-28,
+      while scanner-level edge identities are asserted at
+      go/internal/goanalysis/refscan_test.go:73-168.
+  - text: |
+      6. **Source resolution and emitted surfaces agree**
+         - Given one dependency loaded by the existing `ResolveDependencyInterface` and derived by the Step 5 surface package
+         - When their package and symbol sets are compared
+         - Then the exact sets are equal and neither contains a symbol admitted only through `types.Implements`
+    status: pass
+    evidence: |
+      go/internal/goanalysis/fixture_test.go:273-330 compares the production
+      resolver's symbols with symbol.ExtractSurface over api.go and rejects the
+      implementation-only method IDs. ResolveDependencyInterface now performs the
+      exact extraction at go/internal/goanalysis/goanalysis.go:1628-1651.
+  - text: |
+      7. **Scanner and workaround deletion are atomic**
+         - Given the single implementation commit produced for this task
+         - When its diff and resulting code are inspected
+         - Then it both introduces the typed scanner and removes all implementor-closure helpers/`types.Implements` expansion, while scanner/boundary fixtures pass before Task 05 changes the full production capability path
+    status: pass
+    evidence: |
+      The ordered series records sltzltlrluswzxsqtoqzkymzqxsmmplm as the atomic
+      scanner/deletion change. The implementation diff and work log at
+      .agents/scratchpad/2026-08-04-compositional-component-analysis/step06/task-02-enforce-declaring-object-boundaries/work.log:60-80 show ScanReferences added in the same change that removes the closure and
+      types.Implements expansion; the new fixture tests passed as recorded at :55-58.
+  - text: |
+      8. **Overlapping owners fail deterministically**
+         - Given two resolved direct dependencies that claim the same package
+         - When the boundary index is constructed
+         - Then classification stops with a `DEPENDENCY_OVERLAP` tool error naming the package and both components, independent of dependency order
+    status: partial
+    evidence: |
+      The two-dependency case and reversed order are tested at
+      go/internal/checker/boundary_test.go:117-145, and the overlap error is emitted
+      at go/internal/checker/boundary.go:94-105. But the constructor returns the
+      first collision encountered; with two independent collisions, reordering deps
+      can change which package and component pair appears in the error, so the
+      general order-independent deterministic requirement is not fully met.
+  - text: |
+      9. **Each commit remains green**
+         - Given the temporary coexistence of legacy execution and the new classifier
+         - When `just ci` runs
+         - Then all tests pass without restoring the workaround or consuming persisted surfaces
+    status: pass
+    evidence: |
+      .agents/scratchpad/2026-08-04-compositional-component-analysis/step06/task-02-enforce-declaring-object-boundaries/work.log:83-85 records the final CI_OK result and :32-36 records per-commit validation. The focused new tests passed independently; the series retains the legacy CallEdges path while the typed classifier is exercised by fixtures, and no persisted surfaces are consumed.
+
+findings:
+  - severity: important
+    category: acceptance_criteria
+    file: go/internal/checker/boundary.go
+    line: 96
+    title: Overlap errors depend on dependency order
+    details: |
+      NewBoundaryIndex returns as soon as it encounters the first collision in
+      the input order (go/internal/checker/boundary.go:96-105). sortedPair makes
+      the two component names stable, but it does not make the selected collision
+      stable: with collisions such as alpha/beta on pkg-a and gamma/delta on
+      pkg-b, reordering the dependency slice can report different packages and
+      pairs. Acceptance criterion 8 and technical requirement 7 require an
+      order-independent deterministic DEPENDENCY_OVERLAP result. The current test
+      only exercises one collision (go/internal/checker/boundary_test.go:117-145).
+    suggested_action: |
+      Collect all cross-component package collisions, sort them by package and
+      component names, and report the lexicographically first collision (or sort
+      the validated dependency/package inputs before detection). Add a test with
+      at least two simultaneous collisions and both dependency orderings.
+    source: built-in
+  - severity: important
+    category: acceptance_criteria
+    file: go/internal/goanalysis/refscan.go
+    line: 57
+    title: Incomplete member type info is silently dropped
+    details: |
+      ScanReferences skips any nil package, TypesInfo, or Fset before checking
+      membership (go/internal/goanalysis/refscan.go:56-61). For a member package
+      whose type/syntax data is incomplete, this returns success and omits all of
+      its reference and import facts, which can turn an analysis failure into a
+      false boundary pass. This does not satisfy technical requirement 3's
+      deliberate handling of incomplete type information or the fail-closed part
+      of acceptance criterion 1. The import check at lines 158-160 also treats an
+      Imports map entry as resolved without checking whether its package value is
+      nil or otherwise incomplete.
+    suggested_action: |
+      After identifying a requested member package, require the type-info, file-set,
+      syntax, and required import metadata needed by the scan and return a
+      deterministic tool error naming the package when any is incomplete. Do not
+      mark an import resolved merely because its map key exists when the associated
+      package data is nil; preserve the caller's deliberate missing-type-data path
+      rather than silently producing complete facts.
+    source: built-in
+
+ecosystem_reviews: []
