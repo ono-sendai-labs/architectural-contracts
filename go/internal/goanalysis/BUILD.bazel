@@ -14,7 +14,7 @@ load("@rules_go//go:def.bzl", "go_library")
 
 go_library(
     name = "goanalysis",
-    srcs = ["goanalysis.go", "surfaceinputs.go"],
+    srcs = ["goanalysis.go", "surfaceinputs.go", "refscan.go"],
     importpath = "github.com/ono-sendai-labs/architectural-contracts/go/internal/goanalysis",
     visibility = ["//go:__subpackages__"],
     deps = [
@@ -23,6 +23,7 @@ go_library(
         "//go/internal/hostpolicy",
         "//go/internal/manifest",
         "//go/internal/packagelayout",
+        "//go/internal/symbol",
         "@org_golang_x_tools//go/callgraph/vta",
         "@org_golang_x_tools//go/packages",
         "@org_golang_x_tools//go/ssa",
@@ -31,7 +32,7 @@ go_library(
 )
 
 # Mirrors the checked-in goanalysis/component.textproto: depends on
-# capanalyzer, facts, and manifest components; owns //go/internal/hostpolicy,
+# capanalyzer, facts, manifest, and symbol components; owns //go/internal/hostpolicy,
 # //go/internal/packagelayout, and the x/tools closure as declared members;
 # declares 8 authorities.
 # hostpolicy, packagelayout, and the x/tools closure are declared members:
@@ -78,6 +79,7 @@ go_component(
         "//go/internal/capanalyzer:capanalyzer_component",
         "//go/internal/facts:facts_component",
         "//go/internal/manifest:manifest_component",
+        "//go/internal/symbol:symbol_component",
     ],
     declared_authority = [
         ARBITRARY_EXECUTION,

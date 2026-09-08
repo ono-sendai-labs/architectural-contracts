@@ -39,8 +39,8 @@ go_test(
 # Mirrors the checked-in symbol/component.textproto.
 go_component(
     name = "symbol_component",
+    component_deps = ["//go/internal/hostpolicy:hostpolicy_component"],
     interface = ":symbol",
-    members = ["//go/internal/hostpolicy"],
     visibility = ["//go:__subpackages__"],
 )
 

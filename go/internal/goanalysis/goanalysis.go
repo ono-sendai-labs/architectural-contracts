@@ -27,6 +27,7 @@ import (
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/hostpolicy"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/manifest"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/packagelayout"
+	"github.com/ono-sendai-labs/architectural-contracts/go/internal/symbol"
 	"golang.org/x/tools/go/callgraph/vta"
 	"golang.org/x/tools/go/packages"
 	"golang.org/x/tools/go/ssa"
@@ -1351,15 +1352,12 @@ func getFuncSymbol(fn *ssa.Function) capanalyzer.InterfaceSymbol {
 
 // ResolveDependencyInterface turns a component dependency into its derived facts.
 //
-// STEP 5-ONLY SEMANTIC GAP (deliberate; plan Step 5, task-02 req 7): the
-// implements-closure computed below widens what the *check* admits beyond the
-// declared interface — a direct concrete implementing method can pass the
-// check today. The emitted surface (internal/surface, via symbol.ExtractSurface
-// over the surviving interface files) contains exactly the declared interface
-// with no implements-closure injection, so check and surface disagree by
-// design for this one step. Do NOT widen the surface to match; Step 6 replaces
-// this closure with surface consumption, at which point the disagreement
-// disappears.
+// The declared-interface symbol set is the exact declaring-object set of the
+// surviving interface files (symbol.ExtractSurface, DR-04): the same
+// extraction the Step 5 surface package emits, with no implements-closure
+// injection. A reference to a concrete implementing method that is not itself
+// declared in an interface file is therefore not authorized — the correct FR5
+// precision (design fixtures 3-5).
 func ResolveDependencyInterface(
 	declaringRoot string,
 	analyzedRoot string,
@@ -1576,29 +1574,35 @@ func ResolveDependencyInterface(
 		}
 		sort.Strings(memberPkgPaths)
 
-		symbolSet := make(map[string]bool)
-		for _, p := range factsPkgs {
-			canonPkgPath := hostpolicy.CanonicalizePath(p.ImportPath)
-			if memberSet[canonPkgPath] {
-				for _, sym := range p.ExportedSymbols {
-					addSurfaceSymbol(symbolSet, sym)
+		// PACKAGE_SURFACE authorizes every external object of the owned
+		// packages; the symbol set records the exact exported declaring
+		// objects in shared SymbolID form (no dual receiver keys).
+		pkgPathsSet := make(map[string]bool, len(pkgPaths))
+		for _, p := range pkgPaths {
+			pkgPathsSet[p] = true
+		}
+		knownPkg := func(importPath string) bool {
+			return pkgPathsSet[importPath]
+		}
+		symbolSet := make(map[facts.SymbolID]bool)
+		for _, pkgFact := range factsPkgs {
+			if !memberSet[hostpolicy.CanonicalizePath(pkgFact.ImportPath)] {
+				continue
+			}
+			for _, sym := range pkgFact.ExportedSymbols {
+				id, err := symbol.ParseCapslockWithPackages(sym.Name, knownPkg)
+				if err != nil {
+					return facts.DependencyInterface{}, fmt.Errorf("dependency %q: exported symbol %q: %w", dep.Name, sym.Name, err)
 				}
+				symbolSet[id] = true
 			}
 		}
-
-		var symbols []capanalyzer.InterfaceSymbol
-		for sym := range symbolSet {
-			symbols = append(symbols, capanalyzer.InterfaceSymbol(sym))
-		}
-		sort.Slice(symbols, func(i, j int) bool {
-			return symbols[i] < symbols[j]
-		})
 
 		return facts.DependencyInterface{
 			Component:      dep.Name,
 			InterfaceStyle: depManifest.InterfaceStyle,
 			Packages:       memberPkgPaths,
-			Symbols:        symbols,
+			Symbols:        sortedSymbolIDs(symbolSet),
 		}, nil
 	}
 
@@ -1621,175 +1625,72 @@ func ResolveDependencyInterface(
 		interfaceFilesMap[filepath.ToSlash(filepath.Clean(f))] = true
 	}
 
-	// 9. Collect exported interface types declared in interface files
-	interfaceTypes := make(map[string]*types.Interface)
+	// 9. The exact declared surface over the surviving interface files
+	// (symbol.ExtractSurface, DR-04): every exported declaring object those
+	// files declare — functions, methods, types, fields, interface method
+	// specs, variables, constants, aliases — with no implements-closure
+	// injection. References name the object the source writes; a concrete
+	// implementing method not declared in an interface file is not part of
+	// this set (design fixtures 3-5).
+	symbolSet := make(map[facts.SymbolID]bool)
 	for _, p := range depPkgs {
-		for _, file := range p.Syntax {
-			if file == nil {
-				continue
-			}
-			pos := p.Fset.Position(file.Pos())
-			absPath := pos.Filename
-			if absPath == "" {
-				continue
-			}
-			var relPath string
-			var err error
-			if packagelayout.IsLayoutMode() {
-				relPath, err = filepath.Rel(packagelayout.GetActiveWorkspaceDir(), absPath)
-			} else {
-				relPath, err = filepath.Rel(cleanDepRoot, absPath)
-			}
-			if err != nil {
-				continue
-			}
-			relPath = filepath.ToSlash(relPath)
-			if !interfaceFilesMap[relPath] {
-				continue
-			}
-
-			for _, decl := range file.Decls {
-				genDecl, ok := decl.(*ast.GenDecl)
-				if !ok || genDecl.Tok != token.TYPE {
-					continue
-				}
-				for _, spec := range genDecl.Specs {
-					typeSpec, ok := spec.(*ast.TypeSpec)
-					if !ok || !ast.IsExported(typeSpec.Name.Name) {
-						continue
-					}
-					obj := p.Types.Scope().Lookup(typeSpec.Name.Name)
-					if obj == nil {
-						continue
-					}
-					typeName, ok := obj.(*types.TypeName)
-					if !ok {
-						continue
-					}
-					if iface, ok := typeName.Type().Underlying().(*types.Interface); ok {
-						interfaceTypes[typeName.Type().String()] = iface
-					}
-				}
-			}
+		files := interfaceFileASTs(p, interfaceFilesMap, cleanDepRoot)
+		if len(files) == 0 {
+			continue
+		}
+		for _, id := range symbol.ExtractSurface(files, p.TypesInfo) {
+			symbolSet[id] = true
 		}
 	}
-
-	// 10. Collect all concrete named types in the dependency packages
-	var concreteTypes []*types.Named
-	for _, p := range depPkgs {
-		scope := p.Types.Scope()
-		for _, name := range scope.Names() {
-			obj := scope.Lookup(name)
-			if obj == nil {
-				continue
-			}
-			typeName, ok := obj.(*types.TypeName)
-			if !ok {
-				continue
-			}
-			if named, ok := typeName.Type().(*types.Named); ok {
-				if _, isIface := named.Underlying().(*types.Interface); !isIface {
-					concreteTypes = append(concreteTypes, named)
-				}
-			}
-		}
-	}
-
-	// 11. Find concrete methods implementing those interface types
-	concreteMethods := make(map[string]bool)
-	for _, named := range concreteTypes {
-		ptrType := types.NewPointer(named)
-
-		for _, iface := range interfaceTypes {
-			if types.Implements(named, iface) || types.Implements(ptrType, iface) {
-				mset := types.NewMethodSet(ptrType)
-				for i := 0; i < mset.Len(); i++ {
-					m := mset.At(i)
-					methodName := m.Obj().Name()
-					formattedTypeName := stripGenericBrackets(types.TypeString(named, nil))
-
-					ptrKey := canonicalizeSymbol("(*" + formattedTypeName + ")." + methodName)
-					valKey := canonicalizeSymbol("(" + formattedTypeName + ")." + methodName)
-
-					concreteMethods[ptrKey] = true
-					concreteMethods[valKey] = true
-				}
-			}
-		}
-	}
-
-	// 12. Combine, deduplicate, and sort derived symbols
-	symbolSet := make(map[string]bool)
-	for _, p := range factsPkgs {
-		for _, sym := range p.ExportedSymbols {
-			if interfaceFilesMap[sym.File] {
-				symbolSet[sym.Name] = true
-			}
-		}
-	}
-
-	for key := range concreteMethods {
-		symbolSet[key] = true
-	}
-
-	// 12b. Error values any dependency may return are reached through the
-	// universal stdlib error interface, so callers can invoke Error without a
-	// declaration. Expose only that method of error-implementing types — never
-	// their remaining method set, which stays architecture-private.
-	if errObj := types.Universe.Lookup("error"); errObj != nil {
-		if errIface, ok := errObj.Type().Underlying().(*types.Interface); ok {
-			for _, named := range concreteTypes {
-				if types.Implements(named, errIface) || types.Implements(types.NewPointer(named), errIface) {
-					formattedTypeName := stripGenericBrackets(types.TypeString(named, nil))
-					symbolSet[canonicalizeSymbol("(*"+formattedTypeName+").Error")] = true
-					symbolSet[canonicalizeSymbol("("+formattedTypeName+").Error")] = true
-				}
-			}
-		}
-	}
-
-	var symbols []capanalyzer.InterfaceSymbol
-	for sym := range symbolSet {
-		symbols = append(symbols, capanalyzer.InterfaceSymbol(sym))
-	}
-	sort.Slice(symbols, func(i, j int) bool {
-		return symbols[i] < symbols[j]
-	})
 
 	return facts.DependencyInterface{
 		Component:      dep.Name,
 		InterfaceStyle: depManifest.InterfaceStyle,
 		Packages:       pkgPaths,
-		Symbols:        symbols,
+		Symbols:        sortedSymbolIDs(symbolSet),
 	}, nil
 }
 
-func addSurfaceSymbol(symbolSet map[string]bool, sym facts.ExportedSymbol) {
-	symbolSet[sym.Name] = true
-	recv := sym.Receiver
-	if recv == "" {
-		if strings.HasPrefix(sym.Name, "(*") {
-			idx := strings.Index(sym.Name, ").")
-			if idx != -1 {
-				recv = sym.Name[:idx+1]
-			}
-		} else if strings.HasPrefix(sym.Name, "(") {
-			idx := strings.Index(sym.Name, ").")
-			if idx != -1 {
-				recv = sym.Name[:idx+1]
-			}
+// interfaceFileASTs returns the package's syntax trees restricted to the
+// surviving interface files, component-relative. In layout mode the driver
+// presents file positions relative to the active workspace directory, so the
+// component-relative reduction is taken against that root.
+func interfaceFileASTs(p *packages.Package, interfaceFilesMap map[string]bool, depRoot string) []*ast.File {
+	relRoot := depRoot
+	if packagelayout.IsLayoutMode() {
+		relRoot = packagelayout.GetActiveWorkspaceDir()
+	}
+	var files []*ast.File
+	for _, file := range p.Syntax {
+		if file == nil {
+			continue
+		}
+		pos := p.Fset.Position(file.Pos())
+		if pos.Filename == "" {
+			continue
+		}
+		relPath, err := filepath.Rel(relRoot, pos.Filename)
+		if err != nil {
+			continue
+		}
+		relPath = filepath.ToSlash(filepath.Clean(relPath))
+		if interfaceFilesMap[relPath] {
+			files = append(files, file)
 		}
 	}
-	if recv != "" {
-		methodSuffix := sym.Name[len(recv):]
-		if strings.HasPrefix(recv, "(*") {
-			valKey := "(" + recv[2:] + methodSuffix
-			symbolSet[valKey] = true
-		} else if strings.HasPrefix(recv, "(") {
-			ptrKey := "(*" + recv[1:] + methodSuffix
-			symbolSet[ptrKey] = true
-		}
+	return files
+}
+
+// sortedSymbolIDs returns a deterministic sorted, duplicate-free slice.
+func sortedSymbolIDs(set map[facts.SymbolID]bool) []facts.SymbolID {
+	symbols := make([]facts.SymbolID, 0, len(set))
+	for id := range set {
+		symbols = append(symbols, id)
 	}
+	sort.Slice(symbols, func(i, j int) bool {
+		return facts.CompareSymbolIDs(symbols[i], symbols[j]) < 0
+	})
+	return symbols
 }
 
 func packageSourceFiles(p *packages.Package) []string {

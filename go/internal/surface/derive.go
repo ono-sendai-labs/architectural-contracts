@@ -8,13 +8,9 @@
 // are isolated in the artifactio shell adapter (ReadSources), and the wiring
 // into `arcc check` lands with Step 5 task 3.
 //
-// Deliberate Step 5-only disagreement: the emitted surface is the exact
-// declared interface (symbol.ExtractSurface over the surviving interface
-// files, no implements-closure injection), while the check keeps resolving
-// dependency interfaces through goanalysis.ResolveDependencyInterface's
-// implements closure until Step 6. A concrete method admitted only by that
-// workaround is therefore checked as callable but absent from the emitted
-// surface for this one step; see the comment on ResolveDependencyInterface.
+// The emitted surface and the check's resolved dependency interfaces share the
+// same exact declaring-object extraction (symbol.ExtractSurface, DR-04): the
+// Step 6 reference check authorizes precisely what a surface declares.
 //
 // Component Contract (FR10):
 //   - What it does: Derives the persisted SurfaceManifest from fully explicit

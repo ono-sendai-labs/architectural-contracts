@@ -3,7 +3,6 @@ package facts_test
 import (
 	"testing"
 
-	"github.com/ono-sendai-labs/architectural-contracts/go/internal/capanalyzer"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/facts"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/manifest"
 )
@@ -54,7 +53,7 @@ func TestFactsRoundTrip(t *testing.T) {
 		Component:      "store-component",
 		InterfaceStyle: manifest.InterfaceStylePackageSurface,
 		Packages:       []string{"example.com/store"},
-		Symbols:        []capanalyzer.InterfaceSymbol{"(*example.com/store.DB).Get", "example.com/store.Read"},
+		Symbols:        []facts.SymbolID{"(*example.com/store.DB).Get", "example.com/store.Read"},
 	}
 
 	// Verify pkgFacts round-trip fields

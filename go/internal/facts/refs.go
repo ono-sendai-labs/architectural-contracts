@@ -160,7 +160,7 @@ func (e ReferenceEdge) Validate() error {
 	if err != nil {
 		return fmt.Errorf("reference edge from %s: %w", e.FromPackage, err)
 	}
-	if got := symbolIDPackage(id); got != e.ReferentPackage {
+	if got := SymbolIDPackage(id); got != e.ReferentPackage {
 		return fmt.Errorf("reference edge from %s: referent %s names package %q but edge records %q", e.FromPackage, id, got, e.ReferentPackage)
 	}
 	if err := e.Site.Validate(); err != nil {
@@ -169,10 +169,10 @@ func (e ReferenceEdge) Validate() error {
 	return nil
 }
 
-// symbolIDPackage extracts the package-path prefix of a parsed SymbolID under
+// SymbolIDPackage extracts the package-path prefix of a parsed SymbolID under
 // the v1 grammar: everything before the last dot of a "pkg.Name" spelling, or
 // everything inside the leading parentheses of a "(pkg.T).Method" spelling.
-func symbolIDPackage(id SymbolID) string {
+func SymbolIDPackage(id SymbolID) string {
 	text := string(id)
 	if strings.HasPrefix(text, "(") {
 		if close := strings.Index(text, ")."); close >= 0 {
@@ -189,6 +189,12 @@ func symbolIDPackage(id SymbolID) string {
 		return ""
 	}
 	return text[:dot]
+}
+
+// CompareSymbolIDs totally orders two SymbolIDs byte-wise, mirroring
+// symbol.Compare for deterministic artifact ordering.
+func CompareSymbolIDs(a, b SymbolID) int {
+	return symbol.Compare(a, b)
 }
 
 // CompareReferenceEdges totally orders two edges by their full identity.

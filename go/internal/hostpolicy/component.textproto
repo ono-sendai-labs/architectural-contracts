@@ -1,0 +1,2 @@
+name: "hostpolicy"
+interface_files: "hostpolicy.go"

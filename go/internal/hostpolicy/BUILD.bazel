@@ -1,3 +1,4 @@
+load("@rules_arcc//bazel_rules/go:defs.bzl", "go_component")
 load("@rules_go//go:def.bzl", "go_library", "go_test")
 
 go_library(
@@ -18,3 +19,12 @@ go_test(
     srcs = ["hostpolicy_test.go", "namespace_test.go"],
     deps = [":hostpolicy"],
 )
+
+# Mirrors the checked-in hostpolicy/component.textproto.
+go_component(
+    name = "hostpolicy_component",
+    interface = ":hostpolicy",
+    visibility = ["//go:__subpackages__"],
+)
+
+exports_files(["component.textproto"])

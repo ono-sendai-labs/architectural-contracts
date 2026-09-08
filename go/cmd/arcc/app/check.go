@@ -231,6 +231,15 @@ func (r *Runner) runCheck(opts checkOptions, stdout, stderr io.Writer) int {
 	for _, di := range resolvedDeps {
 		for _, sym := range di.Symbols {
 			pruneSet[string(sym)] = true
+			// Legacy Capslock capability findings name methods in the
+			// pointer-receiver spelling, while a SymbolID surface stores the
+			// receiver base name only (DR-04). Add the dual spelling so the
+			// Capslock prune set keeps matching until the Task 05 cutover
+			// deletes this path. This widens nothing: it is the same
+			// declared method, not an implements closure.
+			if recv, method, ok := splitSymbolIDMethod(sym); ok {
+				pruneSet["(*"+recv+")."+method] = true
+			}
 		}
 		for _, pkg := range di.Packages {
 			pruneSet["func "+pkg+".init"] = true
@@ -611,4 +620,19 @@ func deriveSDKKey(target stdlibmap.TargetConfig) (stdlibauthority.SDKKey, error)
 		RuleVersion:      stdlibmap.RuleVersion,
 		MapFormatVersion: artifactio.MapFormatVersion,
 	}), nil
+}
+
+// splitSymbolIDMethod splits a method-form SymbolID "(pkg.Type).Method" into
+// its receiver body and method name. Non-method spellings report ok=false.
+func splitSymbolIDMethod(id facts.SymbolID) (recv, method string, ok bool) {
+	s := string(id)
+	if !strings.HasPrefix(s, "(") {
+		return "", "", false
+	}
+	inner := s[1:]
+	idx := strings.Index(inner, ").")
+	if idx < 0 {
+		return "", "", false
+	}
+	return inner[:idx], inner[idx+2:], true
 }

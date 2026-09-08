@@ -99,13 +99,18 @@ type CallEdge struct {
 //
 // These fields are derived by the shell (specifically `goanalysis`) from the
 // dependency's own root and manifest (not declared) and are consumed by the checker
-// to validate boundary calls and build the prune set.
+// to validate boundary references and build the prune set.
+//
+// Symbols are shared symbol.SymbolID values under the declaring-object rule
+// (DR-04): the exact exported declaring objects of the surviving interface
+// files, with no implements-closure expansion and no dual pointer/value
+// receiver keys.
 type DependencyInterface struct {
 	Component string
 
 	// InterfaceStyle is read from the dependency's own manifest and is not verified by arcc.
 	InterfaceStyle manifest.InterfaceStyle
 
-	Packages []string                      // all packages under the dependency's component root (derived, not declared)
-	Symbols  []capanalyzer.InterfaceSymbol // the FR4 symbol set (derived, not declared)
+	Packages []string   // all packages under the dependency's component root (derived, not declared)
+	Symbols  []SymbolID // the exact declaring-object symbol set (derived, not declared)
 }

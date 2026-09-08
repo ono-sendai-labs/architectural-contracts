@@ -181,7 +181,10 @@ func Check(in Inputs) report.ConformanceReport {
 		di := &in.DepIfaces[i]
 		normSyms := make(map[string]bool)
 		for _, sym := range di.Symbols {
-			normSyms[NormalizeInterfaceSymbol(sym)] = true
+			// SymbolID values are already canonical declaring-object keys
+			// (DR-04); the legacy callee normalization below strips the
+			// pointer marker from VTA spellings into the same form.
+			normSyms[string(sym)] = true
 		}
 		info := &depInfo{
 			di:          di,
@@ -210,7 +213,19 @@ func Check(in Inputs) report.ConformanceReport {
 			calleeStr := string(edge.Callee)
 			if lastDot := strings.LastIndex(calleeStr, "."); lastDot != -1 {
 				funcName := calleeStr[lastDot+1:]
-				if funcName == "init" || strings.HasPrefix(funcName, "init#") {
+				if funcName == "init" || strings.HasPrefix(funcName, "init#") || strings.HasPrefix(funcName, "init$") {
+					continue
+				}
+				// Legacy-path compatibility for the Step 6 transition (task-02
+				// req 9): values typed as the universal stdlib error interface
+				// reach any dependency type's Error method without naming it,
+				// so a VTA-resolved ".Error" callee must not require a
+				// declaration. The typed reference path (Task 05 cutover)
+				// replaces this exemption with the exact declaring-object
+				// facts; until then it is deleted from
+				// ResolveDependencyInterface (no types.Implements expansion)
+				// and approximated here on legacy call edges only.
+				if funcName == "Error" {
 					continue
 				}
 			}

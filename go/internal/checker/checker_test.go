@@ -839,7 +839,7 @@ func TestCheck_FR5_UndeclaredInterfaceCall(t *testing.T) {
 			{
 				Component: "dep1",
 				Packages:  []string{"github.com/dep1/pkg"},
-				Symbols:   []capanalyzer.InterfaceSymbol{"github.com/dep1/pkg.PublicFunc"},
+				Symbols:   []facts.SymbolID{"github.com/dep1/pkg.PublicFunc"},
 			},
 		},
 	}
@@ -884,7 +884,7 @@ func TestCheck_FR5_DeclaredInterfaceCall(t *testing.T) {
 			{
 				Component: "dep1",
 				Packages:  []string{"github.com/dep1/pkg"},
-				Symbols:   []capanalyzer.InterfaceSymbol{"github.com/dep1/pkg.PublicFunc"},
+				Symbols:   []facts.SymbolID{"github.com/dep1/pkg.PublicFunc"},
 			},
 		},
 	}
@@ -921,7 +921,7 @@ func TestCheck_FR5_Normalization(t *testing.T) {
 			{
 				Component: "dep1",
 				Packages:  []string{"github.com/dep1/pkg"},
-				Symbols:   []capanalyzer.InterfaceSymbol{"(github.com/dep1/pkg.DB).Get"}, // declared as value receiver
+				Symbols:   []facts.SymbolID{"(github.com/dep1/pkg.DB).Get"}, // declared as value receiver
 			},
 		},
 	}
@@ -958,7 +958,7 @@ func TestCheck_PluginStructPatternIsSilent(t *testing.T) {
 			{
 				Component: "dep1",
 				Packages:  []string{"github.com/dep1/pkg"},
-				Symbols:   []capanalyzer.InterfaceSymbol{"github.com/dep1/pkg.PublicFunc"},
+				Symbols:   []facts.SymbolID{"github.com/dep1/pkg.PublicFunc"},
 			},
 		},
 	}
@@ -1100,7 +1100,7 @@ func TestCheck_FR5_FR3_FR4_Combined_And_Deterministic(t *testing.T) {
 			{
 				Component: "dep_call_only",
 				Packages:  []string{"github.com/dep_call_only/pkg"},
-				Symbols:   []capanalyzer.InterfaceSymbol{"github.com/dep_call_only/pkg.PublicFunc"},
+				Symbols:   []facts.SymbolID{"github.com/dep_call_only/pkg.PublicFunc"},
 			},
 			{
 				Component: "dep_import_only",
@@ -1109,7 +1109,7 @@ func TestCheck_FR5_FR3_FR4_Combined_And_Deterministic(t *testing.T) {
 			{
 				Component: "dep_clean",
 				Packages:  []string{"github.com/dep_clean/pkg", "mycomponent/pkg1"},
-				Symbols:   []capanalyzer.InterfaceSymbol{"github.com/dep_clean/pkg.PublicFunc"},
+				Symbols:   []facts.SymbolID{"github.com/dep_clean/pkg.PublicFunc"},
 			},
 		},
 	}
@@ -1544,7 +1544,7 @@ func TestCheck_FR6_FeatureCompleteCompositeReport(t *testing.T) {
 			{
 				Component: "dep1",
 				Packages:  []string{"github.com/dep1/pkg"},
-				Symbols:   []capanalyzer.InterfaceSymbol{"github.com/dep1/pkg.PublicFunc"},
+				Symbols:   []facts.SymbolID{"github.com/dep1/pkg.PublicFunc"},
 			},
 		},
 		Caps: []capanalyzer.CapabilityFinding{
@@ -1662,7 +1662,7 @@ func TestCheck_DeclaredStyle_CallsUndeclaredInterfaceReported(t *testing.T) {
 				Component:      "declared_dep",
 				Packages:       []string{"example.com/declared"},
 				InterfaceStyle: manifest.InterfaceStyleUnspecified,
-				Symbols:        []capanalyzer.InterfaceSymbol{"example.com/declared.DeclaredSymbol"},
+				Symbols:        []facts.SymbolID{"example.com/declared.DeclaredSymbol"},
 			},
 		},
 	}

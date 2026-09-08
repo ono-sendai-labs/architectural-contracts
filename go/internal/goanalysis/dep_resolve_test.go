@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ono-sendai-labs/architectural-contracts/go/internal/capanalyzer"
+	"github.com/ono-sendai-labs/architectural-contracts/go/internal/facts"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/goanalysis"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/manifest"
 )
@@ -44,40 +44,36 @@ func TestResolveDependencyInterface_Success(t *testing.T) {
 		t.Errorf("expected packages:\n%v\ngot:\n%v", expectedPkgs, result.Packages)
 	}
 
-	// 3. Assert Symbols - should contain declared interface symbols and concrete implementation methods of interface type
-	// Let's list expected interface symbols in sorted order.
+	// 3. Assert Symbols — the exact declaring-object set of the surviving
+	// interface files (types.go + api.go): no implements-closure injection,
+	// no dual receiver keys, shared facts.SymbolID values.
 	pkgPath := "github.com/ono-sendai-labs/architectural-contracts/go/internal/goanalysis/testdata/dep_resolve/dep"
-	expectedSymbols := []capanalyzer.InterfaceSymbol{
-		capanalyzer.InterfaceSymbol("(*" + pkgPath + ".Base).GetValue"),
-		capanalyzer.InterfaceSymbol("(*" + pkgPath + ".Box).Get"),
-		capanalyzer.InterfaceSymbol("(*" + pkgPath + ".GreeterImpl).Greet"),
-		capanalyzer.InterfaceSymbol("(" + pkgPath + ".GreeterImpl).Greet"),
-		capanalyzer.InterfaceSymbol("(" + pkgPath + ".statusErr).Error"),
-		capanalyzer.InterfaceSymbol("(*" + pkgPath + ".statusErr).Error"),
-		capanalyzer.InterfaceSymbol(pkgPath + ".Base"),
-		capanalyzer.InterfaceSymbol(pkgPath + ".Box"),
-		capanalyzer.InterfaceSymbol(pkgPath + ".ExportedConst"),
-		capanalyzer.InterfaceSymbol(pkgPath + ".ExportedVar"),
-		capanalyzer.InterfaceSymbol(pkgPath + ".Greeter"),
-		capanalyzer.InterfaceSymbol(pkgPath + ".Hello"),
-		capanalyzer.InterfaceSymbol(pkgPath + ".init"),
+	expectedSymbols := []facts.SymbolID{
+		facts.SymbolID("(" + pkgPath + ".Base).GetValue"),
+		facts.SymbolID("(" + pkgPath + ".Box).Get"),
+		facts.SymbolID(pkgPath + ".Base"),
+		facts.SymbolID(pkgPath + ".Box"),
+		facts.SymbolID(pkgPath + ".ExportedConst"),
+		facts.SymbolID(pkgPath + ".ExportedVar"),
+		facts.SymbolID(pkgPath + ".Greeter"),
+		facts.SymbolID(pkgPath + ".Hello"),
+		facts.SymbolID(pkgPath + ".init"),
 	}
 
-	// Convert result symbols to a map for checking, or sort and compare
-	if len(result.Symbols) != len(expectedSymbols) {
-		t.Errorf("expected %d symbols, got %d:\n%+v", len(expectedSymbols), len(result.Symbols), result.Symbols)
+	if !reflect.DeepEqual(result.Symbols, expectedSymbols) {
+		t.Errorf("expected symbols:\n%v\ngot:\n%v", expectedSymbols, result.Symbols)
 	}
 
-	for _, expected := range expectedSymbols {
-		found := false
+	// The implements closure is gone: the exported concrete implementation is
+	// not part of the resolved set even though it satisfies Greeter.
+	for _, forbidden := range []facts.SymbolID{
+		facts.SymbolID("(" + pkgPath + ".GreeterImpl).Greet"),
+		facts.SymbolID(pkgPath + ".PrivateFunc"),
+	} {
 		for _, sym := range result.Symbols {
-			if sym == expected {
-				found = true
-				break
+			if sym == forbidden {
+				t.Errorf("implements-closure symbol %q must not appear in the resolved set: %v", forbidden, result.Symbols)
 			}
-		}
-		if !found {
-			t.Errorf("expected symbol %q not found in result symbols", expected)
 		}
 	}
 }
@@ -106,57 +102,6 @@ func TestResolveDependencyInterface_DeclaredStyleWithMembers(t *testing.T) {
 	}
 	if len(result.Symbols) == 0 {
 		t.Errorf("expected non-empty symbols from declared interface files")
-	}
-}
-
-func TestResolveDependencyInterface_UniversalErrorInterface(t *testing.T) {
-	declaringRoot, err := filepath.Abs("testdata/dep_resolve/declaring")
-	if err != nil {
-		t.Fatalf("failed to get absolute path to declaring: %v", err)
-	}
-
-	dep := manifest.ComponentDependency{
-		Name:     "dep",
-		Manifest: "../dep/component.textproto",
-	}
-
-	result, err := goanalysis.ResolveDependencyInterface(declaringRoot, declaringRoot, dep)
-	if err != nil {
-		t.Fatalf("unexpected error resolving dependency: %v", err)
-	}
-
-	// Methods on dependency types implementing the universal stdlib error
-	// interface are part of the dependency surface, even when neither the type
-	// nor the method is declared in an interface file.
-	pkgPath := "github.com/ono-sendai-labs/architectural-contracts/go/internal/goanalysis/testdata/dep_resolve/dep"
-	mustContain := []capanalyzer.InterfaceSymbol{
-		capanalyzer.InterfaceSymbol("(" + pkgPath + ".statusErr).Error"),
-		capanalyzer.InterfaceSymbol("(*" + pkgPath + ".statusErr).Error"),
-	}
-	for _, expected := range mustContain {
-		found := false
-		for _, sym := range result.Symbols {
-			if sym == expected {
-				found = true
-				break
-			}
-		}
-		if !found {
-			t.Errorf("expected symbol %q not found in derived symbols: %v", expected, result.Symbols)
-		}
-	}
-
-	// Only Error is published for error-implementing types; other methods on
-	// those types stay architecture-private.
-	for _, forbidden := range []capanalyzer.InterfaceSymbol{
-		capanalyzer.InterfaceSymbol("(" + pkgPath + ".statusErr).Code"),
-		capanalyzer.InterfaceSymbol("(*" + pkgPath + ".statusErr).Code"),
-	} {
-		for _, sym := range result.Symbols {
-			if sym == forbidden {
-				t.Errorf("non-interface method %q must not appear in derived symbols: %v", forbidden, result.Symbols)
-			}
-		}
 	}
 }
 
@@ -289,17 +234,16 @@ func TestResolveDependencyInterface_PackageSurface(t *testing.T) {
 		t.Errorf("expected packages:\n%v\ngot:\n%v", expectedPkgs, result.Packages)
 	}
 
-	// Should contain exported symbols from both member packages, including PrivateFunc and Subhello
+	// Should contain exported declaring objects from both member packages,
+	// keyed as single canonical SymbolIDs (no dual receiver keys).
 	pkgPath := "github.com/ono-sendai-labs/architectural-contracts/go/internal/goanalysis/testdata/dep_resolve/dep"
 	subPkgPath := "github.com/ono-sendai-labs/architectural-contracts/go/internal/goanalysis/testdata/dep_resolve/dep/subpkg"
 
-	mustContain := []capanalyzer.InterfaceSymbol{
-		capanalyzer.InterfaceSymbol(pkgPath + ".PrivateFunc"),
-		capanalyzer.InterfaceSymbol(subPkgPath + ".Subhello"),
-		capanalyzer.InterfaceSymbol("(*" + pkgPath + ".Base).GetValue"),
-		capanalyzer.InterfaceSymbol("(" + pkgPath + ".Base).GetValue"),
-		capanalyzer.InterfaceSymbol("(*" + pkgPath + ".GreeterImpl).Greet"),
-		capanalyzer.InterfaceSymbol("(" + pkgPath + ".GreeterImpl).Greet"),
+	mustContain := []facts.SymbolID{
+		facts.SymbolID(pkgPath + ".PrivateFunc"),
+		facts.SymbolID(subPkgPath + ".Subhello"),
+		facts.SymbolID("(" + pkgPath + ".Base).GetValue"),
+		facts.SymbolID("(" + pkgPath + ".GreeterImpl).Greet"),
 	}
 
 	for _, expected := range mustContain {
@@ -312,6 +256,13 @@ func TestResolveDependencyInterface_PackageSurface(t *testing.T) {
 		}
 		if !found {
 			t.Errorf("expected symbol %q not found in package-surface symbols: %v", expected, result.Symbols)
+		}
+	}
+
+	// No dual-receiver keys survive the SymbolID conversion.
+	for _, sym := range result.Symbols {
+		if strings.Contains(string(sym), "(*") {
+			t.Errorf("pointer-marker symbol %q must not appear in the resolved set", sym)
 		}
 	}
 }

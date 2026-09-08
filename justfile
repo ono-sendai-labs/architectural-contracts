@@ -36,8 +36,12 @@ run *args:
 # Self-check leg relationship:
 # The Bazel `.check` targets run by `bazel test //...` (in //go/internal/...)
 # correspond one-to-one with the pure components checked here:
-#   capanalyzer, symbol, stdlibauthority, facts, report, checker, manifest,
-#   goanalysis, artifactio, surface.
+#   capanalyzer, hostpolicy, symbol, stdlibauthority, facts, report, checker,
+#   manifest, goanalysis, artifactio, surface.
+#
+# hostpolicy previously rode inside symbol's member set; it is now its own
+# dependency-only leaf component, declared by symbol and owned as a duplicate
+# transitional member by capslockadapter, stdlibmap, and goanalysis.
 #
 # The other two components — capslockadapter and cli — are native-only because
 # capslock's closure contains golang.org/x/sys/unix built with cgo. The Bazel
@@ -59,6 +63,7 @@ selfcheck:
 	cd {{go_dir}} && ../bin/arcc check internal/facts/component.textproto
 	cd {{go_dir}} && ../bin/arcc check internal/report/component.textproto
 	cd {{go_dir}} && ../bin/arcc check internal/capanalyzer/component.textproto
+	cd {{go_dir}} && ../bin/arcc check internal/hostpolicy/component.textproto
 	cd {{go_dir}} && ../bin/arcc check internal/symbol/component.textproto
 	cd {{go_dir}} && ../bin/arcc check internal/stdlibauthority/component.textproto
 	cd {{go_dir}} && ../bin/arcc check internal/artifactio/component.textproto

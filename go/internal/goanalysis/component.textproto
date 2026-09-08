@@ -47,6 +47,10 @@ component_dependencies {
   name: "manifest"
   manifest: "../manifest/component.textproto"
 }
+component_dependencies {
+  name: "symbol"
+  manifest: "../symbol/component.textproto"
+}
 declared_authority: "FILES"
 declared_authority: "EXEC"
 declared_authority: "READ_SYSTEM_STATE"
