@@ -416,7 +416,7 @@ func loadClassifyFixturePkgs(t *testing.T) []*packages.Package {
 	if err != nil {
 		t.Fatalf("failed to resolve classify fixture root: %v", err)
 	}
-	memberPkgs := []string{classifyMember + "/globals", classifyMember + "/rows"}
+	memberPkgs := []string{classifyMember + "/globals", classifyMember + "/rows", classifyMember + "/uses"}
 	cfg := &packages.Config{
 		Mode: packages.NeedName | packages.NeedFiles | packages.NeedCompiledGoFiles |
 			packages.NeedImports | packages.NeedDeps | packages.NeedSyntax |
@@ -436,7 +436,7 @@ func loadClassifyFixturePkgs(t *testing.T) []*packages.Package {
 // classifyMemberSet is the classify fixture's member set.
 func classifyMemberSet(t *testing.T) facts.MemberSet {
 	t.Helper()
-	ms, err := facts.NewMemberSet(classifyMember+"/globals", classifyMember+"/rows")
+	ms, err := facts.NewMemberSet(classifyMember+"/globals", classifyMember+"/rows", classifyMember+"/uses")
 	if err != nil {
 		t.Fatalf("invalid member set: %v", err)
 	}
@@ -614,26 +614,49 @@ func TestFixture6_ImportTable(t *testing.T) {
 			t.Fatalf("import of %q was not scanned", path)
 		}
 	}
+	// The rows package is the import-only table: every one of its imports is
+	// blank (the member, top-level declared dependency, dep/sub,
+	// auto-attached infra, and unowned rows included) and it makes no object
+	// reference at all.
+	for _, path := range scanned {
+		if _, ok := byPath[path]; !ok {
+			t.Fatalf("import of %q was not scanned", path)
+		}
+	}
+	for _, e := range loadClassifyFixtureRefs(t) {
+		if e.FromPackage == rowsPkg {
+			t.Errorf("the import-only rows package must not reference objects, got %+v", e)
+		}
+	}
 
-	// Unowned resolved packages: UNDECLARED_DEPENDENCY for each import at its
-	// own site, plus the object references into them (sort.Ints, errors.Is).
+	// Unowned resolved packages: UNDECLARED_DEPENDENCY for each import at
+	// its own site (blank rows in rows.go, named imports in uses.go), plus
+	// the object references into them (sort.Ints, errors.Is).
 	unowned := map[string]bool{"sort": true, "errors": true, "strconv": true}
+	bySite := map[facts.SourceSite]facts.ImportEdge{}
+	for _, e := range imports {
+		bySite[e.Site] = e
+	}
 	for _, b := range got.Boundary {
 		if b.Kind != "UNDECLARED_DEPENDENCY" || !unowned[b.ReferentPackage] {
 			t.Errorf("unexpected boundary observation %+v", b)
+			continue
 		}
-		if b.Referent == "" && b.Site != byPath[b.ReferentPackage].Site {
-			t.Errorf("import violation must sit at the import site, got %+v", b)
+		if b.Referent == "" {
+			edge, ok := bySite[b.Site]
+			if !ok || edge.ImportPath != b.ReferentPackage || edge.Resolution != facts.ImportResolved {
+				t.Errorf("import violation must sit at its own resolved import site, got %+v", b)
+			}
 		}
 	}
 	var wantObs int
 	for _, e := range imports {
-		if e.ImportingPackage == rowsPkg && unowned[e.ImportPath] {
+		if unowned[e.ImportPath] {
 			wantObs++
 		}
 	}
 	for _, e := range loadClassifyFixtureRefs(t) {
-		if unowned[e.ReferentPackage] && e.FromPackage == rowsPkg {
+		if unowned[e.ReferentPackage] {
 			wantObs++
 		}
 	}
