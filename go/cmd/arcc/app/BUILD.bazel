@@ -30,7 +30,13 @@ go_library(
 go_test(
     name = "app_test",
     size = "small",
-    srcs = ["app_test.go", "check_test.go", "stdlibmap_test.go", "verdict_test.go"],
+    srcs = [
+        "app_test.go",
+        "check_internal_test.go",
+        "check_test.go",
+        "stdlibmap_test.go",
+        "verdict_test.go",
+    ],
     # keep: these tests drive the colocated (non-hermetic) loading path, which
     # shells out to `go list` and so needs a Go toolchain on PATH — the very
     # thing the Bazel rules exist to avoid. They run under `just ci`'s
@@ -43,6 +49,7 @@ go_test(
         "//go/internal/facts",
         "//go/internal/goanalysis",
         "//go/internal/report",
+        "//go/internal/schema/gen",
         "//go/internal/stdlibauthority",
     ],
 )
