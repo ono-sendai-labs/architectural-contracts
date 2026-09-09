@@ -325,7 +325,7 @@ This example demonstrates how `arcc` tracks ambient authority, allows legitimate
 3. **`csvfile`** (High Authority): This component legitimately accesses the real filesystem to read files using `os.ReadFile`. It explicitly declares its requirement for `FILES` authority in its manifest. Checked on its own, it conforms.
 4. **`app`** (Composition Root): This component calls `csvfile` to load data and `toprow` to sort it. Because both are first-class **component dependencies**, references to their exact declared interfaces are checked as component-boundary edges. The filesystem authority remains owned by `csvfile` and does not become part of `app`'s contract, so `app` checks as conformant and ambient-authority-free.
 
-### Running the Conforming Examples
+### Running the Examples
 To verify these behaviors, execute the following checks from within the `go` directory:
 
 ```bash
