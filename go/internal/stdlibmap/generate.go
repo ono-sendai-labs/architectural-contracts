@@ -32,9 +32,10 @@ const (
 // hold authority, so no trust decision is recorded.
 const provenanceStructural = ""
 
-// FindingSource is the injectable Capslock seam behind Generate: one batched
-// GranularityFunction run over the complete importable package batch (task
-// req 1). capslockadapter.GenerationFindings is the native implementation.
+// FindingSource is the injectable per-package Capslock seam behind Generate:
+// Generate invokes it once for each importable package so each result is
+// scoped to that package's own analysis closure. The
+// capslockadapter.GenerationFindings function is the native implementation.
 type FindingSource interface {
 	Findings(paths []string) ([]capslockadapter.GenerationFinding, error)
 }
@@ -67,16 +68,16 @@ type GenerationInput struct {
 	Oracle PackageOracle
 	// Loader type-loads the importable packages for the target.
 	Loader Loader
-	// Findings runs Capslock once over the complete importable batch. When
-	// nil, the native Capslock runner is used, bound to the same target
-	// environment as the loader and oracle (round-1 finding: the analysis
-	// must describe the target, not the host).
+	// Findings runs Capslock for one importable package at a time. When nil,
+	// the native Capslock runner is used, bound to the same target environment
+	// as the loader and oracle (round-1 finding: the analysis must describe the
+	// target, not the host).
 	Findings FindingSource
 }
 
 // Generate produces the total stdlib authority map (task reqs 1–10): it
-// inventories the SDK independently, runs the Capslock batch once, groups the
-// findings by root, completes every inventoried symbol and init with a
+// inventories the SDK independently, runs one Capslock batch per importable
+// package, groups the findings by root, completes every inventoried symbol and init with a
 // terminal classification under the design's object-kind rules, reconciles
 // the exact inventory equality, and emits canonical bytes through the
 // artifact I/O boundary. It fails closed: any inventory gap, unaccounted

@@ -132,7 +132,7 @@ The attributes mirror the manifest schema below:
 
 - **`interface`** — the single `go_library` holding the component's public API. Passing a list is a load-time error. Required for the default (declared) style; rejected under `PACKAGE_SURFACE`.
 - **`members`** — additional `go_library` labels the component owns. The rule resolves each to its import path and writes the **fully expanded literal list** into the manifest's `members`, which is also the layout's `roots`. Member packages are analysis roots, so their authority is charged to this component whoever calls them, and their imports are checked against the component's declarations.
-- **`component_deps`** — other `go_component` targets this one depends on. Their packages are covered by them, so arcc prunes authority at their interfaces (the `app` example checks authority-free this way).
+- **`component_deps`** — other `go_component` targets this one depends on. Their packages are covered by them, so arcc checks references through their exact declared interfaces (the `app` example stays authority-free this way).
 - **`interface_style`** — omit for the declared style, or pass `PACKAGE_SURFACE` (exported by `defs.bzl`) to wrap a library that has no architectural interface. Under `PACKAGE_SURFACE`, `interface` must be absent and `members` non-empty. Members are always literal target labels; import-path patterns are rejected.
 - **`declared_authority`** — authority constants from `defs.bzl` (`FILES`, `NETWORK`, …). Empty means the component claims to be authority-free.
 - **`contract`** — optional contract documents; Bazel-only metadata arcc never reads.
@@ -182,8 +182,8 @@ hooks worth knowing about:
   as labels. Empty upstream, because upstream injects nothing.
 - **`go_attach_infra(target, infra)`** — whether to attach a registry entry to a
   given target. The rule adds each attached entry as a `component_dep` marked
-  `auto_attached`. Returning `True` unconditionally is conforming: pruning at a
-  package is a no-op unless that package is reached, and a component's own
+  `auto_attached`. Returning `True` unconditionally is conforming: checking at a
+  package boundary is a no-op unless that package is reached, and a component's own
   authority is charged regardless because its packages are roots. A host whose
   analysis-phase closure does not show toolchain-injected packages cannot
   evaluate a closure test at all.
@@ -220,8 +220,8 @@ taxonomy is equally available from its language-neutral home,
 `@rules_arcc//bazel_rules:authority.bzl`.
 
 Worked BUILD files live under [`go/examples/csvtool/`](go/examples/csvtool/):
-`parsecsv` (no authority), `toprow` (no authority), `csvfile` (`[FILES]`), and
-`app` (authority pruned by its component dependencies).
+`parsecsv` (no declared authority), `toprow` (no authority), `csvfile` (`[FILES]`),
+and `app` (its component dependencies provide the checked boundaries).
 
 ---
 
@@ -318,13 +318,12 @@ arcc check path/to/component.textproto --format=json
 
 The repository includes a complete, realistic example of a multi-package command-line application (a tool to sort and extract top rows from a CSV) located under `go/examples/csvtool/`.
 
-This example demonstrates how `arcc` tracks ambient authority, allows legitimate capabilities, and prunes analysis boundaries:
+This example demonstrates how `arcc` tracks ambient authority, allows legitimate capabilities, and checks component boundaries:
 
-1. **`parsecsv`** (Shared Utility): A small in-memory CSV parser, declared as a component of its own so that both `toprow` and `csvfile` can depend on it across a real boundary. No declared authority.
+1. **`parsecsv`** (Shared Utility): A small in-memory CSV parser, declared as a component of its own so that both `toprow` and `csvfile` can depend on it across a real boundary. It has no declared authority, and its use of `csv.Reader.ReadAll` is honestly reported as `UNANALYZED` by the current stdlib map.
 2. **`toprow`** (Pure Logic): This component sorts and extracts top rows from in-memory CSV data, depending on the `parsecsv` component. It performs no file or network I/O; its manifest declares no authority, and checking it succeeds with `0`.
 3. **`csvfile`** (High Authority): This component legitimately accesses the real filesystem to read files using `os.ReadFile`. It explicitly declares its requirement for `FILES` authority in its manifest. Checked on its own, it conforms.
-4. **`app`** (Composition Root): This component calls `csvfile` to load data and `toprow` to sort it. 
-   - **Boundary Pruning (FR5b) in action:** Because `app` depends on `csvfile` as a first-class **component dependency**, `arcc`'s capability analysis is pruned at `csvfile`'s declared public interface. Even though `app` orchestrates a file-reading component, the filesystem authority is owned by `csvfile` and does not bleed into `app`'s contract. Therefore, `app` checks as fully conformant and ambient-authority-free!
+4. **`app`** (Composition Root): This component calls `csvfile` to load data and `toprow` to sort it. Because both are first-class **component dependencies**, references to their exact declared interfaces are checked as component-boundary edges. The filesystem authority remains owned by `csvfile` and does not become part of `app`'s contract, so `app` checks as conformant and ambient-authority-free.
 
 ### Running the Conforming Examples
 To verify these behaviors, execute the following checks from within the `go` directory:
@@ -332,7 +331,7 @@ To verify these behaviors, execute the following checks from within the `go` dir
 ```bash
 cd go
 
-# 1. Check the shared parser (conforms, authority-free)
+# 1. Check the shared parser (expected exit 1: its UNANALYZED use is reported)
 ../bin/arcc check examples/csvtool/internal/parsecsv/component.textproto
 
 # 2. Check the pure sorting logic (conforms, authority-free)
@@ -341,12 +340,14 @@ cd go
 # 3. Check the file reader (conforms, uses declared FILES authority)
 ../bin/arcc check examples/csvtool/csvfile/component.textproto
 
-# 4. Check the composition root (conforms, authority-free via pruning)
+# 4. Check the composition root (conforms, authority-free through component boundaries)
 ../bin/arcc check examples/csvtool/app/component.textproto
 ```
 
-For all four commands, you will see a conforming output and an exit code of `0`.
-A component with dependencies also lists each pruned boundary:
+The first command currently exits `1`: `csv.Reader.ReadAll` is an honest
+`UNANALYZED` result and is a known AC8b gate exemption until Step 7 supplies the
+residual policy. The other three commands exit `0`. A component with dependencies
+also lists each checked boundary:
 ```
 Component "app" conforms; does not exceed declared authority
 
@@ -355,9 +356,8 @@ Dependencies:
 - toprow
 ```
 
-The listing is not a finding: the depending component did nothing wrong by
-pruning at a boundary. It exists so that what is being trusted is visible in
-every report that rests on it.
+The listing is not a finding: it makes the component boundaries visible in every
+report that rests on them.
 
 ### Reproducing a Conformance Violation
 To see what a contract violation looks like, you can easily create a temporary failing component.
@@ -503,15 +503,15 @@ Consequences, all local to the component:
 
 - `interface_files` must be **empty**, and `members` must be non-empty. Both
   directions are validation errors, so the surface has one source of truth.
-- Dependents prune at **package** granularity rather than at declared interface
-  symbols, and `CALLS_UNDECLARED_INTERFACE` becomes vacuous for them — the
-  honest reading of "the whole surface is the interface". `UNUSED_DEPENDENCY`
-  still applies, computed against the full exported surface.
+  - Dependents accept references at **package** granularity rather than against
+    declared interface symbols, and `CALLS_UNDECLARED_INTERFACE` becomes vacuous
+    for them — the honest reading of "the whole surface is the interface".
+    `UNUSED_DEPENDENCY` still applies, computed against the full exported surface.
 - FR4 placement rules (`METHOD_OUTSIDE_INTERFACE`) do not apply.
 - The component's own check still runs and still surfaces its authority. That is
   the point of certifying a wrapper rather than trusting a list.
 
-Package-granularity pruning is coarser than symbol pruning and will hide
+Package-granularity boundaries are coarser than symbol boundaries and can hide
 authority reached through unexported entry points — see
 [Limitations](#limitations-and-scope).
 
@@ -541,7 +541,7 @@ interface_files: "types.go"
 # back to directory-based membership. The interface package is implicit.
 members: "example.com/my_component/internal/store"
 
-# First-class dependent components that have their own manifests and prune authority
+# First-class dependent components that have their own manifests and define boundaries
 component_dependencies {
   name: "db_driver"
   manifest: "../db_driver/component.textproto"
@@ -560,19 +560,34 @@ The MVP implementation makes several engineering trade-offs and has known bounda
 
 ### Analysis scope and precision
 
-1. **Call-Graph Precision (VTA Over-approximation):** Boundary analysis relies on static call graph analysis (Variable Type Analysis - VTA) matching Capslock. Because dynamic dispatch and reflection cause over-approximation of call edges, the analyzer can occasionally register call paths that are unreachable at runtime, potentially leading to false-positive violations.
-2. **Call-Edge-Only Enforcement:** Only call edges are checked at boundaries. Reading exported struct fields, types, or accessing package-level variables across boundaries is outside the scope of MVP check coverage.
-4. **Compositional / Single-Component Checking:** Pruning depends on the honesty of dependencies' manifests. Therefore, security guarantees only hold if *every* component in the system is independently checked and conforms.
-4. **Generic Symbol Matching:** Generic SSA type parameter brackets are simplified for matching, which is conservative but can sometimes lead to loose checks (failing open on complex edge cases).
-5. **Go-only Scope:** The current implementation supports Go codebases only (layout is split under `go/` and schemas under `proto/` to permit future language extensions).
-6. **One platform per check.** `declared_authority` is platform-agnostic, but a check verifies exactly one platform (the layout's `platform` block, or `build.Default` natively). Authority exercised only in a `_windows.go` file is invisible on a Linux check.
-7. **Bodiless packages cannot be analyzed.** A package whose function bodies are unavailable cannot be a member — the loader errors, naming it rather than letting silence look like cleanliness. Nothing forces its authority to be declared.
+1. **Reference precision:** Boundary analysis follows the objects resolved by the
+   Go AST and `types.Info` reference scanner. Dynamic dispatch and reflection that
+   do not produce a resolvable typed reference can remain outside the checked
+   vocabulary; analysis-defeating source constructs fail closed instead.
+2. **Compositional / single-component checking:** Component boundaries depend on
+   the honesty of dependencies' manifests and their checked surfaces. Security
+   guarantees therefore hold only if *every* component in the system is
+   independently checked and conforms.
+3. **Generic symbol matching:** Generic type-parameter brackets are simplified
+   when canonical symbol identities are matched, which is conservative but can
+   be loose for complex edge cases.
+4. **Go-only scope:** The current implementation supports Go codebases only
+   (layout is split under `go/` and schemas under `proto/` to permit future
+   language extensions).
+5. **One platform per check.** `declared_authority` is platform-agnostic, but a
+   check verifies exactly one platform (the layout's `platform` block, or
+   `build.Default` natively). Authority exercised only in a `_windows.go` file is
+   invisible on a Linux check.
+6. **Bodiless packages cannot be analyzed.** A package whose function bodies are
+   unavailable cannot be a member — the loader errors, naming it rather than
+   letting silence look like cleanliness. Nothing forces its authority to be
+   declared.
 
 ### Membership and boundaries
 
 8. **Cross-component membership overlap is undetected.** `MEMBER_OVERLAP` catches a member that is also covered *by the same component's own declarations*. Two unrelated components both claiming the same package is not detected — that needs a repo-wide uniqueness check, which does not exist yet.
 9. **A component's BUILD file changes when its implementation is restructured.** A declared-style component's `members` are explicit labels, so adding, removing or renaming an internal package edits the component declaration. This works against a goal the component model exists to serve — implementation changes should be reviewable with little attention *because* interface changes are the ones that surface — since an internal-only refactor now shows up as a diff to the component declaration. Bazel offers no mechanism that closes this: a package cannot enumerate packages below its immediate children, so "everything under here" is not expressible in one place (which is also why there is no wildcard helper). Partly mitigated: a member you *forget* to declare, but that owned code actually imports, is fail-closed — it lands in the closure, matches nothing, and is reported as `UNDECLARED_DEPENDENCY` naming the package to add. The silent residue is a nested package nothing imports, i.e. dead code, which stays unowned.
-10. **`PACKAGE_SURFACE` prunes at package granularity,** which is coarser than symbol pruning and will hide authority reached through unexported entry points. This was accepted knowingly for toolchain-injected runtimes; note that it now applies wherever an author chooses that style to wrap an existing library, which is the common case.
+10. **`PACKAGE_SURFACE` uses package-granularity boundaries,** which are coarser than symbol boundaries and can hide authority reached through unexported entry points. This was accepted knowingly for toolchain-injected runtimes; note that it now applies wherever an author chooses that style to wrap an existing library, which is the common case.
 11. **A `PACKAGE_SURFACE` component can launder authority.** Wrapping a large library and declaring the union of what it needs stops charging that authority to every caller — which is the value of drawing the boundary, and also the risk. The safeguard is that the wrapper's own check reports its actual authority; nothing prevents an author from declaring it and moving on. Review of `declared_authority` is the control, as it is for any component.
 
 ### Bazel-specific

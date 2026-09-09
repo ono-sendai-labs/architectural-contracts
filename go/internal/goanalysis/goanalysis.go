@@ -441,7 +441,8 @@ func extractSymbols(p *packages.Package, componentRoot string) ([]facts.Exported
 	var symbols []facts.ExportedSymbol
 
 	// Emit symbol keys in the canonical namespace so they line up with the
-	// canonicalized package facts, dependency-interface symbols, and call edges.
+	// canonicalized package facts, dependency-interface symbols, and typed
+	// reference/import edges.
 	canonPkgPath := hostpolicy.CanonicalizePath(p.PkgPath)
 
 	for _, file := range p.Syntax {

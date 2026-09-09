@@ -141,7 +141,7 @@ func buildFixtureMapCurated(t *testing.T, findings []capslockadapter.GenerationF
 		return nil, err
 	}
 	m.FormatVersion = artifactio.MapFormatVersion
-	m.Key = &gen.SDKKey{ToolchainVersion: "fixture", MapFormatVersion: artifactio.MapFormatVersion}
+	m.Key = &gen.SDKKey{ToolchainVersion: "fixture", Goos: "linux", Goarch: "amd64", MapFormatVersion: artifactio.MapFormatVersion}
 	return m, nil
 }
 
@@ -870,7 +870,7 @@ func TestCuratedInitProvenance(t *testing.T) {
 	}
 	// The persisted form carries the annotation through canonical I/O.
 	curatedOnly.FormatVersion = artifactio.MapFormatVersion
-	curatedOnly.Key = &gen.SDKKey{ToolchainVersion: "fixture", MapFormatVersion: artifactio.MapFormatVersion}
+	curatedOnly.Key = &gen.SDKKey{ToolchainVersion: "fixture", Goos: "linux", Goarch: "amd64", MapFormatVersion: artifactio.MapFormatVersion}
 	if _, err := artifactio.MarshalMap(curatedOnly); err != nil {
 		t.Fatalf("MarshalMap(curated init): %v", err)
 	}

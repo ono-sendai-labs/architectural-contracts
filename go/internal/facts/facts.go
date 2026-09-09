@@ -6,10 +6,10 @@
 // Dependencies point inward so that core components never import the shell.
 //
 // Component Contract (FR10):
-//   - What it does: Defines pure structs for packages, exported symbols, static
-//     call edges, dependency interfaces, and the Step 6 typed reference
-//     vocabulary — ReferenceEdge, ImportEdge, SourceSite and the exact
-//     MemberSet — with validation and total deterministic comparison
+//   - What it does: Defines pure structs for packages, exported symbols, typed
+//     reference/import edges, dependency interfaces, and the Step 6 typed
+//     reference vocabulary — ReferenceEdge, ImportEdge, SourceSite and the
+//     exact MemberSet — with validation and total deterministic comparison
 //     (refs.go, member.go).
 //   - What it requires: Constructed by the shell from static analysis or
 //     tests; holds no active logic or behaviors. Reference edges carry only
@@ -57,7 +57,7 @@ type PackageFact struct {
 
 // ExportedSymbol represents a top-level exported declaration or package-init function in Go source.
 type ExportedSymbol struct {
-	Name string // Capslock/go-types key form (e.g., "example.com/store.Read" or "(*example.com/store.DB).Get")
+	Name string // Canonical symbol key form (e.g., "example.com/store.Read" or "(*example.com/store.DB).Get")
 	File string // relative path to the file declaring the symbol (relative to component root)
 
 	// Kind identifies the type of symbol. Must be one of:
@@ -75,7 +75,7 @@ type ExportedSymbol struct {
 //
 // These fields are derived by the shell (specifically `goanalysis`) from the
 // dependency's own root and manifest (not declared) and are consumed by the checker
-// to validate boundary references and build the prune set.
+// to validate boundary references against the exact declared interface.
 //
 // Symbols are shared symbol.SymbolID values under the declaring-object rule
 // (DR-04): the exact exported declaring objects of the surviving interface
