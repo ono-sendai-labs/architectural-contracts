@@ -1173,6 +1173,15 @@ func C() {
 	if stderrText != "" {
 		t.Errorf("expected empty stderr, got %q", stderrText)
 	}
+	if strings.Count(stdoutText, `use of undeclared authority "FILES"`) != 1 {
+		t.Errorf("text report must contain one counted FILES finding, got %q", stdoutText)
+	}
+	if !strings.Contains(stdoutText, "(3 sites)") {
+		t.Errorf("text report must show the aggregated site count, got %q", stdoutText)
+	}
+	if !strings.Contains(stdoutText, "analysis-defeating") {
+		t.Errorf("text report must include the UNANALYZED finding, got %q", stdoutText)
+	}
 	// JSON mode: the canonical report retains all sorted sites, the class,
 	// and the SDK key.
 	stdoutJSON, stderrJSON, exitJSON := runArcc([]string{"check", manifestPath, "--format=json"})
