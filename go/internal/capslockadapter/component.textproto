@@ -2,7 +2,6 @@ name: "capslockadapter"
 interface_files: "generation.go"
 members: "github.com/ono-sendai-labs/architectural-contracts/go/internal/capslockadapter"
 members: "github.com/ono-sendai-labs/architectural-contracts/go/internal/hostpolicy"
-members: "github.com/ono-sendai-labs/architectural-contracts/go/internal/packagelayout"
 members: "github.com/google/capslock/analyzer"
 members: "github.com/google/capslock/interesting"
 members: "github.com/google/capslock/proto"
@@ -70,10 +69,6 @@ members: "google.golang.org/protobuf/runtime/protoimpl"
 members: "github.com/fatih/color"
 members: "github.com/mattn/go-colorable"
 members: "github.com/mattn/go-isatty"
-component_dependencies {
-  name: "capanalyzer"
-  manifest: "../capanalyzer/component.textproto"
-}
 component_dependencies {
   name: "stdlibauthority"
   manifest: "../stdlibauthority/component.textproto"

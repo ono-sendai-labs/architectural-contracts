@@ -28,7 +28,6 @@ go_test(
     ],
     deps = [
         ":facts",
-        "//go/internal/capanalyzer",
         "//go/internal/hostpolicy",
         "//go/internal/manifest",
     ],
