@@ -150,6 +150,16 @@ func validateMap(m *gen.StdlibMap) error {
 	if m.Key.MapFormatVersion != m.FormatVersion {
 		return fmt.Errorf("stdlib map format_version %d disagrees with the SDK key's map_format_version %d", m.FormatVersion, m.Key.MapFormatVersion)
 	}
+	// The SDK key must name a concrete target: a map whose target identity is
+	// incomplete (no toolchain or platform) cannot have had a real
+	// classification applied to it, so it is not a usable stdlib authority
+	// even after an otherwise-valid classifier comparison (AC 2: the full
+	// target SDK key is validated before any verdict).
+	if m.Key.ToolchainVersion == "" || m.Key.Goos == "" || m.Key.Goarch == "" {
+		return fmt.Errorf("stdlib map SDK key names no concrete target (toolchain_version %q, goos %q, goarch %q); regenerate the map for a specific toolchain and platform",
+			m.Key.ToolchainVersion, m.Key.Goos, m.Key.Goarch)
+	}
+
 	if err := rejectDuplicates("SDK key build tag", m.Key.BuildTags); err != nil {
 		return err
 	}

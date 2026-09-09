@@ -256,6 +256,20 @@ func TestStdlibMapReaderRejectsInvalidInMemoryStates(t *testing.T) {
 			mutate:  func(m *gen.StdlibMap) { m.FormatVersion = 2 },
 			wantErr: "unsupported artifact format version",
 		},
+		{
+			name: "incomplete target identity",
+			mutate: func(m *gen.StdlibMap) {
+				m.Key.ToolchainVersion = ""
+				m.Key.Goos = ""
+				m.Key.Goarch = ""
+			},
+			wantErr: "no concrete target",
+		},
+		{
+			name:    "missing toolchain version",
+			mutate:  func(m *gen.StdlibMap) { m.Key.ToolchainVersion = "" },
+			wantErr: "no concrete target",
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			m := mapWithFullInventory()

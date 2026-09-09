@@ -4,6 +4,7 @@ package app_test
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -48,6 +49,41 @@ func writePinnedLayoutFixture(t *testing.T, workspace string, roots []string, ta
 		platform["goexperiment"] = target.GOEXPERIMENT
 	}
 	layout := map[string]any{"roots": roots, "packages": packages, "platform": platform}
+	data, err := json.Marshal(layout)
+	if err != nil {
+		t.Fatal(err)
+	}
+	layoutPath := filepath.Join(workspace, "package-layout.json")
+	if err := os.WriteFile(layoutPath, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return layoutPath
+}
+
+// writeUnpinnedLayoutFixture writes a package-layout JSON with no platform
+// identity: the layout pins no target, so the stdlib map's own SDK key
+// (including its completeness) is the only target contract available.
+func writeUnpinnedLayoutFixture(t *testing.T, workspace string, roots []string) string {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(workspace, "go.mod"), []byte("module example.com/artifacts\n\ngo 1.21\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	packages := make([]map[string]any, 0, len(roots))
+	for _, root := range roots {
+		name := root[strings.LastIndex(root, "/")+1:]
+		relFile := filepath.ToSlash(filepath.Join(name, name+".go"))
+		if err := os.MkdirAll(filepath.Dir(filepath.Join(workspace, relFile)), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(workspace, relFile), []byte("package "+name+"\n\nfunc Exported() {}\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		packages = append(packages, map[string]any{
+			"id": root, "name": name, "pkgPath": root, "is_stdlib": false,
+			"goFiles": []string{relFile}, "compiledGoFiles": []string{relFile}, "imports": map[string]string{},
+		})
+	}
+	layout := map[string]any{"roots": roots, "packages": packages}
 	data, err := json.Marshal(layout)
 	if err != nil {
 		t.Fatal(err)
@@ -182,6 +218,76 @@ func TestCheck_EmitsArtifactsLayoutMode(t *testing.T) {
 	}
 	if !strings.Contains(stderr, "absent.json") {
 		t.Errorf("missing map stderr = %q, want it to name the path", stderr)
+	}
+}
+
+// TestCheck_UnpinnedLayoutIncompleteSDKKey is the unpinned-layout leg of the
+// fail-closed contract (AC 2; review round 2): a declared map whose SDK key
+// names no concrete target — missing toolchain_version, goos, goarch — must be
+// rejected even for an unpinned layout, where no expected key is otherwise
+// available to compare. An otherwise-valid map with a current classifier hash
+// must not reach a verdict when its target identity is incomplete; the check
+// exits 2 and publishes neither artifact.
+func TestCheck_UnpinnedLayoutIncompleteSDKKey(t *testing.T) {
+	workspace := t.TempDir()
+	layoutPath := writeUnpinnedLayoutFixture(t, workspace, []string{"example.com/artifacts/comp"})
+	manifestPath := writeLayoutManifest(t, workspace, "example.com/artifacts/comp")
+
+	mapPath := filepath.Join(t.TempDir(), "map.json")
+	generateNativeMap(t, mapPath)
+	raw, err := os.ReadFile(mapPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Strip the generated map's target identity while keeping everything else
+	// (which retained classifier hash and full inventories) byte-for-byte: the
+	// stripped artifact is exactly the "otherwise valid" state the unpinned
+	// branch must reject. MarshalMap's own validator already refuses to write
+	// such a map, so the file is produced by editing the persisted JSON.
+	decoded := map[string]any{}
+	if err := json.Unmarshal(raw, &decoded); err != nil {
+		t.Fatalf("decode the generated map: %v", err)
+	}
+	key, ok := decoded["key"].(map[string]any)
+	if !ok {
+		t.Fatalf("generated map JSON has no SDK key object: %s", raw)
+	}
+	for _, field := range []string{"toolchainVersion", "goos", "goarch"} {
+		if _, ok := key[field]; !ok {
+			t.Fatalf("generated map key lacks %q, fixture premise broken", field)
+		}
+		delete(key, field)
+	}
+	incomplete, err := json.Marshal(decoded)
+	if err != nil {
+		t.Fatal(err)
+	}
+	incompletePath := filepath.Join(t.TempDir(), "incomplete.json")
+	if err := os.WriteFile(incompletePath, incomplete, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	runner := fullRunner()
+	reportPath := filepath.Join(workspace, "comp.report.json")
+	surfacePath := filepath.Join(workspace, "comp.surface.json")
+	code, stderr := runRunnerFromWorkspace2(t, workspace, runner, []string{
+		"check", manifestPath,
+		"--package-layout=" + layoutPath,
+		"--report-out=" + reportPath,
+		"--surface-out=" + surfacePath,
+		"--stdlib-map=" + incompletePath,
+	})
+	if code != 2 {
+		t.Fatalf("incomplete-key map exit = %d, want 2; stderr = %s", code, stderr)
+	}
+	if !strings.Contains(stderr, "no concrete target") {
+		t.Errorf("incomplete-key map stderr = %q, want it to name the missing target identity", stderr)
+	}
+	if _, err := os.Stat(reportPath); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("report artifact %s was published despite failing closed (stat error: %v)", reportPath, err)
+	}
+	if _, err := os.Stat(surfacePath); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("surface artifact %s was published despite failing closed (stat error: %v)", surfacePath, err)
 	}
 }
 
