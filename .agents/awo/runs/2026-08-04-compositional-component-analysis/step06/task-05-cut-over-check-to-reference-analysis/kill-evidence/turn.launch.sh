@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+echo $$ > .agents/runs-acpx/20260908T160150-step06-task-05-cut-over-check-to-reference-analysis/round-2.implementer/turn.pid
+exec acpx --approve-all --format json --suppress-reads --ttl 0 --cwd /home/xtof/git/ono-sendai-labs/architectural-contracts opencode -s awo-impl-2026-08-04-compositional-component-analysis-step06-task05b --file .agents/runs-acpx/20260908T160150-step06-task-05-cut-over-check-to-reference-analysis/round-2.implementer/prompt.md > .agents/runs-acpx/20260908T160150-step06-task-05-cut-over-check-to-reference-analysis/round-2.implementer/out.json 2> .agents/runs-acpx/20260908T160150-step06-task-05-cut-over-check-to-reference-analysis/round-2.implementer/out.err

@@ -1,0 +1,107 @@
+result:
+  task_file: .agents/tasks/2026-08-04-compositional-component-analysis/step06/task-05-cut-over-check-to-reference-analysis.code-task.md
+  change_id: xymnklmupvsqxnylvmwuwpskotvuzxkq
+  status: completed
+  schema_version: 2
+  produced_at: 2026-09-09T22:42:03Z
+
+acceptance_criteria:
+  - text: "1. Production check uses only reference analysis"
+    addressed: yes
+    evidence: |
+      The production runner calls checker.Check with typed References, Imports,
+      Bypasses, and the validated StdlibAuthority; no check-time SSA, VTA,
+      call-graph, or Capslock path remains. Final just ci passed native and
+      Bazel checks. Implementation: go/cmd/arcc/app/check.go and
+      go/internal/checker/classify.go.
+  - text: "2. Stdlib artifacts fail closed before publication"
+    addressed: yes
+    evidence: |
+      artifactio validation rejects incomplete target identity even for an
+      unpinned layout; the real integration regression asserts exit 2 and no
+      report or surface publication in
+      go/cmd/arcc/app/check_integration_test.go:217-290. Corrupt and missing
+      map cases are covered in the same integration suite, and final just ci
+      passed.
+  - text: "3. Legacy analysis is deleted, generation survives"
+    addressed: yes
+    evidence: |
+      The check adapter/debug debris and legacy check path are absent while
+      generation.go and stdlib-map generation tests remain. Bazel build of
+      capslockadapter and facts passed; native unit and integration tests and
+      bazel test //... passed.
+  - text: "4. Fixtures remain the cutover gate"
+    addressed: yes
+    evidence: |
+      TestDesignFixturesThroughRealCommand in
+      go/cmd/arcc/app/check_integration_test.go:641-878 stages and runs the
+      real Runner over the design fixture 1-6/9 matrix and the
+      analysis-defeating fixture, checking function values, blank imports,
+      exact interface/concrete dispatch, reference/import outcomes, os.Stdin,
+      io.EOF, and bypass sites. The focused integration test passed in 133.107s
+      and the final full integration gate passed.
+  - text: "5. Surfaces and checks agree"
+    addressed: yes
+    evidence: |
+      Surface and dependency resolution both use symbol.ExtractSurface for the
+      exact declaring-object set; the existing fixture regression covers the
+      omitted implementor. README and resolver/component comments now describe
+      exact interfaces without implements-closure divergence language.
+  - text: "6. Reports preserve complete evidence"
+    addressed: yes
+    evidence: |
+      TestIntegration_ThreeSitesOneCapabilityAndUnanalyzed in
+      go/cmd/arcc/cli_integration_test.go:1136-1255 runs the real command in
+      text and JSON modes, asserts one counted FILES finding with three sites,
+      complete evidence/class/SDK key, and default failure of the UNANALYZED
+      sort.Slice reference. The focused test and final integration gate pass.
+  - text: "7. Current loading boundary is explicit"
+    addressed: yes
+    evidence: |
+      NeedDeps and source-backed ResolveDependencyInterface remain in the three
+      loading configurations. The resolver comments point to Steps 7-8 and no
+      persisted surfaces or export-data loading was introduced; final just ci
+      passed.
+  - text: "8. Native, Bazel, and self-hosting integrations pass"
+    addressed: yes
+    evidence: |
+      Final `env PATH=/home/xtof/.local/go/bin:$PATH just ci` passed native vet,
+      formatting, build, unit/integration tests, selfcheck, bazel build,
+      bazel test //... (122/122), members/shape checks, and malformed-action
+      validation. The five AC8b exemptions remain explicit and individually
+      justified through justfile comments and existing Bazel manual tags.
+  - text: "8b. The honest post-cutover failures are exempted, not hidden"
+    addressed: yes
+    evidence: |
+      The five enumerated exemptions are internal/artifactio,
+      internal/manifest, internal/goanalysis, internal/capslockadapter, and
+      examples/csvtool/internal/parsecsv. Native justfile comments and Bazel
+      check_tags=["manual"] comments identify each finding scope and its Step 7
+      owner; no analysis, map, or test meaning was weakened. AC8b was amended
+      to sanction the fifth capslockadapter exemption, and final just ci passed.
+  - text: "9. The performance delta is recorded honestly"
+    addressed: yes
+    evidence: |
+      research/current-analysis-pipeline.md records comparable Step 6 wall/CPU
+      results and deltas for csvtool and goanalysis, identifies removed
+      SSA/VTA/check-time Capslock work, records map-generation cost, and states
+      that NeedDeps and dependency source loading remain until Steps 7-8.
+      The artifact was inspected during this rework.
+
+artifacts:
+  scratchpad_dir: .agents/scratchpad/2026-08-04-compositional-component-analysis/step06/task-05-cut-over-check-to-reference-analysis/
+  files:
+    - context.md
+    - plan.md
+    - progress.md
+    - work.log
+    - result.yaml
+
+notes: |
+  Rework round 2 is complete. The interrupted design-fixture test was verified
+  through the real command, the temporary loader debug test was deleted, and
+  the remaining README and contract-comment findings were corrected; the
+  fail-closed validator also required three unit fixtures to name concrete
+  linux/amd64 SDK targets. The real report test now asserts its text output,
+  and the final just ci gate passed with the adjudicated five-component AC8b
+  exemption set; the empty working copy's parent is the reported change.

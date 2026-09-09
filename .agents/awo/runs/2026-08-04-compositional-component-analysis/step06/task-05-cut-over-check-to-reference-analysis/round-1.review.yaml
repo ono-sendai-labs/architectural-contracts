@@ -1,0 +1,323 @@
+review:
+  task_file: .agents/tasks/2026-08-04-compositional-component-analysis/step06/task-05-cut-over-check-to-reference-analysis.code-task.md
+  change_id: svqpmqsmqlruunpytlqkkqqrotkqpszp
+  reviewed_at: 2026-09-09T19:44:49Z
+  verdict: changes_requested
+  schema_version: 2
+  lsp_coverage: partial
+
+merge_request:
+  title: "feat(go): cut check over to reference analysis [Compositional Analysis: Step 06/Task 05]"
+  body: |
+    Reviews the complete series after the spec-repair base: mmsqnoytkxrzouwmwnnwyzsvqklltqtz
+    performs the typed reference-analysis cutover and removes the check-time SSA/VTA and
+    Capslock path; mtusovxywwztoupwowlunqptzzxpvzko updates the classifier key and facts
+    component dependency; mwwrmyywymqvvtnnvslpkwltsulwuvtx removes remaining transitional
+    component-contract language; and svqpmqsmqlruunpytlqkkqqrotkqpszp applies the AC8b
+    exemptions and two declaration/stdlib-sort fixes.
+
+    The AC8b exemption set enumerated by the final change is: internal/artifactio (89
+    AnalysisDefeating sites plus os.Stderr), internal/manifest (89 AnalysisDefeating sites
+    plus os.Open/os.Stderr), internal/goanalysis (86 AnalysisDefeating sites plus six
+    runtime.init sites), internal/capslockadapter (1042 AnalysisDefeating sites), and
+    examples/csvtool/internal/parsecsv (one csv.Reader.ReadAll site). Native exemptions
+    use just selfcheck comments and Bazel exemptions use check_tags=["manual"].
+
+summary: |
+  The production cutover is substantially implemented: the runner uses typed reference/import facts and a validated authority port, the legacy check-time SSA/VTA/Capslock path is gone, and the five AC8b exemptions are explicit and individually justified. Targeted Go unit tests, selected real CLI integration tests, fixture tests, vet/gofmt, and Go LSP checks pass; the work log records a green just ci run, but the full gate was not rerun because Bazel could not start in this sandbox and the known stdlib-map cost is high. The change still needs complete SDK-key validation for unpinned layouts, real-runner coverage for the design fixture matrix and three-site report case, documentation cleanup, and removal of stale legacy build/component dependencies.
+
+acceptance_criteria:
+  - text: |
+      1. **Production check uses only reference analysis**
+         - Given a native or layout-mode component check
+         - When `arcc check` analyzes it
+         - Then boundary and authority decisions originate from member AST/`types.Info`, resolved dependency interfaces, and `StdlibAuthority`, with no SSA, VTA, call graph, or check-time Capslock invocation
+    status: pass
+    evidence: |
+      app.runCheck invokes checker.Check with loaded References/Imports/Bypasses and the
+      resolved authority at go/cmd/arcc/app/check.go:248-260; main.go wires only the
+      package loader at go/cmd/arcc/main.go:26-30. LoadPackageFacts performs the typed
+      scans at go/internal/goanalysis/goanalysis.go:230-260. The repository search found
+      no check-time ssautil, VTA, Analyzer, or Capslock adapter path, and selected real
+      CLI integration tests passed.
+
+  - text: |
+      2. **Stdlib artifacts fail closed before publication**
+         - Given a missing, corrupt, key-mismatched, classifier-mismatched, format-mismatched, or inventory-incomplete stdlib map
+         - When a check runs
+         - Then it exits 2 with an actionable error and writes neither report nor surface artifact
+    status: partial
+    evidence: |
+      The normal resolver opens and validates the declared map before checker.Check at
+      go/cmd/arcc/app/check.go:473-538, and inventory gaps are returned by the checker
+      at go/internal/checker/classify.go:123-126 and covered by checker tests. Missing
+      and corrupt declared maps are covered by the layout integration test at
+      go/cmd/arcc/app/check_integration_test.go:161-185. However, the unpinned-layout
+      branch at go/cmd/arcc/app/check.go:510-536 only recomputes classifier_hash from
+      the map's own fields; it does not reject an otherwise valid map whose
+      toolchain_version, goos, or goarch fields are empty, so the full SDK-key contract
+      is not enforced in that mode.
+
+  - text: |
+      3. **Legacy analysis is deleted, generation survives**
+         - Given the repository after cutover
+         - When code/dependency searches and all generation tests run
+         - Then no check path, DTO, prune set, or adapter entry point for SSA/VTA/Capslock remains, while stdlib-map generation still performs its one intended Capslock batch successfully
+    status: pass
+    evidence: |
+      go/internal/capslockadapter/capslockadapter.go and its adapter tests are deleted;
+      go/internal/goanalysis/goanalysis.go no longer constructs SSA/VTA or extracts call
+      edges; and app.Runner has no Analyzer seam (go/cmd/arcc/app/app.go:26-37).
+      Generation-only APIs and tests remain in go/internal/capslockadapter/generation.go,
+      generation_test.go, generation_integration_test.go, and stdlibmap. The per-package
+      generation behavior is pinned by go/internal/stdlibmap/generate_test.go:695-720,
+      and the targeted generation-related package tests passed.
+
+  - text: |
+      4. **Fixtures remain the cutover gate**
+         - Given design fixtures 1-6 and 9 plus the analysis-defeating fixture
+         - When they are run through the real `arcc check` orchestration
+         - Then they retain the outcomes proven before cutover, including function values, blank-import init, exact interface dispatch, rejected concrete access, the full reference/import tables, and `os.Stdin` versus `io.EOF`
+    status: partial
+    evidence: |
+      The fixture assertions cover the typed scanner and checker directly in
+      go/internal/goanalysis/fixture_test.go:98-730, including function values,
+      blank imports, interface/concrete dispatch, the reference/import tables, and
+      os.Stdin/io.EOF. Real CLI integration tests also passed for representative
+      authority and dependency cases. The design fixture suite itself loads packages
+      and calls ScanReferences, BoundaryIndex, and ClassifyEdges directly; it does not
+      invoke app.Runner.Run or the production map-reader orchestration, so the exact
+      real-command gate required by this criterion is not fully proven.
+
+  - text: |
+      5. **Surfaces and checks agree**
+         - Given a declared-interface dependency with a concrete implementor omitted from its interface files
+         - When its surface is emitted and a dependent is checked
+         - Then both use the same exact declaring-object symbol set and no implements-closure disagreement is documented or observed
+    status: pass
+    evidence: |
+      ResolveDependencyInterface uses symbol.ExtractSurface for the exact declaring-object
+      set at go/internal/goanalysis/goanalysis.go:1429-1452, while surface emission uses
+      the same extractor at go/internal/surface/derive.go:124-130. The equality and
+      omitted-implementor regression is asserted by
+      go/internal/goanalysis/fixture_test.go:276-334, and the remaining transitional
+      wording was removed from the changed component contracts and plan.
+
+  - text: |
+      6. **Reports preserve complete evidence**
+         - Given three sites reaching one capability and an `UNANALYZED` reference
+         - When the real command emits text and canonical JSON reports
+         - Then text contains one counted finding, JSON retains all sorted sites/evidence/class/SDK key, and default policy fails the unanalyzed case
+    status: partial
+    evidence: |
+      Aggregation and policy semantics are covered by
+      go/internal/checker/aggregate_test.go:35-204, and the real CLI report test at
+      go/cmd/arcc/cli_integration_test.go:220-498 verifies text/JSON fields and a
+      default authority failure. The command-level test uses one os.ReadFile site and
+      no UNANALYZED reference; the three-site case exists only as injected observations
+      in the pure aggregate test. Thus the required real-command three-site plus
+      UNANALYZED report scenario is not fully covered.
+
+  - text: |
+      7. **Current loading boundary is explicit**
+         - Given a check after this task
+         - When its package and dependency loading are inspected
+         - Then `NeedDeps` and source-backed `ResolveDependencyInterface` remain, with comments pointing to Steps 7-8 rather than prematurely consuming surfaces/export data
+    status: pass
+    evidence: |
+      All three package-load configurations retain packages.NeedDeps, including the
+      member load at go/internal/goanalysis/goanalysis.go:97-100 and dependency load at
+      go/internal/goanalysis/goanalysis.go:1240-1244 and 1272-1276. The resolver's Step
+      7/8 source-loading boundary is documented at go/internal/goanalysis/goanalysis.go:1158-1168.
+      No surface consumption or export-data loading was added.
+
+  - text: |
+      8. **Native, Bazel, and self-hosting integrations pass**
+         - Given csvtool, arcc's own components, report assertion rules, and checked Bazel actions
+         - When `just ci` and the step's integration checks run
+         - Then all pass with correctly updated goldens and no undeclared build/component dependencies,
+           except the five components listed in AC 8b, whose applicable checks are explicitly
+           exempted there.
+    status: pass
+    evidence: |
+      work.log records a successful just ci run, including ci-go, selfcheck, bazel build,
+      bazel test 122/122, shape/member checks, and the malformed-component tool-error
+      check. The final change applies check_tags=["manual"] to the applicable Bazel
+      components and comments out only the four failing native selfcheck legs; targeted
+      real CLI tests passed. The full gate was not rerun in this review because the
+      sandbox Bazel output base was not writable and a temporary Bazel server crashed;
+      the recorded gate result is the available evidence.
+
+  - text: |
+      8b. **The honest post-cutover failures are exempted, not hidden**
+         - Given that deleting the implements-closure laundering makes `UNANALYZED` stdlib records
+           referenced by member source into `AnalysisDefeating` findings — the designed behaviour
+           (DR-11, I4), for which no user-facing policy carrier exists yet
+         - When the five affected components are removed from their applicable gates
+         - Then each is exempted by an explicit, individually justified TODO rather than by weakening
+           the analysis, the map, or any test's meaning:
+           - `internal/artifactio` and `internal/manifest` — transitional protobuf-runtime members;
+             TODO cites Step 7's protobuf-runtime `PACKAGE_SURFACE` migration.
+           - `internal/goanalysis` — retained `x/tools` members; TODO cites Step 7's `x/tools`
+             wrapper.
+           - `internal/capslockadapter` — native-only selfcheck of Capslock's own member source;
+             TODO cites Step 7's residual-`UNANALYZED` decision. Its 1042 sites are not owned by
+             either foreign-member wrapper, so Step 7 must prove that its chosen residual policy
+             clears or consciously accepts them rather than assuming the narrower curation option
+             is sufficient.
+           - `examples/csvtool`'s `parsecsv` — `csv.Reader.ReadAll` is honestly `UNANALYZED`; TODO
+             cites Step 7's residual-`UNANALYZED` decision.
+         - And the native exemptions are comments in `just selfcheck`, the Bazel ones use the
+           existing `check_tags = ["manual"]` seam from Step 5 task 05 where a Bazel check exists
+           — no new mechanism is invented — and the exempted findings are enumerated in the change
+           description so the set cannot silently grow.
+    status: pass
+    evidence: |
+      justfile:69-103 contains individually justified TODO comments for artifactio,
+      manifest, goanalysis, and capslockadapter, with the exact native finding scope and
+      Step 7 owner. Bazel uses the existing manual check seam in
+      go/internal/artifactio/BUILD.bazel:64-76,
+      go/internal/manifest/BUILD.bazel:63-75,
+      go/internal/goanalysis/BUILD.bazel:37-48, and
+      go/examples/csvtool/internal/parsecsv/BUILD.bazel:12-24. The capslockadapter
+      component has no Bazel check because its cgo closure is already rejected. The
+      svqpmqsmqlruunpytlqkkqqrotkqpszp description enumerates all five components and
+      their findings; no analysis, map, or test meaning is weakened.
+
+  - text: |
+      9. **The performance delta is recorded honestly**
+         - Given the Step 1 measurement procedure and representative components
+         - When post-cutover checks are measured
+         - Then `research/current-analysis-pipeline.md` records wall/CPU results and deltas attributable to removing SSA/VTA/check-time Capslock, while noting that dependency source loading and `NeedDeps` remain until later steps
+    status: pass
+    evidence: |
+      The Step 6 section at .agents/planning/2026-08-04-compositional-component-analysis/research/current-analysis-pipeline.md:275-306 records the five-run wall/CPU means and deltas for internal/goanalysis and csvtool/app, identifies the removed phases, records the approximately 2m18s one-time map-generation cost, and explicitly says dependency source loading and NeedDeps remain until Steps 7-8.
+
+findings:
+  - severity: important
+    category: acceptance_criteria
+    file: go/cmd/arcc/app/check.go
+    line: 510
+    title: Unpinned layouts accept incomplete SDK keys
+    details: |
+      In the unpinned-layout branch, authorityFromDeclaredMap calls NewStdlibMapReader
+      with no expected key and then compares only the classifier hash derived from the
+      map's own target fields (go/cmd/arcc/app/check.go:510-536). The map validation
+      path accepts empty toolchain_version, goos, and goarch fields
+      (go/internal/artifactio/stdlibmap.go:143-151 and stdlibmapreader.go:82-99).
+      A map with a current classifier hash, matching format, complete inventories, but
+      an empty target identity can therefore reach checker.Check for an unpinned layout,
+      contrary to the requirement that the full target SDK key be validated before a
+      verdict.
+    suggested_action: |
+      Make map/key validation reject missing target identity fields (and any other
+      incomplete SDK-key state) even when no layout platform is pinned, or derive and
+      validate the effective target used by the unpinned layout. Add an unpinned-layout
+      regression test that asserts exit 2 and no artifact publication for an incomplete
+      key.
+    source: built-in
+
+  - severity: important
+    category: tests
+    file: go/cmd/arcc/cli_integration_test.go
+    line: 220
+    title: Real CLI report test lacks three-site unanalyzed coverage
+    details: |
+      The real command-level report test in go/cmd/arcc/cli_integration_test.go:220-498
+      exercises one os.ReadFile site and no UNANALYZED reference. The three-site
+      aggregation is tested only with manually injected observations in
+      go/internal/checker/aggregate_test.go:35-76, so the required combination of real
+      scanning, default failure of an UNANALYZED reference, counted text output, and
+      complete canonical JSON evidence is not pinned end to end. This is the missing
+      behavioral coverage behind AC6's partial status.
+    suggested_action: |
+      Add a real CLI integration fixture with three member references to one mapped
+      capability and one mapped UNANALYZED symbol (or init), then assert exit 1, one
+      counted text finding, and JSON containing all sorted sites, class, SDK key, and
+      evidence.
+    source: built-in
+
+  - severity: important
+    category: architecture
+    file: go/internal/capslockadapter/BUILD.bazel
+    line: 13
+    title: Removed check-path dependencies remain declared
+    details: |
+      The cutover removed all imports of capanalyzer and packagelayout from the
+      generation-only capslockadapter package, but its go_library still declares both
+      at go/internal/capslockadapter/BUILD.bazel:12-18. The component manifest also
+      retains packagelayout as a member and capanalyzer as a component dependency at
+      go/internal/capslockadapter/component.textproto:5 and :73-75. In addition,
+      go/internal/facts/BUILD.bazel:29-34 still gives facts_test a capanalyzer
+      dependency even though the test only contains that path as a string. These are
+      stale declarations from the deleted adapter/prune path and violate the task's
+      requirement to update affected component and dependency declarations.
+    suggested_action: |
+      Remove the unused capanalyzer and packagelayout BUILD deps, remove the stale
+      capanalyzer component dependency and packagelayout member from the capslockadapter
+      contract, and remove the obsolete capanalyzer facts_test dep. Re-run the manifest
+      parity and Bazel dependency checks after the cleanup.
+    source: built-in
+
+  - severity: important
+    category: tests
+    file: go/internal/goanalysis/fixture_test.go
+    line: 98
+    title: Design fixtures bypass the real check orchestration
+    details: |
+      The fixture suite at go/internal/goanalysis/fixture_test.go:98-730 loads package
+      data directly and calls ScanReferences, NewBoundaryIndex, and ClassifyEdges. It
+      does not invoke app.Runner.Run, the production authority resolver/map reader,
+      report rendering, or the CLI exit policy. The changed cmd/arcc integration tests
+      use separate temporary fixtures and do not run the design fixture 1-6/9 matrix
+      and analysis-defeating fixture through the real arcc check path. This leaves the
+      behavioral orchestration requirement in AC4 only partially verified.
+    suggested_action: |
+      Add an integration test that invokes the production runner or arcc binary over
+      the design fixture manifests with the real authority artifact/resolver and
+      asserts the documented outcomes, including function values, blank-import init,
+      exact interface/concrete dispatch, all reference/import rows, os.Stdin versus
+      io.EOF, and the analysis-defeating case.
+    source: built-in
+
+  - severity: important
+    category: acceptance_criteria
+    file: README.md
+    line: 321
+    title: README still documents the deleted VTA/Capslock path
+    details: |
+      The cutover updated the new map section, but the user-facing walkthrough still
+      says the example "prunes analysis boundaries" and that arcc's "capability
+      analysis is pruned" at line 321 and lines 326-327. It also tells users that
+      parsecsv conforms and that all four commands exit 0 at lines 336 and 348,
+      although AC8b explicitly sanctions parsecsv's honest UNANALYZED failure. The
+      limitations section at lines 563-566 still claims boundary checking relies on
+      VTA/Capslock and is call-edge-only. These statements are false after the typed
+      reference cutover and leave the required documentation migration incomplete.
+    suggested_action: |
+      Rewrite the walkthrough and limitations to describe AST/types.Info reference and
+      import classification against exact declaring-object interfaces, and distinguish
+      the parsecsv AC8b gate exemption from a conforming standalone check. Remove or
+      replace the VTA, SSA, Capslock, call-edge-only, and "via pruning" claims while
+      preserving the valid boundary-composition explanation.
+    source: built-in
+
+  - severity: suggestion
+    category: style
+    file: go/internal/facts/facts.go
+    line: 9
+    title: Component comments retain obsolete call-edge terminology
+    details: |
+      The facts Component Contract still says it defines "static call edges" at
+      go/internal/facts/facts.go:9-13 and says DependencyInterface data is used to
+      "build the prune set" at lines 73-78, even though those DTOs and the prune path
+      were removed. Similarly, go/internal/stdlibmap/generate.go:35-37 and :70-72
+      still describe FindingSource as one complete-batch call while the implementation
+      invokes it once per importable package at lines 120-127.
+    suggested_action: |
+      Update these Component Contract and API comments to name ReferenceEdge/ImportEdge,
+      boundary classification, and per-package generation so the code's stated
+      contracts match the post-cutover implementation.
+    source: built-in
+
+ecosystem_reviews: []

@@ -1,0 +1,25 @@
+@  nvqslwtn xtof@xtof.org 2026-09-09 13:49:14 default@ 3a65be66
+│  (no description set)
+○  nllwrxvo xtof@xtof.org 2026-09-09 13:10:52 59d139ef
+│  fix(bazel): drop the check-path dependencies that the cutover left declared
+○  xtlnrlpx xtof@xtof.org 2026-09-09 13:07:48 9bcf8c5c
+│  test(arcc): pin the three-site and UNANALYZED report case through the real command
+○  xwqumxnq xtof@xtof.org 2026-09-09 13:06:31 d50952f8
+│  fix(app): reject stdlib maps whose SDK key names no concrete target
+○  sxmltlmm xtof@xtof.org 2026-09-09 12:20:47 5721f62b
+│  docs(plan): add bounded stdlib-map CI task
+○  wunynvxl xtof@xtof.org 2026-09-09 12:05:20 d3a2a507
+│  fix(spec): adjudicate the capslockadapter task 05 exemption
+○  wurqwrsr xtof@xtof.org 2026-09-08 19:15:08 7589da6f
+│  chore(awo): record the step06 task 05 escalation and reconciliation
+○  svqpmqsm xtof@xtof.org 2026-09-08 19:12:30 aa902e0b
+│  fix(go): apply the adjudicated post-cutover exemptions (AC8b)
+○  mwwrmyyw xtof@xtof.org 2026-09-08 18:37:14 ecda6ca1
+│  docs(go): drop the last Step 6 transitional notes from component contracts
+○  mtusovxy xtof@xtof.org 2026-09-08 18:37:14 bda867e9
+│  fix(bazel): mirror the bumped classifier hash; facts parity after the cutover
+○  mmsqnoyt xtof@xtof.org 2026-09-08 18:37:14 fc916480
+│  feat(goanalysis): cut the check over to the typed reference analysis
+○  srynxxuw xtof@xtof.org 2026-09-08 18:37:14 pr/2026-08-04-compositional-component-analysis-spec-fix-step06-task05 08918f93
+│  fix(spec): exempt the honest post-cutover failures and schedule their repairs
+~

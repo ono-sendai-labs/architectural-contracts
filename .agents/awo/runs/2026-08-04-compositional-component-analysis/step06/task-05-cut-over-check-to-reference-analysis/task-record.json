@@ -11,9 +11,17 @@
   },
   "produced_changes": [
     "mmsqnoytkxrzouwmwnnwyzsvqklltqtz",
-    "mtusovxywwztqmwxxsnnvsxstlnmqoos",
+    "mtusovxywwztoupwowlunqptzzxpvzko",
     "mwwrmyywymqvvtnnvslpkwltsulwuvtx",
-    "svqpmqsmqlruunpytlqkkqqrotkqpszp"
+    "svqpmqsmqlruunpytlqkkqqrotkqpszp",
+    "xwqumxnqtmmvyvtlxknxvomvxwkusmyr",
+    "xtlnrlpxyzwkkpxskwokpwnwyswtovyx",
+    "nllwrxvoroomyzpryozyqrynmyrtozqs",
+    "nvqslwtnusyvkkxqlwuuvmkosmvzzytp",
+    "pormwkwokmmqknmvxwxvpyxknupmnmts",
+    "prnyuxzlxlyzlkvvnrruxxulwrlwzzyk",
+    "nrplllklrktuskquzxotokzskvtunzlu",
+    "xymnklmupvsqxnylvmwuwpskotvuzxkq"
   ],
   "rounds": [
     {
@@ -44,17 +52,120 @@
       },
       "compaction": "none",
       "note": "E.4 reconciliation; NOT reviewed \u2014 run stopped before the reviewer at the user's instruction"
+    },
+    {
+      "round": 1,
+      "role": "reviewer",
+      "prompt": ".agents/runs-acpx/20260908T160150-step06-task-05-cut-over-check-to-reference-analysis/round-1.reviewer/prompt.md",
+      "out": ".agents/runs-acpx/20260908T160150-step06-task-05-cut-over-check-to-reference-analysis/round-1.reviewer",
+      "verdict": "changes_requested",
+      "findings": {
+        "important": 5,
+        "suggestion": 1
+      },
+      "acceptance_criteria": {
+        "pass": 7,
+        "partial": 3
+      },
+      "wall_s": 1241,
+      "tool_calls": 489,
+      "tokens": {
+        "total": 497257,
+        "cachedRead": 494336,
+        "input": 1245,
+        "output": 1676
+      },
+      "compaction": "none",
+      "note": "fresh session (previous reviewer never ran); 58.5% of the 850k codex window on its FIRST turn. Reviewer disclosed it could not rerun the full gate: Bazel output base not writable in its sandbox."
+    },
+    {
+      "round": 2,
+      "role": "implementer",
+      "session": "awo-impl-\u2026-step06-task05b (opencode/glm-5.3-flash)",
+      "out": ".agents/runs-acpx/20260908T160150-step06-task-05-cut-over-check-to-reference-analysis/round-2.implementer",
+      "status": "lost",
+      "wall_s": 7164,
+      "tool_calls": 945,
+      "note": "model weekly usage quota exhausted mid-round; adapter stayed alive, turn emitted no ACP event for ~1h. Committed fixes for findings 1-3 before dying; uncommitted remainder preserved by the orchestrator as wip change nvqslwtnusyvkkxqlwuuvmkosmvzzytp.",
+      "compaction": "none"
+    },
+    {
+      "round": "2b",
+      "role": "implementer",
+      "session": "awo-impl-\u2026-step06-task05c (codex/gpt-5.6-luna/high)",
+      "prompt": ".agents/runs-acpx/20260908T160150-step06-task-05-cut-over-check-to-reference-analysis/round-2b.implementer/prompt.md",
+      "out": ".agents/runs-acpx/20260908T160150-step06-task-05-cut-over-check-to-reference-analysis/round-2b.implementer",
+      "status": "completed",
+      "change_id": "xymnklmupvsqxnylvmwuwpskotvuzxkq",
+      "wall_s": 2661,
+      "tool_calls": 728,
+      "tokens": {
+        "total": 194748,
+        "cachedRead": 193280,
+        "input": 1148,
+        "output": 320
+      },
+      "compaction": "none",
+      "note": "recovery round: verified the wip test rather than rewriting it (carried through unchanged), deleted the debug debris, closed findings 4/5 and the suggestion. Claims full just ci green incl. bazel 122/122."
+    },
+    {
+      "round": 2,
+      "role": "reviewer",
+      "session": "awo-rev-\u2026-step06-task05-r2 (codex/gpt-5.6-luna/xhigh, FRESH)",
+      "prompt": ".agents/runs-acpx/20260908T160150-step06-task-05-cut-over-check-to-reference-analysis/round-2.reviewer/prompt.md",
+      "out": ".agents/runs-acpx/20260908T160150-step06-task-05-cut-over-check-to-reference-analysis/round-2.reviewer",
+      "verdict": "approved",
+      "findings": {
+        "suggestion": 6,
+        "deferred": 6
+      },
+      "acceptance_criteria": {
+        "pass": 10
+      },
+      "wall_s": 1155,
+      "tool_calls": 244,
+      "tokens": {
+        "total": 426754,
+        "cachedRead": 424704,
+        "input": 1266,
+        "output": 784
+      },
+      "compaction": "none",
+      "note": "ran under an explicit user instruction to defer reasonably deferrable findings to the step-scoped remediation pass, while NOT deferring fail-closed holes, actual errors, or anything touching AC8b. Returned all-pass with six suggestion-severity deferrals."
     }
   ],
-  "session_restarts": [],
+  "session_restarts": [
+    {
+      "role": "reviewer",
+      "round": 1,
+      "retired": "awo-rev-\u2026-step06-task05",
+      "replacement": "awo-rev-\u2026-step06-task05-r2",
+      "trigger": "context",
+      "total_tokens": 497257,
+      "window_pct": 58.5,
+      "tool_calls": 489,
+      "signal": "58.5% of the 850k window on its FIRST turn, at the ~60% retirement signal",
+      "paid_off": "fresh reviewer cost one round of re-orientation and had to be re-fed round-1's review explicitly; it closed all five prior findings and added no new important ones. 426754 tokens (50.2%) on a larger 12-change range than round 1's 4-change range at 497257 (58.5%), so the restart also bought headroom."
+    },
+    {
+      "role": "implementer",
+      "round": 2,
+      "retired": "awo-impl-\u2026-step06-task05b",
+      "replacement": "awo-impl-\u2026-step06-task05c",
+      "trigger": "lost_turn",
+      "signal": "opencode-go/glm-5.3-flash weekly usage quota exhausted; turn silent 1h with adapter alive",
+      "role_config_changed": "implementer switched opencode/glm-5.3-flash -> codex/gpt-5.6-luna[high] (commit yusprxtyrysx)"
+    }
+  ],
   "outcome": {
-    "status": "in_progress_stopped",
-    "reviewed": false,
-    "reason": "user stopped the run before launching the reviewer to investigate integration-test slowness",
-    "tip": "svqpmqsmqlruunpytlqkkqqrotkqpszp",
-    "open_items": [
-      "a FIFTH exemption (capslockadapter) was added beyond the four adjudicated \u2014 needs review judgement"
-    ]
+    "status": "approved",
+    "rounds": 3,
+    "verdict": "approved",
+    "deferred_findings": 6,
+    "deferred_to": "step-scoped \u00a75.2 remediation pass",
+    "tip": "xymnklmupvsqxnylvmwuwpskotvuzxkq",
+    "bookmark": "pr/2026-08-04-compositional-component-analysis/step06/task-05-cut-over-check-to-reference-analysis.code-task",
+    "merge_request_described_on": "mmsqnoytkxrzouwmwnnwyzsvqklltqtz"
   },
   "escalation": {
     "reason": "spec_defect",
@@ -62,5 +173,26 @@
     "boundary": "NOT contained \u2014 adjudicated by the user 2026-09-08",
     "resolution": "exempt all four with scheduled TODOs; x/tools wrapper and residual-UNANALYZED decision added to Step 7",
     "spec_commit": "srynxxuwuympsypwukkmsnukzyvrvsut"
-  }
+  },
+  "open_items_resolved": [
+    "the fifth (capslockadapter) exemption was adjudicated by the user in change wunynvxlmkqqsvxmymurtskotqtqyzyu and reviewed as AC8b: pass"
+  ],
+  "notes": [
+    "task-record.json had recorded a WRONG full change id for mtusovxy (\u2026qmwxxsnnvsxstlnmqoos); jj-change-id.sh --check caught it as UNRESOLVED and it was corrected to \u2026oupwowlunqptzzxpvzko before the reviewer prompt was composed."
+  ],
+  "orchestrator_verification": [
+    {
+      "round": "2b",
+      "claim": "the interrupted design-fixture test passes as authored (133.107s)",
+      "method": "ran go test -tags=integration -run TestDesignFixturesThroughRealCommand|TestIntegration_ThreeSitesOneCapabilityAndUnanalyzed ./cmd/arcc/...",
+      "outcome": "CONFIRMED \u2014 both ok, app package 131.682s",
+      "why": "finding 4 rested on unvalidated wip work the orchestrator itself committed"
+    }
+  ],
+  "interposed_non_implementation_changes": [
+    "wurqwrsrksmkwoxxlxxookmyvknmuuyz \u2014 chore(awo) run record",
+    "wunynvxlmkqqsvxmymurtskotqtqyzyu \u2014 fix(spec) capslockadapter adjudication",
+    "sxmltlmmvtwztuoynxxmrupsqzuztqny \u2014 docs(plan) task 06",
+    "yusprxtyrysxtuywzvwzmnppzntnnruq \u2014 chore(awo) implementer role switch"
+  ]
 }

@@ -1,0 +1,9 @@
+session=awo-impl-2026-08-04-compositional-component-analysis-step06-task05b
+agent=opencode
+repo=/home/xtof/git/ono-sendai-labs/architectural-contracts
+prompt=.agents/runs-acpx/20260908T160150-step06-task-05-cut-over-check-to-reference-analysis/round-2.implementer/prompt.md
+turn_pid=306257
+wrapper_pid=306231
+wrapper_ppid=306229
+start_epoch=1788983413
+start_utc=2026-09-09T19:50:13Z

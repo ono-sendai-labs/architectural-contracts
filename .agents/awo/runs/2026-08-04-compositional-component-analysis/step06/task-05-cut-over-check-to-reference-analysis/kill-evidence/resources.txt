@@ -1,0 +1,55 @@
+# resources at 2026-09-09T21:49:31Z
+
+## /proc/meminfo (the discriminating fields)
+MemTotal:       32119384 kB
+MemFree:         1246764 kB
+MemAvailable:   13913776 kB
+Buffers:         1910704 kB
+Cached:         12184416 kB
+SwapTotal:      32796668 kB
+SwapFree:       14293168 kB
+CommitLimit:    48856360 kB
+Committed_AS:   87317296 kB
+
+## /proc/pressure/memory
+some avg10=0.00 avg60=0.00 avg300=0.00 total=10139134
+full avg10=0.00 avg60=0.00 avg300=0.00 total=8966524
+
+               total        used        free      shared  buff/cache   available
+Mem:           31366       17778        1217        2586       15415       13587
+Swap:          32027       18069       13958
+
+## largest resident processes  (pid elapsed_s rss_kb comm)
+ 353770    6080 627188 java
+ 306294    7158 600400 opencode
+ 273729    8823 394696 claude
+ 306275    7158 102656 bun
+ 306257    7158 88076 node
+      4   66460  6832 bash
+ 457032       0  4060 ps
+ 456891       0  3612 bash
+ 306229    7158  3568 bash
+ 456889       0  3528 bash
+ 306231    7158  3472 bash
+ 457033       0  2208 sort
+
+## process counts by name
+      6 bash
+      2 sort
+      1 tail
+      1 sleep
+      1 sh
+      1 script
+      1 ps
+      1 opencode
+      1 node
+      1 java
+      1 head
+      1 claude
+      1 bwrap
+      1 bun
+
+## acpx / adapter processes  (pid ppid elapsed_s rss_kb comm args)
+ 306257  306231    7158 88076 node            node /home/xtof/.bun/bin/acpx --approve-all --format json --suppress-reads --ttl 0 --cwd /home/xtof/git/ono-sendai-labs/architectural-contracts opencode -
+ 306275  306257    7158 102656 bun            /home/xtof/.bun/bin/bun /home/xtof/.bun/install/global/node_modules/acpx/dist/cli.js __queue-owner
+ 306294  306275    7158 600400 opencode       opencode acp
