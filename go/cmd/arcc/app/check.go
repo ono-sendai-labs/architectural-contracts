@@ -8,7 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"sort"
+	"slices"
 	"strings"
 
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/artifactio"
@@ -269,11 +269,13 @@ func (r *Runner) runCheck(opts checkOptions, stdout, stderr io.Writer) int {
 			},
 		})
 	}
-	sort.SliceStable(conformanceReport.Warnings, func(i, j int) bool {
-		if conformanceReport.Warnings[i].Message != conformanceReport.Warnings[j].Message {
-			return conformanceReport.Warnings[i].Message < conformanceReport.Warnings[j].Message
+	// sort.SliceStable is UNANALYZED in the stdlib authority map; the
+	// slices spelling is proved-pure, so the CLI's own check stays clean.
+	slices.SortStableFunc(conformanceReport.Warnings, func(a, b report.Finding) int {
+		if c := strings.Compare(a.Message, b.Message); c != 0 {
+			return c
 		}
-		return conformanceReport.Warnings[i].Kind < conformanceReport.Warnings[j].Kind
+		return strings.Compare(string(a.Kind), string(b.Kind))
 	})
 
 	// 9. Publish the canonical artifacts from this same analysis invocation.

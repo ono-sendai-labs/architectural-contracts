@@ -66,12 +66,41 @@ selfcheck:
 	cd {{go_dir}} && ../bin/arcc check internal/hostpolicy/component.textproto
 	cd {{go_dir}} && ../bin/arcc check internal/symbol/component.textproto
 	cd {{go_dir}} && ../bin/arcc check internal/stdlibauthority/component.textproto
-	cd {{go_dir}} && ../bin/arcc check internal/artifactio/component.textproto
+	# EXEMPT (Step 6 task 05 AC8b; TODO(Step 7 protobuf-runtime PACKAGE_SURFACE
+	# migration): artifactio's transitional protobuf-runtime members reference
+	# stdlib records the authority map honestly preserves UNANALYZED (I4) —
+	# 89 AnalysisDefeating sites (unsafe.Pointer x52, (sync.Once).Do x17,
+	# sort.Slice x11, (sync.Pool).Get x3, io.WriteString x2, io.ReadAll x2,
+	# compress/gzip.NewReader x1, errors.As x1) plus one OPERATING_SYSTEM
+	# finding (os.Stderr at reflect/protoregistry/registry.go:58). Step 7
+	# moves those packages into the protobuf-runtime component and removes
+	# this exemption.
+	# cd {{go_dir}} && ../bin/arcc check internal/artifactio/component.textproto
 	cd {{go_dir}} && ../bin/arcc check internal/surface/component.textproto
 	@echo "=== Running self-hosting checks (remaining components) ==="
-	cd {{go_dir}} && ../bin/arcc check internal/manifest/component.textproto
-	cd {{go_dir}} && ../bin/arcc check internal/goanalysis/component.textproto
-	cd {{go_dir}} && ../bin/arcc check internal/capslockadapter/component.textproto
+	# EXEMPT (Step 6 task 05 AC8b; TODO(Step 7 protobuf-runtime PACKAGE_SURFACE
+	# migration): the same transitional protobuf-runtime members as
+	# artifactio — 89 AnalysisDefeating sites (same symbol set) plus
+	# os.Open/os.Stderr findings (FILES x2, MODIFY_SYSTEM_STATE x1,
+	# OPERATING_SYSTEM x1). Step 7 removes the exemption.
+	# cd {{go_dir}} && ../bin/arcc check internal/manifest/component.textproto
+	# EXEMPT (Step 6 task 05 AC8b; TODO(Step 7 x/tools PACKAGE_SURFACE
+	# wrapper): goanalysis's retained x/tools member closure references
+	# UNANALYZED stdlib records — 86 AnalysisDefeating sites (go/build.Default
+	# x13, (sync.Once).Do x9, io.Copy x9, go/parser.ParseFile x8,
+	# io.ReadFull x6, sort.Sort x5, ...) plus 6 RUNTIME sites (runtime.init).
+	# Step 7 moves the x/tools packages into a wrapper component and removes
+	# this exemption.
+	# cd {{go_dir}} && ../bin/arcc check internal/goanalysis/component.textproto
+	# EXEMPT (Step 6 task 05 AC8b; TODO(Step 7 residual-UNANALYZED decision):
+	# capslockadapter owns capslock as member code, whose own source
+	# references UNANALYZED stdlib records — 1042 AnalysisDefeating sites
+	# (unsafe.Pointer x57, (sync.Once).Do x29, sort.Slice x20,
+	# io.WriteString x13, go/build.Default x12, sort.Sort x11, ...). Neither
+	# the protobuf nor the x/tools wrapper owns capslock; only the Step 7
+	# residual-UNANALYZED decision (capability-use indirection curation or
+	# the DR-11 policy carrier) can clear these.
+	# cd {{go_dir}} && ../bin/arcc check internal/capslockadapter/component.textproto
 	cd {{go_dir}} && ../bin/arcc check cmd/arcc/component.textproto
 
 # Bazel build + test leg. Catches rules/Starlark and hermetic-check

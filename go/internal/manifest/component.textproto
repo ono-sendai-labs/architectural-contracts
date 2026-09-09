@@ -1,4 +1,5 @@
 name: "manifest"
+interface_files: "authority.go"
 interface_files: "manifest.go"
 component_dependencies {
   name: "schema"

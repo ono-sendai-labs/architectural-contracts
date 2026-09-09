@@ -47,6 +47,7 @@ component_dependencies {
 }
 
 declared_authority: "FILES"
+declared_authority: "OPERATING_SYSTEM"
 declared_authority: "REFLECT"
 declared_authority: "READ_SYSTEM_STATE"
 declared_authority: "UNSAFE_POINTER"

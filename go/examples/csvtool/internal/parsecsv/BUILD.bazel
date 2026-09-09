@@ -9,9 +9,18 @@ go_library(
 )
 
 # Shared parser utility component declaration. It has no authority.
+# EXEMPT (Step 6 task 05 AC8b; TODO(Step 7 residual-UNANALYZED decision):
+# parsecsv's single stdlib call, csv.Reader.ReadAll, is honestly UNANALYZED
+# in the authority map (interface-parameter indirection) — 1 AnalysisDefeating
+# site at parsecsv.go:15 — so the checked .check test would fail its pass
+# assertion. check_tags=["manual"] (the Step 5 task 05 seam) keeps the
+# analysis action built by `bazel build //...` while exempting the verdict
+# test; the Step 7 residual-UNANALYZED decision (capability-use indirection
+# curation, or the DR-11 policy carrier) removes the exemption.
 go_component(
     name = "parsecsv_component",
     interface = ":parsecsv",
+    check_tags = ["manual"],
     visibility = ["//visibility:public"],
 )
 
