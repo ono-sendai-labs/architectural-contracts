@@ -11,10 +11,16 @@ roles:
     effort: high
 
   # §4.3/§4.5 — writes the code. Session spans one task and all its rework rounds.
+  #
+  # TEMPORARY (2026-09-09): switched from opencode/opencode-go/glm-5.3-flash, whose
+  # weekly usage quota was exhausted mid-round on step 6 task 05 — the turn simply
+  # stopped emitting ACP events while its adapter stayed alive, which reads as a
+  # stall rather than as a quota error. Quota resets ~2026-09-13. Revisit then;
+  # this is a cost/capability change, not a considered role decision.
   implementer:
-    agent: opencode
-    model: opencode-go/glm-5.3-flash
-    effort: null          # null/omitted => do not issue `set reasoning_effort` at all
+    agent: codex
+    model: gpt-5.6-luna
+    effort: high
 
   # §4.4 — reviews ONE task and its rework rounds. Scoped to a task, so it does not
   # carry cross-task reasoning; that is step_reviewer's job.
