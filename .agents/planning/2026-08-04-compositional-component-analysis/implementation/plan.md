@@ -3,7 +3,8 @@
 **Date:** 2026-08-04 · **Revised:** 2026-09-02 (post design review); 2026-09-07 (Step 4:
 layout-driver map generation and cgo scoping, design I5); 2026-09-08 (Step 5: asserted
 surfaces are package-level, design I6; Step 6/7: foreign-member wrappers and the residual
-`UNANALYZED` decision)
+`UNANALYZED` decision); 2026-09-09 (Step 6: bounded routine stdlib-map generation and CI
+feedback time, design N5)
 **Design:** [`../design/detailed-design.md`](../design/detailed-design.md)
 **Decision record:** [`../idea-honing.md`](../idea-honing.md),
 [`../2026-09-02-design-review-response.md`](../2026-09-02-design-review-response.md)
@@ -171,8 +172,11 @@ modes before anything depends on it (R5, R6, N3, Q13, DR-05, DR-07, DR-09).
   `PackageInitAuthority`, `Evidence`, `Key`).
 - `stdlibmap` shell package: inventory with `go/types` (every exported object, every
   exported method of exported named/alias types, `init`); Capslock
-  `GranularityFunction` in one batch over all importable packages, grouped by
-  `Path[0]`; a **generation classifier** that keeps the minting-site reclassification
+  `GranularityFunction` in an isolated batch for each importable package, grouped by
+  `Path[0]` within that package. Step 6 proved that one whole-stdlib program conflates
+  unrelated packages under VTA (10,399 findings instead of the isolated 8,182), so the
+  isolation is a correctness property despite its roughly 146-second generation cost;
+  a **generation classifier** that keeps the minting-site reclassification
   but does **not** wrap with `ClassifierExcludingUnanalyzed` (I4); var rule with the
   handle minting-authority clause; consts/types/interface-specs `SAFE`; `init` keyed on
   the aggregate; `unsafe.*` hardcoded; curated-safe provenance per entry. Generation
@@ -292,19 +296,37 @@ existing source-loading `ResolveDependencyInterface` in this step.
   `AnalysisDefeating` finding.
 - Findings per `(capability, class)` with sorted sites and map evidence (DR-17).
 - Load mode is unchanged in this step (`NeedDeps` stays until Step 8).
+- Restore bounded feedback after the correctness-mandated per-package map generation:
+  check in the canonical map for the exact pinned Linux/amd64, cgo-disabled toolchain as
+  a native test artifact; validate its complete SDK key against the current classifier;
+  remove whole-SDK regeneration from routine Go integration tests and selfcheck; run the
+  Bazel map action through a generation-only binary; and move replica/cross-configuration
+  actions to an explicit full lane. Routine Bazel wildcard build/test retains one real
+  default map generation and compares it byte-for-byte with the checked artifact.
+- Keep production native on-demand generation and the hermetic Bazel artifact contract
+  unchanged. Generator optimisations and a multi-architecture CI matrix remain separate
+  work; the immediate supported routine-CI envelope is Linux/amd64.
 
 **Tests.** Design fixtures 1–6 and 9, in full, **before** the cutover commit is
 described: the reference-kind table and the import table are written against the new
 scanner and must pass with the workaround already deleted. Plus: an `AnalysisDefeating`
 fixture is a violation by default and a warning with policy; a finding with three sites
-renders one line with a count in text and three sites in JSON.
+renders one line with a count in text and three sites in JSON. The checked map decodes and
+matches every field of the key derived from the pinned target and current classifier;
+routine Go integration performs no whole-SDK generation; Bazel wildcard build/test contains
+exactly one `ArccStdlibMap` action; the displaced replica, tagged, cross-platform and
+transitioned-surface checks remain runnable through the explicit full lane.
 
 **Integration.** The analysis model changes here. Expect golden churn; Step 9 cleans up
-structure, but goldens must be *correct* here.
+structure, but goldens must be *correct* here. On the pinned Linux/amd64 reference
+configuration, a routine `just ci` with a warm Bazel cache completes within five minutes
+wall clock (N5); a cold routine run performs no native whole-SDK generation and at most one
+Bazel whole-SDK generation.
 
 **Demo.** `arcc check` end to end with no call graph and no Capslock, on csvtool and
 arcc's own components; wall-clock delta against Step 1; the two FR5 fixtures showing the
-precision change; the surface emitted in Step 5 now agrees with the check.
+precision change; the surface emitted in Step 5 now agrees with the check. Show before/after
+stdlib-map action counts and a timed warm-cache `just ci` within the N5 bound.
 
 ---
 
@@ -549,3 +571,6 @@ once here.
 - **No bootstrap-CLI step.** Likely unnecessary given Step 11 (Q7).
 - **No dual VTA/typed-edge path.** The reference table is pinned against the new scanner
   inside Step 6 instead (review's proposed Step 5, not adopted).
+- **No multi-architecture full-CI matrix yet.** Step 6 keeps the existing cross-target map
+  assertions in an explicit full lane and supports routine CI on Linux/amd64. A follow-up
+  must run that lane across execution and target architecture combinations.

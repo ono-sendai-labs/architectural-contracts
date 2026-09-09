@@ -2,7 +2,8 @@
 
 **Date:** 2026-08-04 · **Revised:** 2026-09-02 (post design review); 2026-09-07
 (hermetic map generation through the layout driver; cgo scoping — see I5); 2026-09-08
-(asserted surfaces are package-level — see I6)
+(asserted surfaces are package-level — see I6); 2026-09-09 (bounded routine stdlib-map
+generation and CI feedback time — see N5)
 **Status:** design complete; implementation not started.
 **Baseline:** `dev-exp-go-bazel-mvp` @ `5011b726` (code unchanged through `cca66212`)
 **Inputs:** [`../rough-idea.md`](../rough-idea.md), [`../idea-honing.md`](../idea-honing.md),
@@ -138,6 +139,13 @@ response; Q-numbers cite the decision record, DR-numbers the review.
 - **N4.** All existing determinism guarantees (sorted findings, stable symbol keys) MUST
   be preserved and extended to surfaces, maps and reports: identical complete inputs
   produce byte-identical artifacts.
+- **N5.** Routine validation MUST remain suitable for an implementation/review feedback
+  loop. On the repository's pinned Linux/amd64, cgo-disabled configuration, `just ci`
+  with a warm Bazel cache MUST complete within five minutes wall clock. A cold routine
+  run MUST perform no native whole-SDK stdlib-map generation and at most one hermetic
+  Bazel whole-SDK generation. Slower replica and cross-configuration coverage remains
+  explicitly runnable outside the routine lane; the time bound is measured and recorded
+  as an acceptance result rather than encoded as a flaky test timeout.
 
 ### Constraints and invariants
 
@@ -614,9 +622,12 @@ Inventory and classification rules (validated by the spike):
   package-level object and every exported method of every exported (named or alias)
   type, plus `init`. Generation fails if any inventoried symbol lacks a terminal
   classification.
-- **Funcs and methods:** Capslock `GranularityFunction` over all importable packages in
-  one batch, grouped by `Path[0]`; unexported helpers and closures are dropped. A root
-  with no findings is `SAFE` explicitly. `UNANALYZED` survives (I4) and is stored as such.
+- **Funcs and methods:** Capslock `GranularityFunction` runs once per importable package,
+  with findings grouped by `Path[0]` within that package; unexported helpers and closures
+  are dropped. A root with no findings is `SAFE` explicitly. `UNANALYZED` survives (I4)
+  and is stored as such. The per-package isolation is required: analysing all importable
+  packages as one VTA program conflates otherwise unrelated closures (measured 10,399
+  findings versus the isolated 8,182) and changes classifications.
 - **Consts and plain types:** `SAFE`. **Interface method specs:** `SAFE` (I2 — calling
   through an interface value is capability use).
 - **Vars:** union of the pointer-dereferenced static type's method classifications under
@@ -654,8 +665,26 @@ Inventory and classification rules (validated by the spike):
 
 `classifier_hash` covers the generation classifier text (Capslock builtins plus the
 minting-site reclassification and the var/handle rule), so generation-time and
-check-time assumptions cannot drift silently (I2). Cost: the full non-internal stdlib
-generates in ~2 s and ~1.4 GB; the map is regenerated per SDK bump, never incrementally.
+check-time assumptions cannot drift silently (I2). The isolated full non-internal stdlib
+generation costs roughly 146 seconds on the measured Linux/amd64 host. It is a per-SDK
+artifact, not routine per-test work.
+
+### Routine stdlib-map validation topology (N5)
+
+- The canonical map for the exact pinned Linux/amd64, cgo-disabled toolchain is checked in
+  as a native test artifact. Go integration tests and selfcheck validate its bounded decode,
+  semantics, and complete key — including the classifier hash and format version — instead
+  of regenerating it. Production native checks retain on-demand generation and caching.
+- Routine Bazel wildcard build/test performs one real hermetic default-configuration map
+  generation through a generation-only binary and compares its bytes with the checked
+  artifact. The binary's dependency closure excludes the ordinary check path so unrelated
+  Go edits do not invalidate the map action.
+- Replica determinism, build-tag, cross-platform and transitioned checked-surface maps stay
+  available in an explicit full lane but are excluded from wildcard build/test. A deferred
+  CI matrix will run that lane across more execution and target architectures; routine CI
+  initially supports Linux/amd64.
+- No generator optimisation is required for N5. Shared-load or sharded generation can be
+  considered separately if the remaining cold generation is still material.
 
 ### Canonical namespace (DR-08)
 
@@ -763,6 +792,7 @@ site and the site count; JSON carries all sites, the map's evidence frames for
 | Freshness | Bazel is `BUILD_GRAPH`; native is `VERIFIED`/`STALE` when readable and `UNKNOWN` when not, without parsing | 7 |
 | Analysis defeating | linkname/asm/cgo fixture is a violation by default and a warning only with policy | 6 |
 | Performance | Fixed member source with dependency depth 1, 4, 16: no dependency parse/type-check/SSA; export-data input count and load time recorded | 13 |
+| CI feedback time | On pinned Linux/amd64, warm-Bazel-cache `just ci` completes within five minutes; a cold routine run performs zero native and at most one Bazel whole-SDK map generation | 6 |
 | Hermeticity | Bazel checks and map generation pass in a clean sandbox with no native cache and no `go` binary; the map action's inputs contain no toolchain binary or build cache (I5) | 4, 13 |
 | Determinism | Maps, surfaces, reports byte-identical for identical inputs; corrupt and concurrent cache writes recover | 3, 4 |
 
@@ -884,7 +914,9 @@ removed is all work over them. A future `x/tools` may relax the requirement
 (`packages.go:1084` TODO); the layout validation isolates us from either outcome.
 
 **Capslock retained for map generation only,** with a generation classifier that preserves
-`UNANALYZED` (I4). Generation over the whole stdlib is ~2 s, so its cost stops mattering.
+`UNANALYZED` (I4). Correct generation isolates each importable package because one
+whole-stdlib VTA program changes classifications; routine validation consumes a pinned
+artifact or one cached Bazel action so the resulting ~146-second cold cost does not multiply.
 
 **Total inventory rather than a path predicate or sparse table.** A predicate can
 disagree with itself; a sparse table conflates not-a-root, curated-safe, analysed-pure and
@@ -912,8 +944,9 @@ and made byte-stable by canonicalisation; textproto stays for hand-authored mani
 - Export-data loading works without `NeedDeps` but needs the full closure's export
   files and a complete import graph (spike 1).
 - Capslock attributes per root; "absent" has four causes; the adapter classifier
-  launders 1078 `UNANALYZED` stdlib roots; `unsafe.*` are builtins; full-stdlib
-  generation costs ~2 s (spike 2).
+  launders 1078 `UNANALYZED` stdlib roots; `unsafe.*` are builtins. The original
+  whole-stdlib batch cost ~2 s but was unsound under VTA; correctness-preserving
+  per-package isolation costs roughly 146 s on the measured host.
 
 **Unmeasured and material:** the split of the PoC's ~50s between closure SSA (eliminated)
 and member-package type-checking (kept). Plan Step 1.
