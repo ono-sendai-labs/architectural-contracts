@@ -1132,3 +1132,109 @@ Dependencies:
 		t.Errorf("rep.Dependencies = %+v, want declared-dep-cli boundary", rep.Dependencies)
 	}
 }
+
+func TestIntegration_ThreeSitesOneCapabilityAndUnanalyzed(t *testing.T) {
+	// The AC 6 scenario through the real command: three member sites reaching
+	// one capability aggregate into one counted text finding, and a reference
+	// to an UNANALYZED stdlib record is failed by the default policy; the
+	// canonical JSON retains every sorted site, the class, and the SDK key.
+	manifest := `
+name: "three-sites"
+interface_files: "main.go"
+`
+	files := map[string]string{
+		"main.go": `package main
+
+import (
+	"os"
+	"sort"
+)
+
+func A() { _, _ = os.ReadFile("a") }
+func B() { _, _ = os.ReadFile("b") }
+func C() {
+	s := []string{"x"}
+	sort.Slice(s, func(i, j int) bool { return s[i] < s[j] })
+	_, _ = os.ReadFile("c")
+}
+`,
+	}
+	absTmpDir, manifestPath := createTempComponent(t, "three-sites", manifest, files)
+
+	wd, _ := os.Getwd()
+	workspaceRoot, _ := filepath.Abs(filepath.Join(wd, "../../../"))
+
+	// Text mode: one counted finding per (class, capability); the FILES
+	// finding shows its first sorted site with the total count.
+	stdoutText, stderrText, exitText := runArcc([]string{"check", manifestPath})
+	if exitText != 1 {
+		t.Fatalf("expected exit 1, got %d. Stderr: %s", exitText, stderrText)
+	}
+	if stderrText != "" {
+		t.Errorf("expected empty stderr, got %q", stderrText)
+	}
+	// JSON mode: the canonical report retains all sorted sites, the class,
+	// and the SDK key.
+	stdoutJSON, stderrJSON, exitJSON := runArcc([]string{"check", manifestPath, "--format=json"})
+	if exitJSON != 1 {
+		t.Fatalf("expected JSON exit 1, got %d. Stderr: %s", exitJSON, stderrJSON)
+	}
+	if stderrJSON != "" {
+		t.Errorf("expected empty stderr, got %q", stderrJSON)
+	}
+	var rep report.ConformanceReport
+	if err := json.Unmarshal([]byte(stdoutJSON), &rep); err != nil {
+		t.Fatalf("json.Unmarshal error = %v; stdout = %q", err, stdoutJSON)
+	}
+	if len(rep.Violations) != 2 {
+		t.Fatalf("violations = %+v, want exactly the AnalysisDefeating and FILES findings", rep.Violations)
+	}
+	if len(rep.Warnings) != 0 {
+		t.Errorf("warnings = %+v, want none under the default policy", rep.Warnings)
+	}
+	var vFiles, vUnanalyzed *report.Finding
+	for idx := range rep.Violations {
+		v := &rep.Violations[idx]
+		switch {
+		case v.Kind == report.UndeclaredAuthority && v.Class == "TrueAuthority":
+			vFiles = v
+		case v.Class == "AnalysisDefeating" && strings.Contains(v.Message, "analysis-defeating"):
+			vUnanalyzed = v
+		}
+	}
+	if vFiles == nil || vUnanalyzed == nil {
+		t.Fatalf("want one TrueAuthority FILES finding and one AnalysisDefeating finding, got %+v", rep.Violations)
+	}
+	if normalizeOutput(vFiles.Message, workspaceRoot, absTmpDir) == "" || !strings.Contains(vFiles.Message, `use of undeclared authority "FILES"`) {
+		t.Errorf("FILES message = %q", vFiles.Message)
+	}
+	if len(vFiles.Sites) != 3 {
+		t.Fatalf("FILES sites = %+v, want the three sorted os.ReadFile sites", vFiles.Sites)
+	}
+	for i, site := range vFiles.Sites {
+		if site.File != "main.go" {
+			t.Errorf("FILES site[%d] file = %q, want main.go", i, site.File)
+		}
+		if site.Symbol != "os.ReadFile" {
+			t.Errorf("FILES site[%d] symbol = %q, want os.ReadFile", i, site.Symbol)
+		}
+		if i > 0 && vFiles.Sites[i-1].Line > site.Line {
+			t.Errorf("FILES sites are not sorted: %+v", vFiles.Sites)
+		}
+	}
+	if len(vFiles.Evidence) != 1 || !strings.Contains(vFiles.Evidence[0], "os.ReadFile") {
+		t.Errorf("FILES evidence = %+v, want the map's canned os.ReadFile path", vFiles.Evidence)
+	}
+	if vFiles.SDKKey == "" {
+		t.Error("FILES finding carries no SDK key")
+	}
+	if len(vUnanalyzed.Sites) != 1 || vUnanalyzed.Sites[0].Symbol != "sort.Slice" {
+		t.Errorf("AnalysisDefeating sites = %+v, want the single sort.Slice site", vUnanalyzed.Sites)
+	}
+	if len(vUnanalyzed.Evidence) != 0 {
+		t.Errorf("AnalysisDefeating evidence = %+v, want none", vUnanalyzed.Evidence)
+	}
+	if vUnanalyzed.SDKKey == "" {
+		t.Error("AnalysisDefeating finding carries no SDK key")
+	}
+}
