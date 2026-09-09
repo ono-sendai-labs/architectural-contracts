@@ -328,9 +328,11 @@ source, with structural provenance (R7, R14, Q16, DR-03, DR-06, DR-08, DR-12).
   `unsafe.Pointer` inside `x/tools` source), so this removes the exemption rather than
   merely tidying ownership.
 - **Decide the residual `UNANALYZED` question here**, once the foreign members above are
-  gone and the remaining findings are the honest ones. The open case is
+  gone and the remaining findings are the honest ones. The open cases are
   `csv.Reader.ReadAll` in `examples/csvtool`'s `parsecsv`, `UNANALYZED` through
-  interface-parameter indirection. The two candidate mechanisms, both deferred from Step 6:
+  interface-parameter indirection, and `internal/capslockadapter`'s native-only selfcheck of
+  Capslock's own member source, which currently contains 1042 `UNANALYZED` sites not owned
+  by either foreign-member wrapper. The two candidate mechanisms, both deferred from Step 6:
   (a) a recorded, I2-consistent *capability-use indirection* curation in the generation
   classifier — interface-method and func-parameter invocation wrappers such as
   `(sync.Once).Do`, `(sync.Pool).Get` and `csv.(Reader).ReadAll` count as capability use,
@@ -338,7 +340,10 @@ source, with structural provenance (R7, R14, Q16, DR-03, DR-06, DR-08, DR-12).
   user-facing policy carrier DR-11 already presumes ("a violation unless policy allows or
   warns") — the checker half exists and is tested (`Warn[""]` downgrades to
   `ANALYSIS_LIMITATION`), but no manifest field or CLI flag sets it. Step 6's cutover
-  exempted `parsecsv` pending this decision.
+  exempted `parsecsv` and the native `capslockadapter` selfcheck pending this decision.
+  Step 7 must remove both exemptions: capability-use curation is sufficient only if tests
+  prove that no residual sites remain; otherwise the policy carrier (or another explicit
+  design correction) must consciously account for the remainder.
 - Keep dependencies explicit for hand-authored protobuf imports. Step 12 may auto-attach
   the same runtime component for generated or host-injected imports; auto-attachment
   changes edge provenance, not runtime ownership or the component's surface.

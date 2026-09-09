@@ -86,25 +86,31 @@ Step 5 documented a temporary semantic gap: emitted surfaces contain the exact d
    - Given csvtool, arcc's own components, report assertion rules, and checked Bazel actions
    - When `just ci` and the step's integration checks run
    - Then all pass with correctly updated goldens and no undeclared build/component dependencies,
-     **except** the four components listed in AC 8b, whose checks are explicitly exempted there.
+     **except** the five components listed in AC 8b, whose applicable checks are explicitly
+     exempted there.
 
 8b. **The honest post-cutover failures are exempted, not hidden**
    - Given that deleting the implements-closure laundering makes `UNANALYZED` stdlib records
      referenced by member source into `AnalysisDefeating` findings — the designed behaviour
      (DR-11, I4), for which no user-facing policy carrier exists yet
-   - When the four affected components are removed from the gate
+   - When the five affected components are removed from their applicable gates
    - Then each is exempted by an explicit, individually justified TODO rather than by weakening
      the analysis, the map, or any test's meaning:
      - `internal/artifactio` and `internal/manifest` — transitional protobuf-runtime members;
        TODO cites Step 7's protobuf-runtime `PACKAGE_SURFACE` migration.
      - `internal/goanalysis` — retained `x/tools` members; TODO cites Step 7's `x/tools`
        wrapper.
+     - `internal/capslockadapter` — native-only selfcheck of Capslock's own member source;
+       TODO cites Step 7's residual-`UNANALYZED` decision. Its 1042 sites are not owned by
+       either foreign-member wrapper, so Step 7 must prove that its chosen residual policy
+       clears or consciously accepts them rather than assuming the narrower curation option
+       is sufficient.
      - `examples/csvtool`'s `parsecsv` — `csv.Reader.ReadAll` is honestly `UNANALYZED`; TODO
        cites Step 7's residual-`UNANALYZED` decision.
    - And the native exemptions are comments in `just selfcheck`, the Bazel ones use the
-     existing `check_tags = ["manual"]` seam from Step 5 task 05 — no new mechanism is
-     invented — and the exempted findings are enumerated in the change description so the
-     set cannot silently grow.
+     existing `check_tags = ["manual"]` seam from Step 5 task 05 where a Bazel check exists
+     — no new mechanism is invented — and the exempted findings are enumerated in the change
+     description so the set cannot silently grow.
 
 9. **The performance delta is recorded honestly**
    - Given the Step 1 measurement procedure and representative components
