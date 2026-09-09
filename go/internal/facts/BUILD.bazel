@@ -38,7 +38,6 @@ go_test(
 go_component(
     name = "facts_component",
     component_deps = [
-        "//go/internal/capanalyzer:capanalyzer_component",
         "//go/internal/manifest:manifest_component",
         "//go/internal/symbol:symbol_component",
     ],
