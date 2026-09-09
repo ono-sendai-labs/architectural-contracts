@@ -2,7 +2,8 @@
 
 **Date:** 2026-08-04 · **Revised:** 2026-09-02 (post design review); 2026-09-07 (Step 4:
 layout-driver map generation and cgo scoping, design I5); 2026-09-08 (Step 5: asserted
-surfaces are package-level, design I6)
+surfaces are package-level, design I6; Step 6/7: foreign-member wrappers and the residual
+`UNANALYZED` decision)
 **Design:** [`../design/detailed-design.md`](../design/detailed-design.md)
 **Decision record:** [`../idea-honing.md`](../idea-honing.md),
 [`../2026-09-02-design-review-response.md`](../2026-09-02-design-review-response.md)
@@ -321,6 +322,23 @@ source, with structural provenance (R7, R14, Q16, DR-03, DR-06, DR-08, DR-12).
   self-hosting consumers away from declaring those packages as their own members before
   enabling the overlap checks below. This ordering removes the native resolver limitation
   that prevents a foreign-member wrapper from working during Steps 5 and 6.
+- Do the same for `x/tools`: one `PACKAGE_SURFACE` wrapper owning the retained `x/tools`
+  packages, with `goanalysis` migrated off declaring them as its own members. Step 6's
+  cutover exempted `goanalysis` from the gate for exactly these members (`sort.Slice`,
+  `unsafe.Pointer` inside `x/tools` source), so this removes the exemption rather than
+  merely tidying ownership.
+- **Decide the residual `UNANALYZED` question here**, once the foreign members above are
+  gone and the remaining findings are the honest ones. The open case is
+  `csv.Reader.ReadAll` in `examples/csvtool`'s `parsecsv`, `UNANALYZED` through
+  interface-parameter indirection. The two candidate mechanisms, both deferred from Step 6:
+  (a) a recorded, I2-consistent *capability-use indirection* curation in the generation
+  classifier — interface-method and func-parameter invocation wrappers such as
+  `(sync.Once).Do`, `(sync.Pool).Get` and `csv.(Reader).ReadAll` count as capability use,
+  since the indirect target's own edges are visible as member references; or (b) the
+  user-facing policy carrier DR-11 already presumes ("a violation unless policy allows or
+  warns") — the checker half exists and is tested (`Warn[""]` downgrades to
+  `ANALYSIS_LIMITATION`), but no manifest field or CLI flag sets it. Step 6's cutover
+  exempted `parsecsv` pending this decision.
 - Keep dependencies explicit for hand-authored protobuf imports. Step 12 may auto-attach
   the same runtime component for generated or host-injected imports; auto-attachment
   changes edge provenance, not runtime ownership or the component's surface.

@@ -1,0 +1,154 @@
+result:
+  task_file: .agents/tasks/2026-08-04-compositional-component-analysis/step06/task-05-cut-over-check-to-reference-analysis.code-task.md
+  change_id: null
+  status: escalated
+  schema_version: 2
+  produced_at: 2026-09-09T01:06:55Z
+
+acceptance_criteria:
+  - text: "Production check uses only reference analysis"
+    addressed: yes
+    evidence: |
+      `go build ./...` finds no ssautil/vta/vta.CallGraph in the check path
+      (repo grep returns only capslockadapter/stdlibmap generation code);
+      checker.Inputs takes the typed facts plus the StdlibAuthority port
+      (go/internal/checker/checker.go:34-46); app resolves the map through
+      AuthorityResolver (go/cmd/arcc/app/check.go:224-247). Orchestration
+      tests (cmd/arcc layout/cli integration, native fixture test) pass.
+  - text: "Stdlib artifacts fail closed before publication"
+    addressed: yes
+    evidence: |
+      authorityFromDeclaredMap/authorityFromNativeDiscovery validate the
+      artifact and full target key before checker.Check
+      (go/cmd/arcc/app/check.go); corrupt/missing/key-mismatched maps exit 2
+      with no artifacts (TestAuthorityFromDeclaredMap*, TestCheck_Layout
+      corrupt/missing map legs, TestRunner_Check_KeyResolverFailsClosed).
+  - text: "Legacy analysis is deleted, generation survives"
+    addressed: yes
+    evidence: |
+      capslockadapter.go and capslock_test.go deleted (generation.go +
+      generation tests remain, green, incl. the I4 pin); capanalyzer reduced
+      to Class/Policy/Classify; repo grep finds no ssautil/vta/CallGraph or
+      AnalyzeRequest outside generation; stdlibmap generation tests pass.
+  - text: "Fixtures remain the cutover gate"
+    addressed: yes
+    evidence: |
+      goanalysis fixture_test.go (fixtures 1-6, 9 + missing-type-data row)
+      pass with the workaround deleted; native orchestration path covered by
+      cmd/arcc layout/cli integration suites; defeatscan tests pass.
+  - text: "Surfaces and checks agree"
+    addressed: yes
+    evidence: |
+      ResolveDependencyInterface and surface.Derive share symbol.ExtractSurface
+      (TestFixture6_ResolutionMatchesSurface); divergence language removed
+      from CLI help (app.go printUsage), README, plan.md Step 5 note, proto
+      comment and component contracts; derive_test comment updated.
+  - text: "Reports preserve complete evidence"
+    addressed: yes
+    evidence: |
+      DR-17 aggregation pinned in checker/aggregate_test.go and exercised
+      end-to-end by cli_integration_test (TestIntegration_Failing_
+      UndeclaredAuthority golden: one counted finding, sites, class, SDK key,
+      map evidence; TestIntegration_FormatJSON).
+  - text: "Current loading boundary is explicit"
+    addressed: yes
+    evidence: |
+      ResolveDependencyInterface doc names Steps 7-8 (goanalysis.go:1157-1163);
+      packages.NeedDeps retained in all three load configs (goanalysis.go).
+  - text: "Native, Bazel, and self-hosting integrations pass"
+    addressed: partial
+    evidence: |
+      Native Go tests (unit + integration) and csvtool legs pass; `just
+      selfcheck` and the Bazel .check tests fail for internal/goanalysis,
+      internal/artifactio, internal/manifest and csvtool/internal/parsecsv —
+      see the escalation block. This is the criterion that forced the
+      escalation.
+  - text: "The performance delta is recorded honestly"
+    addressed: yes
+    evidence: |
+      research/current-analysis-pipeline.md gained a Step 6 section: csvtool/app
+      0.78s wall / 2.87s CPU and goanalysis 1.46s / 6.28s vs Step 1 baselines
+      (both -59% wall / -53% CPU), with NeedDeps/dependency-source loading
+      explicitly excluded from the claim and the one-time ~2m18s map
+      generation cost recorded.
+
+escalation:
+  reason: spec_defect
+  details: |
+    The cutover itself is implemented and committed (produced changes
+    mmsqnoytkxrzouwmwnnwyzsvqklltqtz "feat(goanalysis): cut the check over to
+    the typed reference analysis", 16ceb83f… "fix(bazel): mirror the bumped
+    classifier hash…", mwwrmyywymqvvtnnvslpkwltsulwuvtx "docs(go): drop the
+    last Step 6 transitional notes…"). The blocker is AC 8 ("Native, Bazel,
+    and self-hosting integrations pass") which is unsatisfiable as written
+    once the map honestly preserves UNANALYZED (I4) and the implements-closure
+    laundering is gone:
+
+    Under DR-11, an UNANALYZED map record referenced by member source is an
+    AnalysisDefeating finding and a violation by default; declared_authority
+    can absorb capabilities but there is no manifest- (or CLI-) expressible
+    way to accept an unanalyzable construct. Four checked components now
+    fail their `verdict: pass` assertions with exactly that class of
+    findings inside their member closures:
+      - csvtool/internal/parsecsv: `csv.Reader.ReadAll` is UNANALYZED
+        (interface-parameter indirection) — 1 site.
+      - internal/manifest and internal/artifactio: the transitional
+        protobuf-runtime members (retained until Step 7 by design) reference
+        sync.Once.Do / sync.Pool.Get / io.WriteString / unsafe.Pointer /
+        sort.Slice — 90 findings.
+      - internal/goanalysis: the retained x/tools members reference
+        sort.Slice / unsafe.Pointer — 2 aggregated findings.
+    `just selfcheck` fails on the same four components; `bazel test //...`
+    fails exactly their .check tests (plus parity/hash items I fixed).
+
+    Two principled resolutions exist and both are design decisions outside
+    this task's scope:
+      1. Extend the generation classifier with a recorded I2-consistent
+         "capability-use indirection" curation (interface-method and
+         func-parameter invocation wrappers such as (sync.Once).Do,
+         (sync.Pool).Get, csv.(Reader).ReadAll are capability use; the
+         indirect target's own edges are visible as member references). This
+         fixes parsecsv and shrinks, but does not eliminate, the
+         manifest/goanalysis findings (unsafe.Pointer and sort.Slice inside
+         x/tools/protobuf member sources remain honestly UNANALYZED).
+      2. Provide the sanctioned "explicit policy downgrade" DR-11 names (a
+         manifest or CLI policy input) so self-hosting components can
+         consciously accept the residual unanalyzable stdlib usage — likely
+         the intended long-term carrier, which does not exist yet.
+    Additionally the Step 7 protobuf-runtime component split (already planned)
+    resolves the manifest/artifactio leg. Please decide which mechanism lands
+    now; the checker's AnalysisDefeating aggregation is already
+    policy-ready (Warn[""] downgrades to ANALYSIS_LIMITATION, pinned in
+    aggregate_test.go).
+
+    Also fixed while here (spec-consistent, no escalation needed): stdlib map
+    generation had two soundness bugs exposed by the cutover —
+    (a) a whole-stdlib single Capslock batch conflated unrelated packages'
+    call graphs (go/types.init was classified NETWORK via net/http frames;
+    generation now batches per importable package, RuleVersion bumped to v2,
+    arcc_metadata CLASSIFIER_HASH mirrored); (b) the inventory omitted
+    unexported stdlib members reachable via promotion/exports
+    ((go/types.object).Name, (encoding/binary.littleEndian).*) which the
+    declaring-object rule legitimately keys — they are now inventoried
+    fail-closed.
+
+artifacts:
+  scratchpad_dir: .agents/scratchpad/2026-08-04-compositional-component-analysis/step06/task-05-cut-over-check-to-reference-analysis/
+  files:
+    - context.md
+    - plan.md
+    - progress.md
+    - work.log
+    - result.yaml
+
+notes: |
+  The cutover is complete and committed: every check decision now flows from
+  the typed reference/import facts and the validated stdlib authority map;
+  SSA/VTA, check-time Capslock, the five stdlib predicates, the prune
+  contracts and the legacy fact fields are deleted with no dual path; goldens
+  and integration tests were corrected to the new semantics (including the
+  csvtool sort.Sort replacement) and the performance delta was recorded. All
+  Go unit and integration suites pass; `just ci`'s Bazel/selfcheck legs fail
+  only on the DR-11 UNANALYZED findings inside four self-hosting components'
+  third-party member closures, which is the escalated spec defect. Map
+  generation is per-package batched and once-per-SDK (~2m18s cached).
