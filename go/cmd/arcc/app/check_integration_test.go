@@ -13,6 +13,7 @@ import (
 	"github.com/ono-sendai-labs/architectural-contracts/go/cmd/arcc/app"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/artifactio"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/goanalysis"
+	"github.com/ono-sendai-labs/architectural-contracts/go/internal/report"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/stdlibmap"
 )
 
@@ -529,4 +530,356 @@ func TestCheck_ExcludedInterfaceFileStillEmitsSurface(t *testing.T) {
 	if !found {
 		t.Errorf("surface symbols = %v, want %q from the surviving interface file", surface.Symbols, want)
 	}
+}
+
+// stageDesignFixtures stages the goanalysis design fixture trees into a
+// standalone temp module under a distinct import prefix: the production
+// resolver requires dependency manifests to live outside the analyzed
+// component root (refscan/dep is a sibling of the member tree in the fixture
+// layout), so the dependency sub-trees are staged beside — not under — the
+// component roots. Imports are rewritten consistently so the staged sources
+// resolve within the temp module. Returns the staged module root and the
+// three component manifests.
+func stageDesignFixtures(t *testing.T) (fixRoot, classifyManifest, refscanManifest, bypManifest, depPrefix string) {
+	t.Helper()
+	const origRoot = "../../../internal/goanalysis/testdata"
+	const origPrefix = "github.com/ono-sendai-labs/architectural-contracts/go/internal/goanalysis/testdata"
+	const fixModule = "example.com/fixtestdata"
+
+	fixRoot = t.TempDir()
+	depPrefix = fixModule + "/dep"
+
+	staged := map[string]string{ // staging dir (fixRoot-relative) -> fixture tree
+		"classify/member": "classify/member",
+		"refscan/member":  "refscan/member",
+		"byp/member":      "byp/member",
+		"dep":             "refscan/dep",
+		"infra":           "classify/infra",
+	}
+	if err := os.WriteFile(filepath.Join(fixRoot, "go.mod"), []byte("module "+fixModule+"\n\ngo 1.21\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for dstRel, srcRel := range staged {
+		src, dst := filepath.Join(origRoot, srcRel), filepath.Join(fixRoot, dstRel)
+		if err := filepath.WalkDir(src, func(path string, d os.DirEntry, err error) error {
+			if err != nil {
+				return err
+			}
+			rel, err := filepath.Rel(src, path)
+			if err != nil {
+				return err
+			}
+			target := filepath.Join(dst, rel)
+			if d.IsDir() {
+				return os.MkdirAll(target, 0o755)
+			}
+			data, err := os.ReadFile(path)
+			if err != nil {
+				return err
+			}
+			text := string(data)
+			// Rewrite the original fixture import prefixes into the staged
+			// module's import space.
+			text = strings.ReplaceAll(text, origPrefix+"/refscan/member", fixModule+"/refscan/member")
+			text = strings.ReplaceAll(text, origPrefix+"/refscan/dep", fixModule+"/dep")
+			text = strings.ReplaceAll(text, origPrefix+"/classify/member", fixModule+"/classify/member")
+			text = strings.ReplaceAll(text, origPrefix+"/classify/infra", fixModule+"/infra")
+			text = strings.ReplaceAll(text, origPrefix+"/byp/member", fixModule+"/byp/member")
+			return os.WriteFile(target, []byte(text), 0o644)
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// initrow is staged member scaffolding for the aggregate-init fixtures:
+	// a blank import of a real-map CAPABILITIES init (database/sql, REFLECT)
+	// and of the real map's one UNANALYZED init (archive/zip) exercised at
+	// their import sites (design fixture 2 and fixture 6's UNANALYZED row
+	// under the production authority).
+	initrowSource := "package initrow\n\nimport (\n\t_ \"archive/zip\"\n\t_ \"database/sql\"\n)\n\nfunc UseBlankInitRows() {}\n"
+	if err := os.MkdirAll(filepath.Join(fixRoot, "classify", "member", "initrow"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(fixRoot, "classify", "member", "initrow", "initrow.go"), []byte(initrowSource), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	refscanManifestPath := filepath.Join(fixRoot, "refscan", "component.textproto")
+	refscan := "name: \"refscan\"\ninterface_style: INTERFACE_STYLE_PACKAGE_SURFACE\n" +
+		"members: \"" + fixModule + "/refscan/member/builtins\"\n" +
+		"members: \"" + fixModule + "/refscan/member/concrete\"\n" +
+		"members: \"" + fixModule + "/refscan/member/dispatch\"\n" +
+		"members: \"" + fixModule + "/refscan/member/kinds\"\n" +
+		"component_dependencies {\n  name: \"dep\"\n  manifest: \"../dep/component.textproto\"\n}\n"
+
+	classifyManifestPath := filepath.Join(fixRoot, "classify", "component.textproto")
+	classify := "name: \"classify\"\ninterface_style: INTERFACE_STYLE_PACKAGE_SURFACE\n" +
+		"members: \"" + fixModule + "/classify/member/globals\"\n" +
+		"members: \"" + fixModule + "/classify/member/rows\"\n" +
+		"members: \"" + fixModule + "/classify/member/uses\"\n" +
+		"members: \"" + fixModule + "/classify/member/initrow\"\n" +
+		"component_dependencies {\n  name: \"infra\"\n  manifest: \"../infra/manifest.component.textproto\"\n}\n" +
+		"component_dependencies {\n  name: \"dep\"\n  manifest: \"../dep/component.textproto\"\n}\n"
+
+	bypManifestPath := filepath.Join(fixRoot, "byp", "component.textproto")
+	byp := "name: \"byp-fixtures\"\ninterface_style: INTERFACE_STYLE_PACKAGE_SURFACE\nmembers: \"" + fixModule + "/byp/member/byp\"\n"
+
+	for path, content := range map[string]string{
+		refscanManifestPath:  refscan,
+		classifyManifestPath: classify,
+		bypManifestPath:      byp,
+		filepath.Join(fixRoot, "dep", "component.textproto"):            "name: \"dep\"\ninterface_files: \"api.go\"\n",
+		filepath.Join(fixRoot, "infra", "manifest.component.textproto"): "name: \"infra\"\ninterface_style: INTERFACE_STYLE_PACKAGE_SURFACE\nmembers: \"" + fixModule + "/infra/infra\"\n",
+	} {
+		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return fixRoot, classifyManifestPath, refscanManifestPath, bypManifestPath, depPrefix
+}
+
+// TestDesignFixturesThroughRealCommand runs the design fixture 1-6/9 member
+// trees and the analysis-defeating fixture through the production check
+// orchestration — the real runner, the real package loader, the resolved
+// dependency interfaces, and the real generated stdlib map read through the
+// declared-artifact path (AC 4). goanalysis/fixture_test.go pins the
+// dispatch and table behaviour at the unit level; this test pins that the
+// real command reaches the same documented outcomes.
+func TestDesignFixturesThroughRealCommand(t *testing.T) {
+	fixRoot, _, _, _, _ := stageDesignFixtures(t)
+
+	// The package-surface variant of the refscan manifest classifies the same
+	// member trees against dep's PACKAGE_SURFACE dependency manifest.
+	refscanSurfaceManifest := filepath.Join(fixRoot, "refscan", "surface.component.textproto")
+	if err := os.WriteFile(refscanSurfaceManifest, []byte("name: \"refscan\"\ninterface_style: INTERFACE_STYLE_PACKAGE_SURFACE\n"+
+		"members: \""+"example.com/fixtestdata"+"/refscan/member/builtins\"\n"+
+		"members: \""+"example.com/fixtestdata"+"/refscan/member/concrete\"\n"+
+		"members: \""+"example.com/fixtestdata"+"/refscan/member/dispatch\"\n"+
+		"members: \""+"example.com/fixtestdata"+"/refscan/member/kinds\"\n"+
+		"component_dependencies {\n  name: \"dep\"\n  manifest: \"../dep/pkg_surface.textproto\"\n}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	mapPath := filepath.Join(t.TempDir(), "map.json")
+	generateNativeMap(t, mapPath)
+
+	runner := fullRunner()
+	runJSON := func(t *testing.T, manifest string) (report.ConformanceReport, int) {
+		t.Helper()
+		stdoutText, stderr, code := runRunnerStdout(t, fixRoot, runner, []string{"check", manifest, "--stdlib-map=" + mapPath, "--format=json"})
+		if code != 0 && code != 1 {
+			t.Fatalf("check %s: exit %d, stderr: %s", manifest, code, stderr)
+		}
+		var rep report.ConformanceReport
+		if err := json.Unmarshal([]byte(stdoutText), &rep); err != nil {
+			t.Fatalf("decode JSON report for %s: %v; stdout: %s", manifest, err, stdoutText)
+		}
+		return rep, code
+	}
+	hasSite := func(f report.Finding, file string, line int, sym string) bool {
+		for _, s := range f.Sites {
+			if s.File == file && s.Line == line && strings.Contains(s.Symbol, sym) {
+				return true
+			}
+		}
+		return false
+	}
+	byClass := func(rep report.ConformanceReport) map[string][]report.Finding {
+		out := map[string][]report.Finding{}
+		for _, v := range rep.Violations {
+			out[v.Class] = append(out[v.Class], v)
+		}
+		return out
+	}
+
+	t.Run("fixtures 1-2-9 and the import table", func(t *testing.T) {
+		rep, code := runJSON(t, "classify/component.textproto")
+		if code != 1 {
+			t.Fatalf("classify fixtures must fail (exit 1), got %d", code)
+		}
+		if len(rep.Warnings) != 0 {
+			t.Errorf("warnings = %+v, want none", rep.Warnings)
+		}
+		byCls := byClass(rep)
+		// Fixture 1: the os.ReadFile function value carries FILES at its exact
+		// site; fixture 9: the same FILES finding also aggregates os.Stdin.
+		var files *report.Finding
+		for idx := range byCls["TrueAuthority"] {
+			if byCls["TrueAuthority"][idx].Message == `use of undeclared authority "FILES"` {
+				files = &byCls["TrueAuthority"][idx]
+			}
+		}
+		if files == nil {
+			t.Fatalf("want a FILES authority finding, got %+v", rep.Violations)
+		}
+		if len(files.Evidence) != 1 || !strings.Contains(files.Evidence[0], "os.ReadFile") {
+			t.Errorf("FILES finding evidence = %+v, want the map's canned os.ReadFile path", files.Evidence)
+		}
+		if len(files.Sites) != 2 ||
+			!hasSite(*files, "member/globals/globals.go", 12, "os.ReadFile") ||
+			!hasSite(*files, "member/globals/globals.go", 15, "os.Stdin") {
+			t.Errorf("FILES sites = %+v, want the os.ReadFile function value and os.Stdin sites", files.Sites)
+		}
+		// Fixture 9, continued: os.Stdin carries its own real-map records:
+		// MODIFY_SYSTEM_STATE and OPERATING_SYSTEM reach their own verdicts.
+		for _, capMsg := range []string{
+			`use of undeclared authority "MODIFY_SYSTEM_STATE"`,
+			`use of undeclared authority "OPERATING_SYSTEM"`,
+		} {
+			found := false
+			for _, f := range byCls["TrueAuthority"] {
+				if f.Message == capMsg && hasSite(f, "member/globals/globals.go", 15, "os.Stdin") {
+					found = true
+				}
+			}
+			if !found {
+				t.Errorf("want an os.Stdin finding %q; got %+v", capMsg, rep.Violations)
+			}
+		}
+		// io.EOF is SAFE and must contribute no authority at all.
+		for _, v := range rep.Violations {
+			if strings.Contains(v.Message, "io.EOF") {
+				t.Errorf("io.EOF must contribute no authority, got %+v", v)
+			}
+		}
+		// Fixture 2 and fixture 6's UNANALYZED init row: blank imports of
+		// map-enumerated packages classify under the aggregate init identity.
+		// The real map grades database/sql.init CAPABILITIES{REFLECT} and
+		// archive/zip.init UNANALYZED.
+		var reflect *report.Finding
+		for idx := range byCls["TrueAuthority"] {
+			f := &byCls["TrueAuthority"][idx]
+			if hasSite(*f, "member/initrow/initrow.go", 5, "database/sql.init") {
+				reflect = f
+			}
+		}
+		if reflect == nil {
+			t.Fatalf("want a database/sql.init finding, got %+v", rep.Violations)
+		}
+		sawEvidence := false
+		for _, ev := range reflect.Evidence {
+			if strings.Contains(ev, "database/sql.init") {
+				sawEvidence = true
+			}
+		}
+		if !sawEvidence {
+			t.Errorf("database/sql.init finding must carry the map's canned init evidence, got %+v", reflect.Evidence)
+		}
+		var defeats *report.Finding
+		for idx := range byCls["AnalysisDefeating"] {
+			f := &byCls["AnalysisDefeating"][idx]
+			if hasSite(*f, "member/initrow/initrow.go", 4, "archive/zip.init") {
+				defeats = f
+			}
+		}
+		if defeats == nil || len(defeats.Sites) != 2 || !hasSite(*defeats, "member/uses/uses.go", 20, "errors.Is") {
+			t.Errorf("AnalysisDefeating sites = %+v, want the UNANALYZED archive/zip.init import and errors.Is reference", defeats)
+		}
+		if len(defeats.Evidence) != 0 {
+			t.Errorf("the AnalysisDefeating finding must carry no evidence, got %+v", defeats.Evidence)
+		}
+	})
+
+	t.Run("fixtures 3-6 boundary outcomes", func(t *testing.T) {
+		rep, code := runJSON(t, "refscan/component.textproto")
+		if code != 1 {
+			t.Fatalf("refscan fixtures must fail (exit 1), got %d", code)
+		}
+		// Fixture 3: the Greeter.Method dispatch through the declared
+		// interface produces no finding; every other dependency reach is a
+		// CALLS_UNDECLARED_INTERFACE at its exact site (fixture 4's concrete
+		// access and fixture 5's kind matrix), and dep/sub is an undeclared
+		// interface against the declared dependency (fixture 6).
+		for _, v := range rep.Violations {
+			if v.Kind != "CALLS_UNDECLARED_INTERFACE" {
+				t.Errorf("violations = %+v, want only CALLS_UNDECLARED_INTERFACE", rep.Violations)
+				break
+			}
+			if strings.Contains(v.Location.File, "member/dispatch/") {
+				t.Errorf("the dispatch site must stay authorized, got %+v", v)
+			}
+		}
+		types := make(map[string]bool, len(rep.Violations))
+		sites := 0
+		for _, v := range rep.Violations {
+			types[string(v.Kind)] = true
+			sites += len(v.Sites) + len(v.Evidence)
+		}
+		if len(types) != 1 || !types["CALLS_UNDECLARED_INTERFACE"] {
+			t.Errorf("kinds = %v, want only CALLS_UNDECLARED_INTERFACE", types)
+		}
+		if len(rep.Violations) != 19 {
+			t.Errorf("violations = %d, want the fixture-4 concrete access and the 17 kinds sites", len(rep.Violations))
+		}
+		hasLoc := func(v report.Finding, file string, line int) bool {
+			if v.Location.File == file && v.Location.Line == line {
+				return true
+			}
+			for _, s := range v.Sites {
+				if s.File == file && s.Line == line {
+					return true
+				}
+			}
+			return false
+		}
+		locating := func(file string, line int) bool {
+			for _, v := range rep.Violations {
+				if hasLoc(v, file, line) {
+					return true
+				}
+			}
+			return false
+		}
+		if !locating("member/concrete/concrete.go", 8) || !locating("member/concrete/concrete.go", 9) {
+			t.Errorf("fixture 4's rejected concrete access at concrete.go:8-9 was not reported: %+v", rep.Violations)
+		}
+		if !locating("member/kinds/kinds.go", 28) {
+			t.Errorf("fixture 5's dep/sub.Sub edge at kinds.go:28 was not reported: %+v", rep.Violations)
+		}
+		if len(rep.Warnings) != 0 {
+			t.Errorf("warnings = %+v, want none", rep.Warnings)
+		}
+	})
+
+	t.Run("fixtures 3-6 against the package-surface dependency", func(t *testing.T) {
+		rep, code := runJSON(t, "refscan/surface.component.textproto")
+		if code != 1 {
+			t.Fatalf("package-surface fixtures must fail (exit 1), got %d", code)
+		}
+		// Against a PACKAGE_SURFACE dependency every declared kind is
+		// authorized; only the unowned dep/sub reaches remain — its call at
+		// kinds.go:28 and the import rows — as UNDECLARED_DEPENDENCY (the
+		// surface dependency owns exactly its member package).
+		for _, v := range rep.Violations {
+			if v.Kind != "UNDECLARED_DEPENDENCY" || (!strings.Contains(v.Message, "dep/sub") && !strings.Contains(v.Message, "dep/initpkg")) {
+				t.Errorf("kind = %q message = %q, want only the unowned dep/sub and dep/initpkg UNDECLARED_DEPENDENCY", v.Kind, v.Message)
+			}
+		}
+	})
+
+	t.Run("analysis-defeating fixture", func(t *testing.T) {
+		rep, code := runJSON(t, "byp/component.textproto")
+		if code != 1 {
+			t.Fatalf("bypass fixture must fail (exit 1), got %d", code)
+		}
+		if len(rep.Violations) != 1 {
+			t.Fatalf("violations = %+v, want the single aggregated AnalysisDefeating finding", rep.Violations)
+		}
+		v := rep.Violations[0]
+		if v.Class != "AnalysisDefeating" || v.Kind != "UNDECLARED_AUTHORITY" {
+			t.Errorf("finding = %+v, want UNDECLARED_AUTHORITY class AnalysisDefeating", v)
+		}
+		wantFiles := map[string]int{"member/byp/link.go": 3, "member/byp/cgo.go": 4, "member/byp/stub.s": 1, "member/byp/stub_plan9.s": 1}
+		if len(v.Sites) != len(wantFiles) {
+			t.Fatalf("sites = %+v, want the linkname, cgo and both assembly files", v.Sites)
+		}
+		for _, s := range v.Sites {
+			if wantFiles[s.File] != s.Line {
+				t.Errorf("site %+v, want it within %v", s, wantFiles)
+			}
+		}
+		if len(v.Evidence) != 0 {
+			t.Errorf("the bypass finding must carry no evidence, got %+v", v.Evidence)
+		}
+	})
 }
