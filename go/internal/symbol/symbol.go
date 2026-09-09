@@ -16,8 +16,8 @@
 //     CapslockFunction/CapslockInventory), FromObject, FromSelection and
 //     ExtractSurface.
 //     All pure and deterministic; results are sorted and duplicate-free.
-//     Nothing here alters the live call-graph check path (capanalyzer.
-//     InterfaceSymbol stays until the Step 6 cutover).
+//     Nothing here reaches a call graph: the check consumes the declaring-
+//     object facts these conversions produce.
 //   - Ambient Authority: This component is guaranteed-pure and holds no ambient
 //     authority (no filesystem I/O, network, process execution or reflection).
 package symbol

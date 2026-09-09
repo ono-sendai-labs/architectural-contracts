@@ -2,8 +2,8 @@
 // authority lookup (design R5–R6, DR-05): the terminal classification model,
 // the SDK identity key, and the fail-closed lookup contract the reference
 // scan consumes. The port is defined here, in the pure decision-side code, and
-// implemented shell-side (artifactio's map reader), mirroring
-// capanalyzer.CapabilityAnalyzer.
+// implemented shell-side (artifactio's map reader), a pure-core port with a
+// shell-side adapter.
 //
 // Component Contract (FR10):
 //   - What it does: Defines the StdlibAuthority port (total package-membership
