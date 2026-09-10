@@ -336,22 +336,42 @@ This example demonstrates how `arcc` tracks ambient authority, allows legitimate
 4. **`app`** (Composition Root): This component calls `csvfile` to load data and `toprow` to sort it. Because both are first-class **component dependencies**, references to their exact declared interfaces are checked as component-boundary edges. The filesystem authority remains owned by `csvfile` and does not become part of `app`'s contract, so `app` checks as conformant and ambient-authority-free.
 
 ### Running the Examples
-To verify these behaviors, execute the following checks from within the `go` directory:
+To verify these behaviors, execute the following checks from within the `go`
+directory. The commands use a temporary copy of the CSV workspace because each
+check stages its sibling surface/report artifacts beside the copied manifests;
+the repository checkout remains free of generated files.
 
 ```bash
 cd go
 
+csv_demo_root="$(mktemp -d "${TMPDIR:-/tmp}/arcc-csvtool.XXXXXX")"
+trap 'rm -rf -- "$csv_demo_root"' EXIT
+cp go.mod "$csv_demo_root/go.mod"
+mkdir -p "$csv_demo_root/examples"
+cp -a examples/csvtool "$csv_demo_root/examples/csvtool"
+arcc_bin="$(pwd)/../bin/arcc"
+
+# Produce every sibling pair in dependency order before running consumers.
+for component in internal/parsecsv csvfile toprow app; do
+  manifest="$csv_demo_root/examples/csvtool/$component/component.textproto"
+  base="${manifest%.textproto}"
+  "$arcc_bin" check "$manifest" \
+    --report-out="$base.report.json" \
+    --surface-out="$base.surface.json" \
+    --report-verdict-only >/dev/null
+done
+
 # 1. Check the shared parser (expected exit 1: its UNANALYZED use is reported)
-../bin/arcc check examples/csvtool/internal/parsecsv/component.textproto
+"$arcc_bin" check "$csv_demo_root/examples/csvtool/internal/parsecsv/component.textproto" || test "$?" -eq 1
 
 # 2. Check the pure sorting logic (conforms, authority-free)
-../bin/arcc check examples/csvtool/toprow/component.textproto
+"$arcc_bin" check "$csv_demo_root/examples/csvtool/toprow/component.textproto"
 
 # 3. Check the file reader (conforms, uses declared FILES authority)
-../bin/arcc check examples/csvtool/csvfile/component.textproto
+"$arcc_bin" check "$csv_demo_root/examples/csvtool/csvfile/component.textproto"
 
 # 4. Check the composition root (conforms, authority-free through component boundaries)
-../bin/arcc check examples/csvtool/app/component.textproto
+"$arcc_bin" check "$csv_demo_root/examples/csvtool/app/component.textproto"
 ```
 
 The first command currently exits `1`: `csv.Reader.ReadAll` is an honest
@@ -371,34 +391,40 @@ report that rests on them.
 
 ### Reproducing the status demo
 
-The native demo stages all four CSV components in topological order. The
-`--report-verdict-only` flag makes a failing dependency report usable as an
-artifact while preserving its `fail` verdict for downstream warning/status
-handling:
+The native demo below uses its own temporary copy and stages all four CSV
+components in topological order. The `--report-verdict-only` flag makes a
+failing dependency report usable as an artifact while preserving its `fail`
+verdict for downstream warning/status handling. Generated artifacts and the
+source mutation are removed with the temporary workspace:
 
 ```bash
 cd go
+csv_demo_root="$(mktemp -d "${TMPDIR:-/tmp}/arcc-csvtool-status.XXXXXX")"
+trap 'rm -rf -- "$csv_demo_root"' EXIT
+cp go.mod "$csv_demo_root/go.mod"
+mkdir -p "$csv_demo_root/examples"
+cp -a examples/csvtool "$csv_demo_root/examples/csvtool"
+arcc_bin="$(pwd)/../bin/arcc"
+
 for component in \
-  examples/csvtool/internal/parsecsv \
-  examples/csvtool/csvfile \
-  examples/csvtool/toprow \
-  examples/csvtool/app; do
-  ../bin/arcc check "$component/component.textproto" \
-    --report-out="$component/component.report.json" \
-    --surface-out="$component/component.surface.json" \
+  internal/parsecsv \
+  csvfile \
+  toprow \
+  app; do
+  manifest="$csv_demo_root/examples/csvtool/$component/component.textproto"
+  base="${manifest%.textproto}"
+  "$arcc_bin" check "$manifest" \
+    --report-out="$base.report.json" \
+    --surface-out="$base.surface.json" \
     --report-verdict-only >/dev/null
 done
 
 # Native convention lookup shows ASSERTED + VERIFIED for unchanged sources.
-../bin/arcc check examples/csvtool/app/component.textproto
+"$arcc_bin" check "$csv_demo_root/examples/csvtool/app/component.textproto"
 
-# A readable source-byte change is reported as ASSERTED + STALE. Restore the
-# file after the demonstration so the working tree is unchanged.
-csv_demo_backup="$(mktemp)"
-cp examples/csvtool/csvfile/private.go "$csv_demo_backup"
-trap 'mv "$csv_demo_backup" examples/csvtool/csvfile/private.go' EXIT
-printf '\n// status-demo source change\n' >> examples/csvtool/csvfile/private.go
-../bin/arcc check examples/csvtool/app/component.textproto --format=json
+# A readable source-byte change is reported as ASSERTED + STALE.
+printf '\n// status-demo source change\n' >> "$csv_demo_root/examples/csvtool/csvfile/private.go"
+"$arcc_bin" check "$csv_demo_root/examples/csvtool/app/component.textproto" --format=json
 ```
 
 For build-graph status, build the same checked artifacts with Bazel:
@@ -410,13 +436,15 @@ cat bazel-bin/go/examples/csvtool/app/app_component.report.json
 cat bazel-bin/go/examples/csvtool/csvfile/csvfile_component.report.json
 ```
 
-The app report contains `CHECKED_PASS` CSV boundaries (the `certified` text
-case); the csvfile report contains the `CHECKED_FAIL` parsecsv boundary and its
-single `DEPENDENCY_CHECK_FAILED` warning (the `check failed` case). The native
-JSON run supplies the `STALE` case, while `go/cmd/arcc/app`'s byte-only test
-supplies `UNKNOWN` after the dependency source is unavailable. The exact text
-rendering for those three axes is asserted by
-`TestRunner_Check_CSVToolStatusLabelsInLayoutReport`.
+The app report contains `CHECKED_PASS` boundaries (the `certified` text case).
+`parsecsv` is tagged `manual` in the checked-in Bazel graph, so its provider is
+an asserted package-surface dependency; the csvfile/toprow reports therefore
+show the actual asserted parsecsv boundary rather than claiming `CHECKED_FAIL`.
+The native JSON run supplies the `STALE` case. The reproducible `UNKNOWN` and
+checked-fail cases use the same test-owned workspace strategy in
+`TestIntegration_CSVTool_StatusDemo` (the latter uses a layout checked binding
+to consume its exact report/surface pair), and the complete text rendering is
+also asserted by `TestRunner_Check_CSVToolStatusLabelsInLayoutReport`.
 
 ### Reproducing a Conformance Violation
 To see what a contract violation looks like, you can easily create a temporary failing component.

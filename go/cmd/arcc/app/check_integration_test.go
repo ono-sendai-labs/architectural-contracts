@@ -740,7 +740,11 @@ func runRunnerStdout(t *testing.T, workspace string, runner *app.Runner, args []
 	if manifestPath, mapPath, ok := nativeStagingArgs(args); ok {
 		var staged nativeArtifactStaging
 		stageNativeRunnerDependencies(t, runner, manifestPath, mapPath, map[string]bool{}, &staged)
-		t.Cleanup(staged.restore)
+		t.Cleanup(func() {
+			if err := staged.restore(); err != nil {
+				t.Errorf("restore staged artifacts: %v", err)
+			}
+		})
 	}
 	t.Cleanup(func() {
 		if err := os.Chdir(originalWD); err != nil {
@@ -808,16 +812,29 @@ func (s *nativeArtifactStaging) capture(t *testing.T, path string) {
 	s.order = append(s.order, path)
 }
 
-func (s *nativeArtifactStaging) restore() {
+func (s *nativeArtifactStaging) restore() error {
+	if len(s.order) == 0 {
+		return nil
+	}
+	var restoreErrors []string
 	for i := len(s.order) - 1; i >= 0; i-- {
 		path := s.order[i]
 		original := s.originals[path]
 		if original.exists {
-			_ = os.WriteFile(path, original.data, original.mode)
-		} else {
-			_ = os.Remove(path)
+			if err := os.WriteFile(path, original.data, original.mode); err != nil {
+				restoreErrors = append(restoreErrors, path+": "+err.Error())
+			}
+			continue
+		}
+		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+			restoreErrors = append(restoreErrors, path+": "+err.Error())
 		}
 	}
+	s.order = nil
+	if len(restoreErrors) > 0 {
+		return errors.New("restore staged artifacts: " + strings.Join(restoreErrors, "; "))
+	}
+	return nil
 }
 
 func stageNativeRunnerDependencies(t *testing.T, runner *app.Runner, manifestPath, mapPath string, seen map[string]bool, staged *nativeArtifactStaging) {

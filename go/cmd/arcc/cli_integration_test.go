@@ -48,14 +48,23 @@ func TestMain(m *testing.M) {
 }
 
 // runArcc runs the compiled arcc binary as a subprocess and returns its stdout, stderr, and exit code.
-func runArcc(args []string) (string, string, int) {
+func runArcc(args []string) (stdout, stderr string, code int) {
 	if len(args) >= 2 && args[0] == "check" {
 		var staged nativeArtifactStaging
 		if err := stageNativeDependencyArtifacts(args[1], map[string]bool{}, &staged); err != nil {
-			staged.restore()
+			if restoreErr := staged.restore(); restoreErr != nil {
+				return "", fmt.Sprintf("error: staging dependency surfaces: %v; restoring artifacts: %v\n", err, restoreErr), 2
+			}
 			return "", fmt.Sprintf("error: staging dependency surfaces: %v\n", err), 2
 		}
-		defer staged.restore()
+		defer func() {
+			if err := staged.restore(); err != nil {
+				stderr += fmt.Sprintf("error: restoring staged dependency artifacts: %v\n", err)
+				if code == 0 {
+					code = 2
+				}
+			}
+		}()
 	}
 	return runArccEnv(nil, args)
 }
@@ -98,16 +107,29 @@ func (s *nativeArtifactStaging) capture(path string) error {
 	return nil
 }
 
-func (s *nativeArtifactStaging) restore() {
+func (s *nativeArtifactStaging) restore() error {
+	if len(s.order) == 0 {
+		return nil
+	}
+	var restoreErrors []string
 	for i := len(s.order) - 1; i >= 0; i-- {
 		path := s.order[i]
 		original := s.originals[path]
 		if original.exists {
-			_ = os.WriteFile(path, original.data, original.mode)
-		} else {
-			_ = os.Remove(path)
+			if err := os.WriteFile(path, original.data, original.mode); err != nil {
+				restoreErrors = append(restoreErrors, fmt.Sprintf("%s: %v", path, err))
+			}
+			continue
+		}
+		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+			restoreErrors = append(restoreErrors, fmt.Sprintf("%s: %v", path, err))
 		}
 	}
+	s.order = nil
+	if len(restoreErrors) > 0 {
+		return fmt.Errorf("%s", strings.Join(restoreErrors, "; "))
+	}
+	return nil
 }
 
 // stageNativeDependencyArtifacts supplies the persisted sibling artifacts that
@@ -201,7 +223,11 @@ component_dependencies {
 	if err := stageNativeDependencyArtifacts(callerManifest, map[string]bool{}, &staged); err != nil {
 		t.Fatalf("stageNativeDependencyArtifacts: %v", err)
 	}
-	defer staged.restore()
+	defer func() {
+		if err := staged.restore(); err != nil {
+			t.Errorf("restore staged artifacts: %v", err)
+		}
+	}()
 
 	if data, err := os.ReadFile(surfacePath); err != nil {
 		t.Fatal(err)
@@ -213,7 +239,9 @@ component_dependencies {
 	} else if _, err := artifactio.DecodeReport(data); err != nil {
 		t.Fatalf("staged report remains stale: %v", err)
 	}
-	staged.restore()
+	if err := staged.restore(); err != nil {
+		t.Fatalf("restore staged artifacts: %v", err)
+	}
 	if data, err := os.ReadFile(surfacePath); err != nil {
 		t.Fatal(err)
 	} else if string(data) != string(oldSurface) {
@@ -239,7 +267,14 @@ func relativePath(t *testing.T, from, to string) string {
 // env inherits the test process's environment, which is what runArcc wants;
 // the layout-mode tests use it to withhold the Go toolchain.
 func runArccEnv(env []string, args []string) (string, string, int) {
+	return runArccEnvDir("", env, args)
+}
+
+func runArccEnvDir(dir string, env []string, args []string) (string, string, int) {
 	cmd := exec.Command(arccBin, args...)
+	if dir != "" {
+		cmd.Dir = dir
+	}
 	cmd.Env = env
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
@@ -257,6 +292,165 @@ func runArccEnv(env []string, args []string) (string, string, int) {
 	}
 
 	return stdout.String(), stderr.String(), exitCode
+}
+
+func arccHermeticEnv(t *testing.T) []string {
+	t.Helper()
+	env := make([]string, 0, len(os.Environ())+1)
+	for _, kv := range os.Environ() {
+		if !strings.HasPrefix(kv, "PATH=") {
+			env = append(env, kv)
+		}
+	}
+	env = append(env, "PATH="+t.TempDir())
+	return env
+}
+
+func copyDirectory(src, dst string) error {
+	entries, err := os.ReadDir(src)
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(dst, 0o755); err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		sourcePath := filepath.Join(src, entry.Name())
+		destinationPath := filepath.Join(dst, entry.Name())
+		if entry.IsDir() {
+			if err := copyDirectory(sourcePath, destinationPath); err != nil {
+				return err
+			}
+			continue
+		}
+		info, err := entry.Info()
+		if err != nil {
+			return err
+		}
+		if !info.Mode().IsRegular() {
+			return fmt.Errorf("cannot copy non-regular CSV fixture entry %q", sourcePath)
+		}
+		data, err := os.ReadFile(sourcePath)
+		if err != nil {
+			return err
+		}
+		if err := os.WriteFile(destinationPath, data, info.Mode().Perm()); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func copyCSVToolWorkspace(t *testing.T) (string, string) {
+	t.Helper()
+	moduleRoot, err := filepath.Abs(filepath.Join("../.."))
+	if err != nil {
+		t.Fatal(err)
+	}
+	workspace := t.TempDir()
+	goMod, err := os.ReadFile(filepath.Join(moduleRoot, "go.mod"))
+	if err != nil {
+		t.Fatalf("read go.mod: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(workspace, "go.mod"), goMod, 0o644); err != nil {
+		t.Fatalf("write temporary go.mod: %v", err)
+	}
+	if err := copyDirectory(
+		filepath.Join(moduleRoot, "examples", "csvtool"),
+		filepath.Join(workspace, "examples", "csvtool"),
+	); err != nil {
+		t.Fatalf("copy CSV tool workspace: %v", err)
+	}
+	return workspace, filepath.Join(workspace, "examples", "csvtool", "app", "component.textproto")
+}
+
+func stageCSVToolDependencies(t *testing.T, workspace string) {
+	t.Helper()
+	for _, component := range []string{"internal/parsecsv", "csvfile", "toprow"} {
+		manifestPath := filepath.Join(workspace, "examples", "csvtool", component, "component.textproto")
+		reportPath := artifactio.ReportPath(manifestPath)
+		surfacePath := artifactio.SurfacePath(manifestPath)
+		_, stderr, code := runArccEnvDir(workspace, nil, []string{
+			"check", manifestPath,
+			"--report-out=" + reportPath,
+			"--surface-out=" + surfacePath,
+			"--report-verdict-only",
+		})
+		if code != 0 || stderr != "" {
+			t.Fatalf("stage CSV dependency %s: exit %d, stderr=%q", component, code, stderr)
+		}
+	}
+}
+
+func appendUnavailablePackageToSurface(t *testing.T, surfacePath string) {
+	t.Helper()
+	data, err := os.ReadFile(surfacePath)
+	if err != nil {
+		t.Fatalf("read CSV surface: %v", err)
+	}
+	decoded, err := artifactio.DecodeSurface(bytes.NewReader(data))
+	if err != nil {
+		t.Fatalf("decode CSV surface: %v", err)
+	}
+	if len(decoded.Packages) == 0 {
+		t.Fatal("CSV surface has no package to make unavailable")
+	}
+	decoded.Packages = append(decoded.Packages, decoded.Packages[0]+"/unavailable")
+	updated, err := artifactio.MarshalSurface(decoded)
+	if err != nil {
+		t.Fatalf("rewrite CSV surface with unavailable package: %v", err)
+	}
+	if err := os.WriteFile(surfacePath, updated, 0o644); err != nil {
+		t.Fatalf("write CSV surface with unavailable package: %v", err)
+	}
+}
+
+func writeLayoutDependencyBinding(t *testing.T, layoutPath string) {
+	t.Helper()
+	data, err := os.ReadFile(layoutPath)
+	if err != nil {
+		t.Fatalf("read CSV status layout: %v", err)
+	}
+	var layout map[string]any
+	if err := json.Unmarshal(data, &layout); err != nil {
+		t.Fatalf("decode CSV status layout: %v", err)
+	}
+	layout["dependency_artifact_bindings"] = []map[string]any{{
+		"dependency": "parsecsv",
+		"surface":    "dep/component.surface.json",
+		"report":     "dep/component.report.json",
+		"provenance": "checked",
+	}}
+	updated, err := json.MarshalIndent(layout, "", "  ")
+	if err != nil {
+		t.Fatalf("encode CSV status layout: %v", err)
+	}
+	if err := os.WriteFile(layoutPath, updated, 0o644); err != nil {
+		t.Fatalf("write CSV status layout: %v", err)
+	}
+}
+
+func writeDependencyOnlyLayout(t *testing.T, sourceLayout, dependencyLayout string) {
+	t.Helper()
+	data, err := os.ReadFile(sourceLayout)
+	if err != nil {
+		t.Fatalf("read dependency layout: %v", err)
+	}
+	var layout map[string]any
+	if err := json.Unmarshal(data, &layout); err != nil {
+		t.Fatalf("decode dependency layout: %v", err)
+	}
+	layout["roots"] = []string{"example.com/dep"}
+	updated, err := json.MarshalIndent(layout, "", "  ")
+	if err != nil {
+		t.Fatalf("encode dependency layout: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Dir(dependencyLayout), 0o755); err != nil {
+		t.Fatalf("create dependency layout directory: %v", err)
+	}
+	if err := os.WriteFile(dependencyLayout, updated, 0o644); err != nil {
+		t.Fatalf("write dependency layout: %v", err)
+	}
 }
 
 // createTempComponent creates a temporary component inside the 'go/' module tree to load successfully.
@@ -970,13 +1164,15 @@ func TestIntegration_App_Success_JSON(t *testing.T) {
 }
 
 func TestIntegration_CSVTool_StatusDemo(t *testing.T) {
-	appManifest := "../../examples/csvtool/app/component.textproto"
+	workspace, appManifest := copyCSVToolWorkspace(t)
+	stageCSVToolDependencies(t, workspace)
 
-	// The native command consumes a freshly staged pair and exposes the
-	// byte-audited VERIFIED axis in JSON. Native provenance remains ASSERTED by
-	// design; BUILD_GRAPH/CHECKED_PASS is demonstrated by the Bazel artifact
-	// producer, not synthesized by native convention lookup.
-	stdout, stderr, code := runArcc([]string{"check", appManifest, "--format=json"})
+	// The native command consumes a freshly staged pair in the test-owned copy
+	// and exposes the byte-audited VERIFIED axis in JSON. Native provenance
+	// remains ASSERTED by design; BUILD_GRAPH/CHECKED_PASS is demonstrated by
+	// the layout-mode artifact producer below, not synthesized by convention
+	// lookup.
+	stdout, stderr, code := runArccEnvDir(workspace, nil, []string{"check", appManifest, "--format=json"})
 	if code != 0 {
 		t.Fatalf("CSV app checked-pass run: exit %d, stderr=%q, stdout=%q", code, stderr, stdout)
 	}
@@ -993,66 +1189,18 @@ func TestIntegration_CSVTool_StatusDemo(t *testing.T) {
 		}
 	}
 
-	// parsecsv's known UNANALYZED record is intentionally a failing dependency
-	// report. Persist that artifact explicitly, then prove a native consumer
-	// continues against its surface without copying the dependency violation.
-	artifactDir := t.TempDir()
-	parseReportPath := filepath.Join(artifactDir, "parsecsv.report.json")
-	parseSurfacePath := filepath.Join(artifactDir, "parsecsv.surface.json")
-	stdout, stderr, code = runArcc([]string{
-		"check", "../../examples/csvtool/internal/parsecsv/component.textproto",
-		"--report-out=" + parseReportPath,
-		"--surface-out=" + parseSurfacePath,
-		"--report-verdict-only",
-	})
-	if code != 0 || stderr != "" {
-		t.Fatalf("CSV checked-fail artifact run: exit %d, stderr=%q, stdout=%q", code, stderr, stdout)
-	}
-	parseReport, err := os.ReadFile(parseReportPath)
-	if err != nil {
-		t.Fatalf("read parsecsv report: %v", err)
-	}
-	persisted, err := artifactio.DecodeReport(parseReport)
-	if err != nil {
-		t.Fatalf("decode parsecsv report: %v", err)
-	}
-	if persisted.Verdict != report.VerdictFail {
-		t.Fatalf("parsecsv verdict = %q, want fail", persisted.Verdict)
-	}
-	stdout, stderr, code = runArcc([]string{"check", "../../examples/csvtool/csvfile/component.textproto"})
-	if code != 0 || stderr != "" {
-		t.Fatalf("CSV native consumer after checked-fail artifact: exit %d, stderr=%q, stdout=%q", code, stderr, stdout)
-	}
-	if strings.Contains(stdout, "analysis-defeating construct") {
-		t.Fatalf("native consumer copied the dependency violation: stdout=%q", stdout)
-	}
-
 	// Keep a staged artifact pair while changing a member source byte. The
 	// source remains valid Go so the real command can load the consumer; only
 	// the native freshness audit observes the change and renders STALE.
-	appManifestAbs, err := filepath.Abs(appManifest)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var staged nativeArtifactStaging
-	if err := stageNativeDependencyArtifacts(appManifestAbs, map[string]bool{}, &staged); err != nil {
-		t.Fatalf("stage CSV stale demo: %v", err)
-	}
-	t.Cleanup(staged.restore)
-	sourcePath := filepath.Join("../../examples/csvtool/csvfile/private.go")
+	sourcePath := filepath.Join(workspace, "examples/csvtool/csvfile/private.go")
 	originalSource, err := os.ReadFile(sourcePath)
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() {
-		if err := os.WriteFile(sourcePath, originalSource, 0o644); err != nil {
-			t.Errorf("restore CSV source: %v", err)
-		}
-	})
 	if err := os.WriteFile(sourcePath, append(originalSource, []byte("\n// status-demo source change\n")...), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	stdout, stderr, code = runArccEnv(nil, []string{"check", appManifest, "--format=json"})
+	stdout, stderr, code = runArccEnvDir(workspace, nil, []string{"check", appManifest, "--format=json"})
 	if code != 0 {
 		t.Fatalf("CSV stale run: exit %d, stderr=%q, stdout=%q", code, stderr, stdout)
 	}
@@ -1069,14 +1217,145 @@ func TestIntegration_CSVTool_StatusDemo(t *testing.T) {
 	if !sawStale {
 		t.Errorf("stale CSV boundaries = %+v, want csvfile STALE", stale.Dependencies)
 	}
-	var staleWarning bool
+	var staleWarning int
 	for _, warning := range stale.Warnings {
 		if warning.Kind == report.DependencySurfaceStale {
-			staleWarning = true
+			staleWarning++
 		}
 	}
-	if !staleWarning {
-		t.Errorf("stale CSV warnings = %+v, want DEPENDENCY_SURFACE_STALE", stale.Warnings)
+	if staleWarning != 1 {
+		t.Errorf("stale CSV warnings = %+v, want one DEPENDENCY_SURFACE_STALE", stale.Warnings)
+	}
+
+	// Make one surface-declared source package unavailable in the test-owned
+	// workspace. The consumer's own member loader still has valid csvfile
+	// source, while the native byte-only audit cannot enumerate the complete
+	// persisted source set and must expose UNKNOWN rather than failing the tool.
+	csvfileManifest := filepath.Join(workspace, "examples/csvtool/csvfile/component.textproto")
+	appendUnavailablePackageToSurface(t, artifactio.SurfacePath(csvfileManifest))
+	stdout, stderr, code = runArccEnvDir(workspace, nil, []string{"check", appManifest, "--format=json"})
+	if code != 0 {
+		t.Fatalf("CSV unknown run: exit %d, stderr=%q, stdout=%q", code, stderr, stdout)
+	}
+	var unknown report.ConformanceReport
+	if err := json.Unmarshal([]byte(stdout), &unknown); err != nil {
+		t.Fatalf("decode unknown CSV report: %v; stdout=%q", err, stdout)
+	}
+	var sawUnknown bool
+	for _, dep := range unknown.Dependencies {
+		if dep.Component == "csvfile" && dep.Provenance == report.DependencyProvenanceAsserted && dep.Freshness == report.DependencyFreshnessUnknown {
+			sawUnknown = true
+		}
+	}
+	if !sawUnknown {
+		t.Errorf("unknown CSV boundaries = %+v, want csvfile ASSERTED/UNKNOWN", unknown.Dependencies)
+	}
+	for _, warning := range unknown.Warnings {
+		if warning.Kind == report.DependencySurfaceStale {
+			t.Errorf("unknown CSV unexpectedly emitted stale warning: %+v", unknown.Warnings)
+		}
+	}
+
+	// The checked-fail label must be exercised by a layout binding, whose
+	// checked provenance consumes the exact pair written for this dependent.
+	statusManifest := `name: "csvfile"
+interface_style: INTERFACE_STYLE_PACKAGE_SURFACE
+members: "example.com/member"
+component_dependencies {
+  name: "parsecsv"
+  manifest: "dep/component.textproto"
+}
+`
+	statusWorkspace, statusManifestPath, statusLayoutPath := createLayoutFixture(t, "csv-status", []string{"example.com/member"}, statusManifest, map[string]string{
+		"member/api.go": "package member\n\nimport \"example.com/dep\"\n\nfunc Use() { dep.Exported() }\n",
+		"dep/impl.go":   "package dep\n\nfunc Exported() {}\n",
+	})
+	statusDepManifestPath := filepath.Join(statusWorkspace, "dep", "component.textproto")
+	if err := os.MkdirAll(filepath.Dir(statusDepManifestPath), 0o755); err != nil {
+		t.Fatalf("create CSV status dependency directory: %v", err)
+	}
+	if err := os.WriteFile(statusDepManifestPath, []byte(`name: "parsecsv"
+interface_style: INTERFACE_STYLE_PACKAGE_SURFACE
+members: "example.com/dep"
+declared_authority: "FILES"
+`), 0o644); err != nil {
+		t.Fatalf("write CSV status dependency manifest: %v", err)
+	}
+	statusDepLayoutPath := filepath.Join(statusWorkspace, "dep", "package-layout.json")
+	writeDependencyOnlyLayout(t, statusLayoutPath, statusDepLayoutPath)
+	statusMapPath := sharedNativeMapDefault(t)
+	statusDepReportPath := artifactio.ReportPath(statusDepManifestPath)
+	statusDepSurfacePath := artifactio.SurfacePath(statusDepManifestPath)
+	_, stderr, code = runArccEnvDir(statusWorkspace, arccHermeticEnv(t), []string{
+		"check", statusDepManifestPath,
+		"--package-layout=" + statusDepLayoutPath,
+		"--stdlib-map=" + statusMapPath,
+		"--report-out=" + statusDepReportPath,
+		"--surface-out=" + statusDepSurfacePath,
+		"--report-verdict-only",
+	})
+	if code != 0 || stderr != "" {
+		t.Fatalf("CSV layout dependency artifact: exit %d, stderr=%q", code, stderr)
+	}
+	statusFailReport, err := artifactio.MarshalReport(report.ConformanceReport{
+		Component: "parsecsv",
+		Violations: []report.Finding{{
+			Kind:    report.AnalysisLimitation,
+			Message: "fixture checked-fail status",
+		}},
+	})
+	if err != nil {
+		t.Fatalf("encode CSV checked-fail report: %v", err)
+	}
+	if err := os.WriteFile(statusDepReportPath, statusFailReport, 0o644); err != nil {
+		t.Fatalf("write CSV checked-fail report: %v", err)
+	}
+	persisted, err := artifactio.DecodeReport(statusFailReport)
+	if err != nil {
+		t.Fatalf("decode CSV checked-fail report: %v", err)
+	}
+	if persisted.Verdict != report.VerdictFail {
+		t.Fatalf("CSV checked-fail artifact verdict = %q, want fail", persisted.Verdict)
+	}
+	writeLayoutDependencyBinding(t, statusLayoutPath)
+	statusTextArgs := []string{
+		"check", statusManifestPath,
+		"--package-layout=" + statusLayoutPath,
+		"--stdlib-map=" + statusMapPath,
+	}
+	statusText, stderr, code := runArccEnvDir(statusWorkspace, arccHermeticEnv(t), statusTextArgs)
+	if code != 0 || stderr != "" {
+		t.Fatalf("CSV layout checked-fail text run: exit %d, stderr=%q, stdout=%q", code, stderr, statusText)
+	}
+	if !strings.Contains(statusText, "- parsecsv (check failed)") || strings.Count(statusText, "[DEPENDENCY_CHECK_FAILED]") != 1 {
+		t.Fatalf("CSV layout checked-fail text = %q, want one check-failed boundary warning", statusText)
+	}
+	if strings.Contains(statusText, "fixture checked-fail status") {
+		t.Fatalf("CSV layout checked-fail text copied dependency violation: %q", statusText)
+	}
+	statusJSONArgs := append(statusTextArgs, "--format=json")
+	statusJSON, stderr, code := runArccEnvDir(statusWorkspace, arccHermeticEnv(t), statusJSONArgs)
+	if code != 0 || stderr != "" {
+		t.Fatalf("CSV layout checked-fail JSON run: exit %d, stderr=%q, stdout=%q", code, stderr, statusJSON)
+	}
+	var checkedFail report.ConformanceReport
+	if err := json.Unmarshal([]byte(statusJSON), &checkedFail); err != nil {
+		t.Fatalf("decode CSV checked-fail JSON: %v; stdout=%q", err, statusJSON)
+	}
+	if strings.Contains(statusJSON, "fixture checked-fail status") {
+		t.Fatalf("CSV checked-fail JSON copied dependency violation: %q", statusJSON)
+	}
+	if len(checkedFail.Dependencies) != 1 || checkedFail.Dependencies[0].Provenance != report.DependencyProvenanceCheckedFail || checkedFail.Dependencies[0].Freshness != report.DependencyFreshnessBuildGraph || checkedFail.Dependencies[0].Authority != report.DependencyAuthorityDeclared {
+		t.Fatalf("CSV checked-fail boundary = %+v, want CHECKED_FAIL/BUILD_GRAPH/DECLARED", checkedFail.Dependencies)
+	}
+	var dependencyFailureWarnings int
+	for _, warning := range checkedFail.Warnings {
+		if warning.Kind == report.DependencyCheckFailed {
+			dependencyFailureWarnings++
+		}
+	}
+	if dependencyFailureWarnings != 1 {
+		t.Fatalf("CSV checked-fail warnings = %+v, want one DEPENDENCY_CHECK_FAILED", checkedFail.Warnings)
 	}
 }
 
