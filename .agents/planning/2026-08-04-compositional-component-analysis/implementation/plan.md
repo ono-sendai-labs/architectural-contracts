@@ -45,7 +45,7 @@ None of them is tagged, released, or imported; the series is consumed at its end
 - [x] **Step 3** — Persisted schemas, symbol grammar, and the authority lattice
 - [x] **Step 4** — Standard-library authority map: generator, port, Bazel artifact, native cache
 - [x] **Step 5** — Build topology: analysis action, providers, surface emission, CLI outputs
-- [ ] **Step 6** — Reference scan replaces the call graph *(keystone)*
+- [x] **Step 6** — Reference scan replaces the call graph *(keystone)*
 - [ ] **Step 7** — Surface consumption, status axes, overlap, namespace
 - [ ] **Step 8** — Export-data type loading and member-only inputs
 - [ ] **Step 9** — Golden restructure: verdicts vs layout shape
