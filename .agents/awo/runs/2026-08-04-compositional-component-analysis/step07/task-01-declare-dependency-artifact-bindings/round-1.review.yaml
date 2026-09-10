@@ -1,0 +1,91 @@
+review:
+  task_file: .agents/tasks/2026-08-04-compositional-component-analysis/step07/task-01-declare-dependency-artifact-bindings.code-task.md
+  change_id: pxnnprkxxyompwyxulrlyxwqumtrtsry
+  reviewed_at: 2026-09-10T17:48:00Z
+  verdict: approved
+  schema_version: 2
+  lsp_coverage: unavailable
+
+merge_request:
+  title: "feat(layout): declare dependency artifact bindings [Compositional Analysis: Step 07/Task 01]"
+  body: |
+    Reviews the complete task series from base change tkprtovkkslztokywmnlqwmopvzmswlv through the initial implementation mrxtpytukxxrpwytxvvpoqlmxsnkkxsx, the path-hardening change lpnspyxozzwpvnkllmyvnukktztunqys, and rework change pxnnprkxxyompwyxulrlyxwqumtrtsry. The rework documents native sibling-convention lookup and strengthens every malformed-provider diagnostic assertion; no production binding behavior changed in that rework.
+
+summary: |
+  Round 1 rework resolves both prior findings: the schema now states that native lookup remains sibling-convention based, and provider-failure tests assert the exact component, dependency, and invariant. The complete change series satisfies all five acceptance criteria, with focused checks passing and the work log recording a passing rework `just ci` run. No new regressions or security issues were found; LSP diagnostics were unavailable in the review harness.
+
+acceptance_criteria:
+  - text: |
+      1. **Every direct dependency has one deterministic binding**
+         - Given a component with authored checked, authored asserted, and auto-attached checked dependencies
+         - When its package layout is emitted twice
+         - Then the bindings are sorted, byte-identical, and contain the correct surface/report paths, edge provenance, and auto-attached flags exactly once
+    status: pass
+    evidence: |
+      The binding DTO and canonical sorting are implemented in
+      go/internal/packagelayout/packagelayout.go:90-117 and :673-701. Bazel
+      builds one record per authored/attached edge and sorts records by name at
+      bazel_rules/go/private/component.bzl:185-267. The round-trip and
+      no-mutation test is go/internal/packagelayout/dependency_artifacts_test.go:13-81;
+      the checked/asserted/auto-attached layout assertions are at
+      bazel_rules/go/tests/component_tests.bzl:377-412.
+  - text: |
+      2. **Provider provenance is structurally constrained**
+         - Given a dependency provider with a missing surface, a checked provider without a report, an asserted provider with a report, or an unknown provenance value
+         - When the consuming component is analyzed
+         - Then Bazel fails before registering the check action and names the invalid dependency and component
+    status: pass
+    evidence: |
+      Provider validation and duplicate/authored-auto identity checks run before
+      action creation at bazel_rules/go/private/component.bzl:185-267 and all
+      diagnostics include the consuming component plus provider dependency.
+      The rework's exact identity and invariant assertions are at
+      bazel_rules/go/tests/component_tests.bzl:435-489, covering malformed
+      provider fixtures declared at
+      bazel_rules/go/tests/testdata/reportboundary/consumer/BUILD.bazel:48-105.
+      This explicitly resolves prior review finding F2.
+  - text: |
+      3. **The action declares the bound artifacts**
+         - Given a dependent checked component
+         - When its `ArccCheck` action inputs are inspected
+         - Then every direct dependency surface and available report named by the layout is a declared direct input and the dependency producer chain is present
+    status: pass
+    evidence: |
+      The same binding records supply the explicit artifact list at
+      bazel_rules/go/private/component.bzl:624-630; the action passes those files
+      as direct inputs at :447-452 and includes them in explicit frame-file
+      discovery at :430-436. The binding action-input assertions are at
+      bazel_rules/go/tests/component_tests.bzl:414-433.
+  - text: |
+      4. **Layout validation fails closed**
+         - Given empty, duplicate, conflicting, non-normalized, unsafe, or unknown-provenance dependency bindings
+         - When the layout is parsed and validated
+         - Then a deterministic tool error identifies the invalid record before package loading
+    status: pass
+    evidence: |
+      Parsing invokes the custom binding unmarshaller, which validates and
+      clones/sorts records at go/internal/packagelayout/packagelayout.go:841-893;
+      direct layouts are revalidated by ValidateAndResolve at :896-903. The
+      fail-closed checks for names, paths, duplicates, provenance, and control
+      characters are at :703-766, with table-driven coverage at
+      go/internal/packagelayout/dependency_artifacts_test.go:83-129.
+  - text: |
+      5. **This task is additive**
+         - Given the repository after the binding lands
+         - When the production check path is inspected and `just ci` runs
+         - Then `ResolveDependencyInterface`, dependency source inputs, and `NeedDeps` remain active, all checks pass, and no code yet derives a boundary decision from the new binding
+    status: pass
+    evidence: |
+      packages.NeedDeps remains in the production load mode at
+      go/internal/goanalysis/goanalysis.go:98-101, and the source-backed
+      ResolveDependencyInterface remains at :1160-1175 with no change in the
+      reviewed range. The action comments explicitly keep bindings as ordering
+      metadata at bazel_rules/go/private/component.bzl:404-410 and :624-627.
+      The rework adds the native convention split at
+      docs/package-layout-schema.md:207-211, resolving prior finding F1. The
+      work log records the rework `just ci` gate with all Go, integration,
+      self-check, and Bazel legs passing under `## Rework 1 AC5`.
+
+findings: []
+
+ecosystem_reviews: []

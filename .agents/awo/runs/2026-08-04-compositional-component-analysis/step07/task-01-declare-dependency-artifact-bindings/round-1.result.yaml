@@ -1,0 +1,98 @@
+result:
+  task_file: .agents/tasks/2026-08-04-compositional-component-analysis/step07/task-01-declare-dependency-artifact-bindings.code-task.md
+  change_id: pxnnprkxxyompwyxulrlyxwqumtrtsry
+  status: completed
+  schema_version: 2
+  produced_at: 2026-09-10T17:44:40Z
+
+acceptance_criteria:
+  - text: |
+      1. **Every direct dependency has one deterministic binding**
+         - Given a component with authored checked, authored asserted, and auto-attached checked dependencies
+         - When its package layout is emitted twice
+         - Then the bindings are sorted, byte-identical, and contain the correct surface/report paths, edge provenance, and auto-attached flags exactly once
+    addressed: yes
+    evidence: |
+      `go/internal/packagelayout/packagelayout.go:64-114,672-699` defines the
+      binding DTO, provenance vocabulary, clone, and deterministic sorting.
+      `bazel_rules/go/private/component.bzl:217-267,480-485,568-576` emits one
+      binding per direct authored/auto-attached provider edge. The rules_testing
+      fixture and assertions at `bazel_rules/go/tests/component_tests.bzl:377-412`
+      cover authored checked/asserted plus auto-attached checked records, order,
+      paths, provenance, and flags; Go round-trip/determinism coverage is at
+      `go/internal/packagelayout/dependency_artifacts_test.go:13-81`.
+  - text: |
+      2. **Provider provenance is structurally constrained**
+         - Given a dependency provider with a missing surface, a checked provider without a report, an asserted provider with a report, or an unknown provenance value
+         - When the consuming component is analyzed
+         - Then Bazel fails before registering the check action and names the invalid dependency and component
+    addressed: yes
+    evidence: |
+      `bazel_rules/go/private/component.bzl:185-243` rejects missing surfaces,
+      checked/asserted report mismatches, unknown provenance, duplicate names,
+      and authored/auto-attached collisions before the action is created.
+      Analysis fixtures and failure assertions are registered at
+      `bazel_rules/go/tests/component_tests.bzl:435-489` and exercised through
+      the malformed-provider targets in
+      `bazel_rules/go/tests/testdata/reportboundary/consumer/BUILD.bazel:48-105`.
+  - text: |
+      3. **The action declares the bound artifacts**
+         - Given a dependent checked component
+         - When its `ArccCheck` action inputs are inspected
+         - Then every direct dependency surface and available report named by the layout is a declared direct input and the dependency producer chain is present
+    addressed: yes
+    evidence: |
+      `bazel_rules/go/private/component.bzl:405-436` adds bound artifact files
+      to the explicit frame-file set, and `:624-630` derives the action's direct
+      artifact inputs from the same binding records. The rules_testing action
+      assertion at `bazel_rules/go/tests/component_tests.bzl:414-433` verifies
+      all authored/auto-attached surfaces and reports are present in the
+      dependent's ArccCheck inputs.
+  - text: |
+      4. **Layout validation fails closed**
+         - Given empty, duplicate, conflicting, non-normalized, unsafe, or unknown-provenance dependency bindings
+         - When the layout is parsed and validated
+         - Then a deterministic tool error identifies the invalid record before package loading
+    addressed: yes
+    evidence: |
+      `go/internal/packagelayout/packagelayout.go:702-766` validates names,
+      surface/report relationships, duplicate names and surfaces, provenance,
+      and normalized safe runfiles paths during JSON unmarshal, marshal, and
+      `ValidateAndResolve`. The table-driven invalid-shape coverage at
+      `go/internal/packagelayout/dependency_artifacts_test.go:83-110` covers
+      empty, duplicate, conflicting, absolute, parent, Windows-volume, dot,
+      backslash, non-normalized, and unknown-provenance records.
+  - text: |
+      5. **This task is additive**
+         - Given the repository after the binding lands
+         - When the production check path is inspected and `just ci` runs
+         - Then `ResolveDependencyInterface`, dependency source inputs, and `NeedDeps` remain active, all checks pass, and no binding is semantically trusted by the check in this task
+    addressed: yes
+    evidence: |
+      `go/internal/goanalysis/goanalysis.go:98-101` retains `packages.NeedDeps`,
+      and `:1160-1163` documents the source-backed
+      `ResolveDependencyInterface` transition. The action comments at
+      `bazel_rules/go/private/component.bzl:405-410,624-627` state that bindings
+      are ordering metadata only and are not parsed until the later surface
+      consumer. The native-mode convention is documented at
+      `docs/package-layout-schema.md:207-211`. The complete rework `just ci`
+      run passed; its command and output are recorded in `work.log` under
+      `## Rework 1 AC5: acceptance - just ci`.
+
+artifacts:
+  scratchpad_dir: .agents/scratchpad/2026-08-04-compositional-component-analysis/step07/task-01-declare-dependency-artifact-bindings/
+  files:
+    - context.md
+    - plan.md
+    - progress.md
+    - work.log
+    - result.yaml
+
+notes: |
+  Rework round 1 addressed review finding F1 by documenting native sibling
+  artifact lookup as convention-based and separate from Bazel bindings.
+  It addressed finding F2 by pinning each malformed-provider analysis test to
+  its consuming component, dependency identity, and invariant-specific error.
+  All acceptance criteria remain addressed, and the focused tests plus the
+  full `just ci` gate passed. The fresh rework child is
+  `pxnnprkxxyompwyxulrlyxwqumtrtsry`.
