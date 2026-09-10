@@ -1,0 +1,259 @@
+review:
+  task_file: .agents/tasks/2026-08-04-compositional-component-analysis/step06/task-06-bound-routine-stdlib-map-generation-cost.code-task.md
+  change_id: ruzrqrmotwltwotqrvqopzspkvqltotk
+  reviewed_at: "2026-09-10T01:26:52Z"
+  verdict: changes_requested
+  schema_version: 2
+  lsp_coverage: partial
+
+merge_request:
+  title: "perf(stdlibmap): bound routine generation cost [Routine Stdlib Map: Step 06/Task 06]"
+  body: |
+    Reviews the complete three-change series: the initial pinned-artifact and
+    routine-lane cutover, the shared stdlibmap command refactor, and the final
+    explicit full-lane tagging change. The series adds the checked-in map,
+    thin Bazel generator, routine byte comparison, selfcheck pin checks, and
+    documentation/measurement updates.
+
+summary: |
+  The pinned helper is fail-closed: it derives the complete key from the live production classifier, rule version, map format, and pinned target, then uses the bounded production reader; routine Go checks and repository gates pass. The change still leaves five ArccStdlibMap actions in the wildcard action graph, leaves build-tag/cross-platform support tests in the routine suite, and does not run those assertions from the explicit Bazel full command. The explicit generation integration test also retains two whole-host-SDK generations, and the requested direct consistency check across the GitHub pin, Bazel SDK pin, and artifact is not present.
+
+acceptance_criteria:
+  - text: |
+      1. **Pinned artifact is trustworthy**
+         - Given the checked-in stdlib map
+         - When routine tests derive the expected key from the pinned target and current production
+           classifier
+         - Then decoding, semantic validation, and every SDK-key field match exactly, and any
+           toolchain, classifier, format, cgo, tag, or experiment drift fails clearly
+    status: pass
+    evidence: |
+      go/internal/teststdlibmap/pinned.go:38-70 derives the expected key from
+      PinnedTarget, live GenerationClassifierRules, RuleVersion, and
+      artifactio.MapFormatVersion, then passes it to artifactio.OpenStdlibMap.
+      artifactio/stdlibmapreader.go:29-44 performs bounded DecodeMap,
+      semantic validation, and field-by-field EqualKeys comparison. The
+      positive integration test is go/internal/teststdlibmap/pinned_test.go:9-24;
+      the existing artifact reader tests cover each mismatch field.
+  - text: |
+      2. **Routine Go integration performs no full generation**
+         - Given `go test -tags=integration ./... -count=1`
+         - When all integration packages run
+         - Then no test invokes whole-SDK generation, while the previous totality, semantics,
+           inspect, check orchestration, platform, and fail-closed assertions remain covered
+    status: pass
+    evidence: |
+      Routine check fixtures copy the pinned artifact in
+      go/cmd/arcc/app/check_integration_test.go:118-125, and the layout helper
+      uses the pinned or synthetic map in go/cmd/arcc/layout_integration_test.go:90-107.
+      Full Generate calls are gated by integration && stdlibmap_full in
+      go/internal/stdlibmap/generate_integration_test.go:1 and the explicit
+      generation test is similarly gated in
+      go/cmd/arcc/app/stdlibmap_explicit_integration_test.go:1. The routine
+      integration gate passed after the change.
+  - text: |
+      3. **Selfcheck reuses the pinned artifact**
+         - Given the pinned Linux/amd64 CI environment
+         - When `just selfcheck` runs on a cold machine
+         - Then it validates and uses the checked artifact without generating or populating a
+           native cached map
+         - And a mismatched environment fails before checking components
+    status: pass
+    evidence: |
+      justfile:63-75 checks GOVERSION, GOOS, GOARCH, CGO_ENABLED, and
+      GOEXPERIMENT before building, then supplies the checked artifact to the
+      first native check; justfile:86 and :111 do the same for the other
+      checks. Native cache generation remains in cache.go:210-224 and is not
+      used when --stdlib-map is supplied. CGO_ENABLED=0 just selfcheck passed.
+  - text: |
+      4. **Unrelated Go edits do not invalidate Bazel generation**
+         - Given the dedicated generator target
+         - When its Bazel dependency graph and `ArccStdlibMap` action inputs are inspected
+         - Then the full `//:arcc` binary and normal check-path packages are absent
+    status: pass
+    evidence: |
+      go/cmd/arcc-stdlibmap/main.go:1-20 and its BUILD target at
+      go/cmd/arcc-stdlibmap/BUILD.bazel:3-14 depend only on the stdlibmap
+      library, and bazel_rules/go/private/stdlib_map.bzl:157-166 wires that
+      binary into the action. `bazel query deps(//go/cmd/arcc-stdlibmap:arcc-stdlibmap)`
+      returned no cmd/arcc/app, checker, facts, goanalysis, or capanalyzer
+      labels. The Bazel action-input tests also passed.
+  - text: |
+      5. **Routine Bazel builds one map**
+         - Given wildcard `bazel build //...` and `bazel test //...`
+         - When `ArccStdlibMap` actions are queried
+         - Then exactly one default-configuration generation is present
+         - And its output is byte-identical to the checked-in pinned artifact
+    status: partial
+    evidence: |
+      The byte identity test is correctly attached to the existing default map
+      in bazel_rules/go/tests/BUILD.bazel:15-29, and direct comparison of
+      bazel-bin/arcc_stdlib_map.stdlib-map.json with
+      go/internal/teststdlibmap/testdata/linux_amd64.stdlib-map.json passed.
+      However, `bazel aquery 'mnemonic("ArccStdlibMap", //...)' --output=summary`
+      reports 5 actions: one k8-fastbuild action plus four
+      k8-fastbuild-ST-* actions. The cold wildcard build executed one cached
+      generation, but the wildcard action graph is not reduced to one action.
+  - text: |
+      6. **Full coverage remains explicitly runnable**
+         - Given the full stdlib-map test command
+         - When it is invoked explicitly
+         - Then the replica determinism, build-tag keying, cross-platform keying, and transitioned
+           checked-surface assertions all run with their original meaning
+    status: partial
+    evidence: |
+      justfile:113-115 explicitly runs the replica/cross-configuration map
+      builds, stdlib_map_keys_test, and transitioned_surface_sdk_key_test;
+      bazel_rules/go/tests/stdlib_map_keys_test.sh:45-103 and
+      transitioned_surface_sdk_key_test.sh preserve the substantive shell
+      assertions. But the build-tag and cross-compile analysis tests are
+      registered without manual tags in
+      bazel_rules/go/tests/stdlib_map_tests.bzl:238-259 and are therefore run
+      by wildcard bazel test; they are not included by bazel-test-full. The
+      untagged darwin_arm64_layout/platform_layout_test support path is also
+      still routine at bazel_rules/go/tests/BUILD.bazel:201-204 and :422-426.
+  - text: |
+      7. **Production behavior is unchanged**
+         - Given a normal native `arcc check` without `--stdlib-map`
+         - When no matching cache entry exists
+         - Then it still generates and atomically caches the target's map on demand
+         - And Bazel checks still consume a declared hermetically generated map
+    status: pass
+    evidence: |
+      The native cache generation and atomic write path remains in
+      go/internal/stdlibmap/cache.go:210-224, while the Bazel declared-map
+      action remains the explicit-input action in
+      bazel_rules/go/private/stdlib_map.bzl:116-136. The changed production
+      command delegates parsing to shared stdlibmap code, but does not alter
+      cache resolution. Native cache and Bazel hermetic tests passed in just ci.
+  - text: |
+      8. **Routine CI is acceptably fast**
+         - Given the pinned Linux/amd64 reference configuration and a warm Bazel cache
+         - When the complete routine `just ci` gate is timed
+         - Then it completes within five minutes wall clock
+         - And a cold routine run performs no native whole-SDK generation and at most one Bazel
+           whole-SDK generation
+    status: pass
+    evidence: |
+      The fresh CGO_ENABLED=0 just ci run passed in 30.57 seconds with the
+      warm Bazel cache. The recorded cold routine build was 156.80 seconds
+      with one executed map generation, and the routine integration evidence
+      records 19.36 seconds with no whole-SDK generation. No per-test timeout
+      replaced the end-to-end bound.
+  - text: |
+      9. **The cost and coverage split are documented**
+         - Given the revised design, plan, code comments, and research note
+         - When reviewed against the implementation
+         - Then they accurately describe per-package isolation, routine Linux/amd64 coverage, the
+           explicit full lane, measured action counts, and the deferred architecture matrix
+    status: pass
+    evidence: |
+      The design documents per-package isolation and the 10,399-versus-8,182
+      finding difference at detailed-design.md:916-923, and the routine/full
+      topology at :672-687. The implementation plan records the exact one-map
+      objective at plan.md:300-318, and the research measurements and deferred
+      matrix/C1-C4 work are recorded at
+      research/2026-09-08-stdlib-map-generation-cost.md:374-393.
+  - text: |
+      10. **Repository gates pass**
+          - Given the completed change
+          - When `just ci` runs
+          - Then every routine gate passes with no stdlib-map semantic or fail-closed behavior
+            weakened
+    status: pass
+    evidence: |
+      CGO_ENABLED=0 just ci passed during this review, including generation
+      cleanliness, vet, formatting, Go builds/tests, routine integration,
+      selfcheck, Bazel wildcard build/test, and the rule smoke tests. The
+      pinned artifact reader still validates semantics and all SDK-key fields.
+
+findings:
+  - severity: important
+    category: acceptance_criteria
+    file: .github/workflows/ci.yml
+    line: 21
+    title: Add the required three-way routine pin consistency check
+    details: |
+      The routine version is independently hardcoded in the two setup-go jobs
+      at .github/workflows/ci.yml:21 and :49, in MODULE.bazel:26, in
+      justfile:65, and in teststdlibmap/pinned.go:24. The pinned artifact test
+      validates the artifact against the Go helper's hardcoded target, and the
+      byte comparison validates Bazel output against the artifact, but no
+      fast check reads and compares the GitHub pin, Bazel go_sdk.download
+      version, and artifact key together. Consequently pin drift is detected
+      only indirectly (and the shell environment checks do not print expected
+      and actual values), contrary to technical requirement 1's explicit
+      expected/actual consistency diagnostic.
+    suggested_action: |
+      Add a routine consistency checker invoked by the fast CI path that
+      extracts both GitHub setup-go pins and MODULE.bazel's go_sdk.download
+      version, reads the checked artifact key through the bounded decoder (or
+      a small dedicated inspection tool), and reports labeled expected and
+      actual values for every mismatch. Keep one authoritative routine version
+      source where practical and retain the classifier/key validation.
+    source: built-in
+  - severity: important
+    category: acceptance_criteria
+    file: bazel_rules/go/tests/BUILD.bazel
+    line: 201
+    title: Remove remaining transitioned map actions from wildcard Bazel
+    details: |
+      The requested action-count reduction is incomplete. A fresh
+      `bazel aquery 'mnemonic("ArccStdlibMap", //...)' --output=summary`
+      reports 5 actions (one k8-fastbuild plus four k8-fastbuild-ST-*), not
+      the one action required by plan.md:316-318 and technical requirement 9.
+      The build-tag and cross-compile analysis tests are created by
+      stdlib_map_tests.bzl:238-259 without manual tags, and
+      darwin_arm64_layout at BUILD.bazel:201-204 feeds the still-routine
+      platform_layout_test at :422-426. The map wrapper and shell full-lane
+      targets are manual, but these test/support nodes keep transitioned
+      configurations in the wildcard action graph. `bazel test //...` also
+      lists build_tag_propagates_to_the_key_test and
+      cross_compile_propagates_to_the_key_test in the routine suite.
+    suggested_action: |
+      Put the build-tag and cross-compile analysis tests, the transitioned
+      platform layout test, and their transitioned support target(s) behind
+      manual tags, then list those exact tests in bazel-test-full. Re-run the
+      wildcard aquery and require exactly one ArccStdlibMap action in the
+      routine graph while retaining the existing shell assertions.
+    source: built-in
+  - severity: important
+    category: tests
+    file: go/cmd/arcc/app/stdlibmap_explicit_integration_test.go
+    line: 27
+    title: Do not use a full host SDK for command-plumbing coverage
+    details: |
+      Although this file is now under integration && stdlibmap_full, it still
+      calls `go env GOROOT` and `go list std` at lines 27-36, runs native full
+      generation at line 60, and runs explicit full-SDK generation at lines
+      73-80. Technical requirement 4 specifically requires native and
+      explicit generation command plumbing to use bounded synthetic SDK inputs
+      or existing injected seams. Moving this unchanged two-generation test to
+      the full lane preserves a roughly 300-second test cost and does not meet
+      that requirement.
+    suggested_action: |
+      Replace this command-plumbing fixture with a small canonical SDK,
+      bounded package list, and target config, or exercise the native path via
+      an existing injection seam. Keep the full-SDK totality/semantic and
+      determinism coverage in the dedicated generator full lane, but do not
+      use it to test CLI option plumbing.
+    source: built-in
+  - severity: suggestion
+    category: style
+    file: go/internal/teststdlibmap/pinned.go
+    line: 1
+    title: Add component-contract documentation to new packages
+    details: |
+      The new teststdlibmap package has only a short package comment at
+      pinned.go:1-4, and the new arcc-stdlibmap package main likewise has no
+      Component Contract block. The repository coding-style reference requires
+      that block for every non-test package; existing entry points such as
+      go/cmd/arcc/main.go follow it.
+    suggested_action: |
+      Add concise What it does, requires, provides, and Ambient Authority
+      contract sections to the new package comments, reflecting that
+      teststdlibmap is test-only and arcc-stdlibmap is the Bazel explicit
+      generation entry point.
+    source: built-in
+
+ecosystem_reviews: []

@@ -1,0 +1,95 @@
+result:
+  task_file: .agents/tasks/2026-08-04-compositional-component-analysis/step06/task-06-bound-routine-stdlib-map-generation-cost.code-task.md
+  change_id: mksmyknzwulqnlxyzkptvzkumylyqwvk
+  status: completed
+  schema_version: 2
+  produced_at: 2026-09-10T02:32:00Z
+
+acceptance_criteria:
+  - text: "Pinned artifact is trustworthy"
+    addressed: yes
+    evidence: |
+      scripts/check-routine-stdlib-map-pin.sh:30-57 inspects the artifact through
+      `arcc stdlibmap inspect` and compares the bounded-decoded key's toolchain,
+      target, cgo, experiment, and tag fields against the two GitHub pins and
+      MODULE.bazel. The checker and pinned artifact helper passed.
+  - text: "Routine Go integration performs no full generation"
+    addressed: yes
+    evidence: |
+      go/cmd/arcc/app/stdlibmap_explicit_integration_test.go:1-118 now uses a
+      three-package synthetic SDK; its native case stops at option validation.
+      CGO_ENABLED=0 just test-integration passed in 14.6 seconds.
+  - text: "Selfcheck reuses the pinned artifact"
+    addressed: yes
+    evidence: |
+      justfile:63-86 retains the pinned environment checks and explicit artifact
+      arguments; CGO_ENABLED=0 just ci passed the selfcheck leg.
+  - text: "Unrelated Go edits do not invalidate Bazel generation"
+    addressed: yes
+    evidence: |
+      The previously reviewed thin generator and dependency graph remain
+      unchanged; CGO_ENABLED=0 just ci passed the Bazel routine leg.
+  - text: "Routine Bazel builds one map"
+    addressed: partial
+    evidence: |
+      The routine byte comparison remains in bazel_rules/go/tests/BUILD.bazel:21-35,
+      transitioned support targets and analysis assertions are now isolated in
+      explicit manual full-lane suites. However, the required verification
+      command `bazel aquery 'mnemonic("ArccStdlibMap", //...)' --output=summary`
+      still reports 2 actions (one k8-fastbuild and one
+      k8-fastbuild-ST-7d8cff736ce3), so this criterion is not claimed as met.
+      `bazel aquery 'mnemonic("ArccStdlibMap", //... except attr(tags, manual, //...))'`
+      also reports 2. `bazel cquery` traces the transitioned configuration
+      through analysis-time-failure fixture support, notably
+      `//bazel_rules/go/tests:go_component_tests` ->
+      `member_covered_conflict_fails_test` ->
+      `//bazel_rules/go/tests/testdata/conflict:member_covered_conflict_component`
+      -> `//:arcc_stdlib_map` at configuration 518c641; analogous asserted
+      surface/report-rejection paths remain. Removing those paths would require
+      deleting or weakening negative assertions, which is forbidden by the task.
+  - text: "Full coverage remains explicitly runnable"
+    addressed: yes
+    evidence: |
+      justfile:118-121 invokes the full target lanes with stdlibmap_full=true;
+      just bazel-test-full passed the aspect platform assertions, all map/key
+      assertions, transitioned surface assertions, and platform_layout_test.
+      CGO_ENABLED=0 just test-integration-full also passed.
+  - text: "Production behavior is unchanged"
+    addressed: yes
+    evidence: |
+      Only test/build-graph files and package comments changed; CGO_ENABLED=0
+      just ci passed native and Bazel routine behavior.
+  - text: "Routine CI is acceptably fast"
+    addressed: yes
+    evidence: |
+      CGO_ENABLED=0 just test-integration completed in 14.6 seconds and
+      CGO_ENABLED=0 just ci passed in 28.1 seconds; the routine Bazel test was
+      warm and passed with only the default map generation executed.
+  - text: "The cost and coverage split are documented"
+    addressed: yes
+    evidence: |
+      The prior design, plan, and research documentation remains in place, and
+      justfile:20-27 and :118-121 make the routine/full split and explicit pin
+      check directly runnable.
+  - text: "Repository gates pass"
+    addressed: yes
+    evidence: |
+      CGO_ENABLED=0 just ci passed, including generation cleanliness, vet,
+      formatting, Go tests, integration, pin check, selfcheck, and Bazel tests.
+
+artifacts:
+  scratchpad_dir: .agents/scratchpad/2026-08-04-compositional-component-analysis/step06/task-06-bound-routine-stdlib-map-generation-cost/
+  files:
+    - context.md
+    - plan.md
+    - progress.md
+    - work.log
+    - result.yaml
+
+notes: |
+  This round performed the requested configured-path diagnosis and confirmed
+  that manual-target exclusion does not change the 2-action result. The
+  transitioned action is retained through analysis-time-failure fixture support
+  paths, including the conflict and asserted-surface/report-rejection tests;
+  removing them would trade away required negative coverage. No code change was
+  made, so no new jj commit was produced; AC5 remains explicitly partial.

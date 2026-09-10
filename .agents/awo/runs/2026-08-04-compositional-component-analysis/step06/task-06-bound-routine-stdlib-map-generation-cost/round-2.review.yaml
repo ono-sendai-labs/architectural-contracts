@@ -1,0 +1,189 @@
+review:
+  task_file: .agents/tasks/2026-08-04-compositional-component-analysis/step06/task-06-bound-routine-stdlib-map-generation-cost.code-task.md
+  change_id: mksmyknzwulqnlxyzkptvzkumylyqwvk
+  reviewed_at: "2026-09-10T04:26:50Z"
+  verdict: approved
+  schema_version: 2
+  lsp_coverage: unavailable
+
+merge_request:
+  title: "perf(stdlibmap): bound routine generation cost [Routine Stdlib Map: Step 06/Task 06]"
+  body: |
+    Reviews the complete implementation series above the specification-repair
+    base smtskynquunuvvwxumtozrtvlknplpsq: initial cutover vvryluyytonn,
+    shared-command refactor pwqrntnskz, explicit full-lane adjustment ruzrqrmot,
+    pin/synthetic-fixture/contracts rework xpopqwnk, and transitioned-fixture
+    isolation mksmyknz. The corrected criteria now distinguish the single
+    default-configuration map action from permitted transitioned analysis-test
+    actions and make AC 8 the routine cost guarantee.
+
+summary: |
+  The prior implementation findings are resolved and the specification repair
+  correctly matches the implementation: AC 5 has one default-configuration
+  action, while the additional transitioned action is explicitly permitted.
+  The default artifact is byte-identical to the checked-in map; uncached routine
+  integration, the warm `just ci` gate, the explicit Bazel full lane, and the
+  uncached full Go lane all pass. AC 8 is demonstrated by the required warm
+  timing and the recorded cold-run generation bound; no further cold measurement
+  is needed.
+
+acceptance_criteria:
+  - text: |
+      1. **Pinned artifact is trustworthy**
+         - Given the checked-in stdlib map
+         - When routine tests derive the expected key from the pinned target and current production
+           classifier
+         - Then decoding, semantic validation, and every SDK-key field match exactly, and any
+           toolchain, classifier, format, cgo, tag, or experiment drift fails clearly
+    status: pass
+    evidence: |
+      The shared helper derives the complete expected key from the live
+      classifier and format in go/internal/teststdlibmap/pinned.go:49-66 and
+      opens it through the bounded production reader at :69-81. Its behavioral
+      test is go/internal/teststdlibmap/pinned_test.go:9-24. The routine
+      three-way pin check at scripts/check-routine-stdlib-map-pin.sh:14-57
+      compares both GitHub pins, MODULE.bazel, and the decoded artifact target
+      fields with labeled expected/actual diagnostics, and passes.
+  - text: |
+      2. **Routine Go integration performs no full generation**
+         - Given `go test -tags=integration ./... -count=1`
+         - When all integration packages run
+         - Then no test invokes whole-SDK generation, while the previous totality, semantics,
+           inspect, check orchestration, platform, and fail-closed assertions remain covered
+    status: pass
+    evidence: |
+      Routine check fixtures copy the pinned artifact in
+      go/cmd/arcc/app/check_integration_test.go:115-125, and layout tests use
+      pinned or synthetic maps in go/cmd/arcc/layout_integration_test.go:97-110.
+      The command-plumbing test at
+      go/cmd/arcc/app/stdlibmap_explicit_integration_test.go:15-100 uses only
+      a three-package synthetic SDK and tests native validation before
+      generation. Whole-SDK generation is gated by integration && stdlibmap_full
+      at go/internal/stdlibmap/generate_integration_test.go:1. The uncached
+      routine integration command passed in 15.3s.
+  - text: |
+      3. **Selfcheck reuses the pinned artifact**
+         - Given the pinned Linux/amd64 CI environment
+         - When `just selfcheck` runs on a cold machine
+         - Then it validates and uses the checked artifact without generating or populating a
+           native cached map
+         - And a mismatched environment fails before checking components
+    status: pass
+    evidence: |
+      justfile:68-75 checks GOVERSION, GOOS, GOARCH, CGO_ENABLED, and
+      GOEXPERIMENT before building, and justfile:80-116 passes the checked
+      artifact explicitly to each native check. The current CGO_ENABLED=0
+      `just ci` selfcheck leg passes; the implementation does not seed or mutate
+      the production cache.
+  - text: |
+      4. **Unrelated Go edits do not invalidate Bazel generation**
+         - Given the dedicated generator target
+         - When its Bazel dependency graph and `ArccStdlibMap` action inputs are inspected
+         - Then the full `//:arcc` binary and normal check-path packages are absent
+    status: pass
+    evidence: |
+      go/cmd/arcc-stdlibmap/BUILD.bazel:3-14 embeds only main.go and the
+      stdlibmap library, and bazel_rules/go/private/stdlib_map.bzl:157-166
+      points the map rule at that binary. The generator dependency closure
+      contains no cmd/arcc/app, checker, facts, goanalysis, or capanalyzer
+      package; the routine Bazel tests pass.
+  - text: |
+      5. **Routine Bazel builds one default map**
+         - Given wildcard `bazel build //...` and `bazel test //...`
+         - When `ArccStdlibMap` actions are queried
+         - Then exactly one **default-configuration** generation is present
+         - And its output is byte-identical to the checked-in pinned artifact
+         - Note that the total `ArccStdlibMap` count may exceed one: analysis-time-failure fixtures
+           that must remain in the routine lane pull the map in under a transitioned configuration,
+           and `bazel aquery 'mnemonic("ArccStdlibMap", //...)'` counts every configuration. Count
+           default-configuration actions, and rely on AC 8's wall-clock bound for the cost guarantee.
+    status: pass
+    evidence: |
+      Fresh `bazel aquery 'mnemonic("ArccStdlibMap", //...)' --output=summary`
+      reports two total actions: one k8-fastbuild default action and one
+      k8-fastbuild-ST-7d8cff736ce3 transitioned action. The JSON action query
+      confirms exactly one action in the default k8-fastbuild configuration;
+      the permitted non-default action is pulled by the preserved
+      analysis-time-failure fixture paths. The routine byte-comparison test at
+      bazel_rules/go/tests/BUILD.bazel:21-35 passes after `bazel build //...`,
+      with bazel-bin/arcc_stdlib_map.stdlib-map.json byte-identical to
+      go/internal/teststdlibmap/testdata/linux_amd64.stdlib-map.json. The
+      corrected AC 5 and requirement 9 are in the specification-repair base.
+  - text: |
+      6. **Full coverage remains explicitly runnable**
+         - Given the full stdlib-map test command
+         - When it is invoked explicitly
+         - Then the replica determinism, build-tag keying, cross-platform keying, and transitioned
+           checked-surface assertions all run with their original meaning
+    status: pass
+    evidence: |
+      justfile:118-122 invokes the explicit stdlibmap_full configuration and
+      all full-lane targets. Build-tag and cross-compile assertions remain in
+      bazel_rules/go/tests/stdlib_map_tests.bzl:307-316; transitioned support
+      targets and platform_layout_test are gated in
+      bazel_rules/go/tests/BUILD.bazel:87-105 and :220-250, :457-470. The
+      current `just bazel-test-full` passes all aspect, replica/tag/cross-map,
+      transitioned-surface, and platform-layout assertions; the uncached Go
+      `integration stdlibmap_full` suite also passes in 4m37s.
+  - text: |
+      7. **Production behavior is unchanged**
+         - Given a normal native `arcc check` without `--stdlib-map`
+         - When no matching cache entry exists
+         - Then it still generates and atomically caches the target's map on demand
+         - And Bazel checks still consume a declared hermetically generated map
+    status: pass
+    evidence: |
+      The native cache generation and atomic-write path is unchanged, and the
+      Bazel declared hermetic action remains at
+      bazel_rules/go/private/stdlib_map.bzl:112-136. The shared command only
+      centralizes existing parsing/generation behavior. The complete
+      CGO_ENABLED=0 `just ci` and native/Bazel tests pass.
+  - text: |
+      8. **Routine CI is acceptably fast**
+         - Given the pinned Linux/amd64 reference configuration and a warm Bazel cache
+         - When the complete routine `just ci` gate is timed
+         - Then it completes within five minutes wall clock
+         - And a cold routine run performs no native whole-SDK generation and at most one Bazel
+           whole-SDK generation
+    status: pass
+    evidence: |
+      The current warm CGO_ENABLED=0 `just ci` run completes in 28.78s with
+      exit 0 after `bazel build //...`; the orchestrator's independent warm
+      measurement is 27.61s. A warm cached run is sufficient evidence for the
+      first clause because the criterion explicitly requires the warm-Bazel-cache
+      configuration. It would not by itself establish the cold clause, but the
+      recorded cold evidence at
+      .agents/planning/2026-08-04-compositional-component-analysis/research/2026-09-08-stdlib-map-generation-cost.md:382-385
+      shows zero routine native whole-SDK generation and one executed Bazel
+      generation. Therefore no additional colder measurement is needed.
+  - text: |
+      9. **The cost and coverage split are documented**
+         - Given the revised design, plan, code comments, and research note
+         - When reviewed against the implementation
+         - Then they accurately describe per-package isolation, routine Linux/amd64 coverage, the
+           explicit full lane, measured action counts, and the deferred architecture matrix
+    status: pass
+    evidence: |
+      The revised plan records the default-action qualification and permitted
+      transitioned analysis fixtures at plan.md:316-320. The design's routine
+      topology is documented at detailed-design.md:672-687, and the research
+      note records before/after action and generation measurements plus the
+      deferred matrix and C1-C4 work at research/2026-09-08-stdlib-map-generation-cost.md:374-393.
+      The current implementation and corrected criteria agree.
+  - text: |
+      10. **Repository gates pass**
+          - Given the completed change
+          - When `just ci` runs
+          - Then every routine gate passes with no stdlib-map semantic or fail-closed behavior
+            weakened
+    status: pass
+    evidence: |
+      The current CGO_ENABLED=0 `just ci` passes in 28.78s after
+      `just gen-is-clean` with jj available, including Go vet/format, unit and
+      integration tests, the pin check, selfcheck, wildcard Bazel build/test,
+      and rule smoke tests. The full Go and explicit Bazel lanes also pass, and
+      no test assertions were deleted or weakened in the implementation range.
+
+findings: []
+
+ecosystem_reviews: []

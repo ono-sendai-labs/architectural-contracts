@@ -1,0 +1,60 @@
+result:
+  task_file: .agents/tasks/2026-08-04-compositional-component-analysis/step06/task-06-bound-routine-stdlib-map-generation-cost.code-task.md
+  change_id: ruzrqrmotwltwotqrvqopzspkvqltotk
+  status: completed
+  schema_version: 2
+  produced_at: 2026-09-10T01:07:37Z
+
+acceptance_criteria:
+  - text: "Pinned artifact is trustworthy"
+    addressed: yes
+    evidence: |
+      go/internal/teststdlibmap/pinned.go:38-70 derives the complete key from the pinned target, live GenerationClassifierRules, RuleVersion, and map format, then opens the embedded artifact with artifactio.OpenStdlibMap. go/internal/teststdlibmap/pinned_test.go:9-24 verifies the target and representative lookup; the bounded reader and semantic validator are exercised in the passing test.
+  - text: "Routine Go integration performs no full generation"
+    addressed: yes
+    evidence: |
+      Routine tests use teststdlibmap.WritePinned in go/cmd/arcc/app/check_integration_test.go:117-130 and go/cmd/arcc/layout_integration_test.go:89-117; platform-only cases use WriteSynthetic. Real fullGeneration and explicit native generation remain behind integration && stdlibmap_full. CGO_ENABLED=0 just test-integration passed in 19.36 seconds, and routine integration generation-site inspection shows no active whole-SDK generation.
+  - text: "Selfcheck reuses the pinned artifact"
+    addressed: yes
+    evidence: |
+      justfile:63-86 checks GOVERSION, GOOS, GOARCH, CGO_ENABLED, and GOEXPERIMENT before building, then passes internal/teststdlibmap/testdata/linux_amd64.stdlib-map.json explicitly. The helper writes only independent temporary test files and production cache.go is unchanged; CGO_ENABLED=0 just selfcheck passed.
+  - text: "Unrelated Go edits do not invalidate Bazel generation"
+    addressed: yes
+    evidence: |
+      go/cmd/arcc-stdlibmap/main.go:1-19 is the generation-only executable and its BUILD target depends only on stdlibmap. bazel_rules/go/private/stdlib_map.bzl:157-170 points ArccStdlibMap at that binary, while bazel_rules/go/tests/stdlib_map_tests.bzl:80-104 inspects the executable and excludes normal check-path inputs. Bazel analysis/build tests passed.
+  - text: "Routine Bazel builds one map"
+    addressed: yes
+    evidence: |
+      bazel_rules/go/tests/BUILD.bazel:15-29 adds stdlib_map_default_matches_pinned_test, which compares the existing default action output byte-for-byte with the checked artifact. The timed routine build emitted one ArccStdlibMap generation and the warm bazel test passed; the comparison test passed.
+  - text: "Full coverage remains explicitly runnable"
+    addressed: yes
+    evidence: |
+      justfile:18-22 defines test-integration-full with stdlibmap_full and justfile:115-117 defines bazel-test-full. Replica, tagged, Darwin, and transitioned targets/tests are manual in BUILD.bazel and bazel_rules/go/tests/BUILD.bazel. CGO_ENABLED=0 just test-integration-full and just bazel-test-full both passed.
+  - text: "Production behavior is unchanged"
+    addressed: yes
+    evidence: |
+      No production native cache or map-consumption implementation was changed; the native generation/cache code remains in go/internal/stdlibmap/cache.go and generation remains per importable package in generate.go. Existing native and hermetic Bazel tests passed in just ci, including cache and explicit-input coverage.
+  - text: "Routine CI is acceptably fast"
+    addressed: yes
+    evidence: |
+      The pinned routine Go integration run completed in 19.36 seconds; cold bazel build //... completed in 156.80 seconds with one map generation, and warm bazel test //... completed in 1.95 seconds. The final CGO_ENABLED=0 just ci gate passed; no narrower per-test timeout replaced the N5 bound.
+  - text: "The cost and coverage split are documented"
+    addressed: yes
+    evidence: |
+      The design Appendix B and routine topology, implementation plan Step 6 guidance, and research note section 8 document per-package isolation, the 10,399-versus-8,182 whole-batch unsoundness, measured costs, routine/full split, and deferred architecture matrix. Evidence is in .agents/planning/2026-08-04-compositional-component-analysis/design/detailed-design.md:917-923, implementation/plan.md:166-180, and research/2026-09-08-stdlib-map-generation-cost.md:374-393.
+  - text: "Repository gates pass"
+    addressed: yes
+    evidence: |
+      CGO_ENABLED=0 just ci passed after the final implementation changes. The gate covered generation cleanliness, vet, formatting, all Go tests, routine integration, selfcheck, Bazel wildcard build/test, and rule smoke tests.
+
+artifacts:
+  scratchpad_dir: .agents/scratchpad/2026-08-04-compositional-component-analysis/step06/task-06-bound-routine-stdlib-map-generation-cost/
+  files:
+    - context.md
+    - plan.md
+    - progress.md
+    - work.log
+    - result.yaml
+
+notes: |
+  Implemented the pinned checked-in stdlib map and shared bounded key-validation helper, moved routine native tests and selfcheck off whole-SDK generation, and introduced the dependency-thin Bazel generator. Replica and cross-configuration coverage remains available through explicit full lanes, while routine Bazel build/test retains one generated map and verifies byte identity. The implementation and cleanup commits are vvryluyytonnynpmulytztpztxqlvlqk and ruzrqrmotwltwotqrvqopzspkvqltotk; all final routine and full gates passed.

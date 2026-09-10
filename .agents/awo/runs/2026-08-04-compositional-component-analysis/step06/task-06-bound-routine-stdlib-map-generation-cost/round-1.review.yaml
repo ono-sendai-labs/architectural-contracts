@@ -1,0 +1,240 @@
+review:
+  task_file: .agents/tasks/2026-08-04-compositional-component-analysis/step06/task-06-bound-routine-stdlib-map-generation-cost.code-task.md
+  change_id: mksmyknzwulqnlxyzkptvzkumylyqwvk
+  reviewed_at: "2026-09-10T02:52:56Z"
+  verdict: escalated
+  schema_version: 2
+  lsp_coverage: unavailable
+
+merge_request:
+  title: "perf(stdlibmap): bound routine generation cost [Routine Stdlib Map: Step 06/Task 06]"
+  body: |
+    Reviews the complete ordered series from the initial implementation
+    vvryluyytonn through the shared-command refactor pwqrntnskz, explicit
+    full-lane adjustment ruzrqrmot, pin/synthetic-fixture/contracts rework
+    xpopqwnk, and transitioned-fixture isolation mksmyknz. The series adds
+    the pinned artifact and thin Bazel generator, moves expensive coverage to
+    explicit lanes, and preserves the original assertions and production
+    generation paths.
+
+summary: |
+  The three actionable prior findings are resolved: the routine pin checker,
+  bounded synthetic command-plumbing fixture, and Component Contract comments
+  are present and validated; the uncached routine Go integration suite,
+  `just ci`, and the explicit Bazel full lane pass. AC 5 remains partial: both
+  wildcard aquery forms report two configured ArccStdlibMap actions, while
+  cquery traces the extra transitioned configuration to preserved
+  analysis-time-failure fixtures. This is escalated as a specification defect,
+  because the exact configured-action threshold conflicts with retaining those
+  routine negative assertions; the measured routine execution still performs
+  only the default generation.
+
+acceptance_criteria:
+  - text: |
+      1. **Pinned artifact is trustworthy**
+         - Given the checked-in stdlib map
+         - When routine tests derive the expected key from the pinned target and current production
+           classifier
+         - Then decoding, semantic validation, and every SDK-key field match exactly, and any
+           toolchain, classifier, format, cgo, tag, or experiment drift fails clearly
+    status: pass
+    evidence: |
+      The existing helper derives the complete expected key from the live
+      classifier and format in go/internal/teststdlibmap/pinned.go:49-66 and
+      validates it through the bounded production reader at :69-81. The new
+      routine consistency checker at scripts/check-routine-stdlib-map-pin.sh:14-57
+      compares both GitHub pins, MODULE.bazel, and the decoded artifact target
+      fields with labeled expected/actual diagnostics; it passed.
+  - text: |
+      2. **Routine Go integration performs no full generation**
+         - Given `go test -tags=integration ./... -count=1`
+         - When all integration packages run
+         - Then no test invokes whole-SDK generation, while the previous totality, semantics,
+           inspect, check orchestration, platform, and fail-closed assertions remain covered
+    status: pass
+    evidence: |
+      Routine subprocess fixtures copy the pinned artifact in
+      go/cmd/arcc/app/check_integration_test.go:115-125 and use pinned or
+      synthetic maps in go/cmd/arcc/layout_integration_test.go:97-110. The
+      command-plumbing test at go/cmd/arcc/app/stdlibmap_explicit_integration_test.go:15-100
+      generates only from a three-package synthetic SDK and exercises native
+      validation before generation. The uncached command
+      `CGO_ENABLED=0 go test -tags=integration ./... -count=1` passed in 15.3s;
+      whole-SDK generation remains gated by integration && stdlibmap_full at
+      go/internal/stdlibmap/generate_integration_test.go:1.
+  - text: |
+      3. **Selfcheck reuses the pinned artifact**
+         - Given the pinned Linux/amd64 CI environment
+         - When `just selfcheck` runs on a cold machine
+         - Then it validates and uses the checked artifact without generating or populating a
+           native cached map
+         - And a mismatched environment fails before checking components
+    status: pass
+    evidence: |
+      justfile:68-75 checks GOVERSION, GOOS, GOARCH, CGO_ENABLED, and
+      GOEXPERIMENT before building, and justfile:80-116 passes the checked
+      artifact explicitly to each native check. The current CGO_ENABLED=0
+      `just ci` selfcheck leg passed; no production cache seeding was added.
+  - text: |
+      4. **Unrelated Go edits do not invalidate Bazel generation**
+         - Given the dedicated generator target
+         - When its Bazel dependency graph and `ArccStdlibMap` action inputs are inspected
+         - Then the full `//:arcc` binary and normal check-path packages are absent
+    status: pass
+    evidence: |
+      go/cmd/arcc-stdlibmap/BUILD.bazel:3-14 embeds only main.go and the
+      stdlibmap library, and bazel_rules/go/private/stdlib_map.bzl:157-166
+      points the map rule at that binary. The complete-range dependency query
+      contains no cmd/arcc/app, checker, facts, goanalysis, or capanalyzer
+      dependency in the generator closure; the routine Bazel tests passed.
+  - text: |
+      5. **Routine Bazel builds one map**
+         - Given wildcard `bazel build //...` and `bazel test //...`
+         - When `ArccStdlibMap` actions are queried
+         - Then exactly one default-configuration generation is present
+         - And its output is byte-identical to the checked-in pinned artifact
+    status: partial
+    evidence: |
+      The byte-comparison test remains attached to the default map at
+      bazel_rules/go/tests/BUILD.bazel:21-35, and the routine wildcard build/test
+      passed with the default output matching the checked-in artifact. Fresh
+      measurements of both
+      `bazel aquery 'mnemonic("ArccStdlibMap", //...)' --output=summary` and
+      `bazel aquery 'mnemonic("ArccStdlibMap", //... except attr(tags, manual, //...))' --output=summary`
+      report two actions: k8-fastbuild and k8-fastbuild-ST-7d8cff736ce3.
+      cquery confirms the preserved paths
+      `//bazel_rules/go/tests:go_component_tests` ->
+      `member_covered_conflict_fails_test` ->
+      `//bazel_rules/go/tests/testdata/conflict:member_covered_conflict_component`
+      -> `//:arcc_stdlib_map`; analogous paths are present for
+      asserted_surface_tests and report_assertion_tests. The fixture is defined
+      at bazel_rules/go/tests/component_tests.bzl:183-190 and retains its
+      dependency on the map through bazel_rules/go/private/component.bzl:695-708.
+      Excluding all manual targets does not remove the transitioned action.
+  - text: |
+      6. **Full coverage remains explicitly runnable**
+         - Given the full stdlib-map test command
+         - When it is invoked explicitly
+         - Then the replica determinism, build-tag keying, cross-platform keying, and transitioned
+           checked-surface assertions all run with their original meaning
+    status: pass
+    evidence: |
+      The prior partial criterion is addressed by the explicit configuration
+      and target wiring at justfile:118-122. Build-tag and cross-compile tests
+      are in stdlib_map_tests.bzl:307-316; transitioned support targets and
+      platform_layout_test are compatible only with stdlibmap_full in
+      bazel_rules/go/tests/BUILD.bazel:87-105 and :220-250, :455-470. The
+      current `just bazel-test-full` passed all aspect, replica/tag/cross-map,
+      transitioned-surface, and platform-layout assertions.
+  - text: |
+      7. **Production behavior is unchanged**
+         - Given a normal native `arcc check` without `--stdlib-map`
+         - When no matching cache entry exists
+         - Then it still generates and atomically caches the target's map on demand
+         - And Bazel checks still consume a declared hermetically generated map
+    status: pass
+    evidence: |
+      The shared command refactor preserves native cache behavior in the
+      existing stdlibmap cache path, while the Bazel action remains the declared
+      hermetic action at bazel_rules/go/private/stdlib_map.bzl:112-136. The
+      complete CGO_ENABLED=0 `just ci` gate and the native/Bazel tests passed;
+      no production cache or classification code was changed for the cutover.
+  - text: |
+      8. **Routine CI is acceptably fast**
+         - Given the pinned Linux/amd64 reference configuration and a warm Bazel cache
+         - When the complete routine `just ci` gate is timed
+         - Then it completes within five minutes wall clock
+         - And a cold routine run performs no native whole-SDK generation and at most one Bazel
+           whole-SDK generation
+    status: pass
+    evidence: |
+      The current CGO_ENABLED=0 `just ci` passed in 29.6s, including the
+      routine Go integration, pin check, selfcheck, wildcard Bazel build/test,
+      and rule smoke tests. The complete-range cold-run evidence records one
+      executed Bazel generation and zero routine native whole-SDK generations;
+      the current aquery distinction is an additional configured transitioned
+      action, not a second measured execution.
+  - text: |
+      9. **The cost and coverage split are documented**
+         - Given the revised design, plan, code comments, and research note
+         - When reviewed against the implementation
+         - Then they accurately describe per-package isolation, routine Linux/amd64 coverage, the
+           explicit full lane, measured action counts, and the deferred architecture matrix
+    status: pass
+    evidence: |
+      The routine/full topology is documented in
+      .agents/planning/2026-08-04-compositional-component-analysis/design/detailed-design.md:672-687;
+      plan.md:299-324 records per-package isolation and the one-map objective;
+      and research/2026-09-08-stdlib-map-generation-cost.md:374-393 records the
+      measured before/after counts, timing, deferred matrix, and C1-C4 work.
+      Requirements 11-12 remain correctly deferred.
+  - text: |
+      10. **Repository gates pass**
+          - Given the completed change
+          - When `just ci` runs
+          - Then every routine gate passes with no stdlib-map semantic or fail-closed behavior
+            weakened
+    status: pass
+    evidence: |
+      The current CGO_ENABLED=0 `just ci` passed after a complete
+      `just gen-is-clean` check with jj available, including Go vet/format,
+      Go unit and integration tests, the pin checker, selfcheck, wildcard
+      Bazel build/test, and rule smoke tests. The explicit full lane also passed,
+      and no test assertions were deleted or weakened in the rework range.
+
+findings:
+  - severity: important
+    category: acceptance_criteria
+    file: .agents/tasks/2026-08-04-compositional-component-analysis/step06/task-06-bound-routine-stdlib-map-generation-cost.code-task.md
+    line: 144
+    title: AC 5 counts an unavoidable analysis-test transition action
+    details: |
+      AC 5 and technical requirement 9 require exactly one ArccStdlibMap action
+      in the wildcard configured action graph. That remains false by direct
+      measurement: both wildcard aquery forms report two actions, with the
+      second action using the same //:arcc_stdlib_map label under the
+      k8-fastbuild-ST configuration. The cquery traces independently reproduce
+      the dependency through the preserved expected-failure fixtures: the
+      go_component_tests -> member_covered_conflict_fails_test ->
+      member_covered_conflict_component -> //:arcc_stdlib_map path, with the
+      same dependency shape in the asserted-surface and report-rejection paths.
+      The current routine test execution still has one internal map-generation
+      process, and the byte-identity assertion passes; the failure is the
+      configured-action count, not a second default map or a semantic mismatch.
+
+      The remaining action cannot be removed by adding manual tags: excluding
+      every manual target leaves the same two-action result. Removing the
+      analysis-time-failure fixture paths from the routine graph would remove
+      or relocate required negative assertions, and changing the component's
+      target-configured map dependency would weaken the target-identity contract
+      for ordinary transitioned components. The implementation therefore has a
+      well-supported shortfall, but it cannot satisfy the literal threshold
+      while retaining the specified routine fixture topology.
+    suggested_action: |
+      Escalate to the specification owner; do not send the implementer through
+      another identical rework round. Revise AC 5 and technical requirement 9
+      (and plan.md:316-318) to require exactly one default-configuration,
+      executable routine generation/action and at most one whole-SDK generation
+      actually executed, while explicitly allowing the non-default
+      analysis-testing transition action created by preserved negative
+      assertions. If the intended contract is instead one configured action,
+      the plan must first decide which routine negative fixtures may leave the
+      routine lane; that is a scope/coverage decision absent from this task.
+    source: built-in
+
+ecosystem_reviews: []
+
+escalation:
+  reason: spec_defect
+  details: |
+    The task's exact configured-action requirement conflicts with the preserved
+    routine analysis-test topology. Direct aquery measurements report two
+    actions in both the wildcard and manual-excluded graphs, while cquery
+    confirms the extra map dependency is pulled by expected-failure component,
+    asserted-surface, and report-rejection fixtures. The implementation has
+    already isolated the replica/build-tag/cross-platform/transitioned-surface
+    tests and moved them to the explicit full lane; the remaining action is not
+    one of those removable full-lane actions. The specification should
+    distinguish one default executable generation from non-default analysis
+    support actions, or explicitly define which negative fixtures may leave the
+    routine lane. No implementer task-file edit is requested in this review.
