@@ -1230,6 +1230,21 @@ func TestRunner_Check_DependencyArtifactFaultsPublishNothing(t *testing.T) {
 			},
 			wantStderr: []string{"report", "invalid"},
 		},
+		{
+			name: "report component mismatch",
+			prepare: func(t *testing.T, dependencyDir string) {
+				t.Helper()
+				writeNativeTestSurface(t, dependencyDir, "dependency", gen.InterfaceStyle_INTERFACE_STYLE_PACKAGE_SURFACE, []string{"example.com/temp/dependency"}, nil)
+				data, err := artifactio.MarshalReport(report.ConformanceReport{Component: "other-component"})
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(filepath.Join(dependencyDir, "component.report.json"), data, 0o644); err != nil {
+					t.Fatal(err)
+				}
+			},
+			wantStderr: []string{"report component mismatch"},
+		},
 	}
 
 	for _, tt := range tests {

@@ -394,8 +394,9 @@ done
 
 # A readable source-byte change is reported as ASSERTED + STALE. Restore the
 # file after the demonstration so the working tree is unchanged.
-cp examples/csvtool/csvfile/private.go /tmp/arcc-csvfile-private.go
-trap 'mv /tmp/arcc-csvfile-private.go examples/csvtool/csvfile/private.go' EXIT
+csv_demo_backup="$(mktemp)"
+cp examples/csvtool/csvfile/private.go "$csv_demo_backup"
+trap 'mv "$csv_demo_backup" examples/csvtool/csvfile/private.go' EXIT
 printf '\n// status-demo source change\n' >> examples/csvtool/csvfile/private.go
 ../bin/arcc check examples/csvtool/app/component.textproto --format=json
 ```
@@ -413,7 +414,9 @@ The app report contains `CHECKED_PASS` CSV boundaries (the `certified` text
 case); the csvfile report contains the `CHECKED_FAIL` parsecsv boundary and its
 single `DEPENDENCY_CHECK_FAILED` warning (the `check failed` case). The native
 JSON run supplies the `STALE` case, while `go/cmd/arcc/app`'s byte-only test
-covers `UNKNOWN` after the dependency source is unavailable.
+supplies `UNKNOWN` after the dependency source is unavailable. The exact text
+rendering for those three axes is asserted by
+`TestRunner_Check_CSVToolStatusLabelsInLayoutReport`.
 
 ### Reproducing a Conformance Violation
 To see what a contract violation looks like, you can easily create a temporary failing component.
