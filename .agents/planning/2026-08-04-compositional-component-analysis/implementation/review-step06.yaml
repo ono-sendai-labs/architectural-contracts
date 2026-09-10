@@ -4,31 +4,31 @@ review:
   step: 6
   plan_path: .agents/planning/2026-08-04-compositional-component-analysis/implementation/plan.md
   design_path: .agents/planning/2026-08-04-compositional-component-analysis/design/detailed-design.md
-  reviewed_at: 2026-09-10T04:40:35Z
+  reviewed_at: 2026-09-10T07:16:00Z
   schema_version: 1
   steps_in_scope: [6]
-  commits_in_scope: 41
-  remediation_step: .agents/tasks/2026-08-04-compositional-component-analysis/step06/
-  verdict: remediation_required
+  commits_in_scope: 49
+  remediation_step: null
+  verdict: clean
 
 summary: |
-  Step 6 successfully replaced the production SSA/VTA and check-time Capslock path,
-  preserved the intentional source-backed loading boundary, and bounded routine
-  stdlib-map generation; the complete `CGO_ENABLED=0 just ci` gate passes. One
-  critical cross-task soundness gap remains: the map inventories unsafe's exported
-  compiler builtins as UNANALYZED, but the reference scanner discards every
-  `*types.Builtin`, so direct uses such as unsafe.Slice never reach classification.
-  The residual five-component exemption set is unchanged and every TODO has an
-  explicit owner in Step 7. Three remediation tasks cover the soundness defect, the
-  remaining legacy stdlib predicate/documentation drift, and the deferred fail-closed
-  artifact-publication matrix.
+  The confirmation pass closes prior findings F1 through F4: unsafe package
+  builtins now reach the total map, loading uses structural SDK provenance,
+  every required map failure proves non-publication, and the cutover docs are
+  current. The universe/package split is complete for Go's predeclared objects,
+  not merely the tested examples: universe-scope objects have no package while
+  every exported unsafe intrinsic is package-scoped and mapped UNANALYZED.
+  The five AC8b exemptions, their Step 7 owners, manual seams, and refreshed
+  evidence counts remain exact. Prior F5 is still present as a harmless duplicate
+  test assertion and still does not warrant remediation; the full routine gate
+  passes and the remediation introduced no blocking or important issue.
 
 architecture:
   - element: Typed reference and import fact vocabulary
     expected: |
-      Pure, canonical ReferenceEdge, ImportEdge, SourceSite, and MemberSet values
-      shared between the member scanner and checker, with deterministic validation,
-      ordering, and deduplication.
+      Pure, canonical ReferenceEdge, ImportEdge, SourceSite, BypassObservation,
+      and MemberSet values shared between member analysis and the checker, with
+      deterministic validation, ordering, and deduplication.
     actual: |
       The facts package provides the expected canonical DTOs and helpers without
       importing AST, go/packages, SSA, callgraph, or Capslock packages.
@@ -38,39 +38,63 @@ architecture:
       - go/internal/facts/member.go
       - go/internal/facts/bypass.go
     notes: |
-      Task 01's validation and ordering rework is present in the current code.
+      Task 01's validation and ordering repairs remain present and all final
+      task-level reviews are approved.
 
-  - element: Member AST and types.Info reference scan with stdlib dispatch
+  - element: Member AST and types.Info scan, including compiler builtins
     expected: |
-      Every externally declared object named by member source, including unsafe's
-      exported compiler builtins, becomes a canonical reference edge and is resolved
-      through the total StdlibAuthority map.
+      Every externally declared object named by member source becomes a canonical
+      reference edge. Universe objects remain non-edges, while unsafe's exported
+      compiler builtins are package-scoped RefFunc edges resolved through the map.
     actual: |
-      Ordinary funcs, methods, types, fields, vars, and consts are scanned and
-      classified correctly, but externalObject unconditionally rejects
-      `*types.Builtin`. The unsafe builtins have package `unsafe` and corresponding
-      UNANALYZED records in the checked map, yet never become edges.
-    status: partial
+      externalObject excludes objects exactly when Pkg() is nil, FromObject
+      converts package-scoped exported Builtin objects, and classifyingReference
+      emits them as RefFunc. Typed tests cover all eight unsafe builtins and the
+      production Runner proves unsafe.Sizeof and unsafe.Slice reach the normal
+      AnalysisDefeating policy path.
+    status: aligned
     files:
       - go/internal/goanalysis/refscan.go
+      - go/internal/goanalysis/refscan_test.go
       - go/internal/symbol/typesconv.go
-      - go/internal/stdlibmap/inventory.go
-      - go/internal/teststdlibmap/testdata/linux_amd64.stdlib-map.json
+      - go/internal/symbol/typesconv_test.go
+      - go/cmd/arcc/app/check_integration_test.go
     notes: |
-      This is implementation drift rather than justified evolution: the design
-      explicitly calls out unsafe compiler builtins as fail-closed UNANALYZED roots.
-      See F1.
+      Go 1.26's go/types universe construction assigns nil packages to all
+      predeclared universe types, constants, nil, builtins, error/comparable, and
+      test-only assert/trace objects. Its exported unsafe intrinsics are instead
+      inserted into types.Unsafe with package ownership; unsafe.Pointer follows
+      the same package-owned path as a TypeName. Thus the Pkg() split covers the
+      complete predeclared set rather than relying on a name allowlist.
+
+  - element: Total unsafe classification in the pinned authority map
+    expected: |
+      Every exported unsafe compiler intrinsic and unsafe.Pointer has an explicit
+      fail-closed terminal classification in the map.
+    actual: |
+      The checked artifact contains unsafe.Add, Alignof, Offsetof, Sizeof, Slice,
+      SliceData, String, StringData, and Pointer, each classified UNANALYZED with
+      project-override provenance. Scanner observations use ordinary
+      SymbolAuthority lookup with no unsafe-specific checker shortcut.
+    status: aligned
+    files:
+      - go/internal/stdlibmap/inventory.go
+      - go/internal/stdlibmap/generate.go
+      - go/internal/teststdlibmap/testdata/linux_amd64.stdlib-map.json
+      - go/internal/checker/classify.go
+    notes: |
+      This closes prior critical finding F1 without weakening the map or policy.
 
   - element: Declaring-object dependency boundaries
     expected: |
       References are authorized against the object named by go/types; declared
       interfaces compare exact SymbolIDs, PACKAGE_SURFACE dependencies authorize
-      owned packages, overlaps fail deterministically, and no implements closure is
-      injected.
+      owned packages, overlaps fail deterministically, and no implements closure
+      is injected.
     actual: |
       ScanReferences, symbol.ExtractSurface, BoundaryIndex, and ClassifyEdges share
-      the exact declaring-object model. Dependency overlap is rejected before lookup
-      construction and the implements-closure workaround is absent.
+      the exact declaring-object model. Dependency overlap is rejected before
+      lookup construction and the implements-closure workaround is absent.
     status: aligned
     files:
       - go/internal/goanalysis/refscan.go
@@ -80,35 +104,39 @@ architecture:
       - go/internal/surface/derive.go
     notes: |
       The production Runner fixtures exercise interface dispatch, concrete access,
-      and the reference-kind/import tables.
+      the reference-kind table, and the import table.
 
-  - element: Map-exclusive standard-library classification
+  - element: Map-exclusive stdlib classification and structural layout provenance
     expected: |
-      Standard-library membership for production checking is defined by the authority
-      map, and the legacy path predicates are deleted rather than consolidated.
+      The authority map is the only check-time definition of standard-library
+      membership. Layout file resolution may use emitter provenance and validated
+      SDK discovery, but must not infer stdlib identity from import-path spelling.
     actual: |
-      Checker classification uses only StdlibAuthority, but the production layout
-      loader still exposes and calls hostpolicy.IsStdlibPath to classify and reject
-      package provenance. This preserves a second, heuristic stdlib identity source
-      in the check's loading path.
-    status: drifted
+      hostpolicy.IsStdlibPath is absent. Checker dispatch uses only
+      StdlibAuthority, while Layout.IsStdlibPackage reads validation-owned
+      is_stdlib/SDK-discovery indexes. Repository searches find no equivalent
+      dot-in-first-segment or dotless-path heuristic in production Go or Starlark.
+    status: aligned
     files:
       - go/internal/hostpolicy/hostpolicy.go
       - go/internal/packagelayout/packagelayout.go
       - go/internal/checker/classify.go
+      - bazel_rules/go/private/component.bzl
     notes: |
-      The map-based checker is correct once facts exist, but the retained path
-      predicate contradicts the Step 6 deletion inventory and can disagree before
-      classification. See F2.
+      Dotless non-stdlib, explicit SDK, host-canonicalization, and missing-data
+      regressions close prior important finding F2. SDK tree discovery and
+      toolchain package-list reconciliation are structural generation/loading
+      mechanisms, not import-path-shape classifiers.
 
   - element: Analysis-defeating detection and aggregated reporting
     expected: |
-      Member linkname, assembly, cgo, and map UNANALYZED observations fail closed by
-      default; authority findings aggregate by capability/class with sorted sites,
-      first-site evidence, class, and SDK key.
+      Member linkname, assembly, cgo, and map UNANALYZED observations fail closed
+      by default; authority findings aggregate by capability/class with sorted
+      sites, first-site evidence, class, and SDK key.
     actual: |
-      ScanAnalysisDefeats, AggregateAuthority, report rendering, and canonical report
-      encoding implement those rules and retain site-specific boundary findings.
+      ScanAnalysisDefeats, AggregateAuthority, report rendering, and canonical
+      report encoding implement those rules and retain site-specific boundary
+      findings.
     status: aligned
     files:
       - go/internal/goanalysis/defeatscan.go
@@ -116,72 +144,82 @@ architecture:
       - go/internal/report/report.go
       - go/internal/artifactio/report.go
     notes: |
-      Focused tests cover linkname, selected and ignored assembly, cgo, strict/warn
-      policy, deterministic aggregation, and artifact round trips.
+      The unsafe repair feeds this existing policy path rather than introducing a
+      second classification mechanism.
 
-  - element: Production cutover and legacy analyzer deletion
+  - element: Production cutover and fail-closed artifact publication
     expected: |
-      Runner uses member facts, source-backed dependency interfaces, and a validated
-      StdlibAuthority; no check constructs SSA/VTA or invokes Capslock, while
-      Capslock remains generation-only.
+      Runner uses member typed facts, source-backed dependency interfaces, and a
+      validated StdlibAuthority. Any missing, malformed, target-key,
+      classifier-hash, format-version, or inventory fault exits 2 before a report
+      or surface is published.
     actual: |
-      Runner.runCheck uses the typed scan/classifier and resolves the stdlib map before
-      verdict formation. Check-time analyzer/prune DTOs and adapter entry points are
-      gone; Capslock remains only behind stdlib-map generation.
+      Runner resolves the map before verdict formation and publication. Six
+      independent production-Runner rows each create distinct fresh output paths,
+      assert absence before invocation, and assert both remain absent afterward.
     status: aligned
     files:
       - go/cmd/arcc/app/check.go
-      - go/cmd/arcc/app/app.go
-      - go/internal/checker/checker.go
-      - go/internal/capslockadapter/generation.go
+      - go/cmd/arcc/app/check_integration_test.go
+      - go/internal/artifactio/stdlibmap.go
+      - go/internal/artifactio/stdlibmapreader.go
     notes: |
-      Repository searches and the passing integration gate find no remaining
-      check-time SSA, VTA, callgraph, or Capslock path.
+      This closes prior important finding F3 and the deferred Task 05 coverage
+      residue without invoking whole-SDK generation.
 
   - element: Transitional Step 6 loading boundary
     expected: |
-      NeedDeps and source-backed ResolveDependencyInterface remain until Steps 7 and
-      8; Step 6 must not claim surface consumption or export-data-only loading.
+      NeedDeps and source-backed ResolveDependencyInterface remain until Steps 7
+      and 8; Step 6 must not claim surface consumption or export-data-only loading.
     actual: |
-      Both member and dependency loads retain NeedDeps and dependency interfaces are
-      still resolved from source, with comments naming the Step 7/8 handoff.
+      Both member and dependency loads retain NeedDeps and dependency interfaces
+      are still resolved from source, with comments naming the Step 7/8 handoff.
     status: aligned
     files:
       - go/internal/goanalysis/goanalysis.go
     notes: |
-      This intentional transition explains the measured approximately 53 percent CPU
-      reduction rather than the Step 1 phase-sum projection.
+      Surface consumption, export-data loading, and dependency-source removal are
+      deliberately absent and are not Step 6 gaps.
 
-  - element: Bounded routine stdlib-map validation topology
+  - element: Bounded routine stdlib-map topology and repaired action-count contract
     expected: |
-      Routine native tests and selfcheck use a fully key-validated pinned map; routine
-      Bazel retains one default-configuration generation through a thin binary;
-      replica and cross-configuration checks remain in an explicit full lane.
+      Routine native tests and selfcheck use a fully key-validated pinned map;
+      routine Bazel has exactly one default-configuration map action, may retain
+      non-default actions pulled by routine analysis-time-failure fixtures, and
+      satisfies N5's five-minute warm wall-clock and cold-generation bounds.
     actual: |
-      The checked Linux/amd64 artifact, live classifier-key derivation, repository pin
-      check, generation-only binary, default byte comparison, and explicit Go/Bazel
-      full lanes are all present. Routine CI completes well inside N5.
+      The pinned map, live classifier-key derivation, repository pin check, thin
+      generator, default byte comparison, and explicit full lanes are present.
+      Current aquery reports two total actions: exactly one k8-fastbuild default
+      action and one transitioned k8-fastbuild-ST action; the default output is
+      byte-identical to the checked artifact, and the warm routine gate completes
+      in about 30 seconds.
     status: aligned
     files:
+      - .agents/planning/2026-08-04-compositional-component-analysis/design/detailed-design.md
+      - .agents/planning/2026-08-04-compositional-component-analysis/implementation/plan.md
+      - .agents/tasks/2026-08-04-compositional-component-analysis/step06/task-06-bound-routine-stdlib-map-generation-cost.code-task.md
       - go/internal/teststdlibmap/pinned.go
-      - go/cmd/arcc-stdlibmap/main.go
       - bazel_rules/go/private/stdlib_map.bzl
-      - scripts/check-routine-stdlib-map-pin.sh
       - justfile
     notes: |
-      The deferred architecture matrix, Bazel B2, and generator optimizations C1-C4
-      are deliberately out of scope and are not findings.
+      The bookmarked specification repair makes technical requirement 9 and the
+      Step 6 plan satisfiable while preserving the negative fixtures. It agrees
+      with design N5, the design's routine-topology text, AC8's wall-clock/cold
+      bound, and the observed build graph; no contradictory plan text remains.
 
-  - element: Residual UNANALYZED exemptions and Step 7 ownership
+  - element: AC8b exemption boundary and Step 7 ownership
     expected: |
-      Exactly artifactio, manifest, goanalysis, capslockadapter, and csvtool parsecsv
-      are exempted, each by a narrow TODO naming Step 7 work that removes it; Step 7
-      must cover protobuf-runtime and x/tools wrappers plus the residual policy choice.
+      Exactly artifactio, manifest, goanalysis, capslockadapter, and csvtool
+      parsecsv are exempted, each by the existing narrow seam and a TODO naming
+      the Step 7 work that removes it. Evidence may change, but markers, owners,
+      and check_tags must not grow or loosen.
     actual: |
-      The same five components remain exempted: four Bazel check tags and four native
-      selfcheck comments cover the applicable gates, with capslockadapter native-only.
-      Step 7 explicitly owns both foreign-member wrappers and the parsecsv/
-      capslockadapter residual-UNANALYZED decision.
+      The same five components remain: four native selfcheck comments and four
+      Bazel check_tags manual seams for components that have Bazel checks, with
+      capslockadapter native-only. Fresh checks produce 102, 102, 88, 1077, and 1
+      AnalysisDefeating sites respectively, matching every recorded aggregate and
+      retained sample.
     status: aligned
     files:
       - justfile
@@ -189,176 +227,55 @@ architecture:
       - go/internal/manifest/BUILD.bazel
       - go/internal/goanalysis/BUILD.bazel
       - go/examples/csvtool/internal/parsecsv/BUILD.bazel
-      - .agents/planning/2026-08-04-compositional-component-analysis/implementation/plan.md
     notes: |
-      No additional Step 6 exemption marker was found. Existing unrelated manual
-      fixture/check tags are not part of this adjudicated exemption set.
+      Task 07 changed evidence only: artifactio and manifest 89 to 102,
+      goanalysis 86 to 88, and capslockadapter 1042 to 1077. Tasks 08 and 09 did
+      not broaden the exemption boundary; all TODO owners still point to Step 7.
 
-doc_code_alignment:
-  - artifact: .agents/planning/2026-08-04-compositional-component-analysis/design/detailed-design.md
-    section: The stdlib authority map (DR-05, DR-09) / Object references
-    issue: |
-      The design requires unsafe's exported compiler builtins to be inventoried as
-      UNANALYZED and classified on reference. The scanner discards their go/types
-      objects before SymbolID conversion.
-    suggested_action: update_code
-    related_finding: F1
+  - element: Cutover documentation
+    expected: |
+      Live contracts and examples describe typed references/imports, structural
+      component boundaries, map-based stdlib classification, and generation-only
+      Capslock rather than check-time traversal pruning.
+    actual: |
+      The named README, csvtool, goanalysis, stdlibmap, hostpolicy, and package-
+      layout documentation uses the current vocabulary and no longer claims the
+      check invokes Capslock or prunes a call graph.
+    status: aligned
+    files:
+      - README.md
+      - go/examples/csvtool/app/app.go
+      - go/examples/csvtool/csvfile/csvfile.go
+      - go/examples/csvtool/app/BUILD.bazel
+      - go/internal/goanalysis/goanalysis.go
+      - go/internal/goanalysis/fixture_test.go
+      - go/internal/stdlibmap/component.textproto
+      - go/internal/hostpolicy/hostpolicy.go
+      - docs/package-layout-schema.md
+    notes: |
+      This closes prior suggestion F4 in the current file set.
 
-  - artifact: .agents/planning/2026-08-04-compositional-component-analysis/design/detailed-design.md
-    section: Edge classification / What is deleted
-    issue: |
-      The design makes authority-map membership the stdlib definition and lists the
-      old path predicates for deletion, while hostpolicy.IsStdlibPath remains active
-      in the production layout loader.
-    suggested_action: update_code
-    related_finding: F2
-
-  - artifact: go/examples/csvtool/app/app.go
-    section: Package contract and Step 0 note
-    issue: |
-      The example still says Capslock traversal is pruned at the dependency and that
-      pruning will be wired in a later Step 9, although current checking uses
-      structural typed-reference boundaries and no check-time Capslock.
-    suggested_action: update_doc
-    related_finding: F4
-
-  - artifact: go/internal/goanalysis/goanalysis.go
-    section: LoadPackageFacts comment
-    issue: |
-      This and several nearby contracts/comments retain removed vocabulary:
-      LoadPackageFacts promises standard-library facts, the stdlibmap component says
-      consumers prune at it, and fixture 2 says no call edge is involved. The README
-      and csvtool comments also retain Capslock/pruning descriptions.
-    suggested_action: update_doc
-    related_finding: F4
+doc_code_alignment: []
 
 findings:
-  - id: F1
-    severity: critical
-    category: architecture
-    file: go/internal/goanalysis/refscan.go
-    line: 207
-    title: Unsafe compiler builtin references are silently discarded
-    details: |
-      externalObject returns false for every `*types.Builtin`. Universe builtins such
-      as len should be ignored, but go/types assigns unsafe.Add, Alignof, Offsetof,
-      Sizeof, Slice, SliceData, String, and StringData to package `unsafe`. The
-      stdlib-map inventory deliberately persists each of those IDs as UNANALYZED
-      (`go/internal/stdlibmap/inventory.go:245-258` and the checked artifact around
-      its unsafe records), so dropping them prevents the fail-closed classification
-      the design built those records to provide. symbol.FromObject and
-      classifyingReference also reject/omit package-scoped Builtin objects, confirming
-      that no later layer recovers the edge; a current artifactio selfcheck reports
-      unsafe.Pointer sites but none of the unsafe.Slice/StringData calls present in
-      generated member source.
-    suggested_action: |
-      Distinguish universe builtins from package-scoped unsafe builtins. Convert the
-      latter to canonical top-level SymbolIDs, emit them as function references, and
-      add typed-scan plus real-check regressions proving unsafe builtin calls reach
-      the map's UNANALYZED policy path while len/cap remain ignored.
-    source: built-in
-    addressed_by: .agents/tasks/2026-08-04-compositional-component-analysis/step06/task-07-remediate-unsafe-builtin-reference-scanning.code-task.md
-
-  - id: F2
-    severity: important
-    category: architecture
-    file: go/internal/hostpolicy/hostpolicy.go
-    line: 117
-    title: Legacy stdlib path heuristic remains in the loading path
-    details: |
-      Step 6 requires the stdlib map to be the single membership definition and lists
-      the old predicates for deletion. Checker classification complies, but
-      hostpolicy.IsStdlibPath remains public and packagelayout calls it while parsing
-      every production layout (`packagelayout.go:781-793` and :820-829). A heuristic
-      or host override can therefore disagree with declared/map provenance and stop
-      the check before the map-based dispatch, preserving the independently drifting
-      identity source the cutover was intended to remove.
-    suggested_action: |
-      Remove IsStdlibPath and route layout loading/resource resolution through
-      explicit layout/SDK provenance, reserving StdlibAuthority membership for the
-      check decision. Update affected host-policy contracts, tests, BUILD metadata,
-      and comments, with regressions for dotless non-stdlib paths and explicit stdlib
-      layout entries.
-    source: built-in
-    addressed_by: .agents/tasks/2026-08-04-compositional-component-analysis/step06/task-08-remove-legacy-stdlib-heuristics-and-refresh-cutover-docs.code-task.md
-
-  - id: F3
-    severity: important
-    category: coverage
-    file: go/cmd/arcc/app/check_integration_test.go
-    line: 201
-    title: Fail-closed map matrix does not prove no artifact publication
-    details: |
-      The corrupt and missing-map legs reuse report and surface paths populated by a
-      successful invocation, then assert only exit 2 and diagnostics. The fresh
-      incomplete-key case proves absence for one failure mode and runCheck resolves
-      the map before publication, so no bypass was observed; however AC2 covers
-      missing, corrupt, target-key, classifier, format, and inventory faults and the
-      end-to-end test does not independently guard publication ordering for that
-      matrix. This is the highest-value unresolved item from task 05's six deferred
-      findings.
-    suggested_action: |
-      Drive every fail-closed map fault through the production Runner with fresh
-      output destinations and assert exit 2, actionable diagnostics, and absence of
-      both report and surface artifacts, without invoking whole-SDK generation.
-    source: built-in
-    addressed_by: .agents/tasks/2026-08-04-compositional-component-analysis/step06/task-09-complete-fail-closed-artifact-publication-matrix.code-task.md
-
-  - id: F4
-    severity: suggestion
-    category: doc_divergence
-    file: go/examples/csvtool/app/app.go
-    line: 9
-    title: Cutover documentation still describes Capslock traversal pruning
-    details: |
-      Task 06 fixed the deferred per-package BuildAuthorityMap and full-generation
-      comments, but three other task-05 deferrals remain at
-      `go/internal/goanalysis/fixture_test.go:552`,
-      `go/internal/goanalysis/goanalysis.go:72`, and
-      `go/internal/stdlibmap/component.textproto:5`. A wider inspection also finds
-      stale live-example text at `go/examples/csvtool/app/app.go:9-23`,
-      `go/examples/csvtool/csvfile/csvfile.go:8-11`, and
-      `go/examples/csvtool/app/BUILD.bazel:15-18`, plus README.md:482's claim that
-      declarations come from Capslock's classified set. These comments describe the
-      removed mechanism and one says the behavior is still pending a long-completed
-      step.
-    suggested_action: |
-      Rewrite the affected contracts and example documentation in terms of typed
-      reference/import edges, structural component boundaries, and stdlib-map
-      classification. Remove the obsolete draft note and call-edge wording.
-    source: built-in
-    addressed_by: .agents/tasks/2026-08-04-compositional-component-analysis/step06/task-08-remove-legacy-stdlib-heuristics-and-refresh-cutover-docs.code-task.md
-
   - id: F5
     severity: nit
     category: consistency
     file: go/internal/goanalysis/fixture_test.go
     line: 621
-    title: Fixture 6 repeats the same import-presence loop
+    title: Fixture 6 still repeats its import-presence loop
     details: |
-      TestFixture6_ImportTable checks every path in `scanned` at lines 612-616 and
-      repeats the identical loop at lines 621-625. The following no-reference loop is
-      the assertion that establishes the import-only fixture shape. This is the sole
-      remaining suggestion from task 03 and has no effect on behavior or coverage.
+      TestFixture6_ImportTable checks every path in scanned at lines 612-616 and
+      repeats the same lookup at lines 621-625. The following reference loop is
+      the distinct assertion that proves the rows package is import-only. This
+      was not addressed by the three remediation tasks, but it neither weakens
+      coverage nor creates architectural drift and did not warrant a task.
     suggested_action: |
-      Delete either duplicate loop during opportunistic cleanup; no remediation task
-      is warranted for this nit.
+      Delete either duplicate loop opportunistically when this fixture is next
+      touched; no Step 6 remediation task is justified.
     source: built-in
 
-remediation_tasks:
-  - path: .agents/tasks/2026-08-04-compositional-component-analysis/step06/task-07-remediate-unsafe-builtin-reference-scanning.code-task.md
-    title: Remediate Unsafe Builtin Reference Scanning
-    addresses_findings: [F1]
-    sequence: 1
-
-  - path: .agents/tasks/2026-08-04-compositional-component-analysis/step06/task-08-remove-legacy-stdlib-heuristics-and-refresh-cutover-docs.code-task.md
-    title: Remove Legacy Stdlib Heuristics and Refresh Cutover Docs
-    addresses_findings: [F2, F4]
-    sequence: 2
-
-  - path: .agents/tasks/2026-08-04-compositional-component-analysis/step06/task-09-complete-fail-closed-artifact-publication-matrix.code-task.md
-    title: Complete Fail-Closed Artifact Publication Matrix
-    addresses_findings: [F3]
-    sequence: 3
+remediation_tasks: []
 
 ecosystem_reviews: []
+
