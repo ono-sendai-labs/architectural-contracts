@@ -1381,8 +1381,9 @@ func TestValidateAndResolve_LayoutWinsOnCollision(t *testing.T) {
 		t.Fatal("fmt package not found")
 	}
 
-	if len(fmtPkg.GoFiles) != 1 || filepath.Base(fmtPkg.GoFiles[0]) != "fmt.go" {
-		t.Errorf("expected layout-provided fmt package to win, got GoFiles=%v", fmtPkg.GoFiles)
+	wantSDKFile := filepath.Join(sdkSrc, "fmt", "fmt.go")
+	if len(fmtPkg.GoFiles) != 1 || fmtPkg.GoFiles[0] != wantSDKFile {
+		t.Errorf("explicit stdlib provenance must resolve fmt from the SDK, got GoFiles=%v, want %q", fmtPkg.GoFiles, wantSDKFile)
 	}
 }
 
