@@ -1,0 +1,96 @@
+result:
+  task_file: .agents/tasks/2026-08-04-compositional-component-analysis/step07/task-02-resolve-validated-dependency-surfaces.code-task.md
+  change_id: qmntvzkzrxqqmnlmtruwzttoysztxrvy
+  status: completed
+  schema_version: 2
+  produced_at: 2026-09-10T18:22:20Z
+
+acceptance_criteria:
+  - text: |
+      **Valid artifacts become exact dependency facts**
+      - Given valid declared-interface and `PACKAGE_SURFACE` artifacts for the current namespace and SDK key
+      - When the new resolver consumes them
+      - Then it returns their exact packages/symbols/authority plus the correctly derived provenance and freshness without loading dependency source
+    addressed: yes
+    evidence: |
+      `go/internal/goanalysis/surface_resolver.go:103-155` decodes artifacts into exact
+      `facts.DependencyInterface` values, preserving declared symbols and package-only
+      surfaces. `surface_resolver_test.go:102-216` covers checked declared,
+      checked package, and asserted package surfaces with exact status/authority values.
+  - text: |
+      **Bazel provenance comes only from structure and verdict**
+      - Given checked-pass, checked-fail, and asserted provider bindings
+      - When their artifacts are resolved
+      - Then statuses are respectively `CHECKED_PASS`, `CHECKED_FAIL`, and `ASSERTED`, all with `BUILD_GRAPH` freshness, and no file-internal flag can change that result
+    addressed: yes
+    evidence: |
+      `go/internal/goanalysis/surface_resolver.go:247-286` validates the structural
+      binding and `:521-572` derives checked-pass/fail only from the binding plus the
+      decoded report, while asserted bindings require no report and an asserted shape.
+      `surface_resolver_test.go:102-216` exercises all three layout outcomes.
+  - text: |
+      **Native files never self-certify**
+      - Given a convention-located native surface with either a passing report, failing report, or no report
+      - When it is resolved
+      - Then provenance is always `ASSERTED` and the report cannot produce a certified status
+    addressed: yes
+    evidence: |
+      `go/internal/goanalysis/surface_resolver.go:299-326` uses
+      `artifactio.SurfacePath`/`ReportPath` for native files, and `:573-620` always
+      returns `ASSERTED` while treating the sibling report as audit-only.
+      `surface_resolver_test.go:218-268` covers passing, failing, and missing reports.
+  - text: |
+      **Native freshness is byte-only and best-effort**
+      - Given unchanged readable dependency inputs, modified source bytes, and an unreadable or non-local dependency source set
+      - When freshness is derived
+      - Then the results are `VERIFIED`, `STALE`, and `UNKNOWN` respectively, and instrumentation observes no AST parse, type check, or dependency package load
+    addressed: yes
+    evidence: |
+      `go/internal/surface/digest.go:17-24` exposes the producer's shared byte digest
+      framing; `go/internal/goanalysis/surface_resolver.go:573-704` compares only
+      manifest/source bytes and never imports or invokes a parser/package loader.
+      `surface_resolver_test.go:407-465` covers changed, unreadable, and empty-asserted
+      digest cases; `:526-573` covers the default module/file enumeration.
+  - text: |
+      **Artifact mismatches fail closed independently**
+      - Given a missing surface or a surface with a wrong component, format, namespace, SDK field, interface style, package, symbol, or authority shape, or an invalid checked report
+      - When resolution is attempted
+      - Then a distinct exit-2-ready error identifies the failed invariant and no partial `DependencyInterface` is returned
+    addressed: yes
+    evidence: |
+      `go/internal/goanalysis/surface_resolver.go:329-520` validates component,
+      style, concrete canonical packages, symbols, authority, namespace, complete SDK
+      key, and digest; `:247-298` validates binding/report structure. The bounded
+      artifact codecs are used at `:127-145` and `:545-565`. The table-driven
+      `surface_resolver_test.go:270-406` covers mismatch and invalid-report branches
+      and asserts a zero fact result on every error.
+  - text: |
+      **The additive boundary remains intact**
+      - Given the new resolver and tests
+      - When `Runner.runCheck` is inspected and `just ci` runs
+      - Then production still uses the source-backed resolver, while the new resolver is fully unit-tested and ready for one atomic cutover
+    addressed: yes
+    evidence: |
+      Artifact inspection in `go/cmd/arcc/app/check.go:222` still calls
+      `goanalysis.ResolveDependencyInterface`; the new resolver is not wired into the
+      runner. `go/internal/goanalysis/component.textproto:4-58` and
+      `BUILD.bazel:17-39,88-96` record the additive artifact dependencies and expose
+      the resolver contract. The final
+      `just ci` run passed Go vet/build/tests, self-check, Bazel build/test, and the
+      package-layout shell checks.
+
+artifacts:
+  scratchpad_dir: .agents/scratchpad/2026-08-04-compositional-component-analysis/step07/task-02-resolve-validated-dependency-surfaces/
+  files:
+    - context.md
+    - plan.md
+    - progress.md
+    - work.log
+    - result.yaml
+
+notes: |
+  Added pure dependency status axes, shared digest framing, and a fully validated
+  surface/report resolver with native byte-only freshness seams. The runner remains
+  source-backed for the next cutover task, while focused table-driven tests and the
+  full `just ci` gate pass. The final contract child change is
+  qmntvzkzrxqqmnlmtruwzttoysztxrvy.

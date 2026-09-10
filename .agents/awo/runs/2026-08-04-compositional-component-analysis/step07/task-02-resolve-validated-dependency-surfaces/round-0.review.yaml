@@ -1,0 +1,167 @@
+review:
+  task_file: .agents/tasks/2026-08-04-compositional-component-analysis/step07/task-02-resolve-validated-dependency-surfaces.code-task.md
+  change_id: qmntvzkzrxqqmnlmtruwzttoysztxrvy
+  reviewed_at: "2026-09-10T18:32:40Z"
+  verdict: changes_requested
+  schema_version: 2
+  lsp_coverage: covered
+
+merge_request:
+  title: "feat(goanalysis): validate dependency surfaces [Compositional Analysis: Step 07/Task 02]"
+  body: |
+    Reviews the complete ordered change series: pure dependency status axes and
+    facts updates, the shared surface digest helper, the additive validated
+    surface/report resolver with native freshness handling and tests, and the
+    final goanalysis contract metadata update. The series was checked against
+    the supplied task, full jj diff, focused tests, LSP diagnostics, and a
+    passing just ci run.
+
+summary: |
+  The additive resolver covers the main artifact validation and provenance paths,
+  keeps Runner.runCheck on the legacy source-backed resolver, and passes CI and
+  LSP diagnostics. Native default freshness currently treats every non-test Go
+  file as part of the producer set, so build-constrained files can make an
+  unchanged surface incorrectly STALE. Validation and no-load instrumentation
+  tests also do not cover the full set required by the task, so another round is
+  needed.
+
+acceptance_criteria:
+  - text: |
+      **Valid artifacts become exact dependency facts**
+      - Given valid declared-interface and `PACKAGE_SURFACE` artifacts for the current namespace and SDK key
+      - When the new resolver consumes them
+      - Then it returns their exact packages/symbols/authority plus the correctly derived provenance and freshness without loading dependency source
+    status: pass
+    evidence: |
+      `go/internal/goanalysis/surface_resolver.go:103-149` returns cloned packages,
+      exact declared symbols or package-only surfaces, authority, and status axes.
+      Table-driven layout cases at `go/internal/goanalysis/surface_resolver_test.go:102-198`
+      cover declared and PACKAGE_SURFACE artifacts, including exact symbols and
+      authorities; the resolver contains no dependency package load or Go syntax
+      parser call.
+  - text: |
+      **Bazel provenance comes only from structure and verdict**
+      - Given checked-pass, checked-fail, and asserted provider bindings
+      - When their artifacts are resolved
+      - Then statuses are respectively `CHECKED_PASS`, `CHECKED_FAIL`, and `ASSERTED`, all with `BUILD_GRAPH` freshness, and no file-internal flag can change that result
+    status: pass
+    evidence: |
+      `go/internal/goanalysis/surface_resolver.go:521-559` derives layout
+      provenance exclusively from the binding and decoded report verdict, and
+      assigns `BUILD_GRAPH` for every valid layout case. The three combinations
+      are exercised at `go/internal/goanalysis/surface_resolver_test.go:110-160`;
+      the surface schema has no provenance field.
+  - text: |
+      **Native files never self-certify**
+      - Given a convention-located native surface with either a passing report, failing report, or no report
+      - When it is resolved
+      - Then provenance is always `ASSERTED` and the report cannot produce a certified status
+    status: pass
+    evidence: |
+      `go/internal/goanalysis/surface_resolver.go:294-301` uses the artifactio
+      native path conventions, and `:560-602` keeps native provenance ASSERTED
+      while ignoring report verdicts for status derivation. Passing, failing, and
+      missing sibling reports are covered at
+      `go/internal/goanalysis/surface_resolver_test.go:218-268`.
+  - text: |
+      **Native freshness is byte-only and best-effort**
+      - Given unchanged readable dependency inputs, modified source bytes, and an unreadable or non-local dependency source set
+      - When freshness is derived
+      - Then the results are `VERIFIED`, `STALE`, and `UNKNOWN` respectively, and instrumentation observes no AST parse, type check, or dependency package load
+    status: partial
+    evidence: |
+      `go/internal/goanalysis/surface_resolver.go:562-602` performs the native
+      digest comparison through `surface.DigestForSources`, and
+      `:618-698` reads module metadata, directory entries, and bytes without a Go
+      parser or packages.Load call. The changed/unreadable/empty-digest cases are
+      covered at `go/internal/goanalysis/surface_resolver_test.go:407-465`, and
+      ordinary member-byte enumeration at `:526-563`. However, the default
+      enumerator includes all non-test `.go` files at `surface_resolver.go:642-647`
+      without applying the target's build constraints, so an unchanged producer
+      surface can be incorrectly reported STALE.
+  - text: |
+      **Artifact mismatches fail closed independently**
+      - Given a missing surface or a surface with a wrong component, format, namespace, SDK field, interface style, package, symbol, or authority shape, or an invalid checked report
+      - When resolution is attempted
+      - Then a distinct exit-2-ready error identifies the failed invariant and no partial `DependencyInterface` is returned
+    status: partial
+    evidence: |
+      The implementation has separate validation paths in
+      `go/internal/goanalysis/surface_resolver.go:247-287`, `:329-409`, and
+      `:422-515`, and the focused table at
+      `go/internal/goanalysis/surface_resolver_test.go:270-384` verifies zero facts
+      for component, namespace, SDK-goexperiment, symbol-membership, binding,
+      report, and missing-surface failures. The table does not cover the full
+      criterion's format/interface-style/package-canonicality/symbol-grammar,
+      authority-shape, or remaining SDK-field branches at the resolver boundary.
+      It also does not provide the requested parser/load/file-open instrumentation
+      proving the byte-only path for both injected and default seams.
+  - text: |
+      **The additive boundary remains intact**
+      - Given the new resolver and tests
+      - When `Runner.runCheck` is inspected and `just ci` runs
+      - Then production still uses the source-backed resolver, while the new resolver is fully unit-tested and ready for one atomic cutover
+    status: partial
+    evidence: |
+      `go/cmd/arcc/app/check.go:219-227` still calls
+      `goanalysis.ResolveDependencyInterface`, and the new API is additive in
+      `go/internal/goanalysis/surface_resolver.go:94-155`. `just ci` passed,
+      including Go tests, integration tests, self-check, and Bazel tests. The
+      resolver is not fully unit-tested against the validation and instrumentation
+      branches listed in the task; see
+      `go/internal/goanalysis/surface_resolver_test.go:270-465`.
+
+findings:
+  - severity: important
+    category: acceptance_criteria
+    file: go/internal/goanalysis/surface_resolver.go
+    line: 642
+    title: Native freshness hashes inactive build-constrained files
+    details: |
+      `readNativeDependencySources` includes every non-test file ending in `.go`
+      from each member package directory (`surface_resolver.go:642-647`). The
+      producer instead obtains `p.GoFiles`/`p.CompiledGoFiles` after the target
+      build constraints have selected the surviving source set
+      (`go/internal/goanalysis/surfaceinputs.go:140-155`). A dependency with an
+      inactive file such as `foo_windows.go` or a non-matching `//go:build`
+      directive therefore hashes bytes the producer did not hash and yields
+      `STALE` for an otherwise unchanged readable dependency. This violates the
+      VERIFIED result required by AC4 and is especially problematic because the
+      default path claims completeness without parsing or otherwise evaluating
+      constraints.
+    suggested_action: |
+      Make the default native path return UNKNOWN unless it can establish the
+      exact target source set byte-only, or provide an explicit source-set seam
+      that supplies the producer-equivalent surviving files. Do not classify the
+      all-`.go` directory listing as VERIFIED/STALE when build constraints can
+      make it differ from the producer set, and add a regression case for an
+      inactive filename/directive.
+    source: built-in
+  - severity: important
+    category: tests
+    file: go/internal/goanalysis/surface_resolver_test.go
+    line: 270
+    title: Resolver validation and byte-only seams lack required coverage
+    details: |
+      The task explicitly requires table-driven coverage for every validation
+      branch and proof through parser/load/file-open seams. The resolver test table
+      at `surface_resolver_test.go:279-349` covers only a subset of the branches:
+      component and namespace mismatches, one SDK field, symbol membership,
+      binding/report faults, and missing surface. It does not exercise resolver
+      behavior for format, interface style, canonical package paths, malformed or
+      non-canonical symbol forms, authority shape, or the remaining SDK fields,
+      nor does it assert default-reader instrumentation. The existing codec tests
+      do not substitute for these checks because they do not prove the resolver's
+      zero-facts/error contract. As written, AC5 and the "fully unit-tested" part
+      of AC6 remain only partially verified, and AC4's explicit instrumentation
+      requirement is not demonstrated.
+    suggested_action: |
+      Extend the table-driven resolver suite with raw/mutated artifacts and
+      independent cases for each persisted, structural, and SDK invariant,
+      asserting an actionable error and a zero `DependencyInterface` each time.
+      Add counters or injected parser/package-load/file-open seams (including the
+      default byte reader where relevant) and assert that native freshness reads
+      only the manifest/member bytes and invokes no AST/type/package-loading path.
+    source: built-in
+
+ecosystem_reviews: []
