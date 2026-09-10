@@ -52,7 +52,6 @@ def stdlib_map_default_attr(doc = None):
     """
     return attr.label(
         default = DEFAULT_STDLIB_MAP_TARGET,
-        cfg = "host",
         providers = [ArccStdlibMapInfo],
         doc = doc or "The stdlib authority map for the execution target configuration.",
     )

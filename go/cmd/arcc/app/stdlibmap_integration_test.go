@@ -11,11 +11,11 @@ import (
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/teststdlibmap"
 )
 
-// TestStdlibmapGenerateAndInspect is the CLI integration leg (task AC 4–5):
+// TestStdlibmapInspectPinnedArtifact is the CLI integration leg (task AC 4–5):
 // the checked pinned artifact and the deterministic inspect summary plus the
 // pinned semantic queries (`os.ReadFile`, `strings.TrimSpace`, `sort.Slice`, a
 // package init). Unknown symbols and mismatched expected keys exit 2.
-func TestStdlibmapGenerateAndInspect(t *testing.T) {
+func TestStdlibmapInspectPinnedArtifact(t *testing.T) {
 	runner := &app.Runner{}
 	first := teststdlibmap.WritePinned(t)
 

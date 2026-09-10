@@ -115,7 +115,7 @@ func fullRunner() *app.Runner {
 	}
 }
 
-func generateNativeMap(t *testing.T, path string) {
+func writePinnedMap(t *testing.T, path string) {
 	t.Helper()
 	data, err := os.ReadFile(teststdlibmap.WritePinned(t))
 	if err != nil {
@@ -141,7 +141,7 @@ func TestCheck_EmitsArtifactsLayoutMode(t *testing.T) {
 	manifestPath := writeLayoutManifest(t, workspace, "example.com/artifacts/comp")
 
 	mapPath := filepath.Join(t.TempDir(), "map.json")
-	generateNativeMap(t, mapPath)
+	writePinnedMap(t, mapPath)
 
 	runner := fullRunner()
 	reportPath := filepath.Join(workspace, "comp.report.json")
@@ -238,7 +238,7 @@ func TestCheck_UnpinnedLayoutIncompleteSDKKey(t *testing.T) {
 	manifestPath := writeLayoutManifest(t, workspace, "example.com/artifacts/comp")
 
 	mapPath := filepath.Join(t.TempDir(), "map.json")
-	generateNativeMap(t, mapPath)
+	writePinnedMap(t, mapPath)
 	raw, err := os.ReadFile(mapPath)
 	if err != nil {
 		t.Fatal(err)
@@ -316,7 +316,7 @@ func TestCheck_EmitsArtifactsNativeMode(t *testing.T) {
 	}
 
 	mapPath := filepath.Join(t.TempDir(), "map.json")
-	generateNativeMap(t, mapPath)
+	writePinnedMap(t, mapPath)
 
 	runner := fullRunner()
 	reportPath := filepath.Join(compDir, "natart.report.json")
@@ -474,7 +474,7 @@ func TestCheck_ExcludedInterfaceFileStillEmitsSurface(t *testing.T) {
 	}
 
 	mapPath := filepath.Join(t.TempDir(), "map.json")
-	generateNativeMap(t, mapPath)
+	writePinnedMap(t, mapPath)
 
 	runner := fullRunner()
 	reportPath := filepath.Join(compDir, "gated.report.json")
@@ -664,7 +664,7 @@ func TestDesignFixturesThroughRealCommand(t *testing.T) {
 	}
 
 	mapPath := filepath.Join(t.TempDir(), "map.json")
-	generateNativeMap(t, mapPath)
+	writePinnedMap(t, mapPath)
 
 	runner := fullRunner()
 	runJSON := func(t *testing.T, manifest string) (report.ConformanceReport, int) {
