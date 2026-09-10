@@ -9,9 +9,13 @@ import (
 
 	"github.com/ono-sendai-labs/architectural-contracts/go/cmd/arcc/app"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/artifactio"
+	"github.com/ono-sendai-labs/architectural-contracts/go/internal/facts"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/hostpolicy"
+	"github.com/ono-sendai-labs/architectural-contracts/go/internal/manifest"
+	"github.com/ono-sendai-labs/architectural-contracts/go/internal/report"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/schema/gen"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/stdlibauthority"
+	"github.com/ono-sendai-labs/architectural-contracts/go/internal/surface"
 )
 
 func writeNativeTestSurface(t *testing.T, dependencyRoot, component string, style gen.InterfaceStyle, packages, symbols []string) {
@@ -131,5 +135,95 @@ component_dependencies {
 	}
 	if strings.Contains(stdout, "dependency package load") {
 		t.Errorf("report unexpectedly contains source-loader diagnostics: %q", stdout)
+	}
+}
+
+func TestRunner_Check_NativeFreshnessStatusesAreByteOnly(t *testing.T) {
+	root := t.TempDir()
+	consumerRoot := filepath.Join(root, "consumer")
+	dependencyRoot := filepath.Join(root, "dependency")
+	if err := os.MkdirAll(consumerRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(dependencyRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	depManifestBytes := []byte("name: \"dependency\"\ninterface_style: INTERFACE_STYLE_PACKAGE_SURFACE\nmembers: \"example.com/dependency\"\n")
+	if err := os.WriteFile(filepath.Join(dependencyRoot, "component.textproto"), depManifestBytes, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dependencyRoot, "go.mod"), []byte("module example.com/dependency\n\ngo 1.26\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	originalSource := []byte("package dependency\n\nfunc Exported() {}\n")
+	depSourcePath := filepath.Join(dependencyRoot, "dep.go")
+	if err := os.WriteFile(depSourcePath, originalSource, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	derived, err := surface.Derive(surface.Input{
+		Component:       "dependency",
+		Style:           manifest.InterfaceStylePackageSurface,
+		Authority:       manifest.UnknownAuthority(),
+		Namespace:       hostpolicy.NamespaceID,
+		Key:             &fullSDKKey,
+		ProducerVersion: "freshness-test",
+		MemberPackages:  []string{"example.com/dependency"},
+		Manifest:        depManifestBytes,
+		Sources:         []surface.SourceFile{{Path: "dep.go", Bytes: originalSource}},
+	})
+	if err != nil {
+		t.Fatalf("surface.Derive: %v", err)
+	}
+	data, err := artifactio.MarshalSurface(derived)
+	if err != nil {
+		t.Fatalf("MarshalSurface: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dependencyRoot, "component.surface.json"), data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	consumerManifest := "name: \"consumer\"\ninterface_style: INTERFACE_STYLE_PACKAGE_SURFACE\nmembers: \"example.com/consumer\"\ncomponent_dependencies { name: \"dependency\" manifest: \"../dependency/component.textproto\" }\n"
+	consumerManifestPath := filepath.Join(consumerRoot, "component.textproto")
+	if err := os.WriteFile(consumerManifestPath, []byte(consumerManifest), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runner, _, _ := seamRunner(t, seamRunnerOpts{
+		pkgPath: "example.com/consumer",
+		imports: []facts.ImportEdge{{
+			ImportingPackage: "example.com/consumer",
+			ImportPath:       "example.com/dependency",
+			Resolution:       facts.ImportResolved,
+			Site:             facts.SourceSite{File: "consumer.go", Line: 1},
+		}},
+	})
+	readFreshness := func() report.ConformanceReport {
+		t.Helper()
+		stdout, stderr, code := runRunnerFromWorkspace(t, root, runner, []string{"check", consumerManifestPath, "--format=json"})
+		if code != 0 {
+			t.Fatalf("freshness check exit = %d, stderr = %q", code, stderr)
+		}
+		var got report.ConformanceReport
+		if err := json.Unmarshal([]byte(stdout), &got); err != nil {
+			t.Fatalf("decode freshness report: %v", err)
+		}
+		return got
+	}
+	if got := readFreshness(); got.Dependencies[0].Freshness != report.DependencyFreshnessVerified {
+		t.Fatalf("unchanged freshness = %q, want VERIFIED", got.Dependencies[0].Freshness)
+	}
+	if err := os.WriteFile(depSourcePath, []byte("package dependency\n\nfunc Exported() { /* changed */ }\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := readFreshness(); got.Dependencies[0].Freshness != report.DependencyFreshnessStale || len(got.Warnings) != 1 || got.Warnings[0].Kind != report.DependencySurfaceStale {
+		t.Fatalf("changed freshness/report = %#v, want STALE plus one stale warning", got)
+	}
+	if err := os.Rename(depSourcePath, depSourcePath+".unreadable"); err != nil {
+		t.Fatal(err)
+	}
+	got := readFreshness()
+	if got.Dependencies[0].Freshness != report.DependencyFreshnessUnknown {
+		t.Fatalf("unreadable freshness = %q, want UNKNOWN", got.Dependencies[0].Freshness)
+	}
+	if len(got.Warnings) != 0 {
+		t.Fatalf("UNKNOWN freshness warnings = %#v, want none", got.Warnings)
 	}
 }
