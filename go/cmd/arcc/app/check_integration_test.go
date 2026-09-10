@@ -225,6 +225,74 @@ func TestCheck_EmitsArtifactsLayoutMode(t *testing.T) {
 	}
 }
 
+// TestCheck_UnsafeBuiltinReachesAnalysisDefeating exercises the repaired seam
+// through the production Runner: typed member source, the normal scanner and
+// checker, and the checked pinned map. Supplying the map artifact explicitly
+// keeps this regression independent of whole-SDK generation.
+func TestCheck_UnsafeBuiltinReachesAnalysisDefeating(t *testing.T) {
+	workspace := t.TempDir()
+	if err := os.WriteFile(filepath.Join(workspace, "go.mod"), []byte("module example.com/unsafecheck\n\ngo 1.26\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	componentDir := filepath.Join(workspace, "component")
+	if err := os.MkdirAll(componentDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	source := `package component
+
+import "unsafe"
+
+func Use(p *int) []int {
+	_ = unsafe.Sizeof(p)
+	return unsafe.Slice(p, 1)
+}
+`
+	if err := os.WriteFile(filepath.Join(componentDir, "unsafe.go"), []byte(source), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	manifestPath := filepath.Join(componentDir, "component.textproto")
+	manifest := "name: \"unsafe\"\ninterface_style: INTERFACE_STYLE_PACKAGE_SURFACE\nmembers: \"example.com/unsafecheck/component\"\n"
+	if err := os.WriteFile(manifestPath, []byte(manifest), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	mapPath := filepath.Join(t.TempDir(), "map.json")
+	writePinnedMap(t, mapPath)
+	stdout, stderr, code := runRunnerStdout(t, workspace, fullRunner(), []string{
+		"check", manifestPath, "--stdlib-map=" + mapPath, "--format=json",
+	})
+	if code != 1 {
+		t.Fatalf("unsafe builtin check exit = %d, want conformance failure 1; stderr = %s", code, stderr)
+	}
+	var rep report.ConformanceReport
+	if err := json.Unmarshal([]byte(stdout), &rep); err != nil {
+		t.Fatalf("decode unsafe builtin report: %v; stdout = %s", err, stdout)
+	}
+	if len(rep.Violations) != 1 {
+		t.Fatalf("unsafe builtin violations = %+v, want one aggregated finding", rep.Violations)
+	}
+	finding := rep.Violations[0]
+	if finding.Class != "AnalysisDefeating" || finding.Kind != "UNDECLARED_AUTHORITY" {
+		t.Fatalf("unsafe builtin finding = %+v, want AnalysisDefeating UNDECLARED_AUTHORITY", finding)
+	}
+	wantSites := map[string]int{
+		"unsafe.Sizeof": 6,
+		"unsafe.Slice":  7,
+	}
+	if len(finding.Sites) != len(wantSites) {
+		t.Fatalf("unsafe builtin sites = %+v, want %v", finding.Sites, wantSites)
+	}
+	for _, site := range finding.Sites {
+		if wantSites[site.Symbol] != site.Line || site.File != "unsafe.go" {
+			t.Errorf("unsafe builtin site = %+v, want unsafe.go and %v", site, wantSites)
+		}
+		delete(wantSites, site.Symbol)
+	}
+	for symbol := range wantSites {
+		t.Errorf("missing unsafe builtin site for %q", symbol)
+	}
+}
+
 // TestCheck_UnpinnedLayoutIncompleteSDKKey is the unpinned-layout leg of the
 // fail-closed contract (AC 2; review round 2): a declared map whose SDK key
 // names no concrete target — missing toolchain_version, goos, goarch — must be
