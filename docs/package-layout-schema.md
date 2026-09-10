@@ -203,3 +203,9 @@ duplicate surface paths across dependency names are rejected as well. The
 checked action declares every bound surface and report as a direct input and
 constructs its path frame from those explicit files; transitive dependency
 runfiles are not the source of binding discovery.
+
+Native mode remains convention-based and does not consume this build-graph
+collection or synthesize Bazel provenance. It locates the required surface next
+to the dependency manifest by replacing the manifest extension with
+`.surface.json`, and may read the optional sibling `.report.json`; the binding
+metadata described here is emitted and consumed by layout/Bazel mode.

@@ -432,40 +432,61 @@ def _dependency_artifact_inputs_impl(env, target):
     ]:
         env.expect.that_bool(inputs.get(artifact, False)).equals(True)
 
-def _dependency_provider_failure_impl(env, target):
+def _assert_dependency_provider_failure(env, target, component, dependency, detail):
     env.expect.that_target(target).failures().contains_predicate(
-        matching.str_matches("*component *:*"),
+        matching.str_matches("*component %s:*" % component),
     )
     env.expect.that_target(target).failures().contains_predicate(
-        matching.str_matches("*dependency*"),
+        matching.str_matches("*%s*" % dependency),
+    )
+    env.expect.that_target(target).failures().contains_predicate(
+        matching.str_matches("*%s*" % detail),
     )
 
-def _dependency_provider_failure_test(name, target):
+def _dependency_provider_failure_test(name, target, impl):
     analysis_test(
         name = name,
         target = target,
-        impl = _dependency_provider_failure_impl,
+        impl = impl,
         attr_values = {"size": "small"},
         expect_failure = True,
     )
 
+def _missing_surface_provider_impl(env, target):
+    _assert_dependency_provider_failure(env, target, "missing_surface_component", "missing_surface_dep", "no surface artifact")
+
 def _missing_surface_provider_test(name):
-    _dependency_provider_failure_test(name, _MISSING_SURFACE_COMPONENT)
+    _dependency_provider_failure_test(name, _MISSING_SURFACE_COMPONENT, _missing_surface_provider_impl)
+
+def _checked_without_report_provider_impl(env, target):
+    _assert_dependency_provider_failure(env, target, "checked_without_report_component", "checked_without_report_dep", "no report artifact")
 
 def _checked_without_report_provider_test(name):
-    _dependency_provider_failure_test(name, _CHECKED_WITHOUT_REPORT_COMPONENT)
+    _dependency_provider_failure_test(name, _CHECKED_WITHOUT_REPORT_COMPONENT, _checked_without_report_provider_impl)
+
+def _asserted_with_report_provider_impl(env, target):
+    _assert_dependency_provider_failure(env, target, "asserted_with_report_component", "asserted_with_report_dep", "unexpectedly has a report artifact")
 
 def _asserted_with_report_provider_test(name):
-    _dependency_provider_failure_test(name, _ASSERTED_WITH_REPORT_COMPONENT)
+    _dependency_provider_failure_test(name, _ASSERTED_WITH_REPORT_COMPONENT, _asserted_with_report_provider_impl)
+
+def _unknown_provenance_provider_impl(env, target):
+    _assert_dependency_provider_failure(env, target, "unknown_provenance_component", "unknown_provenance_dep", "unknown provider provenance")
 
 def _unknown_provenance_provider_test(name):
-    _dependency_provider_failure_test(name, _UNKNOWN_PROVENANCE_COMPONENT)
+    _dependency_provider_failure_test(name, _UNKNOWN_PROVENANCE_COMPONENT, _unknown_provenance_provider_impl)
+
+def _duplicate_dependency_provider_impl(env, target):
+    _assert_dependency_provider_failure(env, target, "duplicate_dependency_component", "duplicate_dep", "duplicate direct dependency name")
 
 def _duplicate_dependency_provider_test(name):
-    _dependency_provider_failure_test(name, _DUPLICATE_DEPENDENCY_COMPONENT)
+    _dependency_provider_failure_test(name, _DUPLICATE_DEPENDENCY_COMPONENT, _duplicate_dependency_provider_impl)
+
+def _conflicting_edge_provider_impl(env, target):
+    _assert_dependency_provider_failure(env, target, "conflicting_edge_component", "conflicting_dep", "authored and auto-attached dependencies")
 
 def _conflicting_edge_provider_test(name):
-    _dependency_provider_failure_test(name, _CONFLICTING_EDGE_COMPONENT)
+    _dependency_provider_failure_test(name, _CONFLICTING_EDGE_COMPONENT, _conflicting_edge_provider_impl)
 
 def _checked_action(env, target):
     """The component's ArccCheck action, as (subject, raw action)."""
