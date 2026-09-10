@@ -110,8 +110,9 @@ selfcheck:
 	# EXEMPT (Step 6 task 05 AC8b; TODO(Step 7 residual-UNANALYZED decision):
 	# capslockadapter owns capslock as member code, whose own source
 	# references UNANALYZED stdlib records — 1077 AnalysisDefeating sites
-	# (unsafe.Pointer x57, (sync.Once).Do x29, sort.Slice x20,
-	# io.WriteString x13, go/build.Default x12, sort.Sort x11, ...). Neither
+	# (unsafe.Pointer x570, (sync.Once).Do x30, unsafe.Sizeof x28,
+	# sort.Slice x20, io.WriteString x13, sort.Sort x11, unsafe.Slice x9,
+	# go/build.Default x5, ...). Neither
 	# the protobuf nor the x/tools wrapper owns capslock; only the Step 7
 	# residual-UNANALYZED decision (capability-use indirection curation or
 	# the DR-11 policy carrier) can clear these.
