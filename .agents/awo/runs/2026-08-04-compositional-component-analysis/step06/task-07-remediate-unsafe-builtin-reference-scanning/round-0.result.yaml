@@ -1,0 +1,109 @@
+result:
+  task_file: .agents/tasks/2026-08-04-compositional-component-analysis/step06/task-07-remediate-unsafe-builtin-reference-scanning.code-task.md
+  change_id: vxxynqlxrrrlrklzvzopmusmqvxwptkn
+  status: completed
+  schema_version: 2
+  produced_at: 2026-09-10T05:08:55Z
+
+acceptance_criteria:
+  - text: |
+      **Unsafe builtins become canonical reference edges**
+      - Given member source that calls `unsafe.Sizeof` and `unsafe.Slice`
+      - When `ScanReferences` runs
+      - Then it emits one site-bearing `RefFunc` edge for each canonical SymbolID
+        and does not silently discard either `*types.Builtin` object
+    addressed: yes
+    evidence: |
+      `go/internal/symbol/typesconv.go:25-39,163-178` converts exported
+      package-scoped builtins to canonical `pkg.Name` IDs. `go/internal/goanalysis/refscan.go:210-251`
+      admits package-owned builtins and classifies them as `facts.RefFunc` while
+      retaining the existing sorted/deduplicated edge path. Real typed-source
+      coverage is `TestScanReferences_UnsafeBuiltinsAndUniverseBuiltins` at
+      `go/internal/goanalysis/refscan_test.go:187-224`, with the fixture in
+      `go/internal/goanalysis/testdata/unsafe/member/unsafe.go:1-12`.
+  - text: |
+      **Universe builtins remain outside the boundary model**
+      - Given the same member source also uses `len`, `cap`, and `append`
+      - When references are scanned
+      - Then no edge is emitted for those package-less universe objects and the
+        scan succeeds without guessing a package
+    addressed: yes
+    evidence: |
+      `externalObject` at `go/internal/goanalysis/refscan.go:210-218` filters
+      objects with `Pkg() == nil` before conversion. The real fixture uses
+      `append`, `len`, and `cap` at lines 6-8 and the scanner test asserts the
+      complete reference set contains only the three unsafe `RefFunc` edges at
+      `go/internal/goanalysis/refscan_test.go:195-223`; the focused integration
+      test passed.
+  - text: |
+      **The stdlib map fails unsafe uses closed**
+      - Given an emitted unsafe builtin edge and the pinned authority map
+      - When the edge is classified under strict/default policy
+      - Then the exact map record is consulted and an `AnalysisDefeating`
+        violation retains the unsafe SymbolID and source site
+    addressed: yes
+    evidence: |
+      The normal map lookup and UNANALYZED conversion are implemented by
+      `go/internal/checker/classify.go:193-215`; no unsafe-specific policy branch
+      was added. `TestCheck_UnsafeBuiltinReachesAnalysisDefeating` at
+      `go/cmd/arcc/app/check_integration_test.go:232-294` runs the emitted edges
+      through the pinned map and asserts the strict `AnalysisDefeating` finding
+      retains both `unsafe.Sizeof` and `unsafe.Slice` sites.
+  - text: |
+      **The production command covers the repaired seam**
+      - Given a real component fixture that directly invokes an unsafe builtin
+      - When it is checked through the production Runner with the pinned map
+      - Then the command fails conformance with the expected analysis-defeating
+        site, without whole-SDK generation
+    addressed: yes
+    evidence: |
+      `go/cmd/arcc/app/check_integration_test.go:232-294` creates a temporary
+      module with typed unsafe source, invokes `fullRunner()` with
+      `--stdlib-map` copied from `teststdlibmap.WritePinned`, and asserts exit 1,
+      the expected class/kind, and both exact source sites. Supplying the checked
+      artifact makes the test independent of SDK generation.
+  - text: |
+      **The exemption set does not grow**
+      - Given the corrected scan may reveal additional sites in already exempted
+        foreign-member components
+      - When selfcheck and Bazel component gates are inspected
+      - Then no component is newly exempted, existing TODO owners remain Step 7,
+        and any enumerated site counts are accurate
+    addressed: yes
+    evidence: |
+      Artifact inspection recorded in `work.log` under `Criterion AC5` found the
+      existing five narrow `EXEMPT (Step 6 task 05 AC8b)` markers only: `justfile:81-113`,
+      `go/internal/artifactio/BUILD.bazel:64`, `go/internal/manifest/BUILD.bazel:63`,
+      `go/internal/goanalysis/BUILD.bazel:37`, and
+      `go/examples/csvtool/internal/parsecsv/BUILD.bazel:12`. No exemption or
+      TODO owner was changed by either task commit.
+  - text: |
+      **Repository gates pass**
+      - Given the completed repair
+      - When `CGO_ENABLED=0 just ci` runs
+      - Then every routine gate passes with no weakening of map, scanner, policy,
+        or existing test semantics
+    addressed: yes
+    evidence: |
+      `CGO_ENABLED=0 just ci` exited 0 after running generated-artifact checks,
+      `go vet`, gofmt cleanliness, Go build/tests, integration tests, selfcheck,
+      Bazel build/test, and shell gates; the command and passing output are in
+      `work.log` under `Criterion AC6`. A final `jj status` is clean and the
+      working-copy `@` is empty.
+
+artifacts:
+  scratchpad_dir: .agents/scratchpad/2026-08-04-compositional-component-analysis/step06/task-07-remediate-unsafe-builtin-reference-scanning/
+  files:
+    - context.md
+    - plan.md
+    - progress.md
+    - work.log
+    - result.yaml
+
+notes: |
+  The shared go/types conversion now distinguishes package-owned unsafe compiler
+  builtins from package-less universe builtins, and the reference scanner emits
+  unsafe uses as RefFunc edges. Real typed-source scanner coverage and a production
+  Runner regression prove the pinned UNANALYZED records reach strict
+  AnalysisDefeating reporting. The implementation was committed incrementally in
+  two jj changes, and `CGO_ENABLED=0 just ci` passed with an empty working copy.

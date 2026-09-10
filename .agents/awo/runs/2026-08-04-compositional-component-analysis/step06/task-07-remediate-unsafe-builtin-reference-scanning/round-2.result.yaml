@@ -1,0 +1,116 @@
+result:
+  task_file: .agents/tasks/2026-08-04-compositional-component-analysis/step06/task-07-remediate-unsafe-builtin-reference-scanning.code-task.md
+  change_id: qsskmzwrvpqznurnuvnstvmrntolmtuw
+  status: completed
+  schema_version: 2
+  produced_at: 2026-09-10T05:47:44Z
+
+acceptance_criteria:
+  - text: |
+      1. **Unsafe builtins become canonical reference edges**
+      - Given member source that calls `unsafe.Sizeof` and `unsafe.Slice`
+      - When `ScanReferences` runs
+      - Then it emits one site-bearing `RefFunc` edge for each canonical SymbolID
+        and does not silently discard either `*types.Builtin` object
+    addressed: yes
+    evidence: |
+      `go/internal/symbol/typesconv.go:25-39,163-178` converts exported
+      package-scoped builtins to canonical `pkg.Name` IDs. `go/internal/goanalysis/refscan.go:210-251`
+      admits package-owned builtins and classifies them as `facts.RefFunc` while
+      retaining the existing sorted/deduplicated edge path. Real typed-source
+      coverage is `TestScanReferences_UnsafeBuiltinsAndUniverseBuiltins` at
+      `go/internal/goanalysis/refscan_test.go:187-224`, with the fixture in
+      `go/internal/goanalysis/testdata/unsafe/member/unsafe.go:1-12`.
+  - text: |
+      2. **Universe builtins remain outside the boundary model**
+      - Given the same member source also uses `len`, `cap`, and `append`
+      - When references are scanned
+      - Then no edge is emitted for those package-less universe objects and the
+        scan succeeds without guessing a package
+    addressed: yes
+    evidence: |
+      `externalObject` at `go/internal/goanalysis/refscan.go:210-218` filters
+      objects with `Pkg() == nil` before conversion. The real fixture uses
+      `append`, `len`, and `cap` at lines 6-8 and the scanner test asserts the
+      complete reference set contains only the three unsafe `RefFunc` edges at
+      `go/internal/goanalysis/refscan_test.go:195-223`; the focused integration
+      test passed.
+  - text: |
+      3. **The stdlib map fails unsafe uses closed**
+      - Given an emitted unsafe builtin edge and the pinned authority map
+      - When the edge is classified under strict/default policy
+      - Then the exact map record is consulted and an `AnalysisDefeating`
+        violation retains the unsafe SymbolID and source site
+    addressed: yes
+    evidence: |
+      The normal map lookup and UNANALYZED conversion are implemented by
+      `go/internal/checker/classify.go:193-215`; no unsafe-specific policy branch
+      was added. `TestCheck_UnsafeBuiltinReachesAnalysisDefeating` at
+      `go/cmd/arcc/app/check_integration_test.go:232-294` runs the emitted edges
+      through the pinned map and asserts the strict `AnalysisDefeating` finding
+      retains both `unsafe.Sizeof` and `unsafe.Slice` sites.
+  - text: |
+      4. **The production command covers the repaired seam**
+      - Given a real component fixture that directly invokes an unsafe builtin
+      - When it is checked through the production Runner with the pinned map
+      - Then the command fails conformance with the expected analysis-defeating
+        site, without whole-SDK generation
+    addressed: yes
+    evidence: |
+      `go/cmd/arcc/app/check_integration_test.go:232-294` creates a temporary
+      module with typed unsafe source, invokes `fullRunner()` with
+      `--stdlib-map` copied from `teststdlibmap.WritePinned`, and asserts exit 1,
+      the expected class/kind, and both exact source sites. Supplying the checked
+      artifact makes the test independent of SDK generation.
+  - text: |
+      5. **The exemption set does not grow**
+      - Given the corrected scan may reveal additional sites in already exempted
+        foreign-member components
+      - When selfcheck and Bazel component gates are inspected
+      - Then no component is newly exempted, existing TODO owners remain Step 7,
+        and any enumerated site counts are accurate
+    addressed: yes
+    evidence: |
+      Fresh `--format=json` checks against the pinned map re-derived the sample
+      entries for all four components; the complete grouped output is recorded
+      in `work.log:563-583`. The capslockadapter sample at `justfile:113-115`
+      now records the count-ordered values `unsafe.Pointer` x570,
+      `(sync.Once).Do` x30, `unsafe.Sizeof` x28, `sort.Slice` x20,
+      `io.WriteString` x13, `sort.Sort` x11, `unsafe.Slice` x9, and
+      `go/build.Default` x5. The same inspection confirmed the retained
+      artifactio, manifest, and goanalysis entries are accurate. The comment-only
+      diff and seam inspection at `work.log:585-589` show that the five existing
+      AC8b exemptions, Step 7 TODO owners, and all four
+      `check_tags = ["manual"]` seams remain unchanged.
+  - text: |
+      6. **Repository gates pass**
+      - Given the completed repair
+      - When `CGO_ENABLED=0 just ci` runs
+      - Then every routine gate passes with no weakening of map, scanner, policy,
+        or existing test semantics
+    addressed: yes
+    evidence: |
+      `CGO_ENABLED=0 just ci` exited 0 after generated-artifact checks, Go
+      vet/gofmt/build/tests, integration tests, map-pin validation, selfcheck,
+      Bazel build, all 116 Bazel tests, and shell gates; the round-2 validation
+      is recorded at `work.log:591-596`. The working copy was clean after the
+      fresh commit, with an empty `@`.
+
+artifacts:
+  scratchpad_dir: .agents/scratchpad/2026-08-04-compositional-component-analysis/step06/task-07-remediate-unsafe-builtin-reference-scanning/
+  files:
+    - context.md
+    - plan.md
+    - progress.md
+    - work.log
+    - result.yaml
+
+notes: |
+  Rework round 2 corrects the capslockadapter sample breakdown using fresh JSON
+  reports: unsafe.Pointer 570, (sync.Once).Do 30, unsafe.Sizeof 28,
+  sort.Slice 20, io.WriteString 13, sort.Sort 11, unsafe.Slice 9, and
+  go/build.Default 5. The other components' retained sample entries were also
+  re-derived and remain accurate. Only the justfile comment changed; all AC8b
+  exemption markers, Step 7 owners, and manual seams remain unchanged. The fresh
+  child change is qsskmzwrvpqznurnuvnstvmrntolmtuw, `CGO_ENABLED=0 just ci` passed,
+  and the working copy is empty.
