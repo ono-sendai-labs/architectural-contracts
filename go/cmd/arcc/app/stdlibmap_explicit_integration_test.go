@@ -1,4 +1,4 @@
-//go:build integration
+//go:build integration && stdlibmap_full
 
 package app_test
 

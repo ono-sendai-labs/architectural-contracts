@@ -172,7 +172,7 @@ modes before anything depends on it (R5, R6, N3, Q13, DR-05, DR-07, DR-09).
   `PackageInitAuthority`, `Evidence`, `Key`).
 - `stdlibmap` shell package: inventory with `go/types` (every exported object, every
   exported method of exported named/alias types, `init`); Capslock
-  `GranularityFunction` in an isolated batch for each importable package, grouped by
+  `GranularityFunction` in an isolated run for each importable package, grouped by
   `Path[0]` within that package. Step 6 proved that one whole-stdlib program conflates
   unrelated packages under VTA (10,399 findings instead of the isolated 8,182), so the
   isolation is a correctness property despite its roughly 146-second generation cost;

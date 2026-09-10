@@ -1,0 +1,15 @@
+load("@rules_go//go:def.bzl", "go_binary", "go_library")
+
+go_library(
+    name = "stdlibmap_lib",
+    srcs = ["main.go"],
+    importpath = "github.com/ono-sendai-labs/architectural-contracts/go/cmd/arcc-stdlibmap",
+    visibility = ["//bazel_rules/go/private:__pkg__"],
+    deps = ["//go/internal/stdlibmap"],
+)
+
+go_binary(
+    name = "arcc-stdlibmap",
+    embed = [":stdlibmap_lib"],
+    visibility = ["//visibility:public"],
+)

@@ -15,6 +15,12 @@ test:
 test-integration:
 	cd {{go_dir}} && go test -timeout 40m -tags=integration ./...
 
+# Full stdlib-map coverage is intentionally outside the routine feedback lane:
+# it retains the real two-generation determinism and cross-configuration
+# assertions with the original semantics.
+test-integration-full:
+	cd {{go_dir}} && go test -timeout 60m -tags='integration stdlibmap_full' ./...
+
 lint:
 	cd {{go_dir}} && go vet ./...
 	cd {{go_dir}} && test -z "$(gofmt -l .)"
@@ -55,17 +61,18 @@ run *args:
 # Keeping both legs is deliberate: native FR1 membership and Bazel declared
 # membership checking the same components cross-checks the whole membership model.
 selfcheck:
+	@echo "=== Validating pinned selfcheck toolchain ==="
+	@test "$(cd {{go_dir}} && go env GOVERSION)" = "go1.26.4"
+	@test "$(cd {{go_dir}} && go env GOOS)" = "linux"
+	@test "$(cd {{go_dir}} && go env GOARCH)" = "amd64"
+	@test "$(cd {{go_dir}} && go env CGO_ENABLED)" = "0"
+	@test -z "$(cd {{go_dir}} && go env GOEXPERIMENT)"
+	@test -f "$(pwd)/go/internal/teststdlibmap/testdata/linux_amd64.stdlib-map.json"
 	@echo "=== Building own arcc ==="
 	mkdir -p bin
 	cd {{go_dir}} && go build -o ../bin/arcc ./cmd/arcc
 	@echo "=== Running self-hosting checks (Pillar 3 authority-free core) ==="
-	cd {{go_dir}} && ../bin/arcc check internal/checker/component.textproto
-	cd {{go_dir}} && ../bin/arcc check internal/facts/component.textproto
-	cd {{go_dir}} && ../bin/arcc check internal/report/component.textproto
-	cd {{go_dir}} && ../bin/arcc check internal/capanalyzer/component.textproto
-	cd {{go_dir}} && ../bin/arcc check internal/hostpolicy/component.textproto
-	cd {{go_dir}} && ../bin/arcc check internal/symbol/component.textproto
-	cd {{go_dir}} && ../bin/arcc check internal/stdlibauthority/component.textproto
+	cd {{go_dir}} && ../bin/arcc check internal/checker/component.textproto --stdlib-map=internal/teststdlibmap/testdata/linux_amd64.stdlib-map.json
 	# EXEMPT (Step 6 task 05 AC8b; TODO(Step 7 protobuf-runtime PACKAGE_SURFACE
 	# migration): artifactio's transitional protobuf-runtime members reference
 	# stdlib records the authority map honestly preserves UNANALYZED (I4) —
@@ -76,7 +83,7 @@ selfcheck:
 	# moves those packages into the protobuf-runtime component and removes
 	# this exemption.
 	# cd {{go_dir}} && ../bin/arcc check internal/artifactio/component.textproto
-	cd {{go_dir}} && ../bin/arcc check internal/surface/component.textproto
+	cd {{go_dir}} && ../bin/arcc check internal/surface/component.textproto --stdlib-map=internal/teststdlibmap/testdata/linux_amd64.stdlib-map.json
 	@echo "=== Running self-hosting checks (remaining components) ==="
 	# EXEMPT (Step 6 task 05 AC8b; TODO(Step 7 protobuf-runtime PACKAGE_SURFACE
 	# migration): the same transitional protobuf-runtime members as
@@ -101,7 +108,11 @@ selfcheck:
 	# residual-UNANALYZED decision (capability-use indirection curation or
 	# the DR-11 policy carrier) can clear these.
 	# cd {{go_dir}} && ../bin/arcc check internal/capslockadapter/component.textproto
-	cd {{go_dir}} && ../bin/arcc check cmd/arcc/component.textproto
+	cd {{go_dir}} && ../bin/arcc check cmd/arcc/component.textproto --stdlib-map=internal/teststdlibmap/testdata/linux_amd64.stdlib-map.json
+
+bazel-test-full:
+	bazel build //:arcc_stdlib_map_replica //bazel_rules/go/tests:stdlib_map_darwin_arm64 //bazel_rules/go/tests:stdlib_map_tagged //bazel_rules/go/tests:darwin_arm64_map
+	bazel test //bazel_rules/go/tests:stdlib_map_keys_test //bazel_rules/go/tests:transitioned_surface_sdk_key_test
 
 # Bazel build + test leg. Catches rules/Starlark and hermetic-check
 # regressions the Go tests cannot see (design §8.5). It fails loudly if Bazel

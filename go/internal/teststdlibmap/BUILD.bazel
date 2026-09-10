@@ -1,0 +1,25 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "teststdlibmap",
+    srcs = ["pinned.go"],
+    embedsrcs = ["testdata/linux_amd64.stdlib-map.json"],
+    importpath = "github.com/ono-sendai-labs/architectural-contracts/go/internal/teststdlibmap",
+    visibility = ["//go/cmd/arcc:__subpackages__", "//go/internal:__subpackages__"],
+    deps = [
+        "//go/internal/artifactio",
+        "//go/internal/schema/gen",
+        "//go/internal/stdlibauthority",
+        "//go/internal/stdlibmap",
+        "//go/internal/symbol",
+    ],
+)
+
+go_test(
+    name = "teststdlibmap_test",
+    srcs = ["pinned_test.go"],
+    embed = [":teststdlibmap"],
+    deps = ["//go/internal/stdlibauthority"],
+)
+
+exports_files(["testdata/linux_amd64.stdlib-map.json"])

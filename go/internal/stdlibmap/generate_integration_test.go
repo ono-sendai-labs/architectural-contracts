@@ -1,4 +1,4 @@
-//go:build integration
+//go:build integration && stdlibmap_full
 
 package stdlibmap_test
 
@@ -15,8 +15,9 @@ import (
 )
 
 // fullGeneration runs Generate over the local toolchain's complete standard
-// library: native discovery, native loading, and one batched Capslock run at
-// GranularityFunction under the generation classifier (~2 s, ~1.4 GB; spike 6).
+// library: native discovery, native loading, and one isolated Capslock run per
+// importable package at GranularityFunction under the generation classifier
+// (approximately 146 seconds on the pinned host; the full lane pays this cost).
 func fullGeneration(t *testing.T) *stdlibmap.GeneratedMap {
 	t.Helper()
 	entries, err := stdlibmap.NativeStdPackageList(context.Background(), nil)

@@ -191,7 +191,10 @@ def _arcc_checked_analysis_impl(ctx):
     _require_checked_component(info, "arcc_checked_analysis_test", ctx.label)
     expect_verdict = _validated_verdict(ctx.attr.expect_verdict, ctx.label)
 
-    map_file = ctx.attr._stdlib_map[ArccStdlibMapInfo].map
+    map_info = ctx.attr._stdlib_map
+    if type(map_info) == type([]):
+        map_info = map_info[0]
+    map_file = map_info[ArccStdlibMapInfo].map
     argv = arcc_check_argv(
         arcc = runfiles_path(ctx, ctx.executable._arcc),
         manifest = runfiles_path(ctx, info.manifest),

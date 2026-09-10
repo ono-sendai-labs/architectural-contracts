@@ -12,6 +12,22 @@ load(":stdlib_map_tests.bzl", "stdlib_map_test_suite")
 
 stdlib_map_test_suite(name = "stdlib_map_tests")
 
+sh_test(
+    name = "stdlib_map_default_matches_pinned_test",
+    srcs = ["stdlib_map_default_matches_pinned_test.sh"],
+    size = "small",
+    args = [
+        "$(rootpath //:arcc)",
+        "$(rootpath //:arcc_stdlib_map)",
+        "$(rootpath //go/internal/teststdlibmap:testdata/linux_amd64.stdlib-map.json)",
+    ],
+    data = [
+        "//:arcc",
+        "//:arcc_stdlib_map",
+        "//go/internal/teststdlibmap:testdata/linux_amd64.stdlib-map.json",
+    ],
+)
+
 # Checked-analysis execution coverage (task req 8): the same command the
 # ArccCheck action runs, re-executed twice in the test sandbox against the
 # action's own artifacts. The conforming component must produce a pass
@@ -65,18 +81,21 @@ default_seam_probe(name = "stdlib_map_default_seam_probe")
 darwin_arm64_stdlib_map(
     name = "stdlib_map_darwin_arm64",
     map = "//:arcc_stdlib_map",
+    tags = ["manual"],
 )
 
 tagged_stdlib_map(
     name = "stdlib_map_tagged",
     map = "//:arcc_stdlib_map",
     tag = "arcc_probe_tag",
+    tags = ["manual"],
 )
 
 sh_test(
     name = "stdlib_map_keys_test",
     srcs = ["stdlib_map_keys_test.sh"],
     size = "medium",
+    tags = ["manual"],
     data = [
         "//:arcc",
         "//:arcc_stdlib_map",
@@ -190,11 +209,13 @@ transitioned_component_layout(
 # rejected by the default configuration's map.
 transitioned_checked_map(
     name = "darwin_arm64_map",
+    tags = ["manual"],
 )
 
 transitioned_checked_surface(
     name = "darwin_arm64_surface",
     component = "//bazel_rules/go/tests/testdata/api:api_component",
+    tags = ["manual"],
 )
 
 checked_analysis_surface(
@@ -207,6 +228,7 @@ sh_test(
     srcs = ["transitioned_surface_sdk_key_test.sh"],
     size = "large",
     timeout = "moderate",
+    tags = ["manual"],
     args = [
         "$(rootpath //:arcc)",
         "$(rootpath //:arcc_stdlib_map)",

@@ -323,7 +323,10 @@ def _checked_analysis_action(ctx, manifest, layout, closure_srcs, transitive_man
     surface = ctx.actions.declare_file(ctx.label.name + ".surface.json")
 
     wrapper = ctx.actions.declare_file(ctx.label.name + ".arcc-check-wrapper.sh")
-    map_file = ctx.attr._stdlib_map[ArccStdlibMapInfo].map
+    map_info = ctx.attr._stdlib_map
+    if type(map_info) == type([]):
+        map_info = map_info[0]
+    map_file = map_info[ArccStdlibMapInfo].map
     argv = arcc_check_argv(
         arcc = ctx.executable._arcc.path,
         manifest = manifest.path,
@@ -554,6 +557,9 @@ def go_component_impl(ctx, attachment_fn = go_attached_infra):
     report = None
     surface = None
     provenance = None
+    map_info = ctx.attr._stdlib_map
+    if type(map_info) == type([]):
+        map_info = map_info[0]
     if "manual" in ctx.attr.tags:
         # The asserted producer path (design I6, Step 5 task 05): a manual
         # component is not analysed. Its surface is asserted ABOUT it —
@@ -579,7 +585,7 @@ def go_component_impl(ctx, attachment_fn = go_attached_infra):
             content = _asserted_surface_content(
                 component_name = ctx.label.name,
                 packages = members,
-                key = arcc_sdk_key_fields(ctx.attr._stdlib_map[ArccStdlibMapInfo]),
+                key = arcc_sdk_key_fields(map_info[ArccStdlibMapInfo]),
             ),
         )
         provenance = "asserted"

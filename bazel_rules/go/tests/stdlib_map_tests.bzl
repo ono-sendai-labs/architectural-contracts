@@ -80,7 +80,7 @@ def _action_inputs_are_complete_and_minimal_impl(env, target):
     ]).contains_exactly([])
     env.expect.that_collection([
         p for p in inputs
-        if (p.startswith("go/") and not p.startswith("go/cmd/arcc/arcc_")) or
+        if (p.startswith("go/") and not p.startswith("go/cmd/arcc/arcc_") and not p.startswith("go/cmd/arcc-stdlibmap/arcc-stdlibmap_")) or
            p.startswith("examples/") or p.startswith("bazel_rules/")
     ]).contains_exactly([])
 
@@ -98,7 +98,7 @@ def _action_executes_no_toolchain_binary_impl(env, target):
     # executing the pinned `go` (the superseded first attempt) fails loudly.
     action = _map_action(target)
     argv = list(action.argv)
-    env.expect.that_str(argv[0]).contains("go/cmd/arcc/arcc")
+    env.expect.that_str(argv[0]).contains("go/cmd/arcc-stdlibmap/arcc-stdlibmap")
     env.expect.that_collection([
         p for p in [f.short_path for f in action.inputs.to_list()]
         if "/bin/go" in p or "/bin/go_" in p or "pkg/tool/" in p
@@ -151,7 +151,7 @@ def _action_is_hermetic_by_execution_requirements_impl(env, target):
     # (stdlib_map.bzl sets execution_requirements = {"block-network": "1"}).
     action = _map_action(target)
     env.expect.that_dict(action.env).contains_exactly({})
-    env.expect.that_str(list(action.argv)[0]).contains("go/cmd/arcc/arcc")
+    env.expect.that_str(list(action.argv)[0]).contains("go/cmd/arcc-stdlibmap/arcc-stdlibmap")
     env.expect.that_str(action.mnemonic).equals("ArccStdlibMap")
 
 def _config_file_carries_the_target_key_test(name):

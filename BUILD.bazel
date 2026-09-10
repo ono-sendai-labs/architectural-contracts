@@ -35,5 +35,6 @@ arcc_stdlib_map(
 
 arcc_stdlib_map(
     name = "arcc_stdlib_map_replica",
+    tags = ["manual"],
     visibility = ["//visibility:public"],
 )

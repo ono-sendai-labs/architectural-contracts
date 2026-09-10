@@ -370,3 +370,24 @@ The A/B measurements in §5 C were taken with a throwaway probe binary under
 the three shapes (per-package / shared-sequential / shared-parallel / whole-batch). It was
 **deleted**; the working copy is clean. Rebuild it from the shapes described in §2.2 and
 §5 C if the numbers need re-taking.
+
+## 8. Step 6 implementation measurements
+
+The routine cutover checked in the canonical map at
+`go/internal/teststdlibmap/testdata/linux_amd64.stdlib-map.json` and moved the real
+full-generation tests behind the `stdlibmap_full` tag. Before the cutover, the routine
+shape had approximately eleven native whole-SDK generation call sites and the Bazel
+wildcard action graph contained six `ArccStdlibMap` actions; the measured isolated native
+generation was approximately 137.6 seconds (the Bazel action was approximately 146.25
+seconds). After the cutover, `CGO_ENABLED=0 just test-integration` completed in 19.36
+seconds with zero whole-SDK generation calls, and `bazel build //...` completed in 156.80
+seconds with one executed map generation on the cold local action cache; the warm
+`bazel test //...` completed in 2.01 seconds. The default Bazel output was byte-identical
+to the checked-in artifact (digest `a7b10f4d6f189cc2e89c968ab320cf2834bc45839a3aa808f128f76c195f0637`).
+
+The generator remains intentionally isolated per importable package. Whole-batch analysis
+is not an optimisation: it changes VTA classifications by conflating unrelated package
+closures (10,399 findings versus 8,182 isolated findings). Replica, build-tag,
+cross-platform and transitioned-surface map checks remain in the explicit full lane. A
+future CI matrix should run that lane across additional execution and target architectures;
+the matrix and generator optimisations C1-C4 are deferred.

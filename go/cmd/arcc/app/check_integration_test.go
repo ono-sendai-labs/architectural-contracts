@@ -15,6 +15,7 @@ import (
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/goanalysis"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/report"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/stdlibmap"
+	"github.com/ono-sendai-labs/architectural-contracts/go/internal/teststdlibmap"
 )
 
 // writePinnedLayoutFixture writes a package-layout JSON for workspace whose
@@ -116,10 +117,12 @@ func fullRunner() *app.Runner {
 
 func generateNativeMap(t *testing.T, path string) {
 	t.Helper()
-	runner := &app.Runner{}
-	var stdout, stderr strings.Builder
-	if code := runner.Run([]string{"stdlibmap", "generate", "--output=" + path}, &stdout, &stderr); code != 0 {
-		t.Fatalf("stdlibmap generate: exit %d, stderr: %s", code, stderr.String())
+	data, err := os.ReadFile(teststdlibmap.WritePinned(t))
+	if err != nil {
+		t.Fatalf("read pinned stdlib map: %v", err)
+	}
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		t.Fatalf("copy pinned stdlib map: %v", err)
 	}
 }
 

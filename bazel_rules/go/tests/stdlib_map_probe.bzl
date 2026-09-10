@@ -98,7 +98,10 @@ DefaultSeamProbeInfo = provider(
 def _default_seam_probe_impl(ctx):
     """The probe rule Step 5's analysis action will mirror: it consumes the
     private default `_stdlib_map` attribute and nothing else."""
-    info = ctx.attr._stdlib_map[ArccStdlibMapInfo]
+    info = ctx.attr._stdlib_map
+    if type(info) == type([]):
+        info = info[0]
+    info = info[ArccStdlibMapInfo]
     return [DefaultSeamProbeInfo(
         goos = info.goos,
         goarch = info.goarch,

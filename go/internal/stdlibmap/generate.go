@@ -954,7 +954,7 @@ func compareFrames(a, b stdlibauthority.Frame) int {
 	return 0
 }
 
-// BuildAuthorityMap converts one batched Capslock response into the
+// BuildAuthorityMap converts the per-package Capslock responses into the
 // classified map message (task reqs 3–8): findings are grouped by their
 // `Path[0]` root, normalized through the structured inventory, and every
 // inventoried symbol and init is completed with a terminal classification.

@@ -33,7 +33,6 @@ load("//bazel_rules/go:providers.bzl", "ArccStdlibMapInfo")
 load(":arcc_metadata.bzl", "CLASSIFIER_HASH", "MAP_FORMAT_VERSION")
 load(
     ":go_adapter.bzl",
-    "ARCC_TARGET",
     "GO_CONTEXT_DATA_ATTRS",
     "GO_TOOLCHAINS",
     "go_stdlib_toolchain",
@@ -53,8 +52,9 @@ def stdlib_map_default_attr(doc = None):
     """
     return attr.label(
         default = DEFAULT_STDLIB_MAP_TARGET,
+        cfg = "host",
         providers = [ArccStdlibMapInfo],
-        doc = doc or "The stdlib authority map for the target SDK configuration.",
+        doc = doc or "The stdlib authority map for the execution target configuration.",
     )
 
 def _stdlib_map_config_content(mode):
@@ -159,14 +159,11 @@ arcc_stdlib_map_rule = rule(
     implementation = _arcc_stdlib_map_impl,
     attrs = {} | GO_CONTEXT_DATA_ATTRS | {
         "_arcc": attr.label(
-            default = ARCC_TARGET,
+            default = Label("//go/cmd/arcc-stdlibmap:arcc-stdlibmap"),
             executable = True,
             cfg = "exec",
-            doc = "The arcc binary whose explicit-input generation path runs. " +
-                  "The generator is a config-independent tool: it runs on the " +
-                  "execution host and describes the target through its " +
-                  "declared configuration inputs, so exec configuration is " +
-                  "correct (and avoids rebuilding arcc per target platform).",
+            doc = "The generation-only binary whose explicit-input path runs. " +
+                  "It is deliberately independent of the ordinary check path.",
         ),
     },
     toolchains = GO_TOOLCHAINS,

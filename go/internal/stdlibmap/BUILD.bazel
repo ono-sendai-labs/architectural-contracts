@@ -10,6 +10,7 @@ go_library(
     name = "stdlibmap",
     srcs = [
         "cache.go",
+        "command.go",
         "explicit.go",
         "generate.go",
         "layoutloader.go",

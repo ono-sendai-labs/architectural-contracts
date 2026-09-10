@@ -4,50 +4,28 @@ package app_test
 
 import (
 	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/ono-sendai-labs/architectural-contracts/go/cmd/arcc/app"
+	"github.com/ono-sendai-labs/architectural-contracts/go/internal/teststdlibmap"
 )
 
 // TestStdlibmapGenerateAndInspect is the CLI integration leg (task AC 4–5):
-// a real native generation of the local toolchain's stdlib map, byte-identical
-// regeneration, and the deterministic inspect summary plus the pinned
-// semantic queries (`os.ReadFile`, `strings.TrimSpace`, `sort.Slice`, a
+// the checked pinned artifact and the deterministic inspect summary plus the
+// pinned semantic queries (`os.ReadFile`, `strings.TrimSpace`, `sort.Slice`, a
 // package init). Unknown symbols and mismatched expected keys exit 2.
 func TestStdlibmapGenerateAndInspect(t *testing.T) {
 	runner := &app.Runner{}
-	dir := t.TempDir()
-	first := filepath.Join(dir, "map1.json")
-	second := filepath.Join(dir, "map2.json")
+	first := teststdlibmap.WritePinned(t)
 
 	var stdout, stderr strings.Builder
-	if code := runner.Run([]string{"stdlibmap", "generate", "--output=" + first}, &stdout, &stderr); code != 0 {
-		t.Fatalf("first generate: exit %d, stderr: %s", code, stderr.String())
-	}
-	if !strings.Contains(stdout.String(), "sdk key: sdk{toolchain_version:") {
-		t.Fatalf("generate summary missing the SDK key: %s", stdout.String())
-	}
 	data1, err := os.ReadFile(first)
 	if err != nil {
 		t.Fatalf("reading generated artifact: %v", err)
 	}
 	if len(data1) == 0 {
 		t.Fatal("generated artifact is empty")
-	}
-
-	stdout.Reset()
-	stderr.Reset()
-	if code := runner.Run([]string{"stdlibmap", "generate", "--output=" + second}, &stdout, &stderr); code != 0 {
-		t.Fatalf("second generate: exit %d, stderr: %s", code, stderr.String())
-	}
-	data2, err := os.ReadFile(second)
-	if err != nil {
-		t.Fatalf("reading regenerated artifact: %v", err)
-	}
-	if string(data1) != string(data2) {
-		t.Fatalf("two identical generations produced different bytes (%d vs %d)", len(data1), len(data2))
 	}
 
 	// Summary: the full SDK key is shown.

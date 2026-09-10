@@ -18,7 +18,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version-file: go/go.mod
+          go-version: "1.26.4"
           cache-dependency-path: go/go.mod
 
       - name: Install just
@@ -34,7 +34,7 @@ jobs:
         run: go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.36.11
 
       - name: Run CI
-        run: just ci-go
+        run: CGO_ENABLED=0 just ci-go
 
   selfcheck:
     name: Self-hosting Check
@@ -46,14 +46,14 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version-file: go/go.mod
+          go-version: "1.26.4"
           cache-dependency-path: go/go.mod
 
       - name: Install just
         uses: extractions/setup-just@v2
 
       - name: Run Selfcheck
-        run: just selfcheck
+        run: CGO_ENABLED=0 just selfcheck
 
   bazel:
     name: Bazel

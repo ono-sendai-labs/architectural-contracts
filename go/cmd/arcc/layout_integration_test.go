@@ -22,6 +22,7 @@ import (
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/stdlibauthority"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/stdlibmap"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/symbol"
+	"github.com/ono-sendai-labs/architectural-contracts/go/internal/teststdlibmap"
 )
 
 // layoutTestKey and layoutTestAuthority are the fake authority used by the
@@ -96,17 +97,14 @@ func sharedNativeMap(t *testing.T, goos string) string {
 	if sharedMapErr != nil {
 		t.Fatalf("shared native map: %v", sharedMapErr)
 	}
-	dir, err := os.MkdirTemp("", "layout-integration-map-*")
-	if err != nil {
-		t.Fatalf("map temp dir: %v", err)
-	}
-	path := filepath.Join(dir, "map-"+goos+".json")
-	args := []string{"stdlibmap", "generate", "--output=" + path, "--goos=" + goos, "--goarch=amd64"}
-	runner := &app.Runner{}
-	var stdout, stderr bytes.Buffer
-	code := runner.Run(args, &stdout, &stderr)
-	if code != 0 {
-		t.Fatalf("stdlibmap generate (goos=%s): exit %d, stderr: %s", goos, code, stderr.String())
+	target := stdlibmap.TargetConfig{ToolchainVersion: nativeToolchainVersion(t), GOOS: goos, GOARCH: "amd64"}
+	var path string
+	if goos == teststdlibmap.PinnedGOOS {
+		path = teststdlibmap.WritePinned(t)
+	} else {
+		path = teststdlibmap.WriteSynthetic(t, target,
+			[]string{"fmt", "os", "strings", "syscall"},
+			[]string{"fmt.Println", "os.DevNull", "strings.ToLower", "syscall.Open"})
 	}
 	sharedMapByOS[goos] = path
 	return path

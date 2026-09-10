@@ -26,7 +26,10 @@ func (r *Runner) runStdlibmap(args []string, stdout, stderr io.Writer) int {
 	}
 	switch args[0] {
 	case "generate":
-		return r.runStdlibmapGenerate(args[1:], stdout, stderr)
+		// Generation is shared with the thin Bazel generator. Keeping the
+		// command implementation in stdlibmap prevents the hermetic tool from
+		// depending on the ordinary check path.
+		return stdlibmap.RunGenerateCommand(args[1:], stdout, stderr)
 	case "inspect":
 		return r.runStdlibmapInspect(args[1:], stdout, stderr)
 	default:

@@ -945,8 +945,10 @@ and made byte-stable by canonicalisation; textproto stays for hand-authored mani
   files and a complete import graph (spike 1).
 - Capslock attributes per root; "absent" has four causes; the adapter classifier
   launders 1078 `UNANALYZED` stdlib roots; `unsafe.*` are builtins. The original
-  whole-stdlib batch cost ~2 s but was unsound under VTA; correctness-preserving
-  per-package isolation costs roughly 146 s on the measured host.
+  whole-stdlib batch cost ~2 s but was unsound under VTA, producing 10,399 findings
+  versus 8,182 with correctness-preserving per-package isolation. The isolated
+  generation costs roughly 146 s on the measured host and is paid once for the
+  pinned artifact or one routine Bazel action, not by each routine test.
 
 **Unmeasured and material:** the split of the PoC's ~50s between closure SSA (eliminated)
 and member-package type-checking (kept). Plan Step 1.
