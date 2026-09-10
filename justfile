@@ -10,16 +10,16 @@ build:
 	cd {{go_dir}} && go build -o ../bin/arcc ./cmd/arcc
 
 test:
-	cd {{go_dir}} && go test -timeout 20m ./...
+	cd {{go_dir}} && go test -timeout 2m ./...
 
 test-integration:
-	cd {{go_dir}} && go test -timeout 40m -tags=integration ./...
+	cd {{go_dir}} && go test -timeout 5m -tags=integration ./...
 
 # Full stdlib-map coverage is intentionally outside the routine feedback lane:
 # it retains the real two-generation determinism and cross-configuration
 # assertions with the original semantics.
 test-integration-full:
-	cd {{go_dir}} && go test -timeout 60m -tags='integration stdlibmap_full' ./...
+	cd {{go_dir}} && go test -timeout 30m -tags='integration stdlibmap_full' ./...
 
 # The routine lane's version/configuration guard compares both CI Go pins and
 # the Bazel SDK pin with the checked artifact key through the bounded reader.
