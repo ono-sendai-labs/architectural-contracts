@@ -86,10 +86,15 @@ real hermetic generator. On the pinned reference configuration, a warm-Bazel-cac
    their supporting targets out of wildcard `bazel build //...` and `bazel test //...` using
    `manual` tags. Preserve them behind an explicit `just bazel-test-full` or equivalently
    named command; do not delete or weaken their assertions.
-9. Keep exactly one real `ArccStdlibMap` action in routine Bazel wildcard build/test. Add a
-   routine test comparing that generated default artifact byte-for-byte with the checked-in
-   pinned artifact. This must reuse the already-required default generation, not introduce a
-   second action.
+9. Keep exactly one **default-configuration** `ArccStdlibMap` action in routine Bazel wildcard
+   build/test. Additional `ArccStdlibMap` actions in **non-default** configurations are
+   permitted where they are pulled in by analysis-time-failure fixtures that must stay in the
+   routine lane (expected-failure component, asserted-surface and report-rejection paths),
+   provided the wall-clock bound in AC 8 still holds — that bound, not an action count, is the
+   guarantee this task owes. Do not weaken or displace those fixtures to reduce the count.
+   Add a routine test comparing the generated default artifact byte-for-byte with the
+   checked-in pinned artifact, reusing the already-required default generation rather than
+   introducing a second one.
 10. Update stale design, plan, code comments, and research text. Record that generation is
     isolated per importable package, why whole-batch analysis was unsound, the measured cost,
     and the split between routine Linux/amd64 coverage and the explicit full lane.
@@ -141,11 +146,15 @@ real hermetic generator. On the pinned reference configuration, a warm-Bazel-cac
    - When its Bazel dependency graph and `ArccStdlibMap` action inputs are inspected
    - Then the full `//:arcc` binary and normal check-path packages are absent
 
-5. **Routine Bazel builds one map**
+5. **Routine Bazel builds one default map**
    - Given wildcard `bazel build //...` and `bazel test //...`
    - When `ArccStdlibMap` actions are queried
-   - Then exactly one default-configuration generation is present
+   - Then exactly one **default-configuration** generation is present
    - And its output is byte-identical to the checked-in pinned artifact
+   - Note that the total `ArccStdlibMap` count may exceed one: analysis-time-failure fixtures
+     that must remain in the routine lane pull the map in under a transitioned configuration,
+     and `bazel aquery 'mnemonic("ArccStdlibMap", //...)'` counts every configuration. Count
+     default-configuration actions, and rely on AC 8's wall-clock bound for the cost guarantee.
 
 6. **Full coverage remains explicitly runnable**
    - Given the full stdlib-map test command

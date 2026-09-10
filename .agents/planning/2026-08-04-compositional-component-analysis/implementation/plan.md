@@ -314,7 +314,9 @@ fixture is a violation by default and a warning with policy; a finding with thre
 renders one line with a count in text and three sites in JSON. The checked map decodes and
 matches every field of the key derived from the pinned target and current classifier;
 routine Go integration performs no whole-SDK generation; Bazel wildcard build/test contains
-exactly one `ArccStdlibMap` action; the displaced replica, tagged, cross-platform and
+exactly one **default-configuration** `ArccStdlibMap` action, with additional non-default
+actions permitted where analysis-time-failure fixtures that must stay in the routine lane pull
+the map in under a transition; the displaced replica, tagged, cross-platform and
 transitioned-surface checks remain runnable through the explicit full lane.
 
 **Integration.** The analysis model changes here. Expect golden churn; Step 9 cleans up
