@@ -26,13 +26,15 @@ go_library(
 # component whose complete surface is the exported API of the generated
 # protobuf package and the capability taxonomy package, so manifest and
 # artifactio consume both through declared component dependencies instead of
-# duplicated membership. The generated closure imports the protobuf runtime
-# owned by the consuming components' own member closures, so the component's
-# own .check is kept out of the default test wildcard; the manifest is still
-# validated every time a consumer resolves it as a dependency.
+# duplicated membership. The generated closure imports the shared protobuf
+# runtime through its package-surface dependency. Its own generated-code
+# analysis remains outside the default test wildcard because the current map
+# deliberately reports its UNANALYZED constructs; consumers still validate
+# the schema surface as an artifact dependency.
 go_component(
     name = "schema_component",
     interface_style = "PACKAGE_SURFACE",
+    component_deps = ["//go/internal/protobufruntime:protobuf-runtime"],
     members = [
         "//go/internal/schema",
         "//go/internal/schema/gen",

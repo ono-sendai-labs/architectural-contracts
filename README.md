@@ -283,6 +283,16 @@ implements-closure injection on either side. `--stdlib-map` is mandatory in
 layout/Bazel mode; native mode resolves the map from the on-demand cache
 whenever a check runs, not only when a surface is emitted.
 
+Dependency status is deliberately three-dimensional. Canonical JSON preserves
+`provenance` (`CHECKED_PASS`, `CHECKED_FAIL`, or `ASSERTED`), `freshness`
+(`BUILD_GRAPH`, `VERIFIED`, `STALE`, or `UNKNOWN`), and `authority`
+(`DECLARED` with its set or `UNKNOWN`) independently. Text reports render
+`certified` only for a checked-pass, non-stale boundary; `check failed`,
+`asserted`, `stale`, and `untrusted` remain visible when their individual axes
+apply. A native dependency surface is conventionally staged with its report in
+dependency order; do not copy generated artifacts into the repository or rely
+on a developer's existing sibling files.
+
 
 `arcc stdlibmap generate` produces the canonical standard-library authority
 map for a target configuration: by default the current toolchain (`go env`
@@ -352,12 +362,58 @@ also lists each checked boundary:
 Component "app" conforms; does not exceed declared authority
 
 Dependencies:
-- csvfile
-- toprow
+- csvfile (asserted)
+- toprow (asserted)
 ```
 
 The listing is not a finding: it makes the component boundaries visible in every
 report that rests on them.
+
+### Reproducing the status demo
+
+The native demo stages all four CSV components in topological order. The
+`--report-verdict-only` flag makes a failing dependency report usable as an
+artifact while preserving its `fail` verdict for downstream warning/status
+handling:
+
+```bash
+cd go
+for component in \
+  examples/csvtool/internal/parsecsv \
+  examples/csvtool/csvfile \
+  examples/csvtool/toprow \
+  examples/csvtool/app; do
+  ../bin/arcc check "$component/component.textproto" \
+    --report-out="$component/component.report.json" \
+    --surface-out="$component/component.surface.json" \
+    --report-verdict-only >/dev/null
+done
+
+# Native convention lookup shows ASSERTED + VERIFIED for unchanged sources.
+../bin/arcc check examples/csvtool/app/component.textproto
+
+# A readable source-byte change is reported as ASSERTED + STALE. Restore the
+# file after the demonstration so the working tree is unchanged.
+cp examples/csvtool/csvfile/private.go /tmp/arcc-csvfile-private.go
+trap 'mv /tmp/arcc-csvfile-private.go examples/csvtool/csvfile/private.go' EXIT
+printf '\n// status-demo source change\n' >> examples/csvtool/csvfile/private.go
+../bin/arcc check examples/csvtool/app/component.textproto --format=json
+```
+
+For build-graph status, build the same checked artifacts with Bazel:
+
+```bash
+bazel build //go/examples/csvtool/app:app_component --output_groups=+arcc
+bazel build //go/examples/csvtool/csvfile:csvfile_component --output_groups=+arcc
+cat bazel-bin/go/examples/csvtool/app/app_component.report.json
+cat bazel-bin/go/examples/csvtool/csvfile/csvfile_component.report.json
+```
+
+The app report contains `CHECKED_PASS` CSV boundaries (the `certified` text
+case); the csvfile report contains the `CHECKED_FAIL` parsecsv boundary and its
+single `DEPENDENCY_CHECK_FAILED` warning (the `check failed` case). The native
+JSON run supplies the `STALE` case, while `go/cmd/arcc/app`'s byte-only test
+covers `UNKNOWN` after the dependency source is unavailable.
 
 ### Reproducing a Conformance Violation
 To see what a contract violation looks like, you can easily create a temporary failing component.
@@ -481,6 +537,10 @@ The manifest structure is defined by the following fields:
   - `auto_attached` (bool, optional): The edge was injected by an emitter rather than written by an author, so an unused edge is nobody's mistake and never produces `UNUSED_DEPENDENCY`. See [Auto-attached dependencies](#auto-attached-infrastructure-dependencies).
 - **`declared_authority`** (repeated string): Capabilities that the component is permitted to exercise. Member typed references and imports are checked against the total standard-library authority map, and declared component boundaries terminate authority structurally. Leaving this empty means the component claims no ambient authority.
   - Known Capabilities: `FILES`, `NETWORK`, `READ_SYSTEM_STATE`, `MODIFY_SYSTEM_STATE`, `OPERATING_SYSTEM`, `SYSTEM_CALLS`, `EXEC`, `RUNTIME`, `ARBITRARY_EXECUTION`, `CGO`, `UNSAFE_POINTER`, `REFLECT`, `UNANALYZED`.
+- **`authority`** (enum, optional): `DECLARED` (the default) means the
+  component's `declared_authority` is checked; `UNKNOWN` marks a package-level
+  adopted surface whose authority has not been analysed. `UNKNOWN` must have an
+  empty `declared_authority` and is rendered `untrusted` at dependent boundaries.
 
 ### Wrapping a library that has no interface: `PACKAGE_SURFACE`
 

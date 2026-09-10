@@ -209,3 +209,14 @@ collection or synthesize Bazel provenance. It locates the required surface next
 to the dependency manifest by replacing the manifest extension with
 `.surface.json`, and may read the optional sibling `.report.json`; the binding
 metadata described here is emitted and consumed by layout/Bazel mode.
+
+The resulting dependency report keeps status axes independent. A checked
+provider with a passing report is `CHECKED_PASS`, a checked provider with a
+failing report is `CHECKED_FAIL`, and an asserted provider is `ASSERTED`.
+Layout/Bazel freshness is `BUILD_GRAPH`; native freshness is `VERIFIED` or
+`STALE` when the named member source bytes can be audited and `UNKNOWN` when
+they cannot. Consumers render these axes as `certified`, `check failed`,
+`asserted`, `stale`, and `untrusted` words without collapsing them into one
+field. Native integration harnesses must stage both sibling artifacts in
+topological order and must replace/restore pre-existing files rather than
+accepting a stale developer cache hit.

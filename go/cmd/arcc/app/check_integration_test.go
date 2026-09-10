@@ -738,13 +738,9 @@ func runRunnerStdout(t *testing.T, workspace string, runner *app.Runner, args []
 		t.Fatal(err)
 	}
 	if manifestPath, mapPath, ok := nativeStagingArgs(args); ok {
-		var created []string
-		stageNativeRunnerDependencies(t, runner, manifestPath, mapPath, map[string]bool{}, &created)
-		t.Cleanup(func() {
-			for _, path := range created {
-				_ = os.Remove(path)
-			}
-		})
+		var staged nativeArtifactStaging
+		stageNativeRunnerDependencies(t, runner, manifestPath, mapPath, map[string]bool{}, &staged)
+		t.Cleanup(staged.restore)
 	}
 	t.Cleanup(func() {
 		if err := os.Chdir(originalWD); err != nil {
@@ -774,7 +770,57 @@ func nativeStagingArgs(args []string) (manifestPath, mapPath string, ok bool) {
 	return args[1], mapPath, true
 }
 
-func stageNativeRunnerDependencies(t *testing.T, runner *app.Runner, manifestPath, mapPath string, seen map[string]bool, created *[]string) {
+type nativeArtifactOriginal struct {
+	data   []byte
+	mode   os.FileMode
+	exists bool
+}
+
+// nativeArtifactStaging overwrites both members of every dependency artifact
+// pair for the duration of a test and restores any developer-owned files when
+// the test finishes. This prevents a stale surface from bypassing fresh report
+// production, while keeping integration tests non-mutating to the worktree.
+type nativeArtifactStaging struct {
+	originals map[string]nativeArtifactOriginal
+	order     []string
+}
+
+func (s *nativeArtifactStaging) capture(t *testing.T, path string) {
+	t.Helper()
+	if s.originals == nil {
+		s.originals = make(map[string]nativeArtifactOriginal)
+	}
+	if _, ok := s.originals[path]; ok {
+		return
+	}
+	info, err := os.Stat(path)
+	if err == nil {
+		data, readErr := os.ReadFile(path)
+		if readErr != nil {
+			t.Fatal(readErr)
+		}
+		s.originals[path] = nativeArtifactOriginal{data: data, mode: info.Mode().Perm(), exists: true}
+	} else if os.IsNotExist(err) {
+		s.originals[path] = nativeArtifactOriginal{}
+	} else {
+		t.Fatal(err)
+	}
+	s.order = append(s.order, path)
+}
+
+func (s *nativeArtifactStaging) restore() {
+	for i := len(s.order) - 1; i >= 0; i-- {
+		path := s.order[i]
+		original := s.originals[path]
+		if original.exists {
+			_ = os.WriteFile(path, original.data, original.mode)
+		} else {
+			_ = os.Remove(path)
+		}
+	}
+}
+
+func stageNativeRunnerDependencies(t *testing.T, runner *app.Runner, manifestPath, mapPath string, seen map[string]bool, staged *nativeArtifactStaging) {
 	t.Helper()
 	absManifest, err := filepath.Abs(manifestPath)
 	if err != nil {
@@ -799,14 +845,11 @@ func stageNativeRunnerDependencies(t *testing.T, runner *app.Runner, manifestPat
 	}
 	for _, dep := range parsed.ComponentDependencies {
 		depManifest := filepath.Clean(filepath.Join(filepath.Dir(absManifest), dep.Manifest))
-		stageNativeRunnerDependencies(t, runner, depManifest, mapPath, seen, created)
+		stageNativeRunnerDependencies(t, runner, depManifest, mapPath, seen, staged)
 		surfacePath := artifactio.SurfacePath(depManifest)
-		if _, err := os.Stat(surfacePath); err == nil {
-			continue
-		} else if !os.IsNotExist(err) {
-			t.Fatal(err)
-		}
 		reportPath := artifactio.ReportPath(depManifest)
+		staged.capture(t, surfacePath)
+		staged.capture(t, reportPath)
 		originalWD, err := os.Getwd()
 		if err != nil {
 			t.Fatal(err)
@@ -828,7 +871,6 @@ func stageNativeRunnerDependencies(t *testing.T, runner *app.Runner, manifestPat
 		if code != 0 {
 			t.Fatalf("stage dependency %s: exit %d stderr %q", depManifest, code, stderr.String())
 		}
-		*created = append(*created, surfacePath, reportPath)
 	}
 }
 

@@ -167,6 +167,36 @@ func ResolveDependencySurface(req DependencySurfaceRequest) (facts.DependencyInt
 	}, nil
 }
 
+// ResolveDependencySurfaceForDependency is the shell-facing convenience
+// boundary used by the CLI. In layout mode it looks up the active structural
+// provider binding by dependency name inside goanalysis, keeping the concrete
+// packagelayout binding type out of callers' source-level dependency contracts.
+// Native callers retain the sibling-file convention. The surface and report
+// are still validated by ResolveDependencySurface; this helper only supplies
+// the already-active binding.
+func ResolveDependencySurfaceForDependency(req DependencySurfaceRequest) (facts.DependencyInterface, error) {
+	if req.Mode == DependencySurfaceLayout && req.Binding == nil {
+		bindings, workspace, active := ActiveDependencyArtifactBindings()
+		if !active || bindings == nil && workspace == "" {
+			return facts.DependencyInterface{}, fmt.Errorf("dependency %q surface resolver: layout mode is active without an active package layout", req.Dependency.Name)
+		}
+		for i := range bindings {
+			if bindings[i].Dependency == req.Dependency.Name {
+				binding := bindings[i]
+				req.Binding = &binding
+				break
+			}
+		}
+		if req.Binding == nil {
+			return facts.DependencyInterface{}, fmt.Errorf("dependency %q surface resolver: no active artifact binding", req.Dependency.Name)
+		}
+		if req.WorkspaceDir == "" {
+			req.WorkspaceDir = workspace
+		}
+	}
+	return ResolveDependencySurface(req)
+}
+
 // alternateLayoutArtifactPath handles the two equivalent Bazel execution
 // frames: the layout stores runfiles-root paths beginning with the workspace
 // name, while the action process may already start inside that workspace

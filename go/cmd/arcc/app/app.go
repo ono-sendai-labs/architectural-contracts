@@ -23,17 +23,25 @@ const version = "0.0.0-dev"
 // PackageLoader is a function type that loads package facts for a component-scoped request.
 type PackageLoader func(goanalysis.LoadRequest) (facts.PackageFacts, error)
 
+// DependencySurfaceResolver consumes one persisted dependency surface. The
+// production resolver is goanalysis.ResolveDependencySurface; the seam lets
+// integration tests wrap its byte readers and prove that dependency freshness
+// does not reuse the component package loader.
+type DependencySurfaceResolver func(goanalysis.DependencySurfaceRequest) (facts.DependencyInterface, error)
+
 // Runner orchestrates the CLI execution of the architectural contracts check.
-// The Loader, AuthorityResolver, SurfaceInputsLoader, and ArtifactWriter
+// The Loader, AuthorityResolver, DependencySurfaceResolver, SurfaceInputsLoader,
+// and ArtifactWriter
 // fields are injection seams: a nil field uses the production operation, and
 // tests substitute fakes to exercise exit policy and artifact publication
 // without host loading. The authority resolver is the narrow stdlib seam:
 // there is no check-time capability analyzer.
 type Runner struct {
-	Loader              PackageLoader
-	AuthorityResolver   AuthorityResolver
-	SurfaceInputsLoader SurfaceInputsLoader
-	ArtifactWriter      ArtifactWriter
+	Loader                    PackageLoader
+	AuthorityResolver         AuthorityResolver
+	DependencySurfaceResolver DependencySurfaceResolver
+	SurfaceInputsLoader       SurfaceInputsLoader
+	ArtifactWriter            ArtifactWriter
 }
 
 // Run executes the application logic based on the provided CLI arguments.

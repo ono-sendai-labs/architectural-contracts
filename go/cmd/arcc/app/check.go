@@ -238,7 +238,7 @@ func (r *Runner) runCheck(opts checkOptions, stdout, stderr io.Writer) int {
 	// and reports. Native mode uses the sibling convention; layout mode uses
 	// the validated provider bindings in the active package layout. No
 	// dependency source is passed to a package loader on this path (R7, N1).
-	resolvedDeps, err := resolveDependencySurfaces(parsedManifest.ComponentDependencies, componentRoot, authority.Key())
+	resolvedDeps, err := r.resolveDependencySurfaces(parsedManifest.ComponentDependencies, componentRoot, authority.Key())
 	if err != nil {
 		fmt.Fprintf(stderr, "error: failed to resolve dependency surface: %v\n", err)
 		return 2
@@ -322,35 +322,22 @@ func (r *Runner) runCheck(opts checkOptions, stdout, stderr io.Writer) int {
 // dependency through the persisted surface consumer. The resolver receives
 // the complete target key already validated by the authority resolver, so no
 // dependency can be compared under a different SDK configuration.
-func resolveDependencySurfaces(deps []manifest.ComponentDependency, declaringRoot string, expectedSDKKey stdlibauthority.SDKKey) ([]facts.DependencyInterface, error) {
+func (r *Runner) resolveDependencySurfaces(deps []manifest.ComponentDependency, declaringRoot string, expectedSDKKey stdlibauthority.SDKKey) ([]facts.DependencyInterface, error) {
 	mode := goanalysis.DependencySurfaceNative
 	workspaceDir := ""
-	bindingByName := map[string]goanalysis.DependencyArtifactBinding{}
 	if bindings, activeWorkspace, active := goanalysis.ActiveDependencyArtifactBindings(); active {
 		mode = goanalysis.DependencySurfaceLayout
 		workspaceDir = activeWorkspace
 		if bindings == nil && workspaceDir == "" {
 			return nil, fmt.Errorf("layout mode is active without an active package layout")
 		}
-		for _, binding := range bindings {
-			bindingByName[binding.Dependency] = binding
-		}
 	}
 
 	resolved := make([]facts.DependencyInterface, 0, len(deps))
 	for _, dep := range deps {
-		var binding *goanalysis.DependencyArtifactBinding
-		if mode == goanalysis.DependencySurfaceLayout {
-			value, ok := bindingByName[dep.Name]
-			if !ok {
-				return nil, fmt.Errorf("dependency %q has no surface/report binding in the active package layout", dep.Name)
-			}
-			binding = &value
-		}
-		resolvedDependency, err := goanalysis.ResolveDependencySurface(goanalysis.DependencySurfaceRequest{
+		resolvedDependency, err := r.dependencySurfaceResolver()(goanalysis.DependencySurfaceRequest{
 			DeclaringRoot:  declaringRoot,
 			Dependency:     dep,
-			Binding:        binding,
 			Namespace:      goanalysis.CanonicalNamespace(),
 			ExpectedSDKKey: expectedSDKKey,
 			Mode:           mode,
@@ -362,6 +349,13 @@ func resolveDependencySurfaces(deps []manifest.ComponentDependency, declaringRoo
 		resolved = append(resolved, resolvedDependency)
 	}
 	return resolved, nil
+}
+
+func (r *Runner) dependencySurfaceResolver() DependencySurfaceResolver {
+	if r.DependencySurfaceResolver != nil {
+		return r.DependencySurfaceResolver
+	}
+	return goanalysis.ResolveDependencySurfaceForDependency
 }
 
 // publishArtifacts derives the exact surface from this invocation's analysis

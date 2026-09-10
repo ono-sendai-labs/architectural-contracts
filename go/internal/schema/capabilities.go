@@ -18,9 +18,9 @@ package schema
 // the manifest model and the artifact-I/O shell consume one shared taxonomy
 // through their declared schema component dependency instead of manifest
 // exporting a set the shell cannot reach without an impossible component
-// edge (the manifest component must own the protobuf runtime closure its
-// prototext member imports, and the checker's member-overlap rule forbids a
-// dependency-related component from sharing those members).
+// edge (the protobuf runtime is owned by one package-surface component, and
+// the checker's member-overlap rule forbids dependency-related components from
+// sharing those foreign members).
 var KnownCapabilities = map[string]bool{
 	"FILES":               true,
 	"NETWORK":             true,

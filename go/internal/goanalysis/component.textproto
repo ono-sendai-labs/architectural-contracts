@@ -4,33 +4,7 @@ interface_files: "goanalysis.go"
 interface_files: "surface_resolver.go"
 interface_files: "surfaceinputs.go"
 members: "github.com/ono-sendai-labs/architectural-contracts/go/internal/goanalysis"
-members: "github.com/ono-sendai-labs/architectural-contracts/go/internal/hostpolicy"
 members: "github.com/ono-sendai-labs/architectural-contracts/go/internal/packagelayout"
-members: "golang.org/x/mod/semver"
-members: "golang.org/x/sync/errgroup"
-members: "golang.org/x/tools/go/ast/astutil"
-members: "golang.org/x/tools/go/ast/edge"
-members: "golang.org/x/tools/go/ast/inspector"
-members: "golang.org/x/tools/go/buildutil"
-members: "golang.org/x/tools/go/gcexportdata"
-members: "golang.org/x/tools/go/internal/cgo"
-members: "golang.org/x/tools/go/loader"
-members: "golang.org/x/tools/go/packages"
-members: "golang.org/x/tools/go/types/objectpath"
-members: "golang.org/x/tools/go/types/typeutil"
-members: "golang.org/x/tools/internal/aliases"
-members: "golang.org/x/tools/internal/event"
-members: "golang.org/x/tools/internal/event/core"
-members: "golang.org/x/tools/internal/event/keys"
-members: "golang.org/x/tools/internal/event/label"
-members: "golang.org/x/tools/internal/gcimporter"
-members: "golang.org/x/tools/internal/gocommand"
-members: "golang.org/x/tools/internal/packagesinternal"
-members: "golang.org/x/tools/internal/pkgbits"
-members: "golang.org/x/tools/internal/stdlib"
-members: "golang.org/x/tools/internal/typeparams"
-members: "golang.org/x/tools/internal/typesinternal"
-members: "golang.org/x/tools/internal/versions"
 component_dependencies {
   name: "artifactio"
   manifest: "../artifactio/component.textproto"
@@ -58,6 +32,18 @@ component_dependencies {
 component_dependencies {
   name: "symbol"
   manifest: "../symbol/component.textproto"
+}
+component_dependencies {
+  name: "x-tools"
+  manifest: "../xtools/component.textproto"
+}
+component_dependencies {
+  name: "report"
+  manifest: "../report/component.textproto"
+}
+component_dependencies {
+  name: "hostpolicy"
+  manifest: "../hostpolicy/component.textproto"
 }
 declared_authority: "FILES"
 declared_authority: "EXEC"

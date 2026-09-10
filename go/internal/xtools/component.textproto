@@ -1,0 +1,31 @@
+name: "x-tools"
+# The x/tools closure is an adopted package-level boundary for the analysis and
+# map-generator shells. It is staged as an asserted surface in Bazel/native
+# integration; no consumer owns these foreign packages as source members.
+interface_style: INTERFACE_STYLE_PACKAGE_SURFACE
+members: "golang.org/x/mod/semver"
+members: "golang.org/x/sync/errgroup"
+members: "golang.org/x/tools/go/ast/astutil"
+members: "golang.org/x/tools/go/ast/edge"
+members: "golang.org/x/tools/go/ast/inspector"
+members: "golang.org/x/tools/go/buildutil"
+members: "golang.org/x/tools/go/gcexportdata"
+members: "golang.org/x/tools/go/internal/cgo"
+members: "golang.org/x/tools/go/loader"
+members: "golang.org/x/tools/go/packages"
+members: "golang.org/x/tools/go/types/objectpath"
+members: "golang.org/x/tools/go/types/typeutil"
+members: "golang.org/x/tools/internal/aliases"
+members: "golang.org/x/tools/internal/event"
+members: "golang.org/x/tools/internal/event/core"
+members: "golang.org/x/tools/internal/event/keys"
+members: "golang.org/x/tools/internal/event/label"
+members: "golang.org/x/tools/internal/gcimporter"
+members: "golang.org/x/tools/internal/gocommand"
+members: "golang.org/x/tools/internal/packagesinternal"
+members: "golang.org/x/tools/internal/pkgbits"
+members: "golang.org/x/tools/internal/stdlib"
+members: "golang.org/x/tools/internal/typeparams"
+members: "golang.org/x/tools/internal/typesinternal"
+members: "golang.org/x/tools/internal/versions"
+authority: UNKNOWN

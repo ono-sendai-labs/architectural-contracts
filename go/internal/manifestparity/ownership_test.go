@@ -118,11 +118,12 @@ func TestArtifactioDeclaresCoreComponentDependencies(t *testing.T) {
 	}
 
 	want := map[string]string{
-		"report":          "../report/component.textproto",
-		"schema":          "../schema/component.textproto",
-		"stdlibauthority": "../stdlibauthority/component.textproto",
-		"surface":         "../surface/component.textproto",
-		"symbol":          "../symbol/component.textproto",
+		"report":           "../report/component.textproto",
+		"schema":           "../schema/component.textproto",
+		"stdlibauthority":  "../stdlibauthority/component.textproto",
+		"surface":          "../surface/component.textproto",
+		"symbol":           "../symbol/component.textproto",
+		"protobuf-runtime": "../protobufruntime/component.textproto",
 	}
 	got := map[string]string{}
 	for _, dep := range m.ComponentDependencies {

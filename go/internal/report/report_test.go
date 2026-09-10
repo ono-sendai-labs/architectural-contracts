@@ -187,6 +187,19 @@ func TestDependencyBoundary_StatusAxesRenderOrthogonally(t *testing.T) {
 				Authority:  report.DependencyAuthorityDeclared,
 			},
 			{
+				Component:         "checked-stale",
+				Provenance:        report.DependencyProvenanceCheckedPass,
+				Freshness:         report.DependencyFreshnessStale,
+				Authority:         report.DependencyAuthorityDeclared,
+				DeclaredAuthority: []string{"FILES"},
+			},
+			{
+				Component:  "failed-stale",
+				Provenance: report.DependencyProvenanceCheckedFail,
+				Freshness:  report.DependencyFreshnessStale,
+				Authority:  report.DependencyAuthorityDeclared,
+			},
+			{
 				Component:  "unknown",
 				Provenance: report.DependencyProvenanceAsserted,
 				Freshness:  report.DependencyFreshnessStale,
@@ -195,14 +208,41 @@ func TestDependencyBoundary_StatusAxesRenderOrthogonally(t *testing.T) {
 		},
 	}
 
-	text := report.RenderText(rep)
-	for _, word := range []string{"certified", "check failed", "asserted", "stale", "untrusted"} {
-		if !strings.Contains(text, word) {
-			t.Errorf("text = %q, want status word %q", text, word)
+	textOutput := report.RenderText(rep)
+	lineFor := func(component string) string {
+		for _, line := range strings.Split(textOutput, "\n") {
+			if strings.HasPrefix(line, "- "+component) {
+				return line
+			}
 		}
+		return ""
 	}
-	if strings.Contains(strings.Split(text, "- failed ")[1], "certified") {
-		t.Errorf("failed boundary was certified in text = %q", text)
+	for _, tc := range []struct {
+		component string
+		contains  []string
+		absent    []string
+	}{
+		{component: "checked", contains: []string{"certified"}},
+		{component: "failed", contains: []string{"check failed"}, absent: []string{"certified"}},
+		{component: "checked-stale", contains: []string{"stale"}, absent: []string{"certified"}},
+		{component: "failed-stale", contains: []string{"check failed", "stale"}, absent: []string{"certified"}},
+		{component: "unknown", contains: []string{"asserted", "stale", "untrusted"}, absent: []string{"certified"}},
+	} {
+		line := lineFor(tc.component)
+		if line == "" {
+			t.Errorf("text = %q, missing boundary %q", textOutput, tc.component)
+			continue
+		}
+		for _, word := range tc.contains {
+			if !strings.Contains(line, word) {
+				t.Errorf("boundary line = %q, want status word %q", line, word)
+			}
+		}
+		for _, word := range tc.absent {
+			if strings.Contains(line, word) {
+				t.Errorf("boundary line = %q, must not contain status word %q", line, word)
+			}
+		}
 	}
 
 	data, err := json.Marshal(rep)
@@ -221,13 +261,36 @@ func TestDependencyBoundary_StatusAxesRenderOrthogonally(t *testing.T) {
 	if err := json.Unmarshal(data, &decoded); err != nil {
 		t.Fatalf("json.Unmarshal() error = %v", err)
 	}
-	if len(decoded.Dependencies) != 3 {
-		t.Fatalf("decoded dependencies = %#v, want 3 entries", decoded.Dependencies)
+	if len(decoded.Dependencies) != 5 {
+		t.Fatalf("decoded dependencies = %#v, want 5 entries", decoded.Dependencies)
 	}
-	if got := decoded.Dependencies[0]; got.Provenance != "CHECKED_PASS" || got.Freshness != "BUILD_GRAPH" || got.Authority != "DECLARED" || !reflect.DeepEqual(got.DeclaredAuthority, []string{"FILES"}) {
+	byComponent := make(map[string]struct {
+		Provenance        string
+		Freshness         string
+		Authority         string
+		DeclaredAuthority []string
+	}, len(decoded.Dependencies))
+	for _, dependency := range decoded.Dependencies {
+		byComponent[dependency.Component] = struct {
+			Provenance        string
+			Freshness         string
+			Authority         string
+			DeclaredAuthority []string
+		}{dependency.Provenance, dependency.Freshness, dependency.Authority, dependency.DeclaredAuthority}
+	}
+	if got := byComponent["checked"]; got.Provenance != "CHECKED_PASS" || got.Freshness != "BUILD_GRAPH" || got.Authority != "DECLARED" || !reflect.DeepEqual(got.DeclaredAuthority, []string{"FILES"}) {
 		t.Errorf("checked boundary axes = %#v", got)
 	}
-	if got := decoded.Dependencies[2]; got.Provenance != "ASSERTED" || got.Freshness != "STALE" || got.Authority != "UNKNOWN" {
+	if got := byComponent["checked-stale"]; got.Provenance != "CHECKED_PASS" || got.Freshness != "STALE" || got.Authority != "DECLARED" || !reflect.DeepEqual(got.DeclaredAuthority, []string{"FILES"}) {
+		t.Errorf("checked-stale boundary axes = %#v", got)
+	}
+	if got := byComponent["failed"]; got.Provenance != "CHECKED_FAIL" || got.Freshness != "BUILD_GRAPH" || got.Authority != "DECLARED" {
+		t.Errorf("failed boundary axes = %#v", got)
+	}
+	if got := byComponent["failed-stale"]; got.Provenance != "CHECKED_FAIL" || got.Freshness != "STALE" || got.Authority != "DECLARED" {
+		t.Errorf("failed-stale boundary axes = %#v", got)
+	}
+	if got := byComponent["unknown"]; got.Provenance != "ASSERTED" || got.Freshness != "STALE" || got.Authority != "UNKNOWN" {
 		t.Errorf("unknown boundary axes = %#v", got)
 	}
 }

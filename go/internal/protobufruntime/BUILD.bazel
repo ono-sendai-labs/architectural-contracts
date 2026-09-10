@@ -1,0 +1,45 @@
+load("@rules_arcc//bazel_rules/go:defs.bzl", "go_component")
+
+# The protobuf runtime has no in-tree implementation package. It is a single
+# package-level asserted boundary so consumers do not duplicate the foreign
+# runtime closure as their own members. The manual tag selects the analysis-time
+# asserted producer: no protobuf source is loaded to manufacture this surface.
+go_component(
+    name = "protobuf-runtime",
+    interface_style = "PACKAGE_SURFACE",
+    members = [
+        "@org_golang_google_protobuf//encoding/protojson:protojson",
+        "@org_golang_google_protobuf//encoding/prototext:prototext",
+        "@org_golang_google_protobuf//encoding/protowire:protowire",
+        "@org_golang_google_protobuf//internal/descfmt:descfmt",
+        "@org_golang_google_protobuf//internal/descopts:descopts",
+        "@org_golang_google_protobuf//internal/detrand:detrand",
+        "@org_golang_google_protobuf//internal/editiondefaults:editiondefaults",
+        "@org_golang_google_protobuf//internal/encoding/defval:defval",
+        "@org_golang_google_protobuf//internal/encoding/json:json",
+        "@org_golang_google_protobuf//internal/encoding/messageset:messageset",
+        "@org_golang_google_protobuf//internal/encoding/tag:tag",
+        "@org_golang_google_protobuf//internal/encoding/text:text",
+        "@org_golang_google_protobuf//internal/errors:errors",
+        "@org_golang_google_protobuf//internal/filedesc:filedesc",
+        "@org_golang_google_protobuf//internal/filetype:filetype",
+        "@org_golang_google_protobuf//internal/flags:flags",
+        "@org_golang_google_protobuf//internal/genid:genid",
+        "@org_golang_google_protobuf//internal/impl:impl",
+        "@org_golang_google_protobuf//internal/order:order",
+        "@org_golang_google_protobuf//internal/pragma:pragma",
+        "@org_golang_google_protobuf//internal/protolazy:protolazy",
+        "@org_golang_google_protobuf//internal/set:set",
+        "@org_golang_google_protobuf//internal/strs:strs",
+        "@org_golang_google_protobuf//internal/version:version",
+        "@org_golang_google_protobuf//proto:proto",
+        "@org_golang_google_protobuf//reflect/protoreflect:protoreflect",
+        "@org_golang_google_protobuf//reflect/protoregistry:protoregistry",
+        "@org_golang_google_protobuf//runtime/protoiface:protoiface",
+        "@org_golang_google_protobuf//runtime/protoimpl:protoimpl",
+    ],
+    tags = ["manual"],
+    visibility = ["//go:__subpackages__"],
+)
+
+exports_files(["component.textproto"])

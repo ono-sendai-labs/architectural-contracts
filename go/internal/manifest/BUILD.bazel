@@ -57,54 +57,22 @@ go_test(
 # Mirrors the checked-in manifest/component.textproto. The generated schema
 # package is owned by the schema component and consumed through a declared
 # component dependency.
-# The protobuf runtime packages are declared members: third-party libraries
-# become ordinary (checked) member code whose authority is charged to this
-# component's declared_authority.
-# EXEMPT (Step 6 task 05 AC8b; TODO(Step 7 protobuf-runtime PACKAGE_SURFACE
-# migration): the transitional protobuf-runtime members reference UNANALYZED
-# stdlib records — 102 AnalysisDefeating sites (same symbol set as
-# artifactio: unsafe.Pointer x52, unsafe.Sizeof x5, unsafe.Slice x2,
-# unsafe.SliceData x2, unsafe.String x2, unsafe.StringData x2,
-# (sync.Once).Do x17, sort.Slice x11, (sync.Pool).Get x3,
-# io.WriteString x2, io.ReadAll x2, compress/gzip.NewReader x1,
-# errors.As x1) plus os.Open/os.Stderr findings (FILES x2,
-# MODIFY_SYSTEM_STATE x1, OPERATING_SYSTEM x1) — so the checked .check test
-# would fail its pass assertion. check_tags=["manual"] (the Step 5 task 05
-# seam) keeps the analysis action built by `bazel build //...` while
-# exempting the verdict test; Step 7 removes the exemption.
+# The foreign protobuf runtime is consumed through the shared package-surface
+# component, so its source is not charged to this component's own contract.
+# EXEMPT (Step 6 task 05 AC8b; TODO(Step 7 residual-UNANALYZED decision):
+# the component's own manifest reader still has one honest UNANALYZED
+# io.ReadAll site, so its checked .check would fail its pass assertion. The
+# foreign protobuf runtime is now behind the shared package-surface component.
+# check_tags=["manual"] keeps the transitional verdict test out of the gate
+# without weakening the emitted report.
 go_component(
     name = "manifest_component",
     check_tags = ["manual"],
-    component_deps = ["//go/internal/schema:schema_component"],
-    members = [
-        "@org_golang_google_protobuf//encoding/prototext:prototext",
-        "@org_golang_google_protobuf//encoding/protowire:protowire",
-        "@org_golang_google_protobuf//internal/descfmt:descfmt",
-        "@org_golang_google_protobuf//internal/descopts:descopts",
-        "@org_golang_google_protobuf//internal/detrand:detrand",
-        "@org_golang_google_protobuf//internal/editiondefaults:editiondefaults",
-        "@org_golang_google_protobuf//internal/encoding/defval:defval",
-        "@org_golang_google_protobuf//internal/encoding/messageset:messageset",
-        "@org_golang_google_protobuf//internal/encoding/tag:tag",
-        "@org_golang_google_protobuf//internal/encoding/text:text",
-        "@org_golang_google_protobuf//internal/errors:errors",
-        "@org_golang_google_protobuf//internal/filedesc:filedesc",
-        "@org_golang_google_protobuf//internal/filetype:filetype",
-        "@org_golang_google_protobuf//internal/flags:flags",
-        "@org_golang_google_protobuf//internal/genid:genid",
-        "@org_golang_google_protobuf//internal/impl:impl",
-        "@org_golang_google_protobuf//internal/order:order",
-        "@org_golang_google_protobuf//internal/pragma:pragma",
-        "@org_golang_google_protobuf//internal/protolazy:protolazy",
-        "@org_golang_google_protobuf//internal/set:set",
-        "@org_golang_google_protobuf//internal/strs:strs",
-        "@org_golang_google_protobuf//internal/version:version",
-        "@org_golang_google_protobuf//proto:proto",
-        "@org_golang_google_protobuf//reflect/protoreflect:protoreflect",
-        "@org_golang_google_protobuf//reflect/protoregistry:protoregistry",
-        "@org_golang_google_protobuf//runtime/protoiface:protoiface",
-        "@org_golang_google_protobuf//runtime/protoimpl:protoimpl",
+    component_deps = [
+        "//go/internal/protobufruntime:protobuf-runtime",
+        "//go/internal/schema:schema_component",
     ],
+    members = [],
     declared_authority = [
         READ_SYSTEM_STATE,
         REFLECT,

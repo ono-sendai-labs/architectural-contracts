@@ -8,3 +8,7 @@ name: "schema"
 interface_style: INTERFACE_STYLE_PACKAGE_SURFACE
 members: "github.com/ono-sendai-labs/architectural-contracts/go/internal/schema"
 members: "github.com/ono-sendai-labs/architectural-contracts/go/internal/schema/gen"
+component_dependencies {
+  name: "protobuf-runtime"
+  manifest: "../protobufruntime/component.textproto"
+}

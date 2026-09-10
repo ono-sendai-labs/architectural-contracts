@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/ono-sendai-labs/architectural-contracts/go/cmd/arcc/app"
+	"github.com/ono-sendai-labs/architectural-contracts/go/internal/artifactio"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/facts"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/goanalysis"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/report"
@@ -1135,15 +1136,179 @@ component_dependencies: {
 	runner := surfaceTestRunner(func(req goanalysis.LoadRequest) (facts.PackageFacts, error) { return goanalysis.LoadPackageFacts(req) })
 
 	var stdout, stderr bytes.Buffer
+	outputDir := t.TempDir()
 	// Two direct dependencies claim the same package: the boundary index
 	// fails closed with a DEPENDENCY_OVERLAP tool error before any verdict
 	// forms (R14). The legacy last-wins lookup is gone.
-	exitCode := runner.Run([]string{"check", manifestPath}, &stdout, &stderr)
+	reportPath := filepath.Join(outputDir, "analyzed.report.json")
+	surfacePath := filepath.Join(outputDir, "analyzed.surface.json")
+	exitCode := runner.Run([]string{
+		"check", manifestPath,
+		"--report-out=" + reportPath,
+		"--surface-out=" + surfacePath,
+	}, &stdout, &stderr)
 	if exitCode != 2 {
 		t.Fatalf("Run() returned %d, want 2 (tool error). Stderr: %s\nStdout: %s", exitCode, stderr.String(), stdout.String())
 	}
 	if !strings.Contains(stderr.String(), "DEPENDENCY_OVERLAP") || !strings.Contains(stderr.String(), "example.com/temp/shared-dep/pkga") {
 		t.Errorf("stderr = %q, want a DEPENDENCY_OVERLAP error naming the colliding package", stderr.String())
+	}
+	for _, path := range []string{reportPath, surfacePath} {
+		if _, err := os.Stat(path); !os.IsNotExist(err) {
+			t.Errorf("artifact %s exists after overlap error (stat err = %v)", path, err)
+		}
+	}
+}
+
+func TestRunner_Check_DependencyArtifactFaultsPublishNothing(t *testing.T) {
+	tests := []struct {
+		name       string
+		prepare    func(t *testing.T, dependencyDir string)
+		wantStderr []string
+	}{
+		{
+			name:       "missing surface",
+			wantStderr: []string{"surface", "no such file"},
+		},
+		{
+			name: "invalid surface",
+			prepare: func(t *testing.T, dependencyDir string) {
+				t.Helper()
+				if err := os.WriteFile(filepath.Join(dependencyDir, "component.surface.json"), []byte("{"), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			},
+			wantStderr: []string{"surface", "invalid"},
+		},
+		{
+			name: "namespace mismatch",
+			prepare: func(t *testing.T, dependencyDir string) {
+				t.Helper()
+				writeNativeTestSurface(t, dependencyDir, "dependency", gen.InterfaceStyle_INTERFACE_STYLE_PACKAGE_SURFACE, []string{"example.com/temp/dependency"}, nil)
+				mutateNativeSurface(t, filepath.Join(dependencyDir, "component.surface.json"), func(m *gen.SurfaceManifest) {
+					m.Namespace = "foreign-namespace"
+				})
+			},
+			wantStderr: []string{"namespace mismatch"},
+		},
+		{
+			name: "SDK mismatch",
+			prepare: func(t *testing.T, dependencyDir string) {
+				t.Helper()
+				writeNativeTestSurface(t, dependencyDir, "dependency", gen.InterfaceStyle_INTERFACE_STYLE_PACKAGE_SURFACE, []string{"example.com/temp/dependency"}, nil)
+				mutateNativeSurface(t, filepath.Join(dependencyDir, "component.surface.json"), func(m *gen.SurfaceManifest) {
+					m.SdkKey.Goos = "darwin"
+				})
+			},
+			wantStderr: []string{"SDK key mismatch"},
+		},
+		{
+			name: "format mismatch",
+			prepare: func(t *testing.T, dependencyDir string) {
+				t.Helper()
+				writeNativeTestSurface(t, dependencyDir, "dependency", gen.InterfaceStyle_INTERFACE_STYLE_PACKAGE_SURFACE, []string{"example.com/temp/dependency"}, nil)
+				path := filepath.Join(dependencyDir, "component.surface.json")
+				data, err := os.ReadFile(path)
+				if err != nil {
+					t.Fatal(err)
+				}
+				data = bytes.Replace(data, []byte(`"formatVersion": 1`), []byte(`"formatVersion": 2`), 1)
+				if err := os.WriteFile(path, data, 0o644); err != nil {
+					t.Fatal(err)
+				}
+			},
+			wantStderr: []string{"invalid", "surface"},
+		},
+		{
+			name: "invalid report",
+			prepare: func(t *testing.T, dependencyDir string) {
+				t.Helper()
+				writeNativeTestSurface(t, dependencyDir, "dependency", gen.InterfaceStyle_INTERFACE_STYLE_PACKAGE_SURFACE, []string{"example.com/temp/dependency"}, nil)
+				if err := os.WriteFile(filepath.Join(dependencyDir, "component.report.json"), []byte("{"), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			},
+			wantStderr: []string{"report", "invalid"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			consumerDir, manifestPath := artifactFixture(t, "example.com/temp/consumer")
+			dependencyDir := filepath.Join(filepath.Dir(consumerDir), "dependency")
+			if err := os.MkdirAll(dependencyDir, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			consumerManifest := `name: "consumer"
+interface_style: INTERFACE_STYLE_PACKAGE_SURFACE
+members: "example.com/temp/consumer"
+component_dependencies {
+  name: "dependency"
+  manifest: "../dependency/component.textproto"
+}
+`
+			if err := os.WriteFile(manifestPath, []byte(consumerManifest), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(dependencyDir, "component.textproto"), []byte("name: \"dependency\"\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			if tt.prepare != nil {
+				tt.prepare(t, dependencyDir)
+			}
+
+			runner := surfaceTestRunner(func(goanalysis.LoadRequest) (facts.PackageFacts, error) {
+				return facts.PackageFacts{Packages: []facts.PackageFact{{ImportPath: "example.com/temp/consumer"}}}, nil
+			})
+			runner.ArtifactWriter = func(path string, data []byte) error {
+				return artifactio.WriteFileAtomic(path, data, 0o644, nil)
+			}
+			outputDir := t.TempDir()
+			reportPath := filepath.Join(outputDir, "consumer.report.json")
+			surfacePath := filepath.Join(outputDir, "consumer.surface.json")
+			var stdout, stderr bytes.Buffer
+			code := runner.Run([]string{
+				"check", manifestPath,
+				"--report-out=" + reportPath,
+				"--surface-out=" + surfacePath,
+			}, &stdout, &stderr)
+			if code != 2 {
+				t.Fatalf("exit = %d, want 2; stdout = %q, stderr = %q", code, stdout.String(), stderr.String())
+			}
+			for _, want := range tt.wantStderr {
+				if !strings.Contains(strings.ToLower(stderr.String()), strings.ToLower(want)) {
+					t.Errorf("stderr = %q, want %q", stderr.String(), want)
+				}
+			}
+			if stdout.Len() != 0 {
+				t.Errorf("stdout = %q, want empty on tool error", stdout.String())
+			}
+			for _, path := range []string{reportPath, surfacePath} {
+				if _, err := os.Stat(path); !os.IsNotExist(err) {
+					t.Errorf("artifact %s exists after dependency fault (stat err = %v)", path, err)
+				}
+			}
+		})
+	}
+}
+
+func mutateNativeSurface(t *testing.T, path string, mutate func(*gen.SurfaceManifest)) {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m, err := artifactio.DecodeSurface(bytes.NewReader(data))
+	if err != nil {
+		t.Fatal(err)
+	}
+	mutate(m)
+	data, err = artifactio.MarshalSurface(m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		t.Fatal(err)
 	}
 }
 

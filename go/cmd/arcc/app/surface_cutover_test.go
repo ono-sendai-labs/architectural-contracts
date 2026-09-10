@@ -2,6 +2,7 @@ package app_test
 
 import (
 	"encoding/json"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -10,6 +11,7 @@ import (
 	"github.com/ono-sendai-labs/architectural-contracts/go/cmd/arcc/app"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/artifactio"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/facts"
+	"github.com/ono-sendai-labs/architectural-contracts/go/internal/goanalysis"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/hostpolicy"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/manifest"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/report"
@@ -186,15 +188,46 @@ func TestRunner_Check_NativeFreshnessStatusesAreByteOnly(t *testing.T) {
 	if err := os.WriteFile(consumerManifestPath, []byte(consumerManifest), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	runner, _, _ := seamRunner(t, seamRunnerOpts{
-		pkgPath: "example.com/consumer",
-		imports: []facts.ImportEdge{{
-			ImportingPackage: "example.com/consumer",
-			ImportPath:       "example.com/dependency",
-			Resolution:       facts.ImportResolved,
-			Site:             facts.SourceSite{File: "consumer.go", Line: 1},
-		}},
-	})
+	var packageLoaderCalls, dependencyResolverCalls, sourceByteReads, directoryReads int
+	runner := &app.Runner{
+		Loader: func(goanalysis.LoadRequest) (facts.PackageFacts, error) {
+			packageLoaderCalls++
+			return facts.PackageFacts{
+				Packages: []facts.PackageFact{{ImportPath: "example.com/consumer"}},
+				Imports: []facts.ImportEdge{{
+					ImportingPackage: "example.com/consumer",
+					ImportPath:       "example.com/dependency",
+					Resolution:       facts.ImportResolved,
+					Site:             facts.SourceSite{File: "consumer.go", Line: 1},
+				}},
+			}, nil
+		},
+		AuthorityResolver: func(app.AuthorityRequest) (stdlibauthority.StdlibAuthority, error) {
+			return testAuthority{}, nil
+		},
+		DependencySurfaceResolver: func(req goanalysis.DependencySurfaceRequest) (facts.DependencyInterface, error) {
+			dependencyResolverCalls++
+			originalReadFile := req.ReadFile
+			req.ReadFile = func(path string) ([]byte, error) {
+				if strings.HasSuffix(path, ".go") {
+					sourceByteReads++
+				}
+				if originalReadFile != nil {
+					return originalReadFile(path)
+				}
+				return os.ReadFile(path)
+			}
+			originalReadDir := req.ReadDir
+			req.ReadDir = func(path string) ([]fs.DirEntry, error) {
+				directoryReads++
+				if originalReadDir != nil {
+					return originalReadDir(path)
+				}
+				return os.ReadDir(path)
+			}
+			return goanalysis.ResolveDependencySurface(req)
+		},
+	}
 	readFreshness := func() report.ConformanceReport {
 		t.Helper()
 		stdout, stderr, code := runRunnerFromWorkspace(t, root, runner, []string{"check", consumerManifestPath, "--format=json"})
@@ -210,7 +243,7 @@ func TestRunner_Check_NativeFreshnessStatusesAreByteOnly(t *testing.T) {
 	if got := readFreshness(); got.Dependencies[0].Freshness != report.DependencyFreshnessVerified {
 		t.Fatalf("unchanged freshness = %q, want VERIFIED", got.Dependencies[0].Freshness)
 	}
-	if err := os.WriteFile(depSourcePath, []byte("package dependency\n\nfunc Exported() { /* changed */ }\n"), 0o644); err != nil {
+	if err := os.WriteFile(depSourcePath, []byte("this is intentionally not valid Go source\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if got := readFreshness(); got.Dependencies[0].Freshness != report.DependencyFreshnessStale || len(got.Warnings) != 1 || got.Warnings[0].Kind != report.DependencySurfaceStale {
@@ -225,5 +258,14 @@ func TestRunner_Check_NativeFreshnessStatusesAreByteOnly(t *testing.T) {
 	}
 	if len(got.Warnings) != 0 {
 		t.Fatalf("UNKNOWN freshness warnings = %#v, want none", got.Warnings)
+	}
+	if packageLoaderCalls != 3 {
+		t.Errorf("package-loader calls = %d, want exactly one consumer load per check and no dependency load", packageLoaderCalls)
+	}
+	if dependencyResolverCalls != 3 {
+		t.Errorf("dependency-surface resolver calls = %d, want one per freshness check", dependencyResolverCalls)
+	}
+	if sourceByteReads == 0 || directoryReads == 0 {
+		t.Errorf("freshness byte-reader instrumentation = source bytes %d, directories %d; want both to prove the native audit path ran", sourceByteReads, directoryReads)
 	}
 }

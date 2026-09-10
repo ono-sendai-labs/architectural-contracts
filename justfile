@@ -51,31 +51,31 @@ run *args:
 #   manifest, goanalysis, artifactio, surface.
 #
 # hostpolicy previously rode inside symbol's member set; it is now its own
-# dependency-only leaf component, declared by symbol and owned as a duplicate
-# transitional member by capslockadapter, stdlibmap, and goanalysis.
+# dependency-only leaf component, declared by symbol and consumed through
+# component dependencies by the shell components that use its policy hooks.
 #
 # The other two components — capslockadapter and cli — are native-only because
 # capslock's closure contains golang.org/x/sys/unix built with cgo. The Bazel
 # arcc rule fails closed on cgo closures, and cli (cmd/arcc) imports
 # capslockadapter. Native mode handles cgo via go/packages preprocessing.
 #
-# schema has no standalone selfcheck entry: it is a dependency-only component
-# whose manifest is parsed and whose interface files are validated every time
-# manifest or artifactio resolve it as a component dependency.
+# schema has no standalone selfcheck gate: it is a generated-schema dependency
+# whose surface is consumed by manifest and artifactio.
 #
 # Keeping both legs is deliberate: native FR1 membership and Bazel declared
 # membership checking the same components cross-checks the whole membership model.
-# The temporary stdlibmap surface staging below strips its pre-wrapper direct
-# component edges only while deriving that component's surface. Its production
-# check still fails closed on the protobuf overlap; Tasks 4-5 replace this
-# staging seam with the asserted foreign-package wrappers.
-# Step 6 AC8b remains explicit during this transitional staging: artifactio and
-# manifest await the protobuf-runtime PACKAGE_SURFACE wrapper (Task 4),
-# goanalysis awaits the x-tools wrapper (Task 5), capslockadapter awaits the
-# residual-UNANALYZED policy decision (Task 6), and csvtool/parsecsv carries
-# the same residual-policy TODO in its component integration. These components
-# are staged with verdicts recorded, but are not promoted to the gate until
-# their named follow-up task removes the exemption.
+# Step 7 gives the transitional foreign protobuf and x/tools closures one
+# package-surface boundary each, so the real component manifests can be staged
+# without dependency overlap. The five Step 6 AC8b cases remain explicit:
+# artifactio and manifest retain their named residual-policy TODOs if their own
+# reports fail, goanalysis retains its residual-policy TODO, capslockadapter retains
+# the residual-UNANALYZED TODO, and csvtool/parsecsv retains its residual TODO.
+# Their report verdicts are computed for dependency consumption and deliberately
+# discarded with this temporary tree; they are not claimed to be persisted or
+# promoted to the gate. `schema` is not one of those five and has no standalone
+# selfcheck gate: its generated protobuf code currently produces an expected
+# UNANALYZED verdict while it is consumed as a dependency artifact. That
+# expected non-gating verdict is checked explicitly below and then discarded.
 selfcheck:
 	@echo "=== Validating pinned selfcheck toolchain ==="
 	@test "$(cd {{go_dir}} && go env GOVERSION)" = "go1.26.4"
@@ -90,9 +90,9 @@ selfcheck:
 	@echo "=== Staging self-hosting surfaces in dependency order ==="
 	# The order is the component-dependency topological order. Every staged
 	# report/surface is produced beside its manifest, so native convention lookup
-	# never reads a developer cache or an uncontrolled host path. The five
-	# Step 6 AC8b components remain staging-only until their later tasks remove
-	# the explicit exemptions; their fail verdicts are still recorded in reports.
+	# never reads a developer cache or an uncontrolled host path. Staging verdicts
+	# are consumed in this temporary tree and discarded on exit; only the two
+	# final real selfcheck commands below are gate assertions.
 	@selfcheck_stage="$(mktemp -d "${TMPDIR:-/tmp}/arcc-selfcheck.XXXXXX")"; \
 	trap 'rm -rf "$selfcheck_stage"' EXIT; \
 	cp -a "$(pwd)/go" "$selfcheck_stage/go"; \
@@ -101,11 +101,6 @@ selfcheck:
 	cd "$selfcheck_stage/go"; \
 	stage_component() { \
 		manifest="$1"; base="${manifest%.textproto}"; stage_manifest="$manifest"; \
-		if [ "$manifest" = "internal/stdlibmap/component.textproto" ] || [ "$manifest" = "internal/goanalysis/component.textproto" ] || [ "$manifest" = "cmd/arcc/component.textproto" ]; then \
-			stage_manifest="${manifest%.textproto}.surface-stage.component.textproto"; \
-			awk 'BEGIN { skip = 0 } /component_dependencies[[:space:]]*\{/ { skip = 1; next } skip && /^\}/ { skip = 0; next } !skip { print }' "$manifest" > "$stage_manifest"; \
-			if [ "$manifest" = "cmd/arcc/component.textproto" ]; then sed -i '/interface_files: "app\/app.go"/d' "$stage_manifest"; fi; \
-		fi; \
 		"$arcc_bin" check "$stage_manifest" --stdlib-map="$map_path" \
 			--report-out="$base.report.json" --surface-out="$base.surface.json" \
 			--report-verdict-only >/dev/null; \
@@ -113,7 +108,12 @@ selfcheck:
 	stage_component internal/capanalyzer/component.textproto; \
 	stage_component internal/hostpolicy/component.textproto; \
 	stage_component internal/symbol/component.textproto; \
+	stage_component internal/protobufruntime/component.textproto; \
+	stage_component internal/xtools/component.textproto; \
 	stage_component internal/schema/component.textproto; \
+	schema_verdict="$(sed -n 's/.*\"verdict\": \"\([^\"]*\)\".*/\1/p' internal/schema/component.report.json | head -n 1)"; \
+	if [ "${schema_verdict}" != "fail" ]; then echo "schema staging verdict changed: got ${schema_verdict}, want the expected generated-protobuf UNANALYZED fail" >&2; exit 1; fi; \
+	echo "schema dependency artifact verdict: fail (expected generated-protobuf UNANALYZED; non-gating and discarded with the temporary stage)"; \
 	stage_component internal/manifest/component.textproto; \
 	stage_component internal/report/component.textproto; \
 	stage_component internal/stdlibauthority/component.textproto; \
@@ -124,12 +124,16 @@ selfcheck:
 	stage_component internal/capslockadapter/component.textproto; \
 	stage_component internal/stdlibmap/component.textproto; \
 	stage_component internal/goanalysis/component.textproto; \
-	stage_component cmd/arcc/component.textproto; \
+	stage_component examples/csvtool/internal/parsecsv/component.textproto; \
+	stage_component examples/csvtool/csvfile/component.textproto; \
+	stage_component examples/csvtool/toprow/component.textproto; \
+	stage_component examples/csvtool/app/component.textproto; \
 	echo "=== Running self-hosting checks (Pillar 3 authority-free core) ==="; \
 	"$arcc_bin" check internal/checker/component.textproto --stdlib-map="$map_path"; \
 	"$arcc_bin" check internal/surface/component.textproto --stdlib-map="$map_path"; \
-	echo "=== Running self-hosting checks (remaining components) ==="; \
-	"$arcc_bin" check cmd/arcc/component.surface-stage.component.textproto --stdlib-map="$map_path" --report-out=cmd/arcc/component.surface-stage.report.json --report-verdict-only >/dev/null
+	echo "=== Running self-hosting checks (remaining real manifests) ==="; \
+	"$arcc_bin" check cmd/arcc/component.textproto --stdlib-map="$map_path" >/dev/null; \
+	"$arcc_bin" check examples/csvtool/app/component.textproto --stdlib-map="$map_path" >/dev/null
 
 bazel-test-full:
 	bazel test --define=stdlibmap_full=true //bazel_rules/go/tests:arcc_deps_aspect_full_tests

@@ -41,50 +41,19 @@ go_library(
 # facts/manifest/symbol contracts plus the artifactio, schema,
 # stdlibauthority, and surface shells used by the additive persisted-surface
 # consumer; owns //go/internal/hostpolicy, //go/internal/packagelayout, and
-# the x/tools closure as declared members; declares 8 authorities.
-# hostpolicy, packagelayout, and the x/tools closure are declared members:
-# code the component calls into is owned member code whose authority is charged
-# to this component's declared_authority.
-# EXEMPT (Step 6 task 05 AC8b; TODO(Step 7 x/tools PACKAGE_SURFACE wrapper):
-# the retained x/tools member closure references UNANALYZED stdlib records —
-# 88 AnalysisDefeating sites (go/build.Default x13, (sync.Once).Do x9,
-# io.Copy x9, go/parser.ParseFile x8, io.ReadFull x6, sort.Sort x5,
-# unsafe.String x1, unsafe.StringData x1, ...) plus
-# 6 RUNTIME sites (runtime.init) — so the checked .check test would fail its
-# pass assertion. check_tags=["manual"] (the Step 5 task 05 seam) keeps the
-# analysis action built by `bazel build //...` while exempting the verdict
-# test; Step 7 removes the exemption.
+# the x/tools package-surface dependency; declares 8 authorities. The foreign
+# x/tools implementation is one adopted boundary rather than member source,
+# so this component's own analysis does not charge x/tools internals to it.
+# EXEMPT (Step 6 task 05 AC8b; TODO(Step 7 residual-UNANALYZED decision):
+# goanalysis still owns the layout-driver implementation, whose native-only
+# parser/build-context operations produce honest AnalysisDefeating records.
+# `check_tags=["manual"]` keeps that transitional native selfcheck out of the
+# Bazel verdict gate without weakening the analysis action or its report.
 go_component(
     name = "goanalysis_component",
     check_tags = ["manual"],
     members = [
-        "//go/internal/hostpolicy",
         "//go/internal/packagelayout",
-        "@org_golang_x_mod//semver:semver",
-        "@org_golang_x_sync//errgroup:errgroup",
-        "@org_golang_x_tools//go/ast/astutil:astutil",
-        "@org_golang_x_tools//go/ast/edge:edge",
-        "@org_golang_x_tools//go/ast/inspector:inspector",
-        "@org_golang_x_tools//go/buildutil:buildutil",
-        "@org_golang_x_tools//go/gcexportdata:gcexportdata",
-        "@org_golang_x_tools//go/internal/cgo:cgo",
-        "@org_golang_x_tools//go/loader:loader",
-        "@org_golang_x_tools//go/packages:packages",
-        "@org_golang_x_tools//go/types/objectpath:objectpath",
-        "@org_golang_x_tools//go/types/typeutil:typeutil",
-        "@org_golang_x_tools//internal/aliases:aliases",
-        "@org_golang_x_tools//internal/event:event",
-        "@org_golang_x_tools//internal/event/core:core",
-        "@org_golang_x_tools//internal/event/keys:keys",
-        "@org_golang_x_tools//internal/event/label:label",
-        "@org_golang_x_tools//internal/gcimporter:gcimporter",
-        "@org_golang_x_tools//internal/gocommand:gocommand",
-        "@org_golang_x_tools//internal/packagesinternal:packagesinternal",
-        "@org_golang_x_tools//internal/pkgbits:pkgbits",
-        "@org_golang_x_tools//internal/stdlib:stdlib",
-        "@org_golang_x_tools//internal/typeparams:typeparams",
-        "@org_golang_x_tools//internal/typesinternal:typesinternal",
-        "@org_golang_x_tools//internal/versions:versions",
     ],
     component_deps = [
         "//go/internal/artifactio:artifactio_component",
@@ -94,6 +63,9 @@ go_component(
         "//go/internal/stdlibauthority:stdlibauthority_component",
         "//go/internal/surface:surface_component",
         "//go/internal/symbol:symbol_component",
+        "//go/internal/xtools:x-tools",
+        "//go/internal/report:report_component",
+        "//go/internal/hostpolicy:hostpolicy_component",
     ],
     declared_authority = [
         ARBITRARY_EXECUTION,

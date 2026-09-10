@@ -1,0 +1,40 @@
+load("@rules_arcc//bazel_rules/go:defs.bzl", "go_component")
+
+# One package-level asserted boundary owns the foreign x/tools closure used by
+# arcc's shell components. The manual tag prevents an analysis action from
+# loading the foreign source merely to derive an assertion about it.
+go_component(
+    name = "x-tools",
+    interface_style = "PACKAGE_SURFACE",
+    members = [
+        "@org_golang_x_mod//semver:semver",
+        "@org_golang_x_sync//errgroup:errgroup",
+        "@org_golang_x_tools//go/ast/astutil:astutil",
+        "@org_golang_x_tools//go/ast/edge:edge",
+        "@org_golang_x_tools//go/ast/inspector:inspector",
+        "@org_golang_x_tools//go/buildutil:buildutil",
+        "@org_golang_x_tools//go/gcexportdata:gcexportdata",
+        "@org_golang_x_tools//go/internal/cgo:cgo",
+        "@org_golang_x_tools//go/loader:loader",
+        "@org_golang_x_tools//go/packages:packages",
+        "@org_golang_x_tools//go/types/objectpath:objectpath",
+        "@org_golang_x_tools//go/types/typeutil:typeutil",
+        "@org_golang_x_tools//internal/aliases:aliases",
+        "@org_golang_x_tools//internal/event:event",
+        "@org_golang_x_tools//internal/event/core:core",
+        "@org_golang_x_tools//internal/event/keys:keys",
+        "@org_golang_x_tools//internal/event/label:label",
+        "@org_golang_x_tools//internal/gcimporter:gcimporter",
+        "@org_golang_x_tools//internal/gocommand:gocommand",
+        "@org_golang_x_tools//internal/packagesinternal:packagesinternal",
+        "@org_golang_x_tools//internal/pkgbits:pkgbits",
+        "@org_golang_x_tools//internal/stdlib:stdlib",
+        "@org_golang_x_tools//internal/typeparams:typeparams",
+        "@org_golang_x_tools//internal/typesinternal:typesinternal",
+        "@org_golang_x_tools//internal/versions:versions",
+    ],
+    tags = ["manual"],
+    visibility = ["//go:__subpackages__"],
+)
+
+exports_files(["component.textproto"])

@@ -71,25 +71,25 @@ type ExportedSymbol struct {
 	Receiver string
 }
 
-// DependencyInterface is a direct component dependency's manifest and interface files
-// resolved into its logical declared-interface symbol set (the FR4 symbol set).
-//
-// These fields are derived by the shell (specifically `goanalysis`) from the
-// dependency's own root and manifest (not declared) and are consumed by the checker
-// to validate boundary references against the exact declared interface.
+// DependencyInterface is a direct component dependency's validated persisted
+// surface projected into the pure checker model. It is not reconstructed from
+// the dependency's source or interface files: the surface provider supplies
+// concrete packages, exact symbols (when the style is declared-interface), and
+// the structural status axes.
 //
 // Symbols are shared symbol.SymbolID values under the declaring-object rule
-// (DR-04): the exact exported declaring objects of the surviving interface
-// files — the same set the emitted surface carries — with no dual
-// pointer/value receiver keys.
+// (DR-04), decoded from the surface and compared exactly. Native freshness may
+// read dependency source bytes for a best-effort digest audit, but that path
+// does not parse or type-check the dependency; source loading remains reserved
+// for the component's own member analysis until Step 8.
 type DependencyInterface struct {
 	Component string
 
-	// InterfaceStyle is read from the dependency's own manifest and is not verified by arcc.
+	// InterfaceStyle is validated from the persisted surface.
 	InterfaceStyle manifest.InterfaceStyle
 
-	Packages []string   // all packages under the dependency's component root (derived, not declared)
-	Symbols  []SymbolID // the exact declaring-object symbol set (derived, not declared)
+	Packages []string   // concrete packages owned by the validated surface
+	Symbols  []SymbolID // exact persisted declaring-object symbols, when applicable
 
 	// Provenance, Freshness, and Authority are independent boundary axes. They
 	// are populated only by the validated surface consumer.

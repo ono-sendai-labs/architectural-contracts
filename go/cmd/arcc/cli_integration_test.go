@@ -50,20 +50,64 @@ func TestMain(m *testing.M) {
 // runArcc runs the compiled arcc binary as a subprocess and returns its stdout, stderr, and exit code.
 func runArcc(args []string) (string, string, int) {
 	if len(args) >= 2 && args[0] == "check" {
-		var created []string
-		if err := stageNativeDependencyArtifacts(args[1], map[string]bool{}, &created); err != nil {
-			for _, path := range created {
-				_ = os.Remove(path)
-			}
+		var staged nativeArtifactStaging
+		if err := stageNativeDependencyArtifacts(args[1], map[string]bool{}, &staged); err != nil {
+			staged.restore()
 			return "", fmt.Sprintf("error: staging dependency surfaces: %v\n", err), 2
 		}
-		defer func() {
-			for _, path := range created {
-				_ = os.Remove(path)
-			}
-		}()
+		defer staged.restore()
 	}
 	return runArccEnv(nil, args)
+}
+
+type nativeArtifactOriginal struct {
+	data   []byte
+	mode   os.FileMode
+	exists bool
+}
+
+// nativeArtifactStaging makes dependency artifact production independent of
+// developer cache state while restoring every pre-existing companion after the
+// command. A surface without its matching report is never accepted as a fresh
+// pair merely because the surface happens to exist.
+type nativeArtifactStaging struct {
+	originals map[string]nativeArtifactOriginal
+	order     []string
+}
+
+func (s *nativeArtifactStaging) capture(path string) error {
+	if s.originals == nil {
+		s.originals = make(map[string]nativeArtifactOriginal)
+	}
+	if _, ok := s.originals[path]; ok {
+		return nil
+	}
+	info, err := os.Stat(path)
+	if err == nil {
+		data, readErr := os.ReadFile(path)
+		if readErr != nil {
+			return readErr
+		}
+		s.originals[path] = nativeArtifactOriginal{data: data, mode: info.Mode().Perm(), exists: true}
+	} else if os.IsNotExist(err) {
+		s.originals[path] = nativeArtifactOriginal{}
+	} else {
+		return err
+	}
+	s.order = append(s.order, path)
+	return nil
+}
+
+func (s *nativeArtifactStaging) restore() {
+	for i := len(s.order) - 1; i >= 0; i-- {
+		path := s.order[i]
+		original := s.originals[path]
+		if original.exists {
+			_ = os.WriteFile(path, original.data, original.mode)
+		} else {
+			_ = os.Remove(path)
+		}
+	}
 }
 
 // stageNativeDependencyArtifacts supplies the persisted sibling artifacts that
@@ -72,7 +116,7 @@ func runArcc(args []string) (string, string, int) {
 // dependent runs. The files are test-only staging artifacts and are removed by
 // runArcc after the subprocess returns; production has no fallback to source
 // reconstruction.
-func stageNativeDependencyArtifacts(manifestPath string, seen map[string]bool, created *[]string) error {
+func stageNativeDependencyArtifacts(manifestPath string, seen map[string]bool, staged *nativeArtifactStaging) error {
 	absManifest, err := filepath.Abs(manifestPath)
 	if err != nil {
 		return err
@@ -98,14 +142,15 @@ func stageNativeDependencyArtifacts(manifestPath string, seen map[string]bool, c
 	}
 	for _, dep := range parsed.ComponentDependencies {
 		depManifest := filepath.Clean(filepath.Join(filepath.Dir(absManifest), dep.Manifest))
-		if err := stageNativeDependencyArtifacts(depManifest, seen, created); err != nil {
+		if err := stageNativeDependencyArtifacts(depManifest, seen, staged); err != nil {
 			return err
 		}
 		surfacePath := artifactio.SurfacePath(depManifest)
 		reportPath := artifactio.ReportPath(depManifest)
-		if _, err := os.Stat(surfacePath); err == nil {
-			continue
-		} else if !os.IsNotExist(err) {
+		if err := staged.capture(surfacePath); err != nil {
+			return err
+		}
+		if err := staged.capture(reportPath); err != nil {
 			return err
 		}
 		cmd := exec.Command(arccBin, "check", depManifest,
@@ -116,9 +161,78 @@ func stageNativeDependencyArtifacts(manifestPath string, seen map[string]bool, c
 		if output, err := cmd.CombinedOutput(); err != nil {
 			return fmt.Errorf("checking %s: %v (%s)", depManifest, err, strings.TrimSpace(string(output)))
 		}
-		*created = append(*created, surfacePath, reportPath)
 	}
 	return nil
+}
+
+func TestStageNativeDependencyArtifactsRefreshesExistingPair(t *testing.T) {
+	_, depManifest := createTempComponent(t, "staging-dependency", `name: "staging-dependency"
+interface_files: "api.go"
+`, map[string]string{
+		"api.go": "package stagingdependency\n\nfunc Exported() {}\n",
+	})
+	callerDir := t.TempDir()
+	callerManifest := filepath.Join(callerDir, "component.textproto")
+	if err := os.WriteFile(callerManifest, []byte(fmt.Sprintf(`name: "staging-caller"
+interface_files: "caller.go"
+component_dependencies {
+  name: "staging-dependency"
+  manifest: "%s"
+}
+`, filepath.ToSlash(relativePath(t, callerDir, depManifest)))), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(callerDir, "caller.go"), []byte("package caller\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	surfacePath := artifactio.SurfacePath(depManifest)
+	reportPath := artifactio.ReportPath(depManifest)
+	oldSurface := []byte("stale surface bytes")
+	oldReport := []byte("stale report bytes")
+	if err := os.WriteFile(surfacePath, oldSurface, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(reportPath, oldReport, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var staged nativeArtifactStaging
+	if err := stageNativeDependencyArtifacts(callerManifest, map[string]bool{}, &staged); err != nil {
+		t.Fatalf("stageNativeDependencyArtifacts: %v", err)
+	}
+	defer staged.restore()
+
+	if data, err := os.ReadFile(surfacePath); err != nil {
+		t.Fatal(err)
+	} else if _, err := artifactio.DecodeSurface(strings.NewReader(string(data))); err != nil {
+		t.Fatalf("staged surface remains stale: %v", err)
+	}
+	if data, err := os.ReadFile(reportPath); err != nil {
+		t.Fatal(err)
+	} else if _, err := artifactio.DecodeReport(data); err != nil {
+		t.Fatalf("staged report remains stale: %v", err)
+	}
+	staged.restore()
+	if data, err := os.ReadFile(surfacePath); err != nil {
+		t.Fatal(err)
+	} else if string(data) != string(oldSurface) {
+		t.Errorf("surface restore = %q, want original stale bytes", data)
+	}
+	if data, err := os.ReadFile(reportPath); err != nil {
+		t.Fatal(err)
+	} else if string(data) != string(oldReport) {
+		t.Errorf("report restore = %q, want original stale bytes", data)
+	}
+}
+
+func relativePath(t *testing.T, from, to string) string {
+	t.Helper()
+	rel, err := filepath.Rel(from, to)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return rel
 }
 
 // runArccEnv is runArcc with an explicit environment for the subprocess. A nil
@@ -852,6 +966,117 @@ func TestIntegration_App_Success_JSON(t *testing.T) {
 	}
 	if len(rep.Dependencies) != 2 || rep.Dependencies[0].Component != "csvfile" || rep.Dependencies[1].Component != "toprow" {
 		t.Errorf("rep.Dependencies = %+v, want csvfile and toprow dependency boundaries", rep.Dependencies)
+	}
+}
+
+func TestIntegration_CSVTool_StatusDemo(t *testing.T) {
+	appManifest := "../../examples/csvtool/app/component.textproto"
+
+	// The native command consumes a freshly staged pair and exposes the
+	// byte-audited VERIFIED axis in JSON. Native provenance remains ASSERTED by
+	// design; BUILD_GRAPH/CHECKED_PASS is demonstrated by the Bazel artifact
+	// producer, not synthesized by native convention lookup.
+	stdout, stderr, code := runArcc([]string{"check", appManifest, "--format=json"})
+	if code != 0 {
+		t.Fatalf("CSV app checked-pass run: exit %d, stderr=%q, stdout=%q", code, stderr, stdout)
+	}
+	var verified report.ConformanceReport
+	if err := json.Unmarshal([]byte(stdout), &verified); err != nil {
+		t.Fatalf("decode verified CSV report: %v; stdout=%q", err, stdout)
+	}
+	if len(verified.Dependencies) != 2 {
+		t.Fatalf("verified CSV dependencies = %+v, want csvfile and toprow", verified.Dependencies)
+	}
+	for _, dep := range verified.Dependencies {
+		if dep.Provenance != report.DependencyProvenanceAsserted || dep.Freshness != report.DependencyFreshnessVerified {
+			t.Errorf("verified CSV boundary %q = %+v, want ASSERTED/VERIFIED", dep.Component, dep)
+		}
+	}
+
+	// parsecsv's known UNANALYZED record is intentionally a failing dependency
+	// report. Persist that artifact explicitly, then prove a native consumer
+	// continues against its surface without copying the dependency violation.
+	artifactDir := t.TempDir()
+	parseReportPath := filepath.Join(artifactDir, "parsecsv.report.json")
+	parseSurfacePath := filepath.Join(artifactDir, "parsecsv.surface.json")
+	stdout, stderr, code = runArcc([]string{
+		"check", "../../examples/csvtool/internal/parsecsv/component.textproto",
+		"--report-out=" + parseReportPath,
+		"--surface-out=" + parseSurfacePath,
+		"--report-verdict-only",
+	})
+	if code != 0 || stderr != "" {
+		t.Fatalf("CSV checked-fail artifact run: exit %d, stderr=%q, stdout=%q", code, stderr, stdout)
+	}
+	parseReport, err := os.ReadFile(parseReportPath)
+	if err != nil {
+		t.Fatalf("read parsecsv report: %v", err)
+	}
+	persisted, err := artifactio.DecodeReport(parseReport)
+	if err != nil {
+		t.Fatalf("decode parsecsv report: %v", err)
+	}
+	if persisted.Verdict != report.VerdictFail {
+		t.Fatalf("parsecsv verdict = %q, want fail", persisted.Verdict)
+	}
+	stdout, stderr, code = runArcc([]string{"check", "../../examples/csvtool/csvfile/component.textproto"})
+	if code != 0 || stderr != "" {
+		t.Fatalf("CSV native consumer after checked-fail artifact: exit %d, stderr=%q, stdout=%q", code, stderr, stdout)
+	}
+	if strings.Contains(stdout, "analysis-defeating construct") {
+		t.Fatalf("native consumer copied the dependency violation: stdout=%q", stdout)
+	}
+
+	// Keep a staged artifact pair while changing a member source byte. The
+	// source remains valid Go so the real command can load the consumer; only
+	// the native freshness audit observes the change and renders STALE.
+	appManifestAbs, err := filepath.Abs(appManifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var staged nativeArtifactStaging
+	if err := stageNativeDependencyArtifacts(appManifestAbs, map[string]bool{}, &staged); err != nil {
+		t.Fatalf("stage CSV stale demo: %v", err)
+	}
+	t.Cleanup(staged.restore)
+	sourcePath := filepath.Join("../../examples/csvtool/csvfile/private.go")
+	originalSource, err := os.ReadFile(sourcePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := os.WriteFile(sourcePath, originalSource, 0o644); err != nil {
+			t.Errorf("restore CSV source: %v", err)
+		}
+	})
+	if err := os.WriteFile(sourcePath, append(originalSource, []byte("\n// status-demo source change\n")...), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	stdout, stderr, code = runArccEnv(nil, []string{"check", appManifest, "--format=json"})
+	if code != 0 {
+		t.Fatalf("CSV stale run: exit %d, stderr=%q, stdout=%q", code, stderr, stdout)
+	}
+	var stale report.ConformanceReport
+	if err := json.Unmarshal([]byte(stdout), &stale); err != nil {
+		t.Fatalf("decode stale CSV report: %v; stdout=%q", err, stdout)
+	}
+	var sawStale bool
+	for _, dep := range stale.Dependencies {
+		if dep.Component == "csvfile" && dep.Freshness == report.DependencyFreshnessStale {
+			sawStale = true
+		}
+	}
+	if !sawStale {
+		t.Errorf("stale CSV boundaries = %+v, want csvfile STALE", stale.Dependencies)
+	}
+	var staleWarning bool
+	for _, warning := range stale.Warnings {
+		if warning.Kind == report.DependencySurfaceStale {
+			staleWarning = true
+		}
+	}
+	if !staleWarning {
+		t.Errorf("stale CSV warnings = %+v, want DEPENDENCY_SURFACE_STALE", stale.Warnings)
 	}
 }
 
