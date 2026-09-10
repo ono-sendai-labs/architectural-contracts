@@ -62,10 +62,12 @@ go_test(
 # component's declared_authority.
 # EXEMPT (Step 6 task 05 AC8b; TODO(Step 7 protobuf-runtime PACKAGE_SURFACE
 # migration): the transitional protobuf-runtime members reference UNANALYZED
-# stdlib records — 89 AnalysisDefeating sites (same symbol set as
-# artifactio: unsafe.Pointer x52, (sync.Once).Do x17, sort.Slice x11,
-# (sync.Pool).Get x3, io.WriteString x2, io.ReadAll x2, compress/gzip
-# .NewReader x1, errors.As x1) plus os.Open/os.Stderr findings (FILES x2,
+# stdlib records — 102 AnalysisDefeating sites (same symbol set as
+# artifactio: unsafe.Pointer x52, unsafe.Sizeof x5, unsafe.Slice x2,
+# unsafe.SliceData x2, unsafe.String x2, unsafe.StringData x2,
+# (sync.Once).Do x17, sort.Slice x11, (sync.Pool).Get x3,
+# io.WriteString x2, io.ReadAll x2, compress/gzip.NewReader x1,
+# errors.As x1) plus os.Open/os.Stderr findings (FILES x2,
 # MODIFY_SYSTEM_STATE x1, OPERATING_SYSTEM x1) — so the checked .check test
 # would fail its pass assertion. check_tags=["manual"] (the Step 5 task 05
 # seam) keeps the analysis action built by `bazel build //...` while

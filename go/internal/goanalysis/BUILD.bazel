@@ -36,8 +36,9 @@ go_library(
 # to this component's declared_authority.
 # EXEMPT (Step 6 task 05 AC8b; TODO(Step 7 x/tools PACKAGE_SURFACE wrapper):
 # the retained x/tools member closure references UNANALYZED stdlib records —
-# 86 AnalysisDefeating sites (go/build.Default x13, (sync.Once).Do x9,
-# io.Copy x9, go/parser.ParseFile x8, io.ReadFull x6, sort.Sort x5, ...) plus
+# 88 AnalysisDefeating sites (go/build.Default x13, (sync.Once).Do x9,
+# io.Copy x9, go/parser.ParseFile x8, io.ReadFull x6, sort.Sort x5,
+# unsafe.String x1, unsafe.StringData x1, ...) plus
 # 6 RUNTIME sites (runtime.init) — so the checked .check test would fail its
 # pass assertion. check_tags=["manual"] (the Step 5 task 05 seam) keeps the
 # analysis action built by `bazel build //...` while exempting the verdict
