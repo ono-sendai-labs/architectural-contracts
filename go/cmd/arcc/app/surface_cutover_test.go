@@ -140,6 +140,150 @@ component_dependencies {
 	}
 }
 
+func TestRunner_Check_CSVToolStatusLabelsInLayoutReport(t *testing.T) {
+	workspace := t.TempDir()
+	layoutPath := writeRunnerLayoutFixture(t, workspace, []string{"example.com/layout/status"})
+	manifestPath := filepath.Join(workspace, "component.textproto")
+	manifest := `name: "app"
+interface_style: INTERFACE_STYLE_PACKAGE_SURFACE
+members: "example.com/layout/status"
+component_dependencies {
+  name: "csvfile"
+  manifest: "csvfile/component.textproto"
+}
+component_dependencies {
+  name: "parsecsv"
+  manifest: "parsecsv/component.textproto"
+}
+component_dependencies {
+  name: "unowned"
+  manifest: "unowned/component.textproto"
+}
+`
+	if err := os.WriteFile(manifestPath, []byte(manifest), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	layoutData, err := os.ReadFile(layoutPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var layout map[string]any
+	if err := json.Unmarshal(layoutData, &layout); err != nil {
+		t.Fatal(err)
+	}
+	layout["dependency_artifact_bindings"] = []map[string]any{
+		{
+			"dependency": "csvfile",
+			"surface":    "csvfile.surface.json",
+			"report":     "csvfile.report.json",
+			"provenance": "checked",
+		},
+		{
+			"dependency": "parsecsv",
+			"surface":    "parsecsv.surface.json",
+			"report":     "parsecsv.report.json",
+			"provenance": "checked",
+		},
+		{
+			"dependency": "unowned",
+			"surface":    "unowned.surface.json",
+			"provenance": "asserted",
+		},
+	}
+	layoutData, err = json.Marshal(layout)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(layoutPath, layoutData, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	writeLayoutStatusSurface := func(component string, authority *gen.AuthorityDeclaration, digest string) {
+		t.Helper()
+		data, err := artifactio.MarshalSurface(&gen.SurfaceManifest{
+			FormatVersion:  artifactio.SurfaceFormatVersion,
+			Component:      component,
+			InterfaceStyle: gen.InterfaceStyle_INTERFACE_STYLE_PACKAGE_SURFACE,
+			Authority:      authority,
+			Packages:       []string{"example.com/layout/" + component},
+			Namespace:      hostpolicy.NamespaceID,
+			SdkKey: &gen.SDKKey{
+				ToolchainVersion: fullSDKKey.ToolchainVersion,
+				Goos:             fullSDKKey.GOOS,
+				Goarch:           fullSDKKey.GOARCH,
+				ClassifierHash:   fullSDKKey.ClassifierHash,
+				MapFormatVersion: fullSDKKey.MapFormatVersion,
+			},
+			ProducerVersion: "csv-status-demo",
+			Digest:          digest,
+		})
+		if err != nil {
+			t.Fatalf("MarshalSurface(%s): %v", component, err)
+		}
+		if err := os.WriteFile(filepath.Join(workspace, component+".surface.json"), data, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	declared := &gen.AuthorityDeclaration{Authority: gen.Authority_DECLARED}
+	writeLayoutStatusSurface("csvfile", declared, strings.Repeat("0", 64))
+	writeLayoutStatusSurface("parsecsv", declared, strings.Repeat("1", 64))
+	writeLayoutStatusSurface("unowned", &gen.AuthorityDeclaration{Authority: gen.Authority_UNKNOWN}, "")
+	passReport, err := artifactio.MarshalReport(report.ConformanceReport{Component: "csvfile"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	failReport, err := artifactio.MarshalReport(report.ConformanceReport{
+		Component: "parsecsv",
+		Violations: []report.Finding{{
+			Kind:    report.UndeclaredAuthority,
+			Message: "fixture violation",
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(workspace, "csvfile.report.json"), passReport, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(workspace, "parsecsv.report.json"), failReport, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	runner := &app.Runner{
+		Loader: func(goanalysis.LoadRequest) (facts.PackageFacts, error) {
+			return facts.PackageFacts{Packages: []facts.PackageFact{{ImportPath: "example.com/layout/status"}}}, nil
+		},
+		AuthorityResolver: func(app.AuthorityRequest) (stdlibauthority.StdlibAuthority, error) {
+			return testAuthority{}, nil
+		},
+	}
+	stdout, stderr, code := runRunnerFromWorkspace(t, workspace, runner, []string{
+		"check", manifestPath,
+		"--package-layout=" + layoutPath,
+		"--stdlib-map=unused.json",
+	})
+	if code != 0 {
+		t.Fatalf("layout CSV status demo exit = %d, stderr=%q, stdout=%q", code, stderr, stdout)
+	}
+	if stderr != "" {
+		t.Fatalf("layout CSV status demo stderr = %q", stderr)
+	}
+	for _, want := range []string{
+		"- csvfile (certified)",
+		"- parsecsv (check failed)",
+		"- unowned (asserted, untrusted)",
+		"[DEPENDENCY_CHECK_FAILED] dependency \"parsecsv\" failed its conformance check",
+	} {
+		if !strings.Contains(stdout, want) {
+			t.Errorf("layout CSV status demo output = %q, want %q", stdout, want)
+		}
+	}
+	if strings.Contains(stdout, "- parsecsv (certified)") || strings.Contains(stdout, "- unowned (certified)") {
+		t.Errorf("untrusted/failed CSV boundaries were certified: %q", stdout)
+	}
+}
+
 func TestRunner_Check_NativeFreshnessStatusesAreByteOnly(t *testing.T) {
 	root := t.TempDir()
 	consumerRoot := filepath.Join(root, "consumer")
