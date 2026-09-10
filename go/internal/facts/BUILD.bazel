@@ -5,6 +5,7 @@ go_library(
     name = "facts",
     srcs = [
         "bypass.go",
+        "dependency_status.go",
         "facts.go",
         "member.go",
         "refs.go",
@@ -22,6 +23,7 @@ go_test(
     size = "small",
     srcs = [
         "bypass_test.go",
+        "dependency_status_test.go",
         "facts_test.go",
         "member_test.go",
         "refs_test.go",

@@ -89,4 +89,11 @@ type DependencyInterface struct {
 
 	Packages []string   // all packages under the dependency's component root (derived, not declared)
 	Symbols  []SymbolID // the exact declaring-object symbol set (derived, not declared)
+
+	// Provenance, Freshness, and Authority are independent boundary axes. They
+	// are populated by the surface consumer; the legacy source-backed resolver
+	// remains available during the additive Step 7 transition.
+	Provenance DependencyProvenance
+	Freshness  DependencyFreshness
+	Authority  manifest.AuthorityDeclaration
 }
