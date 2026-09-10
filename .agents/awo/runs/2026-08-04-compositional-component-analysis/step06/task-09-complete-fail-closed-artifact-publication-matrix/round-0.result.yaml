@@ -1,0 +1,89 @@
+result:
+  task_file: .agents/tasks/2026-08-04-compositional-component-analysis/step06/task-09-complete-fail-closed-artifact-publication-matrix.code-task.md
+  change_id: lkyzqzvzpkporppsnvswsmzvonxsyzrl
+  status: completed
+  schema_version: 2
+  produced_at: 2026-09-10T06:59:41Z
+
+acceptance_criteria:
+  - text: |
+      Every required map fault is exercised end to end
+      - Given missing, corrupt, target-key-mismatched, classifier-mismatched,
+        format-mismatched, and inventory-incomplete stdlib maps
+      - When each is supplied to the production layout-mode Runner
+      - Then each exits 2 with a diagnostic naming its fault
+    addressed: yes
+    evidence: |
+      `go/cmd/arcc/app/check_integration_test.go:398-450` defines
+      `TestCheck_LayoutStdlibMapFailuresPublishNothing` with all six required
+      rows. `runInvalidLayoutMapCase` at :283-310 invokes `fullRunner` with
+      `--package-layout` and the declared map; each row asserts exit 2 and
+      fault-specific diagnostic fragments, including `fmt.Sprintf` for the
+      classification-time inventory gap.
+  - text: |
+      No failing row publishes an artifact
+      - Given fresh report and surface output paths for every invalid-map row
+      - When the check fails
+      - Then neither output path exists afterward
+    addressed: yes
+    evidence: |
+      `go/cmd/arcc/app/check_integration_test.go:283-310` creates a fresh
+      `t.TempDir` output directory, asserts both destinations are absent before
+      the production Runner call, and asserts both remain absent afterward for
+      every table row.
+  - text: |
+      The matrix is independent and deterministic
+      - Given any table order or isolated row execution
+      - When the test runs
+      - Then no row relies on artifacts from a successful or preceding
+        invocation, and every row reaches its intended validation branch
+    addressed: yes
+    evidence: |
+      `go/cmd/arcc/app/check_integration_test.go:132-139` and :146-211 create
+      row-local workspaces; :214-280 create row-local map artifacts from
+      defensive pinned bytes and the small mock SDK. The successful deterministic
+      assertions remain separate at :323-393, while the focused verbose run in
+      `work.log` records all six independent subtests passing.
+  - text: |
+      Routine tests remain bounded
+      - Given the expanded integration matrix
+      - When `CGO_ENABLED=0 just test-integration` runs
+      - Then it uses only pinned/synthetic map data, performs no whole-SDK
+        generation, and does not touch the native production cache
+    addressed: yes
+    evidence: |
+      Artifact inspection recorded in `work.log` under `Criterion AC4` shows
+      the changed test uses `teststdlibmap.PinnedBytes()` at
+      `go/cmd/arcc/app/check_integration_test.go:120,225,237` and a `mock-sdk`
+      at :162, with no generation/cache calls. `justfile:15-22` keeps full
+      stdlib-map generation in the explicit `test-integration-full` lane. The
+      routine command passed in 15.30 seconds (`work.log`).
+  - text: |
+      Repository gates pass
+      - Given the completed coverage repair
+      - When `CGO_ENABLED=0 just ci` runs
+      - Then every routine gate passes and the successful artifact determinism
+        coverage remains intact
+    addressed: yes
+    evidence: |
+      `go/cmd/arcc/app/check_integration_test.go:323-393` retains the successful
+      report/surface decoding and byte-identical repeat-invocation assertions.
+      `CGO_ENABLED=0 just ci` passed all Go, selfcheck, Bazel, and shell gates in
+      27.06 seconds, as recorded in `work.log`.
+
+artifacts:
+  scratchpad_dir: .agents/scratchpad/2026-08-04-compositional-component-analysis/step06/task-09-complete-fail-closed-artifact-publication-matrix/
+  files:
+    - context.md
+    - plan.md
+    - progress.md
+    - work.log
+    - result.yaml
+
+notes: |
+  Added a production-Runner layout-mode matrix for six invalid stdlib-map
+  conditions, with fresh per-row output destinations and a classification-reaching
+  symbol inventory gap fixture. The existing successful artifact determinism
+  assertions remain intact; routine integration completed in 15.30s and full CI in
+  27.06s. The implementation is committed as
+  lkyzqzvzpkporppsnvswsmzvonxsyzrl, with an empty working copy.

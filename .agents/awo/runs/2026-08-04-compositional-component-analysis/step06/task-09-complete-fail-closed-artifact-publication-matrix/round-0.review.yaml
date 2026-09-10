@@ -1,0 +1,101 @@
+review:
+  task_file: .agents/tasks/2026-08-04-compositional-component-analysis/step06/task-09-complete-fail-closed-artifact-publication-matrix.code-task.md
+  change_id: lkyzqzvzpkporppsnvswsmzvonxsyzrl
+  reviewed_at: "2026-09-10T07:04:57Z"
+  verdict: approved
+  schema_version: 2
+  lsp_coverage: covered
+
+merge_request:
+  title: "test(check): complete fail-closed artifact publication matrix [Component Analysis: Step 06/Task 09]"
+  body: |
+    Reviews the complete single-change series from pwyxztklkxxrqxkvlwssykwyuqskqkxx
+    through lkyzqzvzpkporppsnvswsmzvonxsyzrl. The implementation extracts
+    row-local pinned/synthetic fixtures, adds six production-Runner failure rows
+    with fresh report and surface destinations, and leaves the successful layout
+    artifact determinism assertions intact; there are no subsequent rework
+    changes in the supplied series.
+
+summary: |
+  The change fully covers all six required map fault modes through the production
+  layout-mode Runner, with row-local map and output fixtures and actionable,
+  fault-specific diagnostics. Every failure row asserts both artifact paths are
+  absent before and after invocation, while the existing successful deterministic
+  emission checks remain intact. Recorded routine integration and CI gates pass,
+  and the touched Go test file has no gopls diagnostics.
+
+acceptance_criteria:
+  - text: |
+      **Every required map fault is exercised end to end**
+      - Given missing, corrupt, target-key-mismatched,
+        classifier-mismatched, format-mismatched, and inventory-incomplete stdlib maps
+      - When each is supplied to the production layout-mode Runner
+      - Then each exits 2 with a diagnostic naming its fault
+    status: pass
+    evidence: |
+      `go/cmd/arcc/app/check_integration_test.go:398-452` defines the six-row
+      production-Runner matrix. The missing and malformed cases are created at
+      :402-412; target-key and classifier-hash mutations at :414-427; the
+      format-version mutation at :430-437; and the symbol-inventory deletion
+      plus classification-reaching fixture at :141-211 and :439-446. Each row
+      is passed to `fullRunner` with `--package-layout` and `--stdlib-map` by
+      `runInvalidLayoutMapCase` at :283-300, which asserts exit 2 and every
+      row's diagnostic fragments at :301-307.
+  - text: |
+      **No failing row publishes an artifact**
+      - Given fresh report and surface output paths for every invalid-map row
+      - When the check fails
+      - Then neither output path exists afterward
+    status: pass
+    evidence: |
+      `go/cmd/arcc/app/check_integration_test.go:283-310` creates a new
+      `t.TempDir` output directory and distinct report/surface paths for each
+      row, checks both paths are absent before the Runner call at :287-291, and
+      checks both remain absent after the failed invocation at :309-310.
+  - text: |
+      **The matrix is independent and deterministic**
+      - Given any table order or isolated row execution
+      - When the test runs
+      - Then no row relies on artifacts from a successful or preceding
+        invocation, and every row reaches its intended validation branch
+    status: pass
+    evidence: |
+      Each standard row creates its own workspace at
+      `go/cmd/arcc/app/check_integration_test.go:132-138`; the inventory row
+      creates an independent workspace and mock SDK at :146-211; and every map
+      variant is written under a fresh temporary directory at :214-245. The
+      successful emission test is separate at :323-393, and the focused verbose
+      run records all six named subtests passing in
+      `.agents/scratchpad/2026-08-04-compositional-component-analysis/step06/task-09-complete-fail-closed-artifact-publication-matrix/work.log:69-88`.
+  - text: |
+      **Routine tests remain bounded**
+      - Given the expanded integration matrix
+      - When `CGO_ENABLED=0 just test-integration` runs
+      - Then it uses only pinned/synthetic map data, performs no whole-SDK
+        generation, and does not touch the native production cache
+    status: pass
+    evidence: |
+      The changed test uses only defensive `teststdlibmap.PinnedBytes()` data
+      at `go/cmd/arcc/app/check_integration_test.go:120,225,237` and the small
+      synthetic `mock-sdk` fixture at :162-170; it has no generation or cache
+      call. The full-generation lane remains explicitly separated in
+      `justfile:18-22`. The routine command passed in
+      `.agents/scratchpad/2026-08-04-compositional-component-analysis/step06/task-09-complete-fail-closed-artifact-publication-matrix/work.log:92-123` in 15.30 seconds.
+  - text: |
+      **Repository gates pass**
+      - Given the completed coverage repair
+      - When `CGO_ENABLED=0 just ci` runs
+      - Then every routine gate passes and the successful artifact determinism
+        coverage remains intact
+    status: pass
+    evidence: |
+      The successful layout test retains report/surface decoding, pass-verdict,
+      exact package/key checks, and byte-identical repeat-invocation assertions
+      at `go/cmd/arcc/app/check_integration_test.go:323-393`. The recorded
+      `CGO_ENABLED=0 just ci` run includes vet, gofmt, builds, Go tests, Bazel,
+      and shell gates passing at
+      `.agents/scratchpad/2026-08-04-compositional-component-analysis/step06/task-09-complete-fail-closed-artifact-publication-matrix/work.log:124-424`.
+
+findings: []
+
+ecosystem_reviews: []
