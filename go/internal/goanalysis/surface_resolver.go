@@ -92,9 +92,9 @@ type DependencySurfaceRequest struct {
 type SurfaceResolutionRequest = DependencySurfaceRequest
 
 // ResolveDependencySurface consumes one validated surface and its optional
-// report into exact facts.DependencyInterface values. It is additive: the
-// production Runner continues to call ResolveDependencyInterface until Task
-// 3 performs the atomic cutover.
+// report into exact facts.DependencyInterface values. This is the production
+// dependency boundary: after the Step 7 cutover no dependency package is
+// loaded to reconstruct an architectural surface.
 //
 // No dependency package is loaded, parsed, type-checked, or passed to
 // go/packages here. The only native freshness work is a byte comparison over
@@ -109,13 +109,31 @@ func ResolveDependencySurface(req DependencySurfaceRequest) (facts.DependencyInt
 	if readFile == nil {
 		readFile = os.ReadFile
 	}
+	readArtifact := func(path string) ([]byte, error) {
+		data, err := readFile(path)
+		if err == nil || req.Mode != DependencySurfaceLayout {
+			return data, err
+		}
+		alternate := alternateLayoutArtifactPath(req, path)
+		if alternate == path {
+			return nil, err
+		}
+		if alternateData, alternateErr := readFile(alternate); alternateErr == nil {
+			return alternateData, nil
+		}
+		return nil, err
+	}
 	paths, err := dependencyArtifactPaths(req)
 	if err != nil {
 		return facts.DependencyInterface{}, err
 	}
 
-	surfaceBytes, err := readFile(paths.surface)
+	surfaceBytes, err := readArtifact(paths.surface)
 	if err != nil {
+		alternate := alternateLayoutArtifactPath(req, paths.surface)
+		if alternate != paths.surface {
+			return facts.DependencyInterface{}, fmt.Errorf("dependency %q surface %q (alternate %q): %w", req.Dependency.Name, paths.surface, alternate, err)
+		}
 		return facts.DependencyInterface{}, fmt.Errorf("dependency %q surface %q: %w", req.Dependency.Name, paths.surface, err)
 	}
 	decoded, err := artifactio.DecodeSurface(bytes.NewReader(surfaceBytes))
@@ -128,7 +146,7 @@ func ResolveDependencySurface(req DependencySurfaceRequest) (facts.DependencyInt
 		return facts.DependencyInterface{}, err
 	}
 
-	verdict, reportPresent, err := readDependencyReport(req, paths.report, readFile, paths.reportRequired)
+	verdict, reportPresent, err := readDependencyReport(req, paths.report, readArtifact, paths.reportRequired)
 	if err != nil {
 		return facts.DependencyInterface{}, err
 	}
@@ -147,6 +165,55 @@ func ResolveDependencySurface(req DependencySurfaceRequest) (facts.DependencyInt
 		Freshness:      freshness,
 		Authority:      validated.authority,
 	}, nil
+}
+
+// alternateLayoutArtifactPath handles the two equivalent Bazel execution
+// frames: the layout stores runfiles-root paths beginning with the workspace
+// name, while the action process may already start inside that workspace
+// directory. The fallback still addresses the exact declared artifact and
+// never searches the filesystem.
+func alternateLayoutArtifactPath(req DependencySurfaceRequest, path string) string {
+	if req.Binding == nil {
+		return path
+	}
+	workspace := req.WorkspaceDir
+	if workspace == "" {
+		workspace = packagelayout.GetActiveWorkspaceDir()
+	}
+	if workspace == "" {
+		return path
+	}
+	frame := filepath.ToSlash(path)
+	if req.Binding.Surface != "" && strings.Contains(frame, filepath.ToSlash(req.Binding.Surface)) {
+		frame = filepath.ToSlash(req.Binding.Surface)
+	} else if req.Binding.Report != "" && strings.Contains(frame, filepath.ToSlash(req.Binding.Report)) {
+		frame = filepath.ToSlash(req.Binding.Report)
+	}
+	first, _, _ := strings.Cut(frame, "/")
+	// In a Bazel sandbox the declared generated input is staged at its
+	// execution-root `bazel-out/<configuration>/bin/...` path, while the
+	// layout intentionally keeps the runfiles spelling. Derive that exact
+	// sibling path from the declared layout artifact; this is a path transform,
+	// not a directory search or an undeclared read.
+	if layoutPath := packagelayout.GetActiveLayoutPath(); layoutPath != "" {
+		normalizedLayout := filepath.ToSlash(layoutPath)
+		if marker := strings.Index(normalizedLayout, "/bazel-out/"); marker >= 0 {
+			rest := normalizedLayout[marker+len("/bazel-out/"):]
+			parts := strings.SplitN(rest, "/", 3)
+			if len(parts) == 3 && parts[1] == "bin" {
+				frameWithoutWorkspace := frame
+				workspaceName := filepath.Base(filepath.Clean(workspace))
+				if strings.HasPrefix(frameWithoutWorkspace, workspaceName+"/") {
+					frameWithoutWorkspace = strings.TrimPrefix(frameWithoutWorkspace, workspaceName+"/")
+				}
+				return filepath.Join(normalizedLayout[:marker], "bazel-out", parts[0], parts[1], filepath.FromSlash(frameWithoutWorkspace))
+			}
+		}
+	}
+	if first == "" || first != filepath.Base(filepath.Clean(workspace)) {
+		return path
+	}
+	return filepath.Join(filepath.Dir(filepath.Clean(workspace)), filepath.FromSlash(frame))
 }
 
 // ResolveValidatedDependencySurface is the explicit fail-closed spelling for

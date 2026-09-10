@@ -2,7 +2,7 @@
 //
 // Component Contract (FR10):
 // - What it does: Analyzes Go syntax trees and types to load package structures, validate interface file correctness, scan the typed reference/import vocabulary of member sources, and detect analysis-defeating constructs. There is no SSA, no VTA call graph and no check-time Capslock: every stdlib decision is the StdlibAuthority port's.
-// - What it requires: Directory paths on the local filesystem for the component being checked, package manifests, and (for the additive surface consumer) bounded surface/report bytes plus explicit build-graph or native read seams. The surface consumer never loads dependency Go packages; the legacy source-backed dependency resolver remains only for the pre-cutover runner.
+// - What it requires: Directory paths on the local filesystem for the component being checked, package manifests, and bounded surface/report bytes plus explicit build-graph or native read seams. Dependency surfaces are consumed as artifacts; only the main member/closure loader retains NeedDeps until Step 8.
 // - What it provides: Structural package facts (typed reference and import edges, bypass observations), exact persisted dependency-interface facts, and independent dependency provenance/freshness/authority axes for checking component boundaries.
 // - Ambient Authority: This component is a shell component and requires FILES, EXEC, READ_SYSTEM_STATE, OPERATING_SYSTEM, REFLECT, and UNSAFE_POINTER.
 package goanalysis
@@ -25,9 +25,7 @@ import (
 
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/facts"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/hostpolicy"
-	"github.com/ono-sendai-labs/architectural-contracts/go/internal/manifest"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/packagelayout"
-	"github.com/ono-sendai-labs/architectural-contracts/go/internal/symbol"
 	"golang.org/x/tools/go/packages"
 )
 
@@ -80,7 +78,7 @@ func LoadPackageFacts(req LoadRequest) (facts.PackageFacts, error) {
 	if packagelayout.IsLayoutMode() {
 		layout := packagelayout.GetActiveLayout()
 		if len(req.Members) > 0 {
-			if err := validateLayoutMembership(req.Members, layout.Roots); err != nil {
+			if err := validateLayoutMembership(layoutRequestMembers(req, layout), layout.Roots); err != nil {
 				return facts.PackageFacts{}, err
 			}
 		}
@@ -269,6 +267,41 @@ func LoadPackageFacts(req LoadRequest) (facts.PackageFacts, error) {
 	}
 
 	return res, nil
+}
+
+// layoutRequestMembers includes the package owning each declared interface
+// file. Bazel layouts list that interface package as a root even when the
+// authored manifest keeps it implicit (the explicit `members` list names only
+// additional member roots). Comparing the effective set keeps the layout
+// membership check fail-closed without rejecting a valid declared interface.
+func layoutRequestMembers(req LoadRequest, layout *packagelayout.Layout) []string {
+	members := append([]string(nil), req.Members...)
+	if layout == nil || len(req.InterfaceFiles) == 0 {
+		return members
+	}
+	for _, pkg := range layout.Packages {
+		if pkg == nil {
+			continue
+		}
+		ownsInterface := false
+		for _, file := range append(append([]string{}, pkg.GoFiles...), pkg.CompiledGoFiles...) {
+			fileSlash := filepath.ToSlash(file)
+			for _, interfaceFile := range req.InterfaceFiles {
+				cleanInterface := filepath.ToSlash(filepath.Clean(interfaceFile))
+				if fileSlash == cleanInterface || strings.HasSuffix(fileSlash, "/"+cleanInterface) {
+					ownsInterface = true
+					break
+				}
+			}
+			if ownsInterface {
+				break
+			}
+		}
+		if ownsInterface {
+			members = append(members, pkg.PkgPath)
+		}
+	}
+	return members
 }
 
 // validateLayoutMembership enforces the layout/manifest ownership contract at
@@ -845,20 +878,6 @@ func canonicalizeSymbol(sym string) string {
 	return hostpolicy.CanonicalizePath(sym[:dot]) + "." + name + arguments
 }
 
-// canonicalizePackageFact puts dependency-interface package facts in the same
-// namespace as the loader's package paths, preserving duplicate imports and
-// deterministic ordering.
-func canonicalizePackageFact(pkg facts.PackageFact) facts.PackageFact {
-	pkg.ImportPath = hostpolicy.CanonicalizePath(pkg.ImportPath)
-	imports := make([]string, len(pkg.Imports))
-	for i, imp := range pkg.Imports {
-		imports[i] = hostpolicy.CanonicalizePath(imp)
-	}
-	sort.Strings(imports)
-	pkg.Imports = imports
-	return pkg
-}
-
 type symbolPathReplacement struct {
 	start int
 	end   int
@@ -1155,343 +1174,6 @@ func balancedBrackets(s string) bool {
 		}
 	}
 	return depth == 0
-}
-
-// ResolveDependencyInterface turns a component dependency into its derived
-// facts. Dependency loading stays source-backed (packages.NeedDeps in the
-// load mode) in this step; Step 7 replaces this path with persisted surface
-// consumption and Step 8 introduces export-data loading.
-//
-// The declared-interface symbol set is the exact declaring-object set of the
-// surviving interface files (symbol.ExtractSurface, DR-04): the same
-// extraction the surface package emits, so check and surface share one exact
-// interface. A reference to a concrete implementing method that is not itself
-// declared in an interface file is not authorized — the correct FR5 precision
-// (design fixtures 3-5).
-func ResolveDependencyInterface(
-	declaringRoot string,
-	analyzedRoot string,
-	dep manifest.ComponentDependency,
-) (facts.DependencyInterface, error) {
-	// 1. Resolve dep.Manifest relative to declaringRoot
-	manifestPath := filepath.Clean(filepath.Join(declaringRoot, dep.Manifest))
-	depRoot := filepath.Dir(manifestPath)
-
-	// 2. Reject unreadable/invalid manifests
-	f, err := os.Open(manifestPath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return facts.DependencyInterface{}, fmt.Errorf("dependency manifest does not exist at %q: %w", manifestPath, err)
-		}
-		return facts.DependencyInterface{}, fmt.Errorf("failed to open dependency manifest at %q: %w", manifestPath, err)
-	}
-	defer f.Close()
-
-	depManifest, err := manifest.Parse(f)
-	if err != nil {
-		return facts.DependencyInterface{}, fmt.Errorf("failed to parse dependency manifest at %q: %w", manifestPath, err)
-	}
-
-	// 3. Reject dependency name mismatches
-	if depManifest.Name != dep.Name {
-		return facts.DependencyInterface{}, fmt.Errorf("dependency name mismatch: expected %q, got %q in manifest", dep.Name, depManifest.Name)
-	}
-
-	cleanAnalyzed := filepath.Clean(analyzedRoot)
-	cleanDepRoot := filepath.Clean(depRoot)
-
-	// 4. Reject roots overlapping the analyzed component as actionable tool errors
-	if cleanDepRoot == cleanAnalyzed ||
-		strings.HasPrefix(cleanDepRoot, cleanAnalyzed+string(filepath.Separator)) ||
-		strings.HasPrefix(cleanAnalyzed, cleanDepRoot+string(filepath.Separator)) {
-		return facts.DependencyInterface{}, fmt.Errorf("root overlap error: dependency root %q overlaps with analyzed root %q", cleanDepRoot, cleanAnalyzed)
-	}
-
-	// 5. Load all packages below the dependency root
-	var loadDir string
-	var patterns []string
-	var depPkgs []*packages.Package
-
-	if packagelayout.IsLayoutMode() {
-		loadDir = packagelayout.GetActiveWorkspaceDir()
-		// Try to find the dependency's package-layout JSON
-		depLayoutPath := strings.TrimSuffix(manifestPath, ".component.textproto") + ".package-layout.json"
-		f, errOpen := os.Open(depLayoutPath)
-		if errOpen != nil {
-			// fallback/alternative name check
-			depLayoutPath2 := filepath.Join(depRoot, "package-layout.json")
-			f, errOpen = os.Open(depLayoutPath2)
-			if errOpen != nil {
-				return facts.DependencyInterface{}, fmt.Errorf("failed to open dependency package-layout: %w", errOpen)
-			}
-			depLayoutPath = depLayoutPath2
-		}
-
-		depLayout, errParse := packagelayout.Parse(f)
-		f.Close()
-		if errParse != nil {
-			return facts.DependencyInterface{}, fmt.Errorf("failed to parse dependency package-layout: %w", errParse)
-		}
-		if depManifest.InterfaceStyle == manifest.InterfaceStylePackageSurface && len(depManifest.Members) > 0 {
-			if err := validateLayoutMembership(depManifest.Members, depLayout.Roots); err != nil {
-				return facts.DependencyInterface{}, err
-			}
-		}
-		patterns = depLayout.Roots
-
-		cfg := &packages.Config{
-			Mode: packages.NeedName | packages.NeedFiles | packages.NeedCompiledGoFiles |
-				packages.NeedImports | packages.NeedDeps | packages.NeedSyntax |
-				packages.NeedTypes | packages.NeedTypesInfo | packages.NeedModule,
-			Dir: loadDir,
-		}
-
-		err = packagelayout.WithTemporaryLayout(depLayoutPath, func() error {
-			var loadErr error
-			depPkgs, loadErr = loadPackages(cfg, patterns...)
-			return loadErr
-		})
-		if err != nil {
-			return facts.DependencyInterface{}, fmt.Errorf("failed to load dependency packages in layout mode: %w", err)
-		}
-	} else {
-		loadDir = cleanDepRoot
-		// A PACKAGE_SURFACE dependency declares its members as concrete
-		// import paths, which may live outside the dependency root (e.g. the
-		// protobuf runtime members of artifactio). Load the declared member
-		// import paths directly; "./..." can never match external members.
-		// Declared-interface dependencies keep the whole-package load.
-		if depManifest.InterfaceStyle == manifest.InterfaceStylePackageSurface && len(depManifest.Members) > 0 {
-			patterns = make([]string, len(depManifest.Members))
-			for i, member := range depManifest.Members {
-				patterns[i] = hostpolicy.CanonicalizePath(member)
-			}
-			sort.Strings(patterns)
-		} else {
-			patterns = []string{"./..."}
-		}
-
-		cfg := &packages.Config{
-			Mode: packages.NeedName | packages.NeedFiles | packages.NeedCompiledGoFiles |
-				packages.NeedImports | packages.NeedDeps | packages.NeedSyntax |
-				packages.NeedTypes | packages.NeedTypesInfo | packages.NeedModule,
-			Dir: loadDir,
-		}
-
-		depPkgs, err = loadPackages(cfg, patterns...)
-		if err != nil {
-			return facts.DependencyInterface{}, fmt.Errorf("failed to load dependency packages: %w", err)
-		}
-	}
-
-	if len(depPkgs) == 0 {
-		return facts.DependencyInterface{}, fmt.Errorf("no packages found under dependency root %q", cleanDepRoot)
-	}
-	if err := validateLoaderPackagePaths(depPkgs); err != nil {
-		return facts.DependencyInterface{}, err
-	}
-
-	if depManifest.InterfaceStyle == manifest.InterfaceStylePackageSurface && len(depManifest.Members) > 0 && !packagelayout.IsLayoutMode() {
-		if err := validateDeclaredPackages(depManifest.Members, depPkgs); err != nil {
-			return facts.DependencyInterface{}, err
-		}
-	}
-
-	// Check package load/parse/type errors
-	var errMsgs []string
-	packages.Visit(depPkgs, nil, func(p *packages.Package) {
-		for _, err := range p.Errors {
-			errMsgs = append(errMsgs, err.Msg)
-		}
-	})
-	if len(errMsgs) > 0 {
-		sort.Strings(errMsgs)
-		return facts.DependencyInterface{}, fmt.Errorf("dependency package load errors:\n%s", strings.Join(errMsgs, "\n"))
-	}
-
-	// 6. Collect package paths and source files
-	var pkgPaths []string
-	sourceFiles := make(map[string]bool)
-	for _, p := range depPkgs {
-		pkgPaths = append(pkgPaths, hostpolicy.CanonicalizePath(p.PkgPath))
-		for _, absFile := range packageSourceFiles(p) {
-			var rel string
-			var err error
-			if packagelayout.IsLayoutMode() {
-				rel, err = filepath.Rel(packagelayout.GetActiveWorkspaceDir(), absFile)
-			} else {
-				rel, err = filepath.Rel(cleanDepRoot, absFile)
-			}
-			if err != nil {
-				continue
-			}
-			sourceFiles[filepath.ToSlash(filepath.Clean(rel))] = true
-		}
-	}
-	sort.Strings(pkgPaths)
-
-	// 7. Collect package facts (extract symbols) and register in loadedFiles for ValidateInterfaceFiles
-	var factsPkgs []facts.PackageFact
-	for _, p := range depPkgs {
-		var imports []string
-		for impPath := range p.Imports {
-			imports = append(imports, hostpolicy.CanonicalizePath(impPath))
-		}
-		sort.Strings(imports)
-
-		var extractRoot string
-		if packagelayout.IsLayoutMode() {
-			extractRoot = packagelayout.GetActiveWorkspaceDir()
-		} else {
-			extractRoot = cleanDepRoot
-		}
-		exportedSymbols, err := extractSymbols(p, extractRoot)
-		if err != nil {
-			return facts.DependencyInterface{}, err
-		}
-
-		factsPkgs = append(factsPkgs, canonicalizePackageFact(facts.PackageFact{
-			ImportPath:      p.PkgPath,
-			Imports:         imports,
-			ExportedSymbols: exportedSymbols,
-		}))
-	}
-
-	slices.SortFunc(factsPkgs, func(a, b facts.PackageFact) int {
-		return strings.Compare(a.ImportPath, b.ImportPath)
-	})
-
-	depPackageFacts := facts.PackageFacts{
-		Packages: factsPkgs,
-	}
-
-	if depManifest.InterfaceStyle == manifest.InterfaceStylePackageSurface {
-		memberSet := make(map[string]bool)
-		var memberPkgPaths []string
-		for _, m := range depManifest.Members {
-			cm := hostpolicy.CanonicalizePath(m)
-			if !memberSet[cm] {
-				memberSet[cm] = true
-				memberPkgPaths = append(memberPkgPaths, cm)
-			}
-		}
-		sort.Strings(memberPkgPaths)
-
-		// PACKAGE_SURFACE authorizes every external object of the owned
-		// packages; the symbol set records the exact exported declaring
-		// objects in shared SymbolID form (no dual receiver keys).
-		pkgPathsSet := make(map[string]bool, len(pkgPaths))
-		for _, p := range pkgPaths {
-			pkgPathsSet[p] = true
-		}
-		knownPkg := func(importPath string) bool {
-			return pkgPathsSet[importPath]
-		}
-		symbolSet := make(map[facts.SymbolID]bool)
-		for _, pkgFact := range factsPkgs {
-			if !memberSet[hostpolicy.CanonicalizePath(pkgFact.ImportPath)] {
-				continue
-			}
-			for _, sym := range pkgFact.ExportedSymbols {
-				id, err := symbol.ParseCapslockWithPackages(sym.Name, knownPkg)
-				if err != nil {
-					return facts.DependencyInterface{}, fmt.Errorf("dependency %q: exported symbol %q: %w", dep.Name, sym.Name, err)
-				}
-				symbolSet[id] = true
-			}
-		}
-
-		return facts.DependencyInterface{
-			Component:      dep.Name,
-			InterfaceStyle: depManifest.InterfaceStyle,
-			Packages:       memberPkgPaths,
-			Symbols:        sortedSymbolIDs(symbolSet),
-		}, nil
-	}
-
-	if len(factsPkgs) > 0 {
-		ptr := reflect.ValueOf(depPackageFacts.Packages).Pointer()
-		membershipMu.Lock()
-		loadedFiles[ptr] = sourceFiles
-		membershipMu.Unlock()
-	}
-
-	// 8. Validate interface files
-	_, err = ValidateInterfaceFiles(cleanDepRoot, depManifest.InterfaceFiles, depPackageFacts)
-	if err != nil {
-		return facts.DependencyInterface{}, fmt.Errorf("invalid interface files in dependency %q: %w", dep.Name, err)
-	}
-
-	// Map interface files for O(1) lookup
-	interfaceFilesMap := make(map[string]bool)
-	for _, f := range depManifest.InterfaceFiles {
-		interfaceFilesMap[filepath.ToSlash(filepath.Clean(f))] = true
-	}
-
-	// 9. The exact declared surface over the surviving interface files
-	// (symbol.ExtractSurface, DR-04): every exported declaring object those
-	// files declare — functions, methods, types, fields, interface method
-	// specs, variables, constants, aliases. This is the same set the
-	// emitted surface carries. References name the object the source
-	// writes; a concrete implementing method not declared in an interface
-	// file is not part of this set (design fixtures 3-5).
-	symbolSet := make(map[facts.SymbolID]bool)
-	for _, p := range depPkgs {
-		files := interfaceFileASTs(p, interfaceFilesMap, cleanDepRoot)
-		if len(files) == 0 {
-			continue
-		}
-		for _, id := range symbol.ExtractSurface(files, p.TypesInfo) {
-			symbolSet[id] = true
-		}
-	}
-
-	return facts.DependencyInterface{
-		Component:      dep.Name,
-		InterfaceStyle: depManifest.InterfaceStyle,
-		Packages:       pkgPaths,
-		Symbols:        sortedSymbolIDs(symbolSet),
-	}, nil
-}
-
-// interfaceFileASTs returns the package's syntax trees restricted to the
-// surviving interface files, component-relative. In layout mode the driver
-// presents file positions relative to the active workspace directory, so the
-// component-relative reduction is taken against that root.
-func interfaceFileASTs(p *packages.Package, interfaceFilesMap map[string]bool, depRoot string) []*ast.File {
-	relRoot := depRoot
-	if packagelayout.IsLayoutMode() {
-		relRoot = packagelayout.GetActiveWorkspaceDir()
-	}
-	var files []*ast.File
-	for _, file := range p.Syntax {
-		if file == nil {
-			continue
-		}
-		pos := p.Fset.Position(file.Pos())
-		if pos.Filename == "" {
-			continue
-		}
-		relPath, err := filepath.Rel(relRoot, pos.Filename)
-		if err != nil {
-			continue
-		}
-		relPath = filepath.ToSlash(filepath.Clean(relPath))
-		if interfaceFilesMap[relPath] {
-			files = append(files, file)
-		}
-	}
-	return files
-}
-
-// sortedSymbolIDs returns a deterministic sorted, duplicate-free slice.
-func sortedSymbolIDs(set map[facts.SymbolID]bool) []facts.SymbolID {
-	symbols := make([]facts.SymbolID, 0, len(set))
-	for id := range set {
-		symbols = append(symbols, id)
-	}
-	slices.SortFunc(symbols, facts.CompareSymbolIDs)
-	return symbols
 }
 
 func packageSourceFiles(p *packages.Package) []string {

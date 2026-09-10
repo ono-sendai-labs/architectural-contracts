@@ -15,6 +15,7 @@ import (
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/facts"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/goanalysis"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/report"
+	"github.com/ono-sendai-labs/architectural-contracts/go/internal/schema/gen"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/stdlibauthority"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/symbol"
 )
@@ -264,6 +265,9 @@ func TestRunner_Check_LayoutMembershipMismatchIsToolError(t *testing.T) {
 				Loader: func(req goanalysis.LoadRequest) (facts.PackageFacts, error) {
 					return goanalysis.LoadPackageFacts(req)
 				},
+				AuthorityResolver: func(app.AuthorityRequest) (stdlibauthority.StdlibAuthority, error) {
+					return testAuthority{}, nil
+				},
 			}
 			_, stderr, exitCode := runRunnerFromWorkspace(t, workspace, runner, []string{
 				"check", manifestPath, "--package-layout=" + layoutPath,
@@ -315,12 +319,11 @@ members: "example.com/overlap/member"
 	if err := os.WriteFile(filepath.Join(depDir, "member", "member.go"), []byte("package member\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
+	writeNativeTestSurface(t, depDir, "overdep", gen.InterfaceStyle_INTERFACE_STYLE_PACKAGE_SURFACE, []string{"example.com/overlap/member"}, nil)
 
-	runner := &app.Runner{
-		Loader: func(goanalysis.LoadRequest) (facts.PackageFacts, error) {
-			return facts.PackageFacts{Packages: []facts.PackageFact{{ImportPath: "example.com/overlap/member"}}}, nil
-		},
-	}
+	runner := surfaceTestRunner(func(goanalysis.LoadRequest) (facts.PackageFacts, error) {
+		return facts.PackageFacts{Packages: []facts.PackageFact{{ImportPath: "example.com/overlap/member"}}}, nil
+	})
 
 	stdout, stderr, exitCode := runRunnerFromWorkspace(t, workspace, runner, []string{"check", manifestPath})
 	if exitCode != 1 {
@@ -863,6 +866,7 @@ interface_files: "api.go"
 	if err := os.WriteFile(filepath.Join(depDir, "api.go"), []byte("package unused_dep\n\nfunc Unused() {}\n"), 0644); err != nil {
 		t.Fatalf("failed to write dep api.go: %v", err)
 	}
+	writeNativeTestSurface(t, depDir, "unused-dep", gen.InterfaceStyle_INTERFACE_STYLE_UNSPECIFIED, []string{"example.com/temp/unused-dep"}, []string{"example.com/temp/unused-dep.Unused"})
 
 	// 2. Create the analyzed component in a sibling directory
 	analyzedDir := filepath.Join(parentDir, "warnings-only")
@@ -893,7 +897,7 @@ component_dependencies: {
 		return goanalysis.LoadPackageFacts(req)
 	}
 
-	runner := &app.Runner{Loader: loader}
+	runner := surfaceTestRunner(loader)
 
 	var stdout, stderr bytes.Buffer
 	exitCode := runner.Run([]string{"check", manifestPath}, &stdout, &stderr)
@@ -938,6 +942,10 @@ interface_files: "api.go"
 	if err := os.WriteFile(filepath.Join(depDir, "other.go"), []byte("package depa\n\nfunc UndeclaredFunc() {}\n"), 0644); err != nil {
 		t.Fatalf("failed to write dep other.go: %v", err)
 	}
+	writeNativeTestSurface(t, depDir, "dep-a", gen.InterfaceStyle_INTERFACE_STYLE_UNSPECIFIED, []string{"example.com/temp/dep-a"}, []string{
+		"example.com/temp/dep-a.FetchData",
+		"example.com/temp/dep-a.HigherOrder",
+	})
 
 	// 2. Create the analyzed component
 	analyzedDir := filepath.Join(parentDir, "analyzed")
@@ -968,7 +976,7 @@ component_dependencies: {
 		return goanalysis.LoadPackageFacts(req)
 	}
 
-	runner := &app.Runner{Loader: loader}
+	runner := surfaceTestRunner(loader)
 
 	var stdout, stderr bytes.Buffer
 	exitCode := runner.Run([]string{"check", manifestPath}, &stdout, &stderr)
@@ -1038,6 +1046,7 @@ func TestRunner_Check_PackageSurfaceSymbolsAndOverlap(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(declDir, "api.go"), []byte("package depdecl\n\nfunc DeclFunc() {}\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
+	writeNativeTestSurface(t, declDir, "dep-decl", gen.InterfaceStyle_INTERFACE_STYLE_UNSPECIFIED, []string{"example.com/temp/dep-decl"}, []string{"example.com/temp/dep-decl.DeclFunc"})
 
 	// 2. Package-surface dependencies with overlapping members
 	surf1Dir := filepath.Join(parentDir, "dep-surf1")
@@ -1064,6 +1073,7 @@ members: "example.com/temp/shared-dep/pkga"
 	if err := os.WriteFile(filepath.Join(surf1Dir, "pkgb", "b.go"), []byte("package pkgb\n\nfunc BFunc() {}\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
+	writeNativeTestSurface(t, surf1Dir, "dep-surf1", gen.InterfaceStyle_INTERFACE_STYLE_PACKAGE_SURFACE, []string{"example.com/temp/shared-dep/pkga", "example.com/temp/shared-dep/pkgb"}, nil)
 
 	surf2Dir := filepath.Join(parentDir, "dep-surf2")
 	if err := os.MkdirAll(filepath.Join(surf2Dir, "pkgz"), 0755); err != nil {
@@ -1089,6 +1099,7 @@ members: "example.com/temp/shared-dep/pkga"
 	if err := os.WriteFile(filepath.Join(surf2Dir, "pkga", "a2.go"), []byte("package pkga\n\nfunc A2Func() {}\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
+	writeNativeTestSurface(t, surf2Dir, "dep-surf2", gen.InterfaceStyle_INTERFACE_STYLE_PACKAGE_SURFACE, []string{"example.com/temp/shared-dep/pkga", "example.com/temp/shared-dep/pkgz"}, nil)
 
 	// 3. Analyzed component depending on all three
 	analyzedDir := filepath.Join(parentDir, "analyzed")
@@ -1121,9 +1132,7 @@ component_dependencies: {
 		t.Fatal(err)
 	}
 
-	runner := &app.Runner{
-		Loader: func(req goanalysis.LoadRequest) (facts.PackageFacts, error) { return goanalysis.LoadPackageFacts(req) },
-	}
+	runner := surfaceTestRunner(func(req goanalysis.LoadRequest) (facts.PackageFacts, error) { return goanalysis.LoadPackageFacts(req) })
 
 	var stdout, stderr bytes.Buffer
 	// Two direct dependencies claim the same package: the boundary index
@@ -1158,6 +1167,7 @@ interface_files: "api.go"
 	if err := os.WriteFile(filepath.Join(depDir, "api.go"), []byte("package declareddep\n\nfunc Fetch() {}\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
+	writeNativeTestSurface(t, depDir, "declared-dep", gen.InterfaceStyle_INTERFACE_STYLE_UNSPECIFIED, []string{"example.com/temp/declared-dep"}, []string{"example.com/temp/declared-dep.Fetch"})
 
 	analyzedDir := filepath.Join(parentDir, "declared-comp")
 	if err := os.MkdirAll(analyzedDir, 0755); err != nil {
@@ -1182,9 +1192,7 @@ component_dependencies: {
 		t.Fatal(err)
 	}
 
-	runner := &app.Runner{
-		Loader: func(req goanalysis.LoadRequest) (facts.PackageFacts, error) { return goanalysis.LoadPackageFacts(req) },
-	}
+	runner := surfaceTestRunner(func(req goanalysis.LoadRequest) (facts.PackageFacts, error) { return goanalysis.LoadPackageFacts(req) })
 
 	// 1. Text mode
 	var stdout, stderr bytes.Buffer
@@ -1199,7 +1207,7 @@ component_dependencies: {
 	wantText := `Component "declared-comp" conforms; does not exceed declared authority
 
 Dependencies:
-- declared-dep
+- declared-dep (asserted)
 `
 	if gotText != wantText {
 		t.Errorf("stdout =\n%q\nwant:\n%q", gotText, wantText)

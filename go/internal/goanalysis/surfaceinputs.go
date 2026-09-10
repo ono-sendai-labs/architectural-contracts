@@ -36,6 +36,10 @@ type SurfaceInputs struct {
 	SourcePaths []string
 }
 
+// DependencyArtifactBinding is the layout's structural binding record,
+// re-exported through goanalysis so CLI orchestration keeps one shell port.
+type DependencyArtifactBinding = packagelayout.DependencyArtifactBinding
+
 // LoadSurfaceInputs loads the component's member packages once and returns
 // the surface-emission inputs derived from them: the surviving interface
 // files' ASTs with their package's type info, the member import paths, and
@@ -54,7 +58,7 @@ func LoadSurfaceInputs(req LoadRequest) (SurfaceInputs, error) {
 	if packagelayout.IsLayoutMode() {
 		layout := packagelayout.GetActiveLayout()
 		if len(req.Members) > 0 {
-			if err := validateLayoutMembership(req.Members, layout.Roots); err != nil {
+			if err := validateLayoutMembership(layoutRequestMembers(req, layout), layout.Roots); err != nil {
 				return SurfaceInputs{}, err
 			}
 		}
@@ -301,6 +305,20 @@ func ActivePlatformIdentity() (PlatformIdentity, bool) {
 // component's interface for callers that already depend on goanalysis.
 func LayoutModeActive() bool {
 	return packagelayout.IsLayoutMode()
+}
+
+// ActiveDependencyArtifactBindings exposes the validated layout bindings to
+// the CLI shell without making the CLI depend directly on packagelayout. The
+// returned slice is a defensive copy; native mode has no build-graph binding.
+func ActiveDependencyArtifactBindings() (bindings []packagelayout.DependencyArtifactBinding, workspace string, active bool) {
+	if !packagelayout.IsLayoutMode() {
+		return nil, "", false
+	}
+	layout := packagelayout.GetActiveLayout()
+	if layout == nil {
+		return nil, "", true
+	}
+	return append([]packagelayout.DependencyArtifactBinding(nil), layout.DependencyArtifactBindings...), packagelayout.GetActiveWorkspaceDir(), true
 }
 
 // CanonicalNamespace returns the host's canonical namespace identifier, the

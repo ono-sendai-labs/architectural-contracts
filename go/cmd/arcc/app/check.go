@@ -197,40 +197,10 @@ func (r *Runner) runCheck(opts checkOptions, stdout, stderr io.Writer) int {
 		return 2
 	}
 
-	// 3. Load facts for that root.
-	loadedFacts, err := r.loader()(goanalysis.LoadRequest{
-		ComponentName:  parsedManifest.Name,
-		ComponentRoot:  componentRoot,
-		Members:        parsedManifest.Members,
-		InterfaceFiles: parsedManifest.InterfaceFiles,
-	})
-	if err != nil {
-		fmt.Fprintf(stderr, "error: failed to load package facts: %v\n", err)
-		return 2
-	}
-
-	// 4. Validate every declared interface file.
-	interfaceExclusions, err := goanalysis.ValidateInterfaceFiles(componentRoot, parsedManifest.InterfaceFiles, loadedFacts)
-	if err != nil {
-		fmt.Fprintf(stderr, "error: failed to validate interface files: %v\n", err)
-		return 2
-	}
-
-	// 5. Resolve direct component dependencies.
-	var resolvedDeps []facts.DependencyInterface
-	for _, dep := range parsedManifest.ComponentDependencies {
-		depIface, err := goanalysis.ResolveDependencyInterface(componentRoot, componentRoot, dep)
-		if err != nil {
-			fmt.Fprintf(stderr, "error: failed to resolve dependency %q: %v\n", dep.Name, err)
-			return 2
-		}
-		resolvedDeps = append(resolvedDeps, depIface)
-	}
-
-	// 6. Resolve the stdlib authority. The map is mandatory whenever a check
-	// decision needs it: it is opened and its full target SDK key validated
-	// before any verdict (AC 2), and the same validated key stamps the
-	// surface.
+	// 3. Resolve the stdlib authority before loading or resolving any direct
+	// dependency. The target SDK key is part of every surface comparison, so a
+	// missing or mismatched map must fail before dependency artifacts can affect
+	// the invocation (N3, DR-03).
 	layoutPlatform := (*goanalysis.PlatformIdentity)(nil)
 	if identity, ok := goanalysis.ActivePlatformIdentity(); ok {
 		layoutPlatform = &identity
@@ -242,6 +212,35 @@ func (r *Runner) runCheck(opts checkOptions, stdout, stderr io.Writer) int {
 	})
 	if err != nil {
 		fmt.Fprintf(stderr, "error: %v\n", err)
+		return 2
+	}
+
+	// 4. Load facts for that root.
+	loadedFacts, err := r.loader()(goanalysis.LoadRequest{
+		ComponentName:  parsedManifest.Name,
+		ComponentRoot:  componentRoot,
+		Members:        parsedManifest.Members,
+		InterfaceFiles: parsedManifest.InterfaceFiles,
+	})
+	if err != nil {
+		fmt.Fprintf(stderr, "error: failed to load package facts: %v\n", err)
+		return 2
+	}
+
+	// 5. Validate every declared interface file.
+	interfaceExclusions, err := goanalysis.ValidateInterfaceFiles(componentRoot, parsedManifest.InterfaceFiles, loadedFacts)
+	if err != nil {
+		fmt.Fprintf(stderr, "error: failed to validate interface files: %v\n", err)
+		return 2
+	}
+
+	// 6. Resolve direct component dependencies from their persisted surfaces
+	// and reports. Native mode uses the sibling convention; layout mode uses
+	// the validated provider bindings in the active package layout. No
+	// dependency source is passed to a package loader on this path (R7, N1).
+	resolvedDeps, err := resolveDependencySurfaces(parsedManifest.ComponentDependencies, componentRoot, authority.Key())
+	if err != nil {
+		fmt.Fprintf(stderr, "error: failed to resolve dependency surface: %v\n", err)
 		return 2
 	}
 
@@ -319,6 +318,52 @@ func (r *Runner) runCheck(opts checkOptions, stdout, stderr io.Writer) int {
 	return 0
 }
 
+// resolveDependencySurfaces resolves every direct (declared or auto-attached)
+// dependency through the persisted surface consumer. The resolver receives
+// the complete target key already validated by the authority resolver, so no
+// dependency can be compared under a different SDK configuration.
+func resolveDependencySurfaces(deps []manifest.ComponentDependency, declaringRoot string, expectedSDKKey stdlibauthority.SDKKey) ([]facts.DependencyInterface, error) {
+	mode := goanalysis.DependencySurfaceNative
+	workspaceDir := ""
+	bindingByName := map[string]goanalysis.DependencyArtifactBinding{}
+	if bindings, activeWorkspace, active := goanalysis.ActiveDependencyArtifactBindings(); active {
+		mode = goanalysis.DependencySurfaceLayout
+		workspaceDir = activeWorkspace
+		if bindings == nil && workspaceDir == "" {
+			return nil, fmt.Errorf("layout mode is active without an active package layout")
+		}
+		for _, binding := range bindings {
+			bindingByName[binding.Dependency] = binding
+		}
+	}
+
+	resolved := make([]facts.DependencyInterface, 0, len(deps))
+	for _, dep := range deps {
+		var binding *goanalysis.DependencyArtifactBinding
+		if mode == goanalysis.DependencySurfaceLayout {
+			value, ok := bindingByName[dep.Name]
+			if !ok {
+				return nil, fmt.Errorf("dependency %q has no surface/report binding in the active package layout", dep.Name)
+			}
+			binding = &value
+		}
+		resolvedDependency, err := goanalysis.ResolveDependencySurface(goanalysis.DependencySurfaceRequest{
+			DeclaringRoot:  declaringRoot,
+			Dependency:     dep,
+			Binding:        binding,
+			Namespace:      goanalysis.CanonicalNamespace(),
+			ExpectedSDKKey: expectedSDKKey,
+			Mode:           mode,
+			WorkspaceDir:   workspaceDir,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("dependency %q: %w", dep.Name, err)
+		}
+		resolved = append(resolved, resolvedDependency)
+	}
+	return resolved, nil
+}
+
 // publishArtifacts derives the exact surface from this invocation's analysis
 // inputs under the already-validated target SDK key, encodes both artifacts
 // canonically, and writes them atomically. Check decisions and emitted
@@ -355,7 +400,7 @@ func (r *Runner) publishArtifacts(
 		if opts.workspaceDir != "" {
 			sourceRoot = opts.workspaceDir
 		}
-		sources, err := artifactio.ReadSources(os.DirFS(sourceRoot), surf.SourcePaths)
+		sources, err := readSurfaceSources(sourceRoot, surf.SourcePaths)
 		if err != nil {
 			return fmt.Errorf("reading member sources for surface emission: %v", err)
 		}
@@ -398,6 +443,26 @@ func (r *Runner) publishArtifacts(
 		}
 	}
 	return nil
+}
+
+// readSurfaceSources reads the exact member paths selected by the package
+// loader. Native self-hosting components may temporarily retain foreign
+// module-cache packages as members; their component-relative paths contain
+// parent segments, which are valid OS paths but intentionally rejected by the
+// fs.ValidPath contract of artifactio.ReadSources. Keeping this adapter here
+// preserves the exact byte set without enumerating or parsing anything else.
+func readSurfaceSources(root string, paths []string) ([]surface.SourceFile, error) {
+	sorted := slices.Clone(paths)
+	slices.Sort(sorted)
+	sources := make([]surface.SourceFile, 0, len(sorted))
+	for _, path := range sorted {
+		data, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(path)))
+		if err != nil {
+			return nil, fmt.Errorf("read member source %s: %w", path, err)
+		}
+		sources = append(sources, surface.SourceFile{Path: path, Bytes: data})
+	}
+	return sources, nil
 }
 
 // survivingInterfaceFiles filters the manifest's declared interface files
