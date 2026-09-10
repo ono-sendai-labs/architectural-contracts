@@ -117,19 +117,212 @@ func fullRunner() *app.Runner {
 
 func writePinnedMap(t *testing.T, path string) {
 	t.Helper()
-	data, err := os.ReadFile(teststdlibmap.WritePinned(t))
-	if err != nil {
-		t.Fatalf("read pinned stdlib map: %v", err)
-	}
-	if err := os.WriteFile(path, data, 0o644); err != nil {
+	if err := os.WriteFile(path, teststdlibmap.PinnedBytes(), 0o644); err != nil {
 		t.Fatalf("copy pinned stdlib map: %v", err)
 	}
 }
 
-// TestCheck_EmitsArtifactsLayoutMode is the layout-mode leg (ACs 1, 4, 5): a
+type invalidLayoutMapCase struct {
+	name           string
+	fixture        func(*testing.T, stdlibmap.TargetConfig) (string, string, string)
+	mapPath        func(*testing.T) string
+	wantDiagnostic []string
+}
+
+func standardLayoutMapFixture(t *testing.T, target stdlibmap.TargetConfig) (string, string, string) {
+	t.Helper()
+	workspace := t.TempDir()
+	const member = "example.com/artifacts/comp"
+	layoutPath := writePinnedLayoutFixture(t, workspace, []string{member}, target)
+	manifestPath := writeLayoutManifest(t, workspace, member)
+	return workspace, manifestPath, layoutPath
+}
+
+// inventoryGapLayoutFixture is deliberately small: it gives the production
+// layout driver one member package and one SDK package whose source is enough
+// to resolve fmt.Sprintf. The pinned map supplies the real target key and
+// inventory; the test removes that one symbol to reach checker classification's
+// fail-closed inventory lookup without generating the SDK.
+func inventoryGapLayoutFixture(t *testing.T, target stdlibmap.TargetConfig) (string, string, string) {
+	t.Helper()
+	workspace := t.TempDir()
+	const member = "example.com/inventory/component"
+	if err := os.WriteFile(filepath.Join(workspace, "go.mod"), []byte("module example.com/inventory\n\ngo 1.26\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	memberDir := filepath.Join(workspace, "component")
+	if err := os.MkdirAll(memberDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	memberSource := "package component\n\nimport \"fmt\"\n\nfunc Exported() string {\n\treturn fmt.Sprintf(\"inventory gap\")\n}\n"
+	if err := os.WriteFile(filepath.Join(memberDir, "component.go"), []byte(memberSource), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	sdkRoot := filepath.Join(workspace, "mock-sdk", "src")
+	fmtDir := filepath.Join(sdkRoot, "fmt")
+	if err := os.MkdirAll(fmtDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	fmtSource := "package fmt\n\nfunc Sprintf(format string, args ...any) string {\n\treturn format\n}\n"
+	if err := os.WriteFile(filepath.Join(fmtDir, "fmt.go"), []byte(fmtSource), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	manifestPath := filepath.Join(workspace, "component.textproto")
+	manifest := "name: \"inventory-gap\"\ninterface_style: INTERFACE_STYLE_PACKAGE_SURFACE\nmembers: \"" + member + "\"\n"
+	if err := os.WriteFile(manifestPath, []byte(manifest), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	platform := map[string]any{
+		"goos": target.GOOS, "goarch": target.GOARCH,
+		"build_tags": target.BuildTags, "cgo_enabled": target.CgoEnabled,
+		"toolchain_version": target.ToolchainVersion,
+	}
+	if target.GOEXPERIMENT != "" {
+		platform["goexperiment"] = target.GOEXPERIMENT
+	}
+	layout := map[string]any{
+		"go_sdk_root": sdkRoot,
+		"platform":    platform,
+		"roots":       []string{member},
+		"packages": []map[string]any{
+			{
+				"id": member, "name": "component", "pkgPath": member, "is_stdlib": false,
+				"goFiles": []string{"component/component.go"}, "compiledGoFiles": []string{"component/component.go"},
+				"imports": map[string]string{},
+			},
+			{
+				"id": "fmt", "name": "fmt", "pkgPath": "fmt", "is_stdlib": true,
+				"goFiles": []string{"fmt/fmt.go"}, "compiledGoFiles": []string{"fmt/fmt.go"},
+				"imports": map[string]string{},
+			},
+		},
+	}
+	data, err := json.Marshal(layout)
+	if err != nil {
+		t.Fatal(err)
+	}
+	layoutPath := filepath.Join(workspace, "package-layout.json")
+	if err := os.WriteFile(layoutPath, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return workspace, manifestPath, layoutPath
+}
+
+func writeMapBytes(t *testing.T, filename string, data []byte) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), filename)
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		t.Fatalf("write stdlib map %s: %v", path, err)
+	}
+	return path
+}
+
+func writeCorruptPinnedMap(t *testing.T) string {
+	t.Helper()
+	data := teststdlibmap.PinnedBytes()
+	if len(data) < 64 {
+		t.Fatalf("pinned map is only %d bytes; corrupt fixture needs a prefix", len(data))
+	}
+	return writeMapBytes(t, "corrupt.stdlib-map.json", data[:64])
+}
+
+func writePinnedMapVariant(t *testing.T, filename string, mutate func(map[string]any)) string {
+	t.Helper()
+	// Mutate the checked artifact's JSON shape so each case preserves all
+	// unrelated validity and reaches its intended production validation branch.
+	decoded := map[string]any{}
+	if err := json.Unmarshal(teststdlibmap.PinnedBytes(), &decoded); err != nil {
+		t.Fatalf("decode pinned stdlib map: %v", err)
+	}
+	mutate(decoded)
+	data, err := json.Marshal(decoded)
+	if err != nil {
+		t.Fatalf("encode stdlib map variant: %v", err)
+	}
+	return writeMapBytes(t, filename, data)
+}
+
+func writePinnedMapKeyVariant(t *testing.T, filename, field string, value any) string {
+	t.Helper()
+	return writePinnedMapVariant(t, filename, func(decoded map[string]any) {
+		key, ok := decoded["key"].(map[string]any)
+		if !ok {
+			t.Fatalf("pinned stdlib map has no SDK key object")
+		}
+		key[field] = value
+	})
+}
+
+func removePinnedMapSymbol(t *testing.T, filename, symbol string) string {
+	t.Helper()
+	return writePinnedMapVariant(t, filename, func(decoded map[string]any) {
+		records, ok := decoded["symbols"].([]any)
+		if !ok {
+			t.Fatalf("pinned stdlib map has no symbol inventory")
+		}
+		remaining := make([]any, 0, len(records)-1)
+		removed := false
+		for _, raw := range records {
+			record, ok := raw.(map[string]any)
+			if ok && record["id"] == symbol {
+				removed = true
+				continue
+			}
+			remaining = append(remaining, raw)
+		}
+		if !removed {
+			t.Fatalf("pinned stdlib map has no symbol %q", symbol)
+		}
+		decoded["symbols"] = remaining
+	})
+}
+
+func runInvalidLayoutMapCase(t *testing.T, target stdlibmap.TargetConfig, tt invalidLayoutMapCase) {
+	t.Helper()
+	workspace, manifestPath, layoutPath := tt.fixture(t, target)
+	mapPath := tt.mapPath(t)
+	outputDir := t.TempDir()
+	reportPath := filepath.Join(outputDir, "report.json")
+	surfacePath := filepath.Join(outputDir, "surface.json")
+	assertArtifactAbsent(t, reportPath, "before invocation")
+	assertArtifactAbsent(t, surfacePath, "before invocation")
+
+	args := []string{
+		"check", manifestPath,
+		"--package-layout=" + layoutPath,
+		"--report-out=" + reportPath,
+		"--surface-out=" + surfacePath,
+		"--stdlib-map=" + mapPath,
+	}
+	code, stderr := runRunnerFromWorkspace2(t, workspace, fullRunner(), args)
+	if code != 2 {
+		t.Errorf("%s exit = %d, want 2; stderr = %s", tt.name, code, stderr)
+	}
+	for _, piece := range tt.wantDiagnostic {
+		if !strings.Contains(stderr, piece) {
+			t.Errorf("%s stderr = %q, want diagnostic fragment %q", tt.name, stderr, piece)
+		}
+	}
+	assertArtifactAbsent(t, reportPath, "after failed invocation")
+	assertArtifactAbsent(t, surfacePath, "after failed invocation")
+}
+
+func assertArtifactAbsent(t *testing.T, path, phase string) {
+	t.Helper()
+	_, err := os.Stat(path)
+	if err == nil {
+		t.Errorf("artifact %s exists %s", path, phase)
+	} else if !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("stat artifact %s %s: %v", path, phase, err)
+	}
+}
+
+// TestCheck_EmitsArtifactsLayoutMode is the successful layout-mode leg: a
 // check with a pinned layout and the declared stdlib map emits the canonical
-// report and exact surface, byte-identically across repeated invocations; a
-// corrupt declared map and a missing declared map fail closed with exit 2.
+// report and exact surface, byte-identically across repeated invocations.
 func TestCheck_EmitsArtifactsLayoutMode(t *testing.T) {
 	target, err := stdlibmap.NativeTargetConfig()
 	if err != nil {
@@ -197,31 +390,64 @@ func TestCheck_EmitsArtifactsLayoutMode(t *testing.T) {
 	if string(surfaceData) != string(surfaceData2) {
 		t.Error("surface artifact bytes differ between identical invocations")
 	}
+}
 
-	// Corrupt declared map: exit 2 with context.
-	mapBytes, err := os.ReadFile(mapPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	corruptPath := filepath.Join(t.TempDir(), "corrupt.json")
-	if err := os.WriteFile(corruptPath, mapBytes[:64], 0o644); err != nil {
-		t.Fatal(err)
-	}
-	code, stderr = runRunnerFromWorkspace2(t, workspace, runner, withReplaced(args, mapPath, corruptPath))
-	if code != 2 {
-		t.Errorf("corrupt map exit = %d, want 2; stderr = %s", code, stderr)
-	}
-	if !strings.Contains(stderr, "stdlib-map") && !strings.Contains(stderr, "stdlib-map artifact") {
-		t.Errorf("corrupt map stderr = %q, want it to name the artifact", stderr)
-	}
-
-	// Missing declared map: exit 2 with context.
-	code, stderr = runRunnerFromWorkspace2(t, workspace, runner, withReplaced(args, mapPath, filepath.Join(t.TempDir(), "absent.json")))
-	if code != 2 {
-		t.Errorf("missing map exit = %d, want 2; stderr = %s", code, stderr)
-	}
-	if !strings.Contains(stderr, "absent.json") {
-		t.Errorf("missing map stderr = %q, want it to name the path", stderr)
+// TestCheck_LayoutStdlibMapFailuresPublishNothing drives every required
+// fail-closed map fault through the production Runner and gives each row fresh
+// report/surface destinations, independent of successful-emission coverage.
+func TestCheck_LayoutStdlibMapFailuresPublishNothing(t *testing.T) {
+	target := teststdlibmap.PinnedTarget()
+	for _, tt := range []invalidLayoutMapCase{
+		{
+			name:           "missing map",
+			fixture:        standardLayoutMapFixture,
+			mapPath:        func(t *testing.T) string { return filepath.Join(t.TempDir(), "missing.stdlib-map.json") },
+			wantDiagnostic: []string{"declared stdlib-map artifact", "missing.stdlib-map.json"},
+		},
+		{
+			name:           "malformed map",
+			fixture:        standardLayoutMapFixture,
+			mapPath:        writeCorruptPinnedMap,
+			wantDiagnostic: []string{"declared stdlib-map artifact", "corrupt.stdlib-map.json", "parse artifact"},
+		},
+		{
+			name:    "target SDK-key mismatch",
+			fixture: standardLayoutMapFixture,
+			mapPath: func(t *testing.T) string {
+				return writePinnedMapKeyVariant(t, "target-mismatch.stdlib-map.json", "goarch", "arm64")
+			},
+			wantDiagnostic: []string{"target-mismatch.stdlib-map.json", "mismatched fields: goarch"},
+		},
+		{
+			name:    "classifier-hash mismatch",
+			fixture: standardLayoutMapFixture,
+			mapPath: func(t *testing.T) string {
+				return writePinnedMapKeyVariant(t, "classifier-mismatch.stdlib-map.json", "classifierHash", "stale-classifier-hash")
+			},
+			wantDiagnostic: []string{"classifier-mismatch.stdlib-map.json", "mismatched fields: classifier_hash"},
+		},
+		{
+			name:    "format-version mismatch",
+			fixture: standardLayoutMapFixture,
+			mapPath: func(t *testing.T) string {
+				return writePinnedMapVariant(t, "format-mismatch.stdlib-map.json", func(decoded map[string]any) {
+					decoded["formatVersion"] = 2
+				})
+			},
+			wantDiagnostic: []string{"format-mismatch.stdlib-map.json", "unsupported artifact format version"},
+		},
+		{
+			name:    "inventory-incomplete map",
+			fixture: inventoryGapLayoutFixture,
+			mapPath: func(t *testing.T) string {
+				return removePinnedMapSymbol(t, "inventory-gap.stdlib-map.json", "fmt.Sprintf")
+			},
+			wantDiagnostic: []string{"fmt.Sprintf", "stdlib map has no record"},
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			runInvalidLayoutMapCase(t, target, tt)
+		})
 	}
 }
 
@@ -556,20 +782,6 @@ func overwriteAndRerun(t *testing.T, runner *app.Runner, args []string, path str
 		t.Fatal(err)
 	}
 	return data
-}
-
-func withReplaced(args []string, old, new string) []string {
-	out := make([]string, 0, len(args))
-	for _, a := range args {
-		if a == old {
-			a = new
-		}
-		if a == "--stdlib-map="+old {
-			a = "--stdlib-map=" + new
-		}
-		out = append(out, a)
-	}
-	return out
 }
 
 // TestCheck_ExcludedInterfaceFileStillEmitsSurface is the mixed
