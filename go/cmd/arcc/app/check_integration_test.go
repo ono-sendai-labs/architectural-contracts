@@ -13,6 +13,7 @@ import (
 	"github.com/ono-sendai-labs/architectural-contracts/go/cmd/arcc/app"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/artifactio"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/goanalysis"
+	"github.com/ono-sendai-labs/architectural-contracts/go/internal/manifest"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/report"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/stdlibmap"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/teststdlibmap"
@@ -736,6 +737,15 @@ func runRunnerStdout(t *testing.T, workspace string, runner *app.Runner, args []
 	if err := os.Chdir(workspace); err != nil {
 		t.Fatal(err)
 	}
+	if manifestPath, mapPath, ok := nativeStagingArgs(args); ok {
+		var created []string
+		stageNativeRunnerDependencies(t, runner, manifestPath, mapPath, map[string]bool{}, &created)
+		t.Cleanup(func() {
+			for _, path := range created {
+				_ = os.Remove(path)
+			}
+		})
+	}
 	t.Cleanup(func() {
 		if err := os.Chdir(originalWD); err != nil {
 			t.Errorf("restore working directory: %v", err)
@@ -744,6 +754,82 @@ func runRunnerStdout(t *testing.T, workspace string, runner *app.Runner, args []
 	var stdout, stderr strings.Builder
 	code := runner.Run(args, &stdout, &stderr)
 	return stdout.String(), stderr.String(), code
+}
+
+func nativeStagingArgs(args []string) (manifestPath, mapPath string, ok bool) {
+	if len(args) < 2 || args[0] != "check" {
+		return "", "", false
+	}
+	for _, arg := range args[2:] {
+		if strings.HasPrefix(arg, "--package-layout=") {
+			return "", "", false
+		}
+		if strings.HasPrefix(arg, "--stdlib-map=") {
+			mapPath = strings.TrimPrefix(arg, "--stdlib-map=")
+		}
+	}
+	if mapPath == "" {
+		return "", "", false
+	}
+	return args[1], mapPath, true
+}
+
+func stageNativeRunnerDependencies(t *testing.T, runner *app.Runner, manifestPath, mapPath string, seen map[string]bool, created *[]string) {
+	t.Helper()
+	absManifest, err := filepath.Abs(manifestPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	absManifest = filepath.Clean(absManifest)
+	if seen[absManifest] {
+		return
+	}
+	seen[absManifest] = true
+	f, err := os.Open(absManifest)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return
+		}
+		t.Fatal(err)
+	}
+	parsed, err := manifest.Parse(f)
+	_ = f.Close()
+	if err != nil {
+		return
+	}
+	for _, dep := range parsed.ComponentDependencies {
+		depManifest := filepath.Clean(filepath.Join(filepath.Dir(absManifest), dep.Manifest))
+		stageNativeRunnerDependencies(t, runner, depManifest, mapPath, seen, created)
+		surfacePath := artifactio.SurfacePath(depManifest)
+		if _, err := os.Stat(surfacePath); err == nil {
+			continue
+		} else if !os.IsNotExist(err) {
+			t.Fatal(err)
+		}
+		reportPath := artifactio.ReportPath(depManifest)
+		originalWD, err := os.Getwd()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chdir(filepath.Dir(absManifest)); err != nil {
+			t.Fatal(err)
+		}
+		var stdout, stderr strings.Builder
+		code := runner.Run([]string{
+			"check", depManifest,
+			"--stdlib-map=" + mapPath,
+			"--report-out=" + reportPath,
+			"--surface-out=" + surfacePath,
+			"--report-verdict-only",
+		}, &stdout, &stderr)
+		if err := os.Chdir(originalWD); err != nil {
+			t.Fatal(err)
+		}
+		if code != 0 {
+			t.Fatalf("stage dependency %s: exit %d stderr %q", depManifest, code, stderr.String())
+		}
+		*created = append(*created, surfacePath, reportPath)
+	}
 }
 
 // runRunnerFromWorkspace2 is the shared workspace-chdir helper; goanalysis's

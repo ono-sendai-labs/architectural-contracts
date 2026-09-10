@@ -13,6 +13,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/ono-sendai-labs/architectural-contracts/go/internal/artifactio"
+	"github.com/ono-sendai-labs/architectural-contracts/go/internal/manifest"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/report"
 )
 
@@ -47,7 +49,76 @@ func TestMain(m *testing.M) {
 
 // runArcc runs the compiled arcc binary as a subprocess and returns its stdout, stderr, and exit code.
 func runArcc(args []string) (string, string, int) {
+	if len(args) >= 2 && args[0] == "check" {
+		var created []string
+		if err := stageNativeDependencyArtifacts(args[1], map[string]bool{}, &created); err != nil {
+			for _, path := range created {
+				_ = os.Remove(path)
+			}
+			return "", fmt.Sprintf("error: staging dependency surfaces: %v\n", err), 2
+		}
+		defer func() {
+			for _, path := range created {
+				_ = os.Remove(path)
+			}
+		}()
+	}
 	return runArccEnv(nil, args)
+}
+
+// stageNativeDependencyArtifacts supplies the persisted sibling artifacts that
+// native integration checks now consume. It follows the authored component
+// graph in post-order, so every dependency surface/report exists before its
+// dependent runs. The files are test-only staging artifacts and are removed by
+// runArcc after the subprocess returns; production has no fallback to source
+// reconstruction.
+func stageNativeDependencyArtifacts(manifestPath string, seen map[string]bool, created *[]string) error {
+	absManifest, err := filepath.Abs(manifestPath)
+	if err != nil {
+		return err
+	}
+	absManifest = filepath.Clean(absManifest)
+	if seen[absManifest] {
+		return nil
+	}
+	seen[absManifest] = true
+	f, err := os.Open(absManifest)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+	parsed, err := manifest.Parse(f)
+	_ = f.Close()
+	if err != nil {
+		// Let the real command report malformed/stale manifests; staging is
+		// only for valid dependency artifacts.
+		return nil
+	}
+	for _, dep := range parsed.ComponentDependencies {
+		depManifest := filepath.Clean(filepath.Join(filepath.Dir(absManifest), dep.Manifest))
+		if err := stageNativeDependencyArtifacts(depManifest, seen, created); err != nil {
+			return err
+		}
+		surfacePath := artifactio.SurfacePath(depManifest)
+		reportPath := artifactio.ReportPath(depManifest)
+		if _, err := os.Stat(surfacePath); err == nil {
+			continue
+		} else if !os.IsNotExist(err) {
+			return err
+		}
+		cmd := exec.Command(arccBin, "check", depManifest,
+			"--report-out="+reportPath,
+			"--surface-out="+surfacePath,
+			"--report-verdict-only")
+		cmd.Env = os.Environ()
+		if output, err := cmd.CombinedOutput(); err != nil {
+			return fmt.Errorf("checking %s: %v (%s)", depManifest, err, strings.TrimSpace(string(output)))
+		}
+		*created = append(*created, surfacePath, reportPath)
+	}
+	return nil
 }
 
 // runArccEnv is runArcc with an explicit environment for the subprocess. A nil
@@ -751,8 +822,8 @@ func TestIntegration_App_Success(t *testing.T) {
 	wantText := `Component "app" conforms; does not exceed declared authority
 
 Dependencies:
-- csvfile
-- toprow
+- csvfile (asserted)
+- toprow (asserted)
 `
 	if stdout != wantText {
 		t.Errorf("stdout =\n%q\nwant:\n%q", stdout, wantText)
@@ -1109,7 +1180,7 @@ component_dependencies {
 	wantText := `Component "declared-caller-cli" conforms; does not exceed declared authority
 
 Dependencies:
-- declared-dep-cli
+- declared-dep-cli (asserted)
 `
 	if stdout != wantText {
 		t.Errorf("stdout =\n%q\nwant:\n%q", stdout, wantText)

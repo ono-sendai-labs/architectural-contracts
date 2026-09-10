@@ -224,6 +224,7 @@ def _arcc_checked_analysis_impl(ctx):
     # graph.
     runfiles = ctx.runfiles(transitive_files = go_sdk_srcs(ctx))
     runfiles = runfiles.merge(ctx.attr.component[DefaultInfo].default_runfiles)
+    runfiles = runfiles.merge(ctx.runfiles(transitive_files = info.transitive_artifacts))
     runfiles = runfiles.merge(ctx.attr._arcc[DefaultInfo].default_runfiles)
     runfiles = runfiles.merge(ctx.runfiles(files = [map_file, info.report, info.surface]))
 

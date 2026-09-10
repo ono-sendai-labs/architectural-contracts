@@ -7,12 +7,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
 
 	"github.com/ono-sendai-labs/architectural-contracts/go/cmd/arcc/app"
+	"github.com/ono-sendai-labs/architectural-contracts/go/internal/artifactio"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/checker"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/facts"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/goanalysis"
@@ -138,8 +140,105 @@ func runArccHermetic(t *testing.T, args []string) (string, string, int) {
 	// so a fallback fails as "executable not found" rather than as a
 	// malformed-environment error that could mask the real cause.
 	env = append(env, "PATH="+t.TempDir())
+	if layoutPath, mapPath, ok := layoutStagingArgs(args); ok {
+		if err := stageLayoutDependencies(t, env, args[1], layoutPath, mapPath); err != nil {
+			return "", fmt.Sprintf("error: staging layout dependency artifacts: %v\n", err), 2
+		}
+	}
 
 	return runArccEnv(env, args)
+}
+
+func layoutStagingArgs(args []string) (layoutPath, mapPath string, ok bool) {
+	for _, arg := range args {
+		if strings.HasPrefix(arg, "--package-layout=") {
+			layoutPath = strings.TrimPrefix(arg, "--package-layout=")
+		}
+		if strings.HasPrefix(arg, "--stdlib-map=") {
+			mapPath = strings.TrimPrefix(arg, "--stdlib-map=")
+		}
+	}
+	return layoutPath, mapPath, layoutPath != "" && mapPath != ""
+}
+
+// stageLayoutDependencies adapts the hand-written integration layouts to the
+// post-cutover artifact contract. Bazel emits these bindings in production;
+// the hermetic layout tests generate equivalent checked artifacts from each
+// dependency's own layout before invoking the dependent.
+func stageLayoutDependencies(t *testing.T, env []string, manifestPath, layoutPath, mapPath string) error {
+	t.Helper()
+	manifestFile, err := os.Open(manifestPath)
+	if err != nil {
+		return err
+	}
+	parsed, err := manifest.Parse(manifestFile)
+	_ = manifestFile.Close()
+	if err != nil {
+		return nil
+	}
+	if len(parsed.ComponentDependencies) == 0 {
+		return nil
+	}
+	workspace, err := os.Getwd()
+	if err != nil {
+		return err
+	}
+	var bindings []map[string]any
+	for _, dep := range parsed.ComponentDependencies {
+		depManifest := filepath.Clean(filepath.Join(filepath.Dir(manifestPath), dep.Manifest))
+		depLayout := strings.TrimSuffix(depManifest, filepath.Ext(depManifest)) + ".package-layout.json"
+		if _, err := os.Stat(depLayout); os.IsNotExist(err) {
+			candidate := filepath.Join(filepath.Dir(depManifest), "package-layout.json")
+			if _, candidateErr := os.Stat(candidate); candidateErr != nil {
+				continue
+			}
+			depLayout = candidate
+		}
+		surfacePath := artifactio.SurfacePath(depManifest)
+		reportPath := artifactio.ReportPath(depManifest)
+		cmd := exec.Command(arccBin, "check", depManifest,
+			"--package-layout="+depLayout,
+			"--stdlib-map="+mapPath,
+			"--report-out="+reportPath,
+			"--surface-out="+surfacePath,
+			"--report-verdict-only")
+		cmd.Env = env
+		if output, err := cmd.CombinedOutput(); err != nil {
+			return fmt.Errorf("checking %s: %v (%s)", depManifest, err, strings.TrimSpace(string(output)))
+		}
+		relSurface, err := filepath.Rel(workspace, surfacePath)
+		if err != nil || strings.HasPrefix(relSurface, ".."+string(filepath.Separator)) || relSurface == ".." {
+			return fmt.Errorf("dependency surface %s is outside the layout workspace", surfacePath)
+		}
+		relReport, err := filepath.Rel(workspace, reportPath)
+		if err != nil || strings.HasPrefix(relReport, ".."+string(filepath.Separator)) || relReport == ".." {
+			return fmt.Errorf("dependency report %s is outside the layout workspace", reportPath)
+		}
+		bindings = append(bindings, map[string]any{
+			"dependency":    dep.Name,
+			"surface":       filepath.ToSlash(relSurface),
+			"report":        filepath.ToSlash(relReport),
+			"auto_attached": dep.AutoAttached,
+			"provenance":    "checked",
+		})
+	}
+	if len(bindings) == 0 {
+		return nil
+	}
+	data, err := os.ReadFile(layoutPath)
+	if err != nil {
+		return err
+	}
+	var layout map[string]any
+	if err := json.Unmarshal(data, &layout); err != nil {
+		return err
+	}
+	layout["dependency_artifact_bindings"] = bindings
+	updated, err := json.MarshalIndent(layout, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(layoutPath, updated, 0o644)
 }
 
 // createLayoutFixture creates a layout and manifest for testing layout mode.

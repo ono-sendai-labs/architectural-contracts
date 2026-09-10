@@ -51,6 +51,7 @@ def _fake_component_info_impl(ctx):
             layout = None,
             transitive_manifests = depset(),
             transitive_layouts = depset(),
+            transitive_artifacts = depset(),
             closure = depset(),
             contracts = depset(),
             surface = surface,

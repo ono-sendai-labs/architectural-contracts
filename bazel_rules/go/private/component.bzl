@@ -360,9 +360,17 @@ def _frame_symlink_commands(files, workspace_name):
     from the inputs themselves, so the command is deterministic.
     """
     external_repos = {}
+    generated_files = {}
     for f in files:
         short_path = f.short_path
         if not short_path.startswith("../"):
+            # Generated outputs keep their package-relative runfiles spelling
+            # in the layout, while Bazel stages the declared input under its
+            # bazel-out path in the action sandbox. Recreate that frame link
+            # just as the runfiles tree would; source files already have an
+            # identical path and need no link.
+            if f.path != short_path and f.path.startswith("bazel-out/"):
+                generated_files[short_path] = f.path
             continue
         apparent = short_path[len("../"):].split("/")[0]
         path_parts = f.path.split("/")
@@ -377,6 +385,15 @@ def _frame_symlink_commands(files, workspace_name):
         commands.append("ln -s %s %s" % (
             _shell_quote(external_repos[apparent]),
             _shell_quote(apparent),
+        ))
+    for short_path in sorted(generated_files.keys()):
+        parent = _dirname(short_path)
+        if parent:
+            commands.append("mkdir -p " + _shell_quote(parent))
+        commands.append("if [ ! -e %s ]; then ln -s %s %s; fi" % (
+            _shell_quote(short_path),
+            _shell_quote(generated_files[short_path]),
+            _shell_quote(short_path),
         ))
     return commands
 
@@ -401,13 +418,13 @@ def _checked_analysis_action(ctx, manifest, layout, closure_srcs, transitive_man
     so the action stays deterministic and hermetic (I5) while keeping the
     existing layout-driver working-directory contract.
 
-    Inputs are exactly the Step 5 transition set (task req 3): the manifest
-    and layout, today's source and runfile closure (including the direct
-    dependencies' own), the SDK sources today's loader reads, the declared
-    stdlib map, and the direct dependencies' report/surface artifacts as
-    ordering inputs. The layout names those artifacts through its direct
-    dependency bindings; they are still not parsed here — Step 7 replaces
-    `ResolveDependencyInterface`. Export data is not an input until Step 8.
+    Inputs are exactly the Step 7 transition set: the manifest and layout,
+    today's source and runfile closure (including the direct dependencies'
+    own), the SDK sources today's loader reads, the declared stdlib map, and
+    the direct dependencies' report/surface artifacts named by the layout.
+    The action consumes those artifacts semantically through the surface
+    resolver; the closure-source and NeedDeps inputs remain until Step 8 adds
+    export-data loading. Export data is not an input until Step 8.
 
     No environment at all: the argv and the frame symlinks fully determine
     the action; network access is blocked.
@@ -560,7 +577,12 @@ def go_component_impl(ctx, attachment_fn = go_attached_infra):
 
     if roots:
         layout = ctx.actions.declare_file(ctx.label.name + ".package-layout.json")
-        layout_roots = sorted(list(effective_members.keys()))
+        # Roots are the component's effective owned packages, not every
+        # raw root before direct component dependencies/infra coverage is
+        # removed. Keeping covered packages in the layout roots makes the
+        # manifest/layout membership contract impossible to validate once
+        # the surface consumer uses the manifest's exact member set.
+        layout_roots = sorted(list(members))
         platform = go_build_platform(roots[0])
         target_mode = go_target_mode(ctx)
         ctx.actions.write(
@@ -622,9 +644,9 @@ def go_component_impl(ctx, attachment_fn = go_attached_infra):
     covered_or_member = {importpath: True for importpath in members}
 
     # Direct dependency artifacts are the same files named by the layout
-    # bindings. They are direct action inputs so the producer chain is ordered
-    # by the build graph (R8); the current action still treats them as ordering
-    # inputs and does not parse them until the later surface-consumption task.
+    # bindings. They are direct semantic action inputs: the surface resolver
+    # consumes their package/symbol data and report verdicts, while the
+    # producer chain remains ordered by the build graph (R8).
     dep_artifacts = []
     for record in dependency_binding_records:
         dep_artifacts += record.artifacts
@@ -685,6 +707,11 @@ def go_component_impl(ctx, attachment_fn = go_attached_infra):
         )
         provenance = "checked"
 
+    transitive_artifacts = depset(
+        direct = [artifact for artifact in (report, surface) if artifact != None],
+        transitive = [dep[ArccComponentInfo].transitive_artifacts for dep in ctx.attr.component_deps] + [info.transitive_artifacts for info in auto_attached_deps],
+    )
+
     base_runfiles = ctx.runfiles(
         files = closure_srcs,
         transitive_files = depset(transitive = [transitive_manifests, transitive_layouts]),
@@ -704,6 +731,7 @@ def go_component_impl(ctx, attachment_fn = go_attached_infra):
             layout = layout,
             transitive_manifests = transitive_manifests,
             transitive_layouts = transitive_layouts,
+            transitive_artifacts = transitive_artifacts,
             closure = depset([
                 struct(
                     importpath = importpath,
