@@ -5,7 +5,8 @@ embedded libraries (source merge, dependency merge, duplicate import paths),
 diamonds, and the standard library.
 """
 
-load("@rules_testing//lib:analysis_test.bzl", "analysis_test", "test_suite")
+load("@rules_testing//lib:analysis_test.bzl", "analysis_test")
+load("@rules_testing//lib/private:util.bzl", "get_test_name_from_function")
 load("//bazel_rules/go:providers.bzl", "ArccPackageInfo")
 load("//bazel_rules/go/private:aspect.bzl", "merge_by_importpath")
 load("//bazel_rules/go/tests:probe.bzl", "ArccGoPlatformInfo")
@@ -124,7 +125,7 @@ def _go_build_platform_uses_target_mode_test(name):
         name = name,
         target = _PLATFORM_PROBE,
         impl = _go_build_platform_uses_target_mode_impl,
-        attr_values = {"size": "small"},
+        attr_values = {"size": "small", "tags": ["manual"]},
     )
 
 def _go_build_platform_uses_target_mode_impl(env, target):
@@ -139,7 +140,7 @@ def _go_attach_infra_is_conforming_by_default_test(name):
         name = name,
         target = _PLATFORM_PROBE,
         impl = _go_attach_infra_is_conforming_by_default_impl,
-        attr_values = {"size": "small"},
+        attr_values = {"size": "small", "tags": ["manual"]},
     )
 
 def _go_attach_infra_is_conforming_by_default_impl(env, target):
@@ -165,16 +166,32 @@ def _non_go_target_provides_empty_provider_impl(env, target):
     env.expect.that_collection(target[ArccPackageInfo].packages.to_list()).contains_exactly([])
 
 def arcc_deps_aspect_test_suite(name):
-    test_suite(
-        name = name,
-        tests = [
+    _aspect_test_suite(
+        name,
+        [
             _closure_is_the_whole_graph_minus_stdlib_test,
             _edges_are_direct_importpaths_test,
             _embedded_srcs_merge_into_the_embedder_test,
             _embed_only_dependency_is_reached_test,
             _no_cgo_in_a_pure_go_closure_test,
             _non_go_target_provides_empty_provider_test,
+        ],
+    )
+
+def arcc_deps_aspect_full_test_suite(name):
+    _aspect_test_suite(
+        name,
+        [
             _go_build_platform_uses_target_mode_test,
             _go_attach_infra_is_conforming_by_default_test,
         ],
+        tags = ["manual"],
     )
+
+def _aspect_test_suite(name, tests, tags = []):
+    test_targets = []
+    for setup_func in tests:
+        test_name = get_test_name_from_function(setup_func)
+        setup_func(name = test_name)
+        test_targets.append(test_name)
+    native.test_suite(name = name, tests = test_targets, tags = tags)

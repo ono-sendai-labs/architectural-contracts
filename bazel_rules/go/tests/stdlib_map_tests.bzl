@@ -9,7 +9,8 @@ build tag, cgo rejection) — all without executing the (expensive) generation
 action.
 """
 
-load("@rules_testing//lib:analysis_test.bzl", "analysis_test", "test_suite")
+load("@rules_testing//lib:analysis_test.bzl", "analysis_test")
+load("@rules_testing//lib/private:util.bzl", "get_test_name_from_function")
 load("//bazel_rules/go:providers.bzl", "ArccStdlibMapInfo")
 load("//bazel_rules/go/tests:stdlib_map_probe.bzl", "DefaultSeamProbeInfo", "TransitionedStdlibMapInfo")
 
@@ -270,6 +271,7 @@ def _cgo_enabled_configuration_fails_analysis_test(name):
         # instead of aborting the build.
         config_settings = {_PURE_SETTING: False},
         expect_failure = True,
+        attr_values = {"tags": ["manual"]},
         impl = _cgo_enabled_configuration_fails_analysis_impl,
     )
 
@@ -286,9 +288,9 @@ def _cgo_enabled_configuration_fails_analysis_impl(env, target):
     env.expect.that_str(messages[0]).contains("--@rules_go//go/config:pure")
 
 def stdlib_map_test_suite(name):
-    test_suite(
-        name = name,
-        tests = [
+    _stdlib_map_test_suite(
+        name,
+        [
             _declares_a_single_canonical_map_output_test,
             _action_inputs_are_complete_and_minimal_test,
             _action_executes_no_toolchain_binary_test,
@@ -298,8 +300,25 @@ def stdlib_map_test_suite(name):
             _provider_and_default_availability_test,
             _provider_carries_the_complete_sdk_key_metadata_test,
             _default_seam_is_available_test,
+        ],
+        tags = ["manual"],
+    )
+
+def stdlib_map_full_test_suite(name):
+    _stdlib_map_test_suite(
+        name,
+        [
             _build_tag_propagates_to_the_key_test,
             _cross_compile_propagates_to_the_key_test,
             _cgo_enabled_configuration_fails_analysis_test,
         ],
+        tags = ["manual"],
     )
+
+def _stdlib_map_test_suite(name, tests, tags = []):
+    test_targets = []
+    for setup_func in tests:
+        test_name = get_test_name_from_function(setup_func)
+        setup_func(name = test_name)
+        test_targets.append(test_name)
+    native.test_suite(name = name, tests = test_targets, tags = tags)

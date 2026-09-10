@@ -33,6 +33,7 @@ arcc_closure_probe(
 go_platform_probe(
     name = "go_platform_probe",
     target = "//bazel_rules/go/tests/testdata/api:api",
+    tags = ["manual"],
     visibility = ["//bazel_rules:__subpackages__"],
     target_compatible_with = select({
         "//bazel_rules/go/tests:stdlibmap_full": [],

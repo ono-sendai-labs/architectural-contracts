@@ -1,14 +1,14 @@
 load("@rules_go//go:def.bzl", "go_test")
 load("@rules_shell//shell:sh_test.bzl", "sh_test")
 load("//bazel_rules/go/private:check.bzl", "arcc_check_grep_test", "arcc_check_report_golden_test", "arcc_check_test", "arcc_checked_analysis_test")
-load(":aspect_tests.bzl", "arcc_deps_aspect_test_suite")
+load(":aspect_tests.bzl", "arcc_deps_aspect_full_test_suite", "arcc_deps_aspect_test_suite")
 load(":asserted_surface_tests.bzl", "asserted_surface_test_suite")
 load(":component_tests.bzl", "go_component_test_suite")
 load(":pattern_match_test.bzl", "pattern_match_test_suite")
 load(":probe.bzl", "checked_analysis_surface", "transitioned_checked_map", "transitioned_checked_surface", "transitioned_component_layout")
 load(":report_assertion_tests.bzl", "report_assertion_test_suite")
 load(":stdlib_map_probe.bzl", "darwin_arm64_stdlib_map", "default_seam_probe", "tagged_stdlib_map")
-load(":stdlib_map_tests.bzl", "stdlib_map_test_suite")
+load(":stdlib_map_tests.bzl", "stdlib_map_full_test_suite", "stdlib_map_test_suite")
 
 config_setting(
     name = "stdlibmap_full",
@@ -16,6 +16,7 @@ config_setting(
 )
 
 stdlib_map_test_suite(name = "stdlib_map_tests")
+stdlib_map_full_test_suite(name = "stdlib_map_full_tests")
 
 sh_test(
     name = "stdlib_map_default_matches_pinned_test",
@@ -131,6 +132,7 @@ sh_test(
     }),
 )
 
+arcc_deps_aspect_full_test_suite(name = "arcc_deps_aspect_full_tests")
 arcc_deps_aspect_test_suite(name = "arcc_deps_aspect_tests")
 
 go_component_test_suite(name = "go_component_tests")
@@ -226,6 +228,7 @@ transitioned_component_layout(
         "//conditions:default": ["@platforms//:incompatible"],
     }),
 )
+
 
 # Target-identity coherence under a non-default configuration (task req 8,
 # AC 6): the darwin/arm64, cgo-off, build-tagged analysis emits a surface

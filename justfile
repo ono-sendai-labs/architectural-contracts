@@ -116,8 +116,9 @@ selfcheck:
 	cd {{go_dir}} && ../bin/arcc check cmd/arcc/component.textproto --stdlib-map=internal/teststdlibmap/testdata/linux_amd64.stdlib-map.json
 
 bazel-test-full:
+	bazel test --define=stdlibmap_full=true //bazel_rules/go/tests:arcc_deps_aspect_full_tests
 	bazel build --define=stdlibmap_full=true //:arcc_stdlib_map_replica //bazel_rules/go/tests:stdlib_map_darwin_arm64 //bazel_rules/go/tests:stdlib_map_tagged //bazel_rules/go/tests:darwin_arm64_map
-	bazel test --define=stdlibmap_full=true //bazel_rules/go/tests:stdlib_map_keys_test //bazel_rules/go/tests:transitioned_surface_sdk_key_test //bazel_rules/go/tests:build_tag_propagates_to_the_key_test //bazel_rules/go/tests:cross_compile_propagates_to_the_key_test
+	bazel test --define=stdlibmap_full=true //bazel_rules/go/tests:stdlib_map_tests //bazel_rules/go/tests:stdlib_map_full_tests //bazel_rules/go/tests:stdlib_map_keys_test //bazel_rules/go/tests:transitioned_surface_sdk_key_test
 	bazel test --define=stdlibmap_full=true //bazel_rules/go/tests:platform_layout_test
 
 # Bazel build + test leg. Catches rules/Starlark and hermetic-check
