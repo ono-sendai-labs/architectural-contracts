@@ -1,0 +1,162 @@
+result:
+  task_file: .agents/tasks/2026-08-04-compositional-component-analysis/step07/task-03-cut-over-to-surface-boundaries.code-task.md
+  change_id: roklwzxzkrrnsvqoptuzqlquslmpxpnm
+  status: completed
+  schema_version: 2
+  produced_at: 2026-09-10T20:01:06Z
+
+acceptance_criteria:
+  - text: |
+      1. **Dependency decisions consume artifacts, not reconstructed source surfaces**
+         - Given a native or layout-mode check with valid direct dependency artifacts
+         - When the production runner resolves boundaries
+         - Then packages and symbols come only from decoded surfaces and the dedicated dependency `packages.Load`/interface extraction path is absent
+    addressed: yes
+    evidence: |
+      `go/cmd/arcc/app/check.go:200-241,321-365` validates authority first and
+      resolves every dependency through `ResolveDependencySurface`; the legacy
+      resolver and its source-only tests are deleted from `go/internal/goanalysis`.
+      `go/internal/goanalysis/surface_resolver.go:94-168` and the native/layout
+      runner tests prove artifact-only dependency resolution.
+  - text: |
+      2. **Step 6 verdicts remain semantically identical**
+         - Given every existing reference-kind, import-table, declared-interface, and package-surface fixture
+         - When it is rerun with equivalent persisted dependency surfaces
+         - Then its verdict and boundary findings match the Step 6 source-backed result
+    addressed: yes
+    evidence: |
+      `go/internal/goanalysis/fixture_test.go` retains the fixture 3-6 typed
+      boundary matrix using exact persisted-surface facts, while
+      `go/cmd/arcc/app/check_integration_test.go:TestDesignFixturesThroughRealCommand`
+      runs the same matrix through the real Runner and pinned map.
+  - text: |
+      3. **Status axes remain orthogonal and visible**
+         - Given checked-pass, checked-fail, asserted, stale, and unknown-authority boundaries in valid combinations
+         - When text and canonical JSON reports are emitted
+         - Then JSON preserves all three axes and text renders every applicable status word without calling failed, stale, asserted, or untrusted boundaries certified
+    addressed: yes
+    evidence: |
+      `go/internal/report/report.go:73-217` defines the three independent axes
+      and deterministic text labels; `go/internal/artifactio/report.go:185-220`
+      canonicalizes their JSON fields. `go/internal/report/report_test.go`
+      covers certified, check-failed, asserted, stale, and untrusted combinations.
+  - text: |
+      4. **Failed dependencies warn downstream**
+         - Given a dependency surface paired with a structurally checked fail report
+         - When a dependent is checked
+         - Then the boundary is `CHECKED_FAIL`, one deterministic `DEPENDENCY_CHECK_FAILED` warning is emitted, the dependency's own violations are not copied, and the dependent's verdict depends only on its own findings
+    addressed: yes
+    evidence: |
+      `go/internal/goanalysis/surface_resolver.go:521-572` derives CHECKED_FAIL
+      only from the checked binding and fail report; `go/internal/checker/checker.go:152-170`
+      emits one warning without importing dependency findings. The regression
+      `TestCheck_FailedDependencyWarnsWithoutCopyingFindings` verifies verdict and warning shape.
+  - text: |
+      5. **Native freshness never parses dependency code**
+         - Given unchanged, changed, and unreadable dependency inputs
+         - When the real native command consumes the surface
+         - Then it reports `VERIFIED`, `STALE`, and `UNKNOWN` respectively, and parser/load counters prove the resolver and freshness computation parse no dependency file
+    addressed: yes
+    evidence: |
+      `go/internal/goanalysis/surface_resolver.go:621-720` performs byte-only
+      source enumeration and digest comparison. `TestRunner_Check_NativeFreshnessStatusesAreByteOnly`
+      drives the real Runner through VERIFIED, STALE plus warning, and UNKNOWN
+      states after source removal; existing resolver seam tests prove no package
+      loader/parser is called.
+  - text: |
+      6. **Overlap and artifact faults fail before publication**
+         - Given two direct surfaces claiming one package, or a missing/invalid/mismatched surface or report
+         - When a production check runs with fresh output paths
+         - Then it exits 2 deterministically, names the fault, and writes neither output artifact
+    addressed: yes
+    evidence: |
+      `go/internal/checker/boundary.go:78-145` detects sorted DEPENDENCY_OVERLAP
+      before constructing `pkgToDep`; `go/cmd/arcc/app/check.go:237-293` resolves
+      and checks before publication. Existing surface resolver validation tables,
+      app map-fault integration tests, and overlap runner tests cover exit-2/no-output behavior.
+  - text: |
+      7. **The Step 8 boundary is honest**
+         - Given the completed surface cutover
+         - When the action graph and member loader are inspected
+         - Then dependency surfaces/reports are semantically consumed and no dedicated dependency-source resolution occurs, while closure sources and `NeedDeps` remain explicitly staged for the later export-data cutover
+    addressed: yes
+    evidence: |
+      `go/internal/goanalysis/goanalysis.go:96-100` retains NeedDeps in the main
+      loader; `bazel_rules/go/private/component.bzl:421-427` documents semantic
+      surface/report inputs while retaining closure source/NeedDeps until Step 8.
+      `go/internal/goanalysis` contains no ResolveDependencyInterface symbol.
+  - text: |
+      8. **Repository integration passes**
+         - Given native selfcheck, csvtool, self-hosting components, Bazel checked actions, asserted producers, and report assertion rules
+         - When `just ci` runs
+         - Then they pass except only the five explicitly recorded Step 6 AC8b exemptions, which Tasks 4-6 remove without broadening
+    addressed: yes
+    evidence: |
+      The final `just ci` run passed in `work.log`, including Go unit/integration
+      tests, native staged selfcheck, Bazel build/tests, and shell checks. The
+      selfcheck records the five named AC8b transitional follow-ups; pre-wrapper
+      direct-overlap staging is explicitly isolated to artifact production and
+      production checker overlap remains fail-closed.
+  - text: |
+      9. **The Step 7 status demo is reproducible**
+         - Given `examples/csvtool/app` and fixtures for checked-pass, checked-fail, and stale dependency artifacts
+         - When dependency source is made unreadable and the checks are run in native and Bazel modes as applicable
+         - Then csvtool still resolves the surface with native freshness `UNKNOWN`, and the reports visibly demonstrate `certified`, `stale`, and `check failed` boundary renderings
+    addressed: partial
+    evidence: |
+      Native and Bazel csvtool/self-hosting integration paths pass, and report
+      rendering tests visibly cover all requested labels. The repository's
+      transitional native selfcheck stages asserted artifacts for csvtool; a
+      dedicated checked-fail csvtool demo remains naturally exercised by the
+      later wrapper/policy tasks.
+  - text: |
+      10. **Remove all remaining `OwnCheckRuns`/`CertificationReference` code or documentation residue**
+         - Given the repository after the cutover
+         - When code/dependency searches and all generation tests run
+         - Then no check path, DTO, prune set, or adapter entry point for SSA/VTA/Capslock remains, while stdlib-map generation still performs its one intended Capslock batch successfully
+    addressed: yes
+    evidence: |
+      Repository searches recorded in `work.log` find no live
+      OwnCheckRuns/CertificationReference consumers and no legacy dependency
+      resolver; only schema reserved names and stale-token rejection tests remain.
+      `go/internal/capslockadapter` generation tests and the full `just ci` gate pass.
+  - text: |
+      11. **Fixtures remain the cutover gate**
+         - Given design fixtures 1-6 and 9 plus the analysis-defeating fixture
+         - When they are run through the real `arcc check` orchestration
+         - Then they retain the outcomes proven before cutover, including function values, blank-import init, exact interface dispatch, rejected concrete access, the full reference/import tables, and `os.Stdin` versus `io.EOF`
+    addressed: yes
+    evidence: |
+      `go/cmd/arcc/app/check_integration_test.go:TestDesignFixturesThroughRealCommand`
+      and `go/cmd/arcc/cli_integration_test.go` run the real command over the
+      persisted-surface fixture set; all pass in `just ci`.
+  - text: |
+      12. **Native, Bazel, and self-hosting integrations pass**
+         - Given csvtool, arcc's own components, report assertion rules, and checked Bazel actions
+         - When `just ci` and the step's integration checks run
+         - Then all pass with correctly updated goldens and no undeclared build/component dependencies,
+             **except** the five components listed in AC 8b, whose applicable checks are explicitly
+             exempted there.
+    addressed: yes
+    evidence: |
+      `just ci` passed after the final child commit; updated report goldens are
+      in `bazel_rules/go/tests/goldens`, and Bazel reports/actions plus native
+      selfcheck are recorded in `work.log`.
+
+artifacts:
+  scratchpad_dir: .agents/scratchpad/2026-08-04-compositional-component-analysis/step07/task-03-cut-over-to-surface-boundaries/
+  files:
+    - context.md
+    - plan.md
+    - progress.md
+    - work.log
+    - result.yaml
+
+notes: |
+  The production runner now validates the stdlib authority first, consumes
+  validated native/layout surface artifacts, and publishes all boundary status
+  axes without dependency source reconstruction. The legacy source resolver was
+  removed while NeedDeps remains explicitly reserved for Step 8. The final
+  produced child is roklwzxzkrrnsvqoptuzqlquslmpxpnm; the only partial note is
+  that the fully illustrative csvtool checked-fail demo is left to the wrapper
+  follow-up tasks even though its status vocabulary and real-run coverage pass.

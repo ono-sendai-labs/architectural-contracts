@@ -1,0 +1,153 @@
+result:
+  task_file: .agents/tasks/2026-08-04-compositional-component-analysis/step07/task-03-cut-over-to-surface-boundaries.code-task.md
+  change_id: rkzvszrmkooxskntkkkzkzztrzlqxotk
+  status: completed
+  schema_version: 2
+  produced_at: 2026-09-10T22:45:18Z
+
+acceptance_criteria:
+  - text: |
+      1. **Dependency decisions consume artifacts, not reconstructed source surfaces**
+         - Given a native or layout-mode check with valid direct dependency artifacts
+         - When the production runner resolves boundaries
+         - Then packages and symbols come only from decoded surfaces and the dedicated dependency `packages.Load`/interface extraction path is absent
+    addressed: "yes"
+    evidence: |
+      `go/cmd/arcc/app/check.go:200-245,321-364` resolves the authority before
+      dependency surfaces and the production resolver now uses
+      `goanalysis.ResolveDependencySurfaceForDependency`. The artifact consumer
+      is byte/artifact-only at `go/internal/goanalysis/surface_resolver.go:94-198`;
+      `go/internal/goanalysis/goanalysis.go:70-103` retains NeedDeps only for
+      the main member/closure load. The no-legacy-resolver search is recorded in
+      `work.log:118-123`.
+  - text: |
+      2. **Step 6 verdicts remain semantically identical**
+         - Given every existing reference-kind, import-table, declared-interface, and package-surface fixture
+         - When it is rerun with equivalent persisted dependency surfaces
+         - Then its verdict and boundary findings match the Step 6 source-backed result
+    addressed: "yes"
+    evidence: |
+      `go/cmd/arcc/app/check_integration_test.go:TestDesignFixturesThroughRealCommand`
+      drives the reference, import, package-surface, and analysis-defeating
+      fixtures through the real Runner, while
+      `go/internal/goanalysis/fixture_test.go:521-671` retains the exact typed
+      outcome matrix against surface-shaped dependency facts. These tests pass
+      in the recorded `just ci` run.
+  - text: |
+      3. **Status axes remain orthogonal and visible**
+         - Given checked-pass, checked-fail, asserted, stale, and unknown-authority boundaries in valid combinations
+         - When text and canonical JSON reports are emitted
+         - Then JSON preserves all three axes and text renders every applicable status word without calling failed, stale, asserted, or untrusted boundaries certified
+    addressed: "yes"
+    evidence: |
+      `go/internal/report/report.go:190-216` renders the independent status
+      words, and `go/internal/report/report_test.go:172-296` asserts checked
+      pass/fail, checked-pass STALE, checked-fail STALE, asserted, and unknown
+      JSON axes. The production layout demo at
+      `go/cmd/arcc/app/surface_cutover_test.go:143-285` asserts the exact
+      `certified`, `check failed`, and `asserted, untrusted` lines.
+  - text: |
+      4. **Failed dependencies warn downstream**
+         - Given a dependency surface paired with a structurally checked fail report
+         - When a dependent is checked
+         - Then the boundary is `CHECKED_FAIL`, one deterministic `DEPENDENCY_CHECK_FAILED` warning is emitted, the dependency's own violations are not copied, and the dependent's verdict depends only on its own findings
+    addressed: "yes"
+    evidence: |
+      `go/internal/goanalysis/surface_resolver.go:618-669` derives checked
+      provenance from the provider/report pair, and
+      `go/internal/checker/checker.go:152-170` emits one warning without
+      importing dependency findings. `TestCheck_FailedDependencyWarnsWithoutCopyingFindings`
+      in `go/internal/checker/checker_test.go:1907-1937` covers the behavior;
+      the layout CSV status demo also exercises it end to end.
+  - text: |
+      5. **Native freshness never parses dependency code**
+         - Given unchanged, changed, and unreadable dependency inputs
+         - When the real native command consumes the surface
+         - Then it reports `VERIFIED`, `STALE`, and `UNKNOWN` respectively, and parser/load counters prove the resolver and freshness computation parse no dependency file
+    addressed: "yes"
+    evidence: |
+      `TestRunner_Check_NativeFreshnessStatusesAreByteOnly` at
+      `go/cmd/arcc/app/surface_cutover_test.go:287-415` drives the real Runner
+      through VERIFIED, STALE, and UNKNOWN. It wraps the native byte and
+      directory readers, uses intentionally invalid changed dependency bytes,
+      and asserts exactly one consumer package-loader call per invocation with
+      no dependency load. The byte-only implementation is
+      `go/internal/goanalysis/surface_resolver.go:685-747`.
+  - text: |
+      6. **Overlap and artifact faults fail before publication**
+         - Given two direct surfaces claiming one package, or a missing/invalid/mismatched surface or report
+         - When a production check runs with fresh output paths
+         - Then it exits 2 deterministically, names the fault, and writes neither output artifact
+    addressed: "yes"
+    evidence: |
+      `go/cmd/arcc/app/app_test.go:1138-1160` now supplies fresh report and
+      surface paths to the direct-overlap Runner case and asserts both are
+      absent. `TestRunner_Check_DependencyArtifactFaultsPublishNothing` at
+      `go/cmd/arcc/app/app_test.go:1163-1308` covers missing, invalid,
+      namespace/SDK/format-mismatched surfaces, invalid reports, and report
+      component mismatch with the same exit-2/no-publication assertion.
+  - text: |
+      7. **The Step 8 boundary is honest**
+         - Given the completed surface cutover
+         - When the action graph and member loader are inspected
+         - Then dependency surfaces/reports are semantically consumed and no dedicated dependency-source resolution occurs, while closure sources and `NeedDeps` remain explicitly staged for the later export-data cutover
+    addressed: "yes"
+    evidence: |
+      `bazel_rules/go/private/component.bzl:421-427,646-652` retains closure
+      source/NeedDeps inputs while declaring direct surface/report artifacts as
+      semantic inputs. `go/internal/goanalysis/goanalysis.go:96-103` retains
+      NeedDeps for the main load, and the dedicated source-backed dependency
+      resolver is absent from the source tree; the staging comments in
+      `justfile:91-95` state the same transition.
+  - text: |
+      8. **Repository integration passes**
+         - Given native selfcheck, csvtool, self-hosting components, Bazel checked actions, asserted producers, and report assertion rules
+         - When `just ci` runs
+         - Then they pass except only the five explicitly recorded Step 6 AC8b exemptions, which Tasks 4-6 remove without broadening
+    addressed: "yes"
+    evidence: |
+      `just ci` passed with generation cleanliness, vet, formatting, Go unit and
+      integration tests, native selfcheck, Bazel build/tests, and shell checks;
+      the result is recorded in `work.log:96-100` and the final validation
+      output. `justfile:67-78,91-136` runs the real cmd/arcc and csvtool
+      manifests and explicitly lists the five transitional AC8b cases. It also
+      states and checks that schema's generated-protobuf UNANALYZED fail is a
+      non-gating dependency artifact verdict, not an added exemption; the
+      verdict is computed and discarded with the temporary stage.
+  - text: |
+      9. **The Step 7 status demo is reproducible**
+         - Given `examples/csvtool/app` and fixtures for checked-pass, checked-fail, and stale dependency artifacts
+         - When dependency source is made unreadable and the checks are run in native and Bazel modes as applicable
+         - Then csvtool still resolves the surface with native freshness `UNKNOWN`, and the reports visibly demonstrate `certified`, `stale`, and `check failed` boundary renderings
+    addressed: "yes"
+    evidence: |
+      `go/cmd/arcc/cli_integration_test.go:972-1081` runs the real csvtool
+      binary with topological native artifact staging, verifies native VERIFIED,
+      persists the parsecsv checked-fail report, and verifies STALE after a
+      member source-byte change. `README.md:372-420` documents the reproducible
+      native/Bazel commands and artifact contract. The real Runner layout
+      fixture `TestRunner_Check_CSVToolStatusLabelsInLayoutReport` at
+      `go/cmd/arcc/app/surface_cutover_test.go:143-285` visibly asserts
+      `certified`, `check failed`, and `asserted, untrusted` renderings.
+
+artifacts:
+  scratchpad_dir: .agents/scratchpad/2026-08-04-compositional-component-analysis/step07/task-03-cut-over-to-surface-boundaries/
+  files:
+    - context.md
+    - plan.md
+    - progress.md
+    - review.yaml
+    - result.yaml
+    - work.log
+
+notes: |
+  Review round 1 closes the selfcheck bypass, adds production no-publication and
+  byte-only freshness coverage, and makes native staging restore pre-existing
+  artifacts instead of accepting cache state. The foreign protobuf and x/tools
+  closures now have single package-surface boundaries, while schema's expected
+  generated-code fail verdict is explicitly computed as a non-gating staged
+  dependency result and discarded with the temporary tree. Fresh review-round
+  task children are nuuxrslwmxrtpttrsyxqnwvppztssvmy,
+  womoknqzwwtxlpoxrlpnzykkmytsylpw, and the authoritative final child
+  mrpvprmulzuxvktrwzqqlnwpvyrrrkox, and the final documentation child
+  rkzvszrmkooxskntkkkzkzztrzlqxotk; `just ci` passes with an empty working copy.
