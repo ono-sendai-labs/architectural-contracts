@@ -76,6 +76,9 @@ run *args:
 # selfcheck gate: its generated protobuf code currently produces an expected
 # UNANALYZED verdict while it is consumed as a dependency artifact. That
 # expected non-gating verdict is checked explicitly below and then discarded.
+# The adopted `protobuf-runtime` and `x-tools` manifests are staging-only
+# package-surface producers for the same reason: their temporary reports are
+# discarded and never count as additional selfcheck exemptions or gate legs.
 selfcheck:
 	@echo "=== Validating pinned selfcheck toolchain ==="
 	@test "$(cd {{go_dir}} && go env GOVERSION)" = "go1.26.4"
