@@ -31,12 +31,28 @@ members: "golang.org/x/tools/internal/typeparams"
 members: "golang.org/x/tools/internal/typesinternal"
 members: "golang.org/x/tools/internal/versions"
 component_dependencies {
+  name: "artifactio"
+  manifest: "../artifactio/component.textproto"
+}
+component_dependencies {
   name: "facts"
   manifest: "../facts/component.textproto"
 }
 component_dependencies {
   name: "manifest"
   manifest: "../manifest/component.textproto"
+}
+component_dependencies {
+  name: "schema"
+  manifest: "../schema/component.textproto"
+}
+component_dependencies {
+  name: "stdlibauthority"
+  manifest: "../stdlibauthority/component.textproto"
+}
+component_dependencies {
+  name: "surface"
+  manifest: "../surface/component.textproto"
 }
 component_dependencies {
   name: "symbol"

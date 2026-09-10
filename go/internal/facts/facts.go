@@ -7,10 +7,11 @@
 //
 // Component Contract (FR10):
 //   - What it does: Defines pure structs for packages, exported symbols, typed
-//     reference/import edges, dependency interfaces, and the Step 6 typed
-//     reference vocabulary — ReferenceEdge, ImportEdge, SourceSite and the
-//     exact MemberSet — with validation and total deterministic comparison
-//     (refs.go, member.go).
+//     reference/import edges, dependency interfaces, independent dependency
+//     provenance/freshness/authority axes, and the Step 6 typed reference
+//     vocabulary — ReferenceEdge, ImportEdge, SourceSite and the exact
+//     MemberSet — with validation and total deterministic comparison (refs.go,
+//     member.go).
 //   - What it requires: Constructed by the shell from static analysis or
 //     tests; holds no active logic or behaviors. Reference edges carry only
 //     symbol.SymbolID referent identities (declaring-object rule); import

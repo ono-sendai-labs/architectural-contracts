@@ -1,6 +1,15 @@
 package facts
 
-import "fmt"
+import (
+	"fmt"
+
+	"github.com/ono-sendai-labs/architectural-contracts/go/internal/manifest"
+)
+
+// DependencyAuthority is the pure structural authority lattice carried by a
+// dependency boundary. It aliases the manifest-owned representation so the
+// fact package does not introduce a second, drifting DECLARED/UNKNOWN model.
+type DependencyAuthority = manifest.AuthorityDeclaration
 
 // DependencyProvenance identifies the structural source of a dependency
 // conformance claim. It is intentionally separate from freshness and
