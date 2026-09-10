@@ -344,7 +344,7 @@ arcc_check_test(
 
 # Subtler negative: the authority is reachable only through an exported function
 # *value* (funcvalue.Open), not a directly-called exported function. Confirms the
-# capability analysis follows function values, not just direct call edges.
+# typed reference analysis follows function values, not just direct calls.
 arcc_check_test(
     name = "funcvalue_component_check_fails_test",
     size = "small",

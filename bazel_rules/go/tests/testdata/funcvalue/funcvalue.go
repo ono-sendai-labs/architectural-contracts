@@ -5,9 +5,9 @@
 // fail.
 //
 // This is the subtler companion to the `violation` fixture: `violation` uses
-// os.Open inside an exported function body (a direct call edge), whereas here
-// the capability analysis has to follow an exported function *value* to its
-// underlying authority. A scan that only walked direct call edges from exported
+// os.Open inside an exported function body (a direct call), whereas here the
+// typed reference analysis has to retain an exported function *value* and its
+// underlying authority. A scan that only inspected direct calls from exported
 // functions would miss it — the negative control for that class.
 package funcvalue
 

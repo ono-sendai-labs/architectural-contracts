@@ -165,10 +165,11 @@ declaring zero imports.
 ### `is_stdlib` (§4) — the field with a wrong obvious implementation
 
 It must record **provenance** (came from the SDK/toolchain vs. an enumerated build target) and
-must never be recomputed by an import-path heuristic in the emitter. arcc cross-checks the
-declared bit against `hostpolicy.IsStdlibPath` and fails on disagreement. For the
-`bazel_rules/` emitter every listed package comes from an enumerated target, so the value is
-structurally `false` throughout. Omitting the field decodes as `false`.
+must never be recomputed by an import-path heuristic in the emitter. arcc uses the bit and SDK
+discovery as structural provenance for resource resolution; check-time standard-library
+membership comes from the total authority map. For the `bazel_rules/` emitter every listed
+package comes from an enumerated target, so the value is structurally `false` throughout.
+Omitting the field decodes as `false`.
 
 ### cgo (§5)
 

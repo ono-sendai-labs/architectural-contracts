@@ -164,15 +164,17 @@ func NormalizeInterfaceSymbol(sym capanalyzer.InterfaceSymbol) string
 func ExtractPackagePath(sym string) string
 ```
 
-### `hostpolicy` — the host override seam
+### `hostpolicy` — the host namespace seam
 
 ```go
 var CanonicalizePath = func(p string) string { return p }
-var IsStdlibPath = func(importPath string) bool { /* first segment has no dot */ }
+var NamespaceID = "upstream"
+var IsCanonicalPath = func(p string) bool { return CanonicalizePath(p) == p }
 ```
 
-Contract (from the doc comments): both must be **total, idempotent, and safe for concurrent
-reads**, and are set once at process `init()` by an embedding host.
+The canonicalizer and fixed-point predicate are **total, idempotent, and safe for concurrent
+reads**, and are set once at process `init()` by an embedding host. Standard-library membership
+is not a host-policy decision; checks use the total `StdlibAuthority` map.
 
 ### `packagelayout` — scoped-state helpers
 

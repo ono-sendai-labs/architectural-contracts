@@ -45,77 +45,35 @@ func TestLayoutPackageStdlibProvenanceRoundTrip(t *testing.T) {
 	}
 }
 
-func TestValidateAndResolveRejectsStdlibProvenanceDisagreement(t *testing.T) {
-	originalPolicy := hostpolicy.IsStdlibPath
-	t.Cleanup(func() { hostpolicy.IsStdlibPath = originalPolicy })
-	hostpolicy.IsStdlibPath = func(path string) bool { return path == "fmt" }
-
+func TestValidateAndResolveHonorsExplicitNonStdlibProvenance(t *testing.T) {
 	workspace := t.TempDir()
-	if err := os.WriteFile(filepath.Join(workspace, "fmt.go"), []byte("package fmt\n"), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(workspace, "dep.go"), []byte("package dep\n"), 0644); err != nil {
 		t.Fatalf("write fixture: %v", err)
 	}
 	l := &Layout{
-		Roots:      []string{"fmt"},
-		stdlibByID: map[string]bool{"fmt": false},
+		Roots:      []string{"local/dep"},
+		stdlibByID: map[string]bool{"local/dep": false},
 		Packages: []*packages.Package{{
-			ID: "fmt", Name: "fmt", PkgPath: "fmt", GoFiles: []string{"fmt.go"},
-			CompiledGoFiles: []string{"fmt.go"}, Imports: map[string]*packages.Package{},
+			ID: "local/dep", Name: "dep", PkgPath: "local/dep", GoFiles: []string{"dep.go"},
+			CompiledGoFiles: []string{"dep.go"}, Imports: map[string]*packages.Package{},
 		}},
 	}
-	err := ValidateAndResolve(l, workspace)
-	if err == nil {
-		t.Fatal("ValidateAndResolve() succeeded for contradictory stdlib provenance")
+	if err := ValidateAndResolve(l, workspace); err != nil {
+		t.Fatalf("ValidateAndResolve() error = %v, want explicit non-stdlib provenance to win", err)
 	}
-	for _, want := range []string{"fmt", "declared false", "path-policy true"} {
-		if !strings.Contains(err.Error(), want) {
-			t.Errorf("ValidateAndResolve() error = %q, want substring %q", err, want)
-		}
+	pkg := packageByID(l.Packages, "local/dep")
+	if pkg == nil {
+		t.Fatal("local/dep package was lost during validation")
 	}
-}
-
-func TestValidateAndResolveRejectsOmittedStdlibProvenance(t *testing.T) {
-	originalPolicy := hostpolicy.IsStdlibPath
-	t.Cleanup(func() { hostpolicy.IsStdlibPath = originalPolicy })
-	hostpolicy.IsStdlibPath = func(path string) bool { return path == "fmt" }
-
-	workspace := t.TempDir()
-	if err := os.WriteFile(filepath.Join(workspace, "fmt.go"), []byte("package fmt\n"), 0644); err != nil {
-		t.Fatalf("write fixture: %v", err)
+	if l.IsStdlibPackage(pkg) {
+		t.Fatal("dotless package with explicit non-stdlib provenance was classified as stdlib")
 	}
-
-	l, err := Parse(strings.NewReader(`{
-		"roots": ["fmt"],
-		"packages": [{
-			"id": "fmt",
-			"name": "fmt",
-			"pkgPath": "fmt",
-			"goFiles": ["fmt.go"],
-			"compiledGoFiles": ["fmt.go"]
-		}]
-	}`))
-	if err != nil {
-		t.Fatalf("Parse() error = %v", err)
-	}
-	if l.stdlibByID["fmt"] {
-		t.Fatal("omitted is_stdlib did not preserve the backward-compatible false value")
-	}
-
-	err = ValidateAndResolve(l, workspace)
-	if err == nil {
-		t.Fatal("ValidateAndResolve() succeeded for omitted stdlib provenance")
-	}
-	for _, want := range []string{"fmt", "declared false", "path-policy true"} {
-		if !strings.Contains(err.Error(), want) {
-			t.Errorf("ValidateAndResolve() error = %q, want substring %q", err, want)
-		}
+	if want := filepath.Join(workspace, "dep.go"); len(pkg.GoFiles) != 1 || pkg.GoFiles[0] != want {
+		t.Errorf("non-stdlib package files = %v, want workspace path %q", pkg.GoFiles, want)
 	}
 }
 
 func TestValidateAndResolveUsesSDKDiscoveryAsStructuralStdlib(t *testing.T) {
-	originalPolicy := hostpolicy.IsStdlibPath
-	t.Cleanup(func() { hostpolicy.IsStdlibPath = originalPolicy })
-	hostpolicy.IsStdlibPath = func(string) bool { return false }
-
 	root := t.TempDir()
 	sdkRoot := filepath.Join(root, "sdk", "src")
 	workspace := filepath.Join(root, "workspace")
@@ -158,10 +116,6 @@ func TestValidateAndResolveUsesSDKDiscoveryAsStructuralStdlib(t *testing.T) {
 }
 
 func TestValidateAndResolveDoesNotVendorResolveNonStdlibPackage(t *testing.T) {
-	originalPolicy := hostpolicy.IsStdlibPath
-	t.Cleanup(func() { hostpolicy.IsStdlibPath = originalPolicy })
-	hostpolicy.IsStdlibPath = func(string) bool { return false }
-
 	root := t.TempDir()
 	workspace := filepath.Join(root, "workspace")
 	if err := os.MkdirAll(filepath.Join(workspace, "vendor", "acme", "dep"), 0755); err != nil {
@@ -185,6 +139,43 @@ func TestValidateAndResolveDoesNotVendorResolveNonStdlibPackage(t *testing.T) {
 	}
 	if len(l.UnresolvedImports) != 1 || l.UnresolvedImports[0].ImportPath != "acme/dep" {
 		t.Fatalf("UnresolvedImports = %+v, want unresolved acme/dep", l.UnresolvedImports)
+	}
+}
+
+func TestValidateAndResolveHonorsStructuralProvenanceUnderCanonicalization(t *testing.T) {
+	original := hostpolicy.CanonicalizePath
+	t.Cleanup(func() { hostpolicy.CanonicalizePath = original })
+	hostpolicy.CanonicalizePath = func(path string) string {
+		if rest, ok := strings.CutPrefix(path, "host/"); ok {
+			return "canonical/" + rest
+		}
+		return path
+	}
+
+	workspace := t.TempDir()
+	if err := os.WriteFile(filepath.Join(workspace, "dep.go"), []byte("package dep\n"), 0644); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+	l := &Layout{
+		Roots:      []string{"host/dep"},
+		stdlibByID: map[string]bool{"host/dep": false},
+		Packages: []*packages.Package{{
+			ID: "host/dep", Name: "dep", PkgPath: "host/dep", GoFiles: []string{"dep.go"},
+			CompiledGoFiles: []string{"dep.go"}, Imports: map[string]*packages.Package{},
+		}},
+	}
+	if err := ValidateAndResolve(l, workspace); err != nil {
+		t.Fatalf("ValidateAndResolve() error = %v, want structural provenance to ignore path spelling", err)
+	}
+	pkg := packageByID(l.Packages, "host/dep")
+	if pkg == nil {
+		t.Fatal("host/dep package was lost during validation")
+	}
+	if l.IsStdlibPackage(pkg) {
+		t.Fatal("rewritten non-stdlib package was classified as stdlib")
+	}
+	if want := filepath.Join(workspace, "dep.go"); pkg.GoFiles[0] != want {
+		t.Errorf("rewritten non-stdlib package files = %v, want workspace path %q", pkg.GoFiles, want)
 	}
 }
 

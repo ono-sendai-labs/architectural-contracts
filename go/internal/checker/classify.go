@@ -152,11 +152,15 @@ func ClassifyEdges(
 			continue
 		}
 		if e.Resolution == facts.ImportMissingTypeData {
-			// A written path the layout knows (stdlib or a declared
-			// dependency) but that arrived without type data is a
-			// build-graph fault (DR-14): never a false violation, never a
-			// pass. Member written paths are ignored above.
-			return Classified{}, fmt.Errorf("import of %q at %s:%d has no type or layout data; the export-data/layout contract is broken", e.ImportPath, e.Site.File, e.Site.Line)
+			return Classified{}, missingImportDataError(e)
+		}
+		if e.Resolution == facts.ImportUnresolved &&
+			(authority.IsStdlibPackage(e.ImportPath) || index.ownsPackage(e.ImportPath)) {
+			// A map-known stdlib path or a declared dependency path is
+			// structurally expected to have a package node. If the loader
+			// cannot resolve it, fail closed instead of letting the map or
+			// boundary lookup turn missing data into a pass (DR-14).
+			return Classified{}, missingImportDataError(e)
 		}
 		if authority.IsStdlibPackage(e.ImportPath) {
 			observations, err := classifyPackageInit(authority, e.ImportPath, e.Site)
@@ -188,6 +192,10 @@ func ClassifyEdges(
 	out.Authority = sortAuthorityObservations(out.Authority)
 	out.Boundary = sortBoundaryObservations(out.Boundary)
 	return out, nil
+}
+
+func missingImportDataError(e facts.ImportEdge) error {
+	return fmt.Errorf("import of %q at %s:%d has no type or layout data; the export-data/layout contract is broken", e.ImportPath, e.Site.File, e.Site.Line)
 }
 
 // classifySymbol resolves one stdlib object reference through the port's

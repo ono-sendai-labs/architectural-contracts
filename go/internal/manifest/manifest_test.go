@@ -462,17 +462,6 @@ declared_authority: "FILE"
 	})
 }
 
-func isStdlib(importPath string) bool {
-	if importPath == "C" {
-		return true
-	}
-	first := importPath
-	if idx := strings.Index(importPath, "/"); idx != -1 {
-		first = importPath[:idx]
-	}
-	return !strings.Contains(first, ".")
-}
-
 func importToComponent(imp string) (string, bool) {
 	const repoImportPrefix = "github.com/ono-sendai-labs/architectural-contracts/go/internal/"
 	if strings.HasPrefix(imp, repoImportPrefix) {
@@ -516,9 +505,7 @@ func getNonTestImports(t *testing.T, dir string) map[string]bool {
 		}
 		for _, imp := range f.Imports {
 			pathVal := strings.Trim(imp.Path.Value, `"`)
-			if !isStdlib(pathVal) {
-				imports[pathVal] = true
-			}
+			imports[pathVal] = true
 		}
 	}
 	return imports

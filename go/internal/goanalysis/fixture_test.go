@@ -549,7 +549,7 @@ func TestFixture9_StdlibGlobalsUseSymbolClassifications(t *testing.T) {
 // TestFixture2_BlankImportClassifiesAggregateInit pins design fixture 2: a
 // blank import of a map-enumerated package attributes the package's init
 // authority under the aggregate pkg.init identity at the import site — no
-// symbol lookup and no call edge involved.
+// object-symbol lookup is needed for an import edge.
 func TestFixture2_BlankImportClassifiesAggregateInit(t *testing.T) {
 	got, _, imports := classifyFixture(t, nil)
 	var site facts.SourceSite

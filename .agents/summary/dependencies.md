@@ -161,7 +161,7 @@ the rules and the binary they invoke cannot version-skew.
 | `MODULE.bazel` Go SDK `1.26.4` | `go/go.mod` `go 1.26` | comment only — **manual** |
 | generated `.component.textproto` / `.package-layout.json` | `bazel_rules/go/tests/goldens/*` | `golden_test.sh` (normalizes `go_sdk_root`) |
 | layout `roots` | manifest `members` | arcc fails closed at load time |
-| layout `is_stdlib` | `hostpolicy.IsStdlibPath` | arcc cross-checks and fails on disagreement |
+| layout `is_stdlib` | SDK/toolchain or enumerated-target provenance | layout resource resolution; check membership comes from `StdlibAuthority` |
 
 ## 7. What is deliberately *not* depended on
 

@@ -7,8 +7,9 @@
 //   - provides:  Read and ReadWithCallback.
 //   - authority: FILES. This component declares FILES in its manifest; checked on
 //     its own it conforms (FILES is declared). A component that depends on csvfile
-//     as a *component dependency* prunes traversal at Read and is therefore NOT
-//     re-attributed FILES (FR5b) — csvfile owns that authority behind its contract.
+//     as a *component dependency* stops at the declared Read boundary and is
+//     therefore NOT re-attributed FILES (FR5b) — csvfile owns that authority
+//     behind its contract.
 package csvfile
 
 import (

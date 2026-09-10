@@ -76,11 +76,11 @@ def go_attach_infra(roots, infra):
     attachment inputs use this union (M9), rather than one distinguished
     target. `infra` is one entry from `INFRA_COMPONENTS`. A host may inspect
     either input when its analysis-phase graph exposes the relevant injected
-    packages. Returning True unconditionally is conforming: pruning at a
-    package is a no-op until that package is reached, and a component's own
-    authority is charged regardless because its packages are roots. Hosts that
-    cannot observe toolchain-injected packages during analysis cannot evaluate
-    a closure-based predicate for those packages.
+    packages. Returning True unconditionally is conforming: an infra dependency
+    is attached structurally when its package set is present in the component's
+    graph, and a component's own authority is charged because its packages are
+    roots. Hosts that cannot observe toolchain-injected packages during analysis
+    cannot evaluate a closure-based attachment predicate for those packages.
     """
     return True
 

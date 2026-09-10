@@ -14,8 +14,8 @@ go_library(
 
 # Mirrors the checked-in app/component.textproto: no declared authority. app
 # composes csvfile (which holds FILES) as a *component dependency*, so arcc
-# prunes traversal at csvfile's interface and does not re-attribute FILES to
-# app — the FR5b showcase. Its `.check` conforms only if that pruning works.
+# terminates authority at csvfile's declared interface and does not re-attribute
+# FILES to app — the FR5b showcase. Its `.check` confirms that boundary.
 go_component(
     name = "app_component",
     component_deps = [

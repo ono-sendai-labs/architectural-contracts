@@ -9,7 +9,6 @@ go_library(
         "//go:__subpackages__",
     ],
     deps = [
-        "//go/internal/hostpolicy",
         "@org_golang_x_tools//go/packages",
     ],
 )
@@ -19,5 +18,8 @@ go_test(
     size = "small",
     srcs = ["packagelayout_test.go"],
     embed = [":packagelayout"],
-    deps = ["@org_golang_x_tools//go/packages"],
+    deps = [
+        "//go/internal/hostpolicy",
+        "@org_golang_x_tools//go/packages",
+    ],
 )

@@ -48,8 +48,8 @@ var fileHandleUseMethods = []string{
 
 // buildClassifierText constructs the generation classifier's raw rule text:
 // the minting-site reclassification of the (*os.File) handle-use methods as
-// CAPABILITY_SAFE, with no per-symbol prune keys (pruning is structural; the
-// boundary-prune classifier is gone).
+// CAPABILITY_SAFE, with no per-symbol boundary keys (component boundaries are
+// structural; the check-time classifier is gone).
 func buildClassifierText() (string, error) {
 	var b strings.Builder
 	seenFunc := make(map[string]bool)

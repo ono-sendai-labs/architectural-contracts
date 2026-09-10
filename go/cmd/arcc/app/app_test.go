@@ -914,7 +914,7 @@ component_dependencies: {
 	}
 }
 
-func TestRunner_Check_BoundaryWiring_PruningAndErrors(t *testing.T) {
+func TestRunner_Check_BoundaryWiringAndErrors(t *testing.T) {
 	// 1. Setup sibling directories inside parentDir
 	parentDir := t.TempDir()
 	depDir := filepath.Join(parentDir, "dep-a")
@@ -1021,7 +1021,7 @@ component_dependencies: {
 	}
 }
 
-func TestRunner_Check_PackageSurfaceSymbolsInPruneAt(t *testing.T) {
+func TestRunner_Check_PackageSurfaceSymbolsAndOverlap(t *testing.T) {
 	parentDir := t.TempDir()
 
 	// 1. Declared-style dependency

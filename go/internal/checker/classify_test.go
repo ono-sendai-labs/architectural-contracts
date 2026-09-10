@@ -334,6 +334,36 @@ func TestClassifyImports_MissingTypeDataFailsClosed(t *testing.T) {
 	}
 }
 
+func TestClassifyImports_UnresolvedKnownDataFailsClosed(t *testing.T) {
+	auth := newFakeAuthority()
+	auth.packages["os"] = true
+	// Make the map lookup itself successful so this test distinguishes a
+	// missing layout/type edge from an inventory failure.
+	auth.inits["os"] = stdlibauthority.Classification{Safe: true}
+	members := mustMembers(t, "example.com/comp/api")
+	declared := depInterface("dep", manifest.InterfaceStylePackageSurface, []string{"example.com/dep"}, nil)
+
+	for _, tt := range []struct {
+		name string
+		path string
+		deps []facts.DependencyInterface
+	}{
+		{name: "map-known standard library", path: "os"},
+		{name: "declared dependency", path: "example.com/dep", deps: []facts.DependencyInterface{declared}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := classifyAll(t, members, tt.deps, nil,
+				[]facts.ImportEdge{importEdge("example.com/comp/api", tt.path, facts.ImportUnresolved, "member/api/api.go", 4)}, auth)
+			if err == nil {
+				t.Fatalf("unresolved known import %q produced a verdict %+v; want a fail-closed tool error", tt.path, got)
+			}
+			if !strings.Contains(err.Error(), "no type or layout data") || !strings.Contains(err.Error(), tt.path) {
+				t.Errorf("error = %q, want missing data and path %q", err, tt.path)
+			}
+		})
+	}
+}
+
 // TestClassify_ToolErrors pins every fail-closed fault: symbol inventory gap,
 // init record gap, invalid terminal classification, and SDK-key mismatch.
 func TestClassify_ToolErrors(t *testing.T) {

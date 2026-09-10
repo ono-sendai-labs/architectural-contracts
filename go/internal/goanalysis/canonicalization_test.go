@@ -262,11 +262,9 @@ func TestLoadPackageFactsRejectsNonIdentityLoaderPathInLayoutMode(t *testing.T) 
 	}
 
 	originalPolicy := hostpolicy.CanonicalizePath
-	originalStdlib := hostpolicy.IsStdlibPath
 	originalLoad := loadPackages
 	t.Cleanup(func() {
 		hostpolicy.CanonicalizePath = originalPolicy
-		hostpolicy.IsStdlibPath = originalStdlib
 		loadPackages = originalLoad
 	})
 	hostpolicy.CanonicalizePath = func(path string) string {
@@ -275,7 +273,6 @@ func TestLoadPackageFactsRejectsNonIdentityLoaderPathInLayoutMode(t *testing.T) 
 		}
 		return path
 	}
-	hostpolicy.IsStdlibPath = func(string) bool { return false }
 	loadPackages = func(_ *packages.Config, _ ...string) ([]*packages.Package, error) {
 		return []*packages.Package{{ID: "host/component", PkgPath: "host/component"}}, nil
 	}

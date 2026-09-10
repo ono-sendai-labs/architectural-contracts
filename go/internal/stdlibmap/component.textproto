@@ -1,8 +1,8 @@
 name: "stdlibmap"
 # Generation shell component: the SDK enumeration oracle, the go/types
 # inventory, the Capslock-backed generator, and the native SDK-keyed cache.
-# Declared-interface style: its exported API is the contract consumers (the
-# cli component) prune at. It is deliberately not declared as a go_component
+# Declared-interface style: its exported API produces and reads the total
+# standard-library authority map consumed by the CLI. It is deliberately not declared as a go_component
 # under Bazel — like capslockadapter, its closure (golang.org/x/tools/go/
 # packages) pulls in cgo-built packages and component.bzl fails closed on cgo
 # closures; native coverage is via the FR10 contract above and the Bazel

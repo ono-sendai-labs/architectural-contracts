@@ -1,29 +1,23 @@
-// Package hostpolicy defines host-overridable policies for import-path
-// canonicalization and standard-library classification.
+// Package hostpolicy defines the host-overridable policy for import-path
+// canonicalization and namespace validation.
 //
-// arcc's pure checker compares import paths by string equality and skips
-// standard-library imports. That works directly when the paths produced by the
-// loader (the shell) already share one namespace with the paths declared in
-// manifests — which is the case for a normal go/packages load. A host that
-// rewrites import paths at build time (for example, a monorepo that imports arcc
-// under a different module prefix and a "doubled final segment" layout, and
-// whose synthetic top-level segment has no dot) breaks both assumptions:
-//   - the same logical package appears in two leaf forms across the loader, the
-//     manifests, and the dependency-interface resolver, so string equality fails;
-//   - the standard-library heuristic ("first path segment contains no dot")
-//     misclassifies the host's rewritten paths as standard library.
+// arcc's checker compares import paths by string equality. That works directly
+// when the paths produced by the loader (the shell) already share one namespace
+// with the paths declared in manifests — which is the case for a normal
+// go/packages load. A host that rewrites import paths at build time (for example,
+// a monorepo that imports arcc under a different module prefix and a "doubled
+// final segment" layout) must describe that namespace once here.
 //
 // Rather than scatter reconciliation logic through the pure checker, the shell
-// funnels every path it emits through CanonicalizePath, and classifies
-// standard-library membership through IsStdlibPath, before the facts reach the
-// checker. Upstream defaults reproduce the standard Go tooling behavior, so a
-// plain go/packages build is unaffected. A host overrides these once at init to
-// describe its own rewrite; see the exported vars for the contract.
+// funnels every path it emits through CanonicalizePath before facts reach the
+// checker. Standard-library membership is deliberately not a host-policy
+// decision: the total StdlibAuthority map is the sole check-time definition.
+// Upstream defaults reproduce ordinary Go tooling, and a host overrides the
+// namespace hooks once at init to describe its own rewrite.
 package hostpolicy
 
 import (
 	"fmt"
-	"strings"
 )
 
 // CanonicalizePath maps a host/external package or import spelling into the
@@ -112,25 +106,4 @@ func ValidateStdlibPaths(pkgPaths []string) error {
 		}
 	}
 	return nil
-}
-
-// IsStdlibPath reports the host's path-policy verdict for whether an import path
-// denotes a Go standard-library package. In package-layout mode this policy is
-// checked against emitter-provided build-graph provenance. In native mode it is
-// checked against module provenance for non-SDK packages. It remains the safe
-// fallback only when no package reference exists.
-//
-// The default is the heuristic the go tool uses: the first path segment contains
-// no dot (with the empty path treated as non-stdlib). A host whose rewritten
-// package paths have a dotless first segment (and would thus be misread as
-// standard library) overrides this to exclude its own namespace.
-var IsStdlibPath = func(importPath string) bool {
-	if importPath == "" {
-		return false
-	}
-	first := importPath
-	if i := strings.IndexByte(importPath, '/'); i >= 0 {
-		first = importPath[:i]
-	}
-	return !strings.Contains(first, ".")
 }

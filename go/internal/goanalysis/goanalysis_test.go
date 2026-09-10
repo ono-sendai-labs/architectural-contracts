@@ -167,9 +167,9 @@ func TestLoadPackageFacts_Success(t *testing.T) {
 		t.Errorf("expected package b exported symbols to match. Expected:\n%+v\nGot:\n%+v", expectedSymbolsB, pkgB.ExportedSymbols)
 	}
 
-	// The typed reference vocabulary replaces call edges: the inter-package
-	// edges of this fixture are import and reference edges (Uses/Selections),
-	// sorted and duplicate-free.
+	// The typed reference vocabulary records the inter-package edges of this
+	// fixture as import and reference edges (Uses/Selections), sorted and
+	// duplicate-free.
 	if len(factsResult.Imports) == 0 {
 		t.Errorf("expected import edges, got none")
 	}

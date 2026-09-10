@@ -69,8 +69,9 @@ func SerializeChecks(fn func()) {
 	fn()
 }
 
-// LoadPackageFacts loads Go package membership, direct-import, and standard-library facts
-// below the supplied component root using go/packages.
+// LoadPackageFacts loads Go package membership and direct-import facts below the
+// supplied component root using go/packages. Standard-library membership and
+// authority are resolved later through the total StdlibAuthority map.
 func LoadPackageFacts(req LoadRequest) (facts.PackageFacts, error) {
 	componentRoot := req.ComponentRoot
 	var dir string

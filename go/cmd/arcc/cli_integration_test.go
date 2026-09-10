@@ -497,7 +497,7 @@ func Hello() {
 	}
 }
 
-func TestIntegration_PruningAtDependencyBoundary(t *testing.T) {
+func TestIntegration_ComponentBoundaryTerminatesAuthority(t *testing.T) {
 	// 1. Create the authority-bearing dependency component "authdep"
 	depManifest := `
 name: "authdep"
@@ -525,8 +525,9 @@ func ReadData() {
 	depImportPath := "github.com/ono-sendai-labs/architectural-contracts/go/" + filepath.ToSlash(relDepDir)
 
 	// 2. Component Dependency Variant: caller imports and calls the dependency.
-	// Because authdep is a component dependency, the call to ReadData is pruned,
-	// and its internal use of "FILES" (os.ReadFile) is not attributed to caller-cd.
+	// Because authdep is a component dependency, the reference to ReadData is
+	// checked against its declared interface, and authdep's internal os.ReadFile
+	// use is not attributed to caller-cd.
 	callerFilesCD := map[string]string{
 		"caller.go": fmt.Sprintf(`package main
 import dep "%s"
@@ -655,14 +656,14 @@ component_dependencies {
 		t.Fatalf("expected FILES authority violation, got: %s", stdout)
 	}
 	// DR-17: the member-owned backend.Load's authority use appears as the
-	// counted site (load.go:6, the os.ReadFile reference), not as a call
+	// counted site (load.go:6, the os.ReadFile reference), not as a transitive
 	// path through the callback.
 	if !strings.Contains(stdout, "at backend/load.go:6 (1 sites)") {
 		t.Fatalf("expected the member-owned backend.Load site, got: %s", stdout)
 	}
 }
 
-func TestIntegration_InitPruningAtDependencyBoundary(t *testing.T) {
+func TestIntegration_InitAuthorityStopsAtDependencyBoundary(t *testing.T) {
 	// 1. Create the authority-bearing dependency component "initdep" (authority only in init)
 	depManifest := `
 name: "initdep"
@@ -691,8 +692,9 @@ func Dummy() {}
 	depImportPath := "github.com/ono-sendai-labs/architectural-contracts/go/" + filepath.ToSlash(relDepDir)
 
 	// 2. Component Dependency Variant: caller imports and calls the dependency.
-	// Because initdep is a component dependency, both Dummy() and its package-level init() are pruned.
-	// The internal use of "FILES" (os.ReadFile inside init()) is pruned and not attributed to caller-init-cd.
+	// Because initdep is a component dependency, its package-level init and
+	// implementation remain behind the declared boundary. The internal use of
+	// FILES is not attributed to caller-init-cd.
 	callerFilesCD := map[string]string{
 		"caller.go": fmt.Sprintf(`package main
 import dep "%s"
@@ -1046,7 +1048,7 @@ declared_authority: "FILES"
 }
 
 func TestIntegration_DependencyBoundary_Exit0(t *testing.T) {
-	// Verifies AC4: a component with a pruned dependency boundary and no violations
+	// Verifies AC4: a component with a declared dependency boundary and no violations
 	// or warnings returns exit code 0, emits no findings, and retains the success line + annotation.
 	depManifest := `
 name: "declared-dep-cli"

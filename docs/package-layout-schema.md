@@ -135,17 +135,13 @@ a target the emitter enumerated. It must **not** be computed by re-evaluating an
 import-path heuristic in the emitter.
 
 This is the load-bearing sentence in the whole schema, because the wrong
-implementation is the obvious one and it is silently self-defeating. arcc
-cross-checks the declared bit against its host path policy
-(`hostpolicy.IsStdlibPath`, whose default is the go tool's heuristic: the first
-path segment contains no dot) and fails the load on a disagreement, naming the
-path and both verdicts. An emitter that *copies* that heuristic produces a bit
-that is a copy of the signal it is meant to check: the two can never disagree,
-the error can never fire, and layout mode is single-signal with ceremony that
-makes it look otherwise. Provenance is information the path policy does not have
-and cannot reconstruct, which is exactly what makes it a second signal. (This is
-not hypothetical — a host emitter was found already carrying such a copy, with a
-comment explaining that it was deliberately kept in sync with the loader's.)
+implementation is the obvious one and it is silently self-defeating. arcc uses
+the declared bit and SDK discovery as structural provenance for resource
+resolution; it never reconstructs standard-library membership from the import
+path spelling. A dotless host or third-party path therefore remains non-stdlib
+when the emitter identifies it as non-SDK. Check-time standard-library membership
+comes only from the total authority map, while missing SDK or package data still
+fails closed during layout validation.
 
 Practical consequences:
 
@@ -157,9 +153,8 @@ Practical consequences:
   them from `go_sdk_root` and treats SDK provenance as structural, in layout mode
   and native mode alike.
 - Omitting the field decodes as `false`. That is deliberate compatibility with
-  older hand-written layouts, and it means a layout that explicitly lists a
-  package the path policy calls standard library will fail the agreement check
-  until it declares the bit.
+  older hand-written layouts; no path-based fallback changes the decoded
+  provenance.
 
 ## 5. cgo
 

@@ -6,21 +6,22 @@
 //   - requires:  a path to a CSV file.
 //   - provides:  Run.
 //   - authority: NONE — this is the FR5b showcase. app depends on csvfile as a
-//     *component dependency*; Capslock traversal is pruned at csvfile's declared
-//     interface (Read), so the FILES authority csvfile holds stays behind
-//     into app. app orchestrates a file-reading component yet checks
+//     *component dependency*; the declared component boundary ends authority at
+//     csvfile's Read interface, so csvfile's FILES authority stays behind the
+//     boundary. app orchestrates a file-reading component yet checks
 //     ambient-authority-free.
 //
 // NOTE (design intent): this structure is *intentionally convoluted* to
 // demonstrate the attribution of ambient FILES authority to a dependent
 // component. A cleaner, idiomatic design would open the file in the shell and
 // pass the resulting reader into parsecsv — leaving app authority-free without
-// relying on boundary pruning at all. app instead composes the FILES-holding
-// csvfile component on purpose, so the example can exercise FR5b pruning.
+// relying on a component boundary. app instead composes the FILES-holding
+// csvfile component on purpose, so the example can exercise FR5b's structural
+// boundary rule.
 //
-// NOTE (Step 0 draft): the actual pruning is wired in Step 9. Un-pruned, this
-// package is attributed FILES transitively through csvfile.Read; that is exactly
-// what the spike measures.
+// The checker scans app's typed references and imports, then treats csvfile's
+// declared component boundary as the authority boundary; it does not traverse
+// csvfile's implementation.
 package app
 
 import (

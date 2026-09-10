@@ -479,7 +479,7 @@ The manifest structure is defined by the following fields:
   - `name` (string): Logical name of the dependent component.
   - `manifest` (string): Path to the dependent component's manifest, relative to the declaring manifest's folder.
   - `auto_attached` (bool, optional): The edge was injected by an emitter rather than written by an author, so an unused edge is nobody's mistake and never produces `UNUSED_DEPENDENCY`. See [Auto-attached dependencies](#auto-attached-infrastructure-dependencies).
-- **`declared_authority`** (repeated string): Capabilities from Capslock's classified set that this component is permitted to exercise. Leaving this empty makes the component ambient-authority-free.
+- **`declared_authority`** (repeated string): Capabilities that the component is permitted to exercise. Member typed references and imports are checked against the total standard-library authority map, and declared component boundaries terminate authority structurally. Leaving this empty means the component claims no ambient authority.
   - Known Capabilities: `FILES`, `NETWORK`, `READ_SYSTEM_STATE`, `MODIFY_SYSTEM_STATE`, `OPERATING_SYSTEM`, `SYSTEM_CALLS`, `EXEC`, `RUNTIME`, `ARBITRARY_EXECUTION`, `CGO`, `UNSAFE_POINTER`, `REFLECT`, `UNANALYZED`.
 
 ### Wrapping a library that has no interface: `PACKAGE_SURFACE`

@@ -140,13 +140,15 @@ Two package-level function variables, set once at `init()` by an embedding host:
 
 ```go
 var CanonicalizePath = func(p string) string { return p }
-var IsStdlibPath = func(importPath string) bool { /* first segment has no dot */ }
+var NamespaceID = "upstream"
+var IsCanonicalPath = func(p string) bool { return CanonicalizePath(p) == p }
 ```
 
-Function vars rather than an interface, deliberately: this is a *host-wide* policy, and the
-doc comments specify the contract (total, idempotent, safe for concurrent reads) rather than
-the implementation. It exists so the pure checker's plain string-equality logic keeps working
-under monorepo path rewriting.
+Function vars rather than an interface, deliberately: this is a *host-wide* namespace policy,
+and the doc comments specify the contract (total, idempotent, safe for concurrent reads) rather
+than the implementation. It exists so the pure checker's plain string-equality logic keeps
+working under monorepo path rewriting. Standard-library membership is supplied by the total
+authority map, not this host seam.
 
 ## `manifest` — schema parsing and validation (core)
 

@@ -94,6 +94,6 @@ Bazel rule fails closed on cgo closures (`README.md` limitation 15).
 
 - **Ports and adapters (hexagonal)** — a pure core (`checker`, `capanalyzer`, `facts`, `manifest`, `report`) with zero ambient authority; shells (`goanalysis`, `capslockadapter`, `packagelayout`) that own all I/O.
 - **Errors as data** — `checker.Check` returns *no* error; every failure mode is a `report.Finding`.
-- **Function-variable seams** — `goanalysis.loadPackages`, `packagelayout.osStat`, `hostpolicy.CanonicalizePath` / `IsStdlibPath`.
+- **Function-variable seams** — `goanalysis.loadPackages`, `packagelayout.osStat`, and the hostpolicy canonicalization hooks.
 - **Single host-adapter file** — `bazel_rules/go/private/go_adapter.bzl` is the only file that touches `@rules_go`; porting to another Go ruleset means replacing it alone.
 - **Determinism everywhere** — explicit `sort.Slice` / sorted Starlark output so reports, manifests and layouts are byte-reproducible.

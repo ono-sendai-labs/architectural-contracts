@@ -53,7 +53,6 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/ono-sendai-labs/architectural-contracts/go/internal/hostpolicy"
 	"golang.org/x/tools/go/packages"
 )
 
@@ -706,8 +705,8 @@ func (l *Layout) MarshalJSON() ([]byte, error) {
 
 // UnmarshalJSON decodes the upstream go/packages package shape and retains the
 // layout-only is_stdlib side metadata. Missing is_stdlib intentionally decodes
-// as false for JSON syntax compatibility; validation rejects that false value
-// when the host path policy identifies an explicitly listed package as stdlib.
+// as false for JSON syntax compatibility; validation never reconstructs the
+// missing provenance from the package path.
 func (l *Layout) UnmarshalJSON(data []byte) error {
 	var wire struct {
 		GoSDKRoot string            `json:"go_sdk_root"`
@@ -778,20 +777,14 @@ func ValidateAndResolve(l *Layout, workspaceDir string) error {
 			l.emittedPackageID[p.ID] = true
 		}
 	}
-	// Validate emitter provenance before SDK discovery can add structural
-	// packages. An omitted is_stdlib field is the false value and therefore
-	// deliberately disagrees with a policy that identifies the explicit package
-	// as standard library.
+	// Index emitter-provided provenance by both layout identities before SDK
+	// discovery can add structural packages. The path index is only an accessor
+	// for the same declared bit; it is never inferred from the path spelling.
 	for _, p := range l.Packages {
 		if !l.emittedPackageID[p.ID] {
 			continue
 		}
-		declared := l.stdlibByID[p.ID]
-		policy := hostpolicy.IsStdlibPath(p.PkgPath)
-		if declared != policy {
-			return fmt.Errorf("package %q standard-library provenance disagreement: declared %t, path-policy %t", p.PkgPath, declared, policy)
-		}
-		l.stdlibByPath[p.PkgPath] = declared
+		l.stdlibByPath[p.PkgPath] = l.stdlibByID[p.ID]
 	}
 
 	// First, discover and merge standard library packages if GoSDKRoot is set.
@@ -818,15 +811,13 @@ func ValidateAndResolve(l *Layout, workspaceDir string) error {
 	}
 
 	if l.GoSDKRoot == "" {
-		// GoSDKRoot is required if standard library packages are present or referenced.
+		// GoSDKRoot is required if an explicit layout package carries SDK
+		// provenance. An import path alone is intentionally insufficient to
+		// identify standard-library data; the authority map makes that decision
+		// later, while this loader resolves only structural package resources.
 		for _, p := range l.Packages {
 			if l.IsStdlibPackage(p) {
 				return errors.New("go_sdk_root is required when standard library packages are present in layout")
-			}
-			for impPath := range p.Imports {
-				if hostpolicy.IsStdlibPath(impPath) {
-					return fmt.Errorf("go_sdk_root is required when standard library package %q is imported by %q", impPath, p.ID)
-				}
 			}
 		}
 	}

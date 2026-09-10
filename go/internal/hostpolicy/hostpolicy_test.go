@@ -18,22 +18,3 @@ func TestCanonicalizePathDefaultIsIdentity(t *testing.T) {
 		}
 	}
 }
-
-func TestIsStdlibPathDefaultHeuristic(t *testing.T) {
-	tests := []struct {
-		path string
-		want bool
-	}{
-		{"", false},
-		{"fmt", true},
-		{"net/http", true},
-		{"os", true},
-		{"example.com/aspect/core", false},
-		{"github.com/foo/bar", false},
-	}
-	for _, tt := range tests {
-		if got := hostpolicy.IsStdlibPath(tt.path); got != tt.want {
-			t.Errorf("IsStdlibPath(%q) = %v, want %v", tt.path, got, tt.want)
-		}
-	}
-}

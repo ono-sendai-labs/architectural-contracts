@@ -176,3 +176,11 @@ func (b *BoundaryIndex) Classify(edge facts.ReferenceEdge) (ReferenceDecision, e
 	}
 	return ReferenceDecision{Status: ReferenceDeclaredDependency, Dependency: dep.Component}, nil
 }
+
+// ownsPackage reports whether a direct dependency claims pkg. The distinction
+// between an unowned unresolved import and a missing dependency package is made
+// by the import classifier, after this index has already rejected overlap.
+func (b *BoundaryIndex) ownsPackage(pkg string) bool {
+	_, ok := b.pkgToDep[pkg]
+	return ok
+}
