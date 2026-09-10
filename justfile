@@ -21,6 +21,11 @@ test-integration:
 test-integration-full:
 	cd {{go_dir}} && go test -timeout 60m -tags='integration stdlibmap_full' ./...
 
+# The routine lane's version/configuration guard compares both CI Go pins and
+# the Bazel SDK pin with the checked artifact key through the bounded reader.
+stdlibmap-pin-check:
+	bash scripts/check-routine-stdlib-map-pin.sh
+
 lint:
 	cd {{go_dir}} && go vet ./...
 	cd {{go_dir}} && test -z "$(gofmt -l .)"
@@ -111,8 +116,9 @@ selfcheck:
 	cd {{go_dir}} && ../bin/arcc check cmd/arcc/component.textproto --stdlib-map=internal/teststdlibmap/testdata/linux_amd64.stdlib-map.json
 
 bazel-test-full:
-	bazel build //:arcc_stdlib_map_replica //bazel_rules/go/tests:stdlib_map_darwin_arm64 //bazel_rules/go/tests:stdlib_map_tagged //bazel_rules/go/tests:darwin_arm64_map
-	bazel test //bazel_rules/go/tests:stdlib_map_keys_test //bazel_rules/go/tests:transitioned_surface_sdk_key_test
+	bazel build --define=stdlibmap_full=true //:arcc_stdlib_map_replica //bazel_rules/go/tests:stdlib_map_darwin_arm64 //bazel_rules/go/tests:stdlib_map_tagged //bazel_rules/go/tests:darwin_arm64_map
+	bazel test --define=stdlibmap_full=true //bazel_rules/go/tests:stdlib_map_keys_test //bazel_rules/go/tests:transitioned_surface_sdk_key_test //bazel_rules/go/tests:build_tag_propagates_to_the_key_test //bazel_rules/go/tests:cross_compile_propagates_to_the_key_test
+	bazel test --define=stdlibmap_full=true //bazel_rules/go/tests:platform_layout_test
 
 # Bazel build + test leg. Catches rules/Starlark and hermetic-check
 # regressions the Go tests cannot see (design §8.5). It fails loudly if Bazel
@@ -132,7 +138,7 @@ bazel-test:
 # Go-only leg: everything except selfcheck and bazel-test. Mirrors the
 # ci.yml "Go" job so the three CI jobs can run in parallel on separate
 # runners; selfcheck and bazel-test run as their own CI jobs.
-ci-go: gen-is-clean lint build test test-integration
+ci-go: gen-is-clean lint build test test-integration stdlibmap-pin-check
 
 ci: ci-go selfcheck bazel-test
 

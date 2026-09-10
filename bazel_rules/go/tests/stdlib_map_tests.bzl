@@ -240,6 +240,7 @@ def _build_tag_propagates_to_the_key_test(name):
         name = name,
         target = _TAGGED,
         impl = _build_tag_propagates_to_the_key_impl,
+        attr_values = {"tags": ["manual"]},
     )
 
 def _build_tag_propagates_to_the_key_impl(env, target):
@@ -250,6 +251,7 @@ def _cross_compile_propagates_to_the_key_test(name):
         name = name,
         target = _DARWIN,
         impl = _cross_compile_propagates_to_the_key_impl,
+        attr_values = {"tags": ["manual"]},
     )
 
 def _cross_compile_propagates_to_the_key_impl(env, target):

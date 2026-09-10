@@ -10,6 +10,11 @@ load(":report_assertion_tests.bzl", "report_assertion_test_suite")
 load(":stdlib_map_probe.bzl", "darwin_arm64_stdlib_map", "default_seam_probe", "tagged_stdlib_map")
 load(":stdlib_map_tests.bzl", "stdlib_map_test_suite")
 
+config_setting(
+    name = "stdlibmap_full",
+    define_values = {"stdlibmap_full": "true"},
+)
+
 stdlib_map_test_suite(name = "stdlib_map_tests")
 
 sh_test(
@@ -82,6 +87,10 @@ darwin_arm64_stdlib_map(
     name = "stdlib_map_darwin_arm64",
     map = "//:arcc_stdlib_map",
     tags = ["manual"],
+    target_compatible_with = select({
+        ":stdlibmap_full": [],
+        "//conditions:default": ["@platforms//:incompatible"],
+    }),
 )
 
 tagged_stdlib_map(
@@ -89,6 +98,10 @@ tagged_stdlib_map(
     map = "//:arcc_stdlib_map",
     tag = "arcc_probe_tag",
     tags = ["manual"],
+    target_compatible_with = select({
+        ":stdlibmap_full": [],
+        "//conditions:default": ["@platforms//:incompatible"],
+    }),
 )
 
 sh_test(
@@ -96,20 +109,26 @@ sh_test(
     srcs = ["stdlib_map_keys_test.sh"],
     size = "medium",
     tags = ["manual"],
-    data = [
-        "//:arcc",
-        "//:arcc_stdlib_map",
-        "//:arcc_stdlib_map_replica",
-        ":stdlib_map_darwin_arm64",
-        ":stdlib_map_tagged",
-    ],
-    args = [
-        "$(rootpath //:arcc)",
-        "$(rootpath //:arcc_stdlib_map)",
-        "$(rootpath //:arcc_stdlib_map_replica)",
-        "$(rootpath :stdlib_map_darwin_arm64)",
-        "$(rootpath :stdlib_map_tagged)",
-    ],
+    data = select({
+        ":stdlibmap_full": [
+            "//:arcc",
+            "//:arcc_stdlib_map",
+            "//:arcc_stdlib_map_replica",
+            ":stdlib_map_darwin_arm64",
+            ":stdlib_map_tagged",
+        ],
+        "//conditions:default": [],
+    }),
+    args = select({
+        ":stdlibmap_full": [
+            "$(rootpath //:arcc)",
+            "$(rootpath //:arcc_stdlib_map)",
+            "$(rootpath //:arcc_stdlib_map_replica)",
+            "$(rootpath :stdlib_map_darwin_arm64)",
+            "$(rootpath :stdlib_map_tagged)",
+        ],
+        "//conditions:default": [],
+    }),
 )
 
 arcc_deps_aspect_test_suite(name = "arcc_deps_aspect_tests")
@@ -201,6 +220,11 @@ report_assertion_test_suite(name = "report_assertion_tests")
 transitioned_component_layout(
     name = "darwin_arm64_layout",
     component = "//bazel_rules/go/tests/testdata/api:api_component",
+    tags = ["manual"],
+    target_compatible_with = select({
+        ":stdlibmap_full": [],
+        "//conditions:default": ["@platforms//:incompatible"],
+    }),
 )
 
 # Target-identity coherence under a non-default configuration (task req 8,
@@ -210,12 +234,20 @@ transitioned_component_layout(
 transitioned_checked_map(
     name = "darwin_arm64_map",
     tags = ["manual"],
+    target_compatible_with = select({
+        ":stdlibmap_full": [],
+        "//conditions:default": ["@platforms//:incompatible"],
+    }),
 )
 
 transitioned_checked_surface(
     name = "darwin_arm64_surface",
     component = "//bazel_rules/go/tests/testdata/api:api_component",
     tags = ["manual"],
+    target_compatible_with = select({
+        ":stdlibmap_full": [],
+        "//conditions:default": ["@platforms//:incompatible"],
+    }),
 )
 
 checked_analysis_surface(
@@ -423,6 +455,14 @@ go_test(
     name = "platform_layout_test",
     size = "small",
     srcs = ["platform_layout_test.go"],
-    data = [":darwin_arm64_layout"],
+    data = select({
+        ":stdlibmap_full": [":darwin_arm64_layout"],
+        "//conditions:default": [],
+    }),
     deps = ["//go/internal/packagelayout"],
+    tags = ["manual"],
+    target_compatible_with = select({
+        ":stdlibmap_full": [],
+        "//conditions:default": ["@platforms//:incompatible"],
+    }),
 )

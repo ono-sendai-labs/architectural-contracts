@@ -1,6 +1,17 @@
 // Package teststdlibmap provides the one checked-in stdlib authority map used
-// by routine integration tests. It is deliberately a test-only package: the
-// production native path continues to generate and cache maps on demand.
+// by routine integration tests.
+//
+// Component Contract (FR10):
+//   - What it does: Embeds and validates the pinned routine stdlib authority map,
+//     and writes defensive temporary copies for subprocess fixtures.
+//   - What it requires: The checked artifact, the production bounded decoder,
+//     and the live stdlib-map classifier/key derivation rules.
+//   - What it provides: Complete-key validation, pinned and synthetic map
+//     readers, and temporary artifact paths for tests.
+//   - Ambient Authority: Test-only FILES for the embedded artifact and process
+//     temporary directories; it never reads or writes the production cache.
+//
+// The production native path continues to generate and cache maps on demand.
 package teststdlibmap
 
 import (

@@ -1,10 +1,9 @@
-//go:build integration && stdlibmap_full
+//go:build integration
 
 package app_test
 
 import (
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -13,34 +12,18 @@ import (
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/stdlibmap"
 )
 
-// TestExplicitGenerateHermeticAndByteIdentical is the explicit-input mode's
-// end-to-end leg (task ACs 3–4): a map generated with --package-list,
-// --config-file and --sdk-root — with PATH, GOROOT, GOCACHE and
-// GOPACKAGESDRIVER removed from the environment, so no toolchain binary can
-// be executed and go/packages cannot fall back to the go list driver —
-// succeeds, is keyed by the config file, and is byte-identical to the native
-// generation over the same SDK root and configuration.
-func TestExplicitGenerateHermeticAndByteIdentical(t *testing.T) {
-	// Inputs prepared while the toolchain is reachable: the oracle is `go
-	// list std` written to the package-list file, and the target config is
-	// the host toolchain's own configuration.
-	goroot, err := exec.Command("go", "env", "GOROOT").Output()
-	if err != nil {
-		t.Fatalf("go env GOROOT: %v", err)
-	}
-	sdkRoot := filepath.Join(strings.TrimSpace(string(goroot)), "src")
-	listOut, err := exec.Command("go", "list", "std").Output()
-	if err != nil {
-		t.Fatalf("go list std: %v", err)
-	}
-	target, err := stdlibmap.NativeTargetConfig()
-	if err != nil {
-		t.Fatalf("NativeTargetConfig: %v", err)
-	}
+// TestExplicitGenerateUsesBoundedSDKAndNativeOptionsAreChecked is command-
+// plumbing coverage (task requirement 4): explicit generation uses a tiny
+// declared SDK and package list, while native option validation is exercised
+// only through the early toolchain-version check. Whole-host-SDK totality,
+// semantic, and determinism coverage remains in the stdlibmap full lane.
+func TestExplicitGenerateUsesBoundedSDKAndNativeOptionsAreChecked(t *testing.T) {
+	sdkRoot := syntheticSDK(t)
+	target := stdlibmap.TargetConfig{ToolchainVersion: "go1.26.4", GOOS: "linux", GOARCH: "amd64"}
 
 	dir := t.TempDir()
 	listPath := filepath.Join(dir, "package-list.txt")
-	if err := os.WriteFile(listPath, listOut, 0o644); err != nil {
+	if err := os.WriteFile(listPath, []byte("fmt\ninternal/testcap\nunsafe\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	rendered, err := stdlibmap.RenderTargetConfig(target)
@@ -52,24 +35,18 @@ func TestExplicitGenerateHermeticAndByteIdentical(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	nativePath := filepath.Join(dir, "native-map.json")
 	explicitPath := filepath.Join(dir, "explicit-map.json")
 	runner := &app.Runner{}
-
 	var stdout, stderr strings.Builder
-	if code := runner.Run([]string{"stdlibmap", "generate", "--output=" + nativePath}, &stdout, &stderr); code != 0 {
-		t.Fatalf("native generate: exit %d, stderr: %s", code, stderr.String())
-	}
+	hostPath := os.Getenv("PATH")
 
 	// The hermetic run: no PATH (so no executable lookup at all), no GOROOT,
-	// GOCACHE or GOPACKAGESDRIVER.
+	// GOCACHE or GOPACKAGESDRIVER. The bounded SDK is loaded through arcc's
+	// own package-layout driver.
 	t.Setenv("PATH", "")
 	t.Setenv("GOROOT", "")
 	t.Setenv("GOCACHE", "")
 	t.Setenv("GOPACKAGESDRIVER", "")
-
-	stdout.Reset()
-	stderr.Reset()
 	if code := runner.Run([]string{
 		"stdlibmap", "generate",
 		"--output=" + explicitPath,
@@ -80,19 +57,12 @@ func TestExplicitGenerateHermeticAndByteIdentical(t *testing.T) {
 		t.Fatalf("explicit generate: exit %d, stderr: %s", code, stderr.String())
 	}
 
-	native, err := os.ReadFile(nativePath)
-	if err != nil {
-		t.Fatal(err)
-	}
 	explicit, err := os.ReadFile(explicitPath)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(native) == 0 || len(explicit) == 0 {
-		t.Fatal("a generated map is empty")
-	}
-	if string(native) != string(explicit) {
-		t.Fatalf("explicit and native maps differ (%d vs %d bytes)", len(native), len(explicit))
+	if len(explicit) == 0 {
+		t.Fatal("the generated map is empty")
 	}
 
 	// The map's key matches the config file.
@@ -110,4 +80,39 @@ func TestExplicitGenerateHermeticAndByteIdentical(t *testing.T) {
 			t.Fatalf("explicit map summary %q missing %q", summary, want)
 		}
 	}
+
+	// Native generation is not started by this command-plumbing test. Its
+	// option contract rejects a mismatched version immediately after the small
+	// `go env` discovery, before package enumeration or map generation.
+	stdout.Reset()
+	stderr.Reset()
+	t.Setenv("PATH", hostPath)
+	nativePath := filepath.Join(dir, "native-map.json")
+	if code := runner.Run([]string{"stdlibmap", "generate", "--output=" + nativePath, "--toolchain=not-the-active-toolchain"}, &stdout, &stderr); code != 2 {
+		t.Fatalf("native option validation: exit %d, want 2; stderr: %s", code, stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "does not match the current toolchain") {
+		t.Fatalf("native option validation stderr %q does not identify the mismatch", stderr.String())
+	}
+	if _, err := os.Stat(nativePath); !os.IsNotExist(err) {
+		t.Fatalf("native option validation created %s", nativePath)
+	}
+}
+
+func syntheticSDK(t *testing.T) string {
+	t.Helper()
+	root := filepath.Join(t.TempDir(), "sdk", "src")
+	write := func(rel, source string) {
+		path := filepath.Join(root, rel)
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(source), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("fmt/format.go", "package fmt\n\nfunc Println(s string) {}\n")
+	write("unsafe/unsafe.go", "package unsafe\n")
+	write("internal/testcap/testcap.go", "package testcap\n")
+	return root
 }
