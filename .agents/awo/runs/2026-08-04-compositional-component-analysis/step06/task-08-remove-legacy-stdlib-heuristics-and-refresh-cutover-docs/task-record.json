@@ -1,0 +1,60 @@
+{
+  "task_file": ".agents/tasks/2026-08-04-compositional-component-analysis/step06/task-08-remove-legacy-stdlib-heuristics-and-refresh-cutover-docs.code-task.md",
+  "planning_slug": "2026-08-04-compositional-component-analysis",
+  "step": 6,
+  "task": 8,
+  "origin": "\u00a75.2 remediation task for step-review findings F2 (important) and F4 (suggestion)",
+  "base": {
+    "change_id": "pvmoutnmxvkpnysooozxxstmqwomtukw",
+    "bookmark": "pr/awo-record-2026-08-04-compositional-component-analysis-step06-task-07"
+  },
+  "roles": {
+    "implementer": "codex/gpt-5.6-luna/max",
+    "reviewer": "codex/gpt-5.6-luna/xhigh"
+  },
+  "produced_changes": [
+    "mxoyzlqostplzuurmplqtslpnxrtvmlu",
+    "rontknxmorqwuktrmkwlpuxzzmunmyxp",
+    "mpxslrrxlxvxvomlvrntvmtsywuvtzzp"
+  ],
+  "rounds": [
+    {
+      "round": 0,
+      "role": "implementer",
+      "wall_s": 2294,
+      "tool_calls": 1734,
+      "tokens": {
+        "total": 529962,
+        "window_pct": 62.3
+      },
+      "status": "completed",
+      "compaction": "none",
+      "note": "ended at 62.3% of the window, above the ~60% retirement signal; would have been replaced before any rework round, but none was needed"
+    },
+    {
+      "round": 0,
+      "role": "reviewer",
+      "wall_s": 599,
+      "tool_calls": 222,
+      "tokens": {
+        "total": 311327
+      },
+      "verdict": "approved",
+      "acceptance_criteria": {
+        "pass": 5
+      },
+      "findings": {}
+    }
+  ],
+  "session_restarts": [],
+  "outcome": {
+    "status": "approved",
+    "rounds": 1,
+    "acceptance_criteria": {
+      "pass": 5
+    },
+    "tip": "mpxslrrxlxvxvomlvrntvmtsywuvtzzp",
+    "merge_request_described_on": "mxoyzlqostplzuurmplqtslpnxrtvmlu",
+    "title_corrected": "reviewer invented '[Stdlib Cutover: Step 06/Task 08]'; corrected to '[Compositional Analysis: ...]' \u2014 third invented tag in this project"
+  }
+}

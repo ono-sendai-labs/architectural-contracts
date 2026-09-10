@@ -1,0 +1,110 @@
+review:
+  task_file: .agents/tasks/2026-08-04-compositional-component-analysis/step06/task-08-remove-legacy-stdlib-heuristics-and-refresh-cutover-docs.code-task.md
+  change_id: mpxslrrxlxvxvomlvrntvmtsywuvtzzp
+  reviewed_at: 2026-09-10T06:40:30Z
+  verdict: approved
+  schema_version: 2
+  lsp_coverage: unavailable
+
+merge_request:
+  title: "fix(stdlib): remove legacy identity heuristic and refresh cutover docs [Stdlib Cutover: Step 06/Task 08]"
+  body: |
+    Reviews the complete three-change series. The initial change removes
+    hostpolicy.IsStdlibPath, preserves structural layout/SDK provenance, updates
+    the affected contracts and metadata, and adds focused layout regressions.
+    The second change adds unit and production-Runner coverage for unresolved
+    map-known and declared imports, including artifact non-publication; the
+    final change strengthens the SDK-backed resolution assertion.
+
+summary: |
+  The complete ordered series removes the legacy path-spelling stdlib heuristic and
+  leaves layout resource resolution driven by emitter/SDK structural provenance,
+  while checker membership remains authority-map based. Focused tests prove dotless,
+  canonicalized, explicit-SDK, and missing-data behavior, and the final
+  CGO_ENABLED=0 just ci gate passed with a clean working copy. The named cutover
+  contracts and comments describe structural boundaries and generation-only
+  Capslock consistently; no critical or important findings remain.
+
+acceptance_criteria:
+  - text: |
+      **No path heuristic decides standard-library identity**
+        - Given the repository after remediation
+        - When production Go and Starlark sources are searched
+        - Then `hostpolicy.IsStdlibPath` and equivalent dot-in-first-segment stdlib
+          predicates are absent, and checker membership decisions use the authority
+          map port
+    status: pass
+    evidence: |
+      The production host contract explicitly assigns check-time membership to the
+      map in go/internal/hostpolicy/hostpolicy.go:1-16, and checker dispatches
+      membership through StdlibAuthority in go/internal/checker/classify.go:123-166.
+      The repository source searches recorded no IsStdlibPath or dot-in-first-
+      segment predicate in go/bazel_rules (work.log:102-107).
+  - text: |
+      **Layout resolution uses explicit provenance**
+        - Given layouts containing an explicitly identified stdlib package and a
+          dotless host/non-stdlib package
+        - When each layout is parsed and served through the driver
+        - Then the stdlib package resolves from its declared SDK provenance, the
+          dotless package remains non-stdlib, and missing required data fails closed
+    status: pass
+    evidence: |
+      ValidateAndResolve indexes only declared and SDK-discovered provenance in
+      go/internal/packagelayout/packagelayout.go:780-808 and resolves files from
+      that fact in :1165-1200. The dotless and SDK-discovery cases are covered by
+      go/internal/packagelayout/packagelayout_test.go:48-115; the driver-served
+      explicit-stdlib case is covered by go/cmd/arcc/layout_integration_test.go:595-685.
+      The SDK-root resolution assertion is strengthened at
+      go/internal/packagelayout/packagelayout_test.go:1330-1387, while the
+      production Runner missing-map-data regression proves exit 2 and no report or
+      surface publication at go/cmd/arcc/app/check_integration_test.go:296-352.
+  - text: |
+      **Host canonicalization remains unambiguous**
+        - Given a non-identity but idempotent canonical path policy
+        - When a layout containing rewritten non-stdlib packages is validated
+        - Then structural provenance is honored without a second path-based stdlib
+          verdict or a false standard-library classification
+    status: pass
+    evidence: |
+      go/internal/packagelayout/packagelayout_test.go:145-179 installs an
+      idempotent host/ to canonical/ policy and verifies the structurally false
+      package resolves from the workspace and remains non-stdlib. The loader-side
+      canonical-path contract remains covered at
+      go/internal/goanalysis/canonicalization_test.go:253-287.
+  - text: |
+      **Cutover documentation describes the current architecture**
+        - Given the README, csvtool contracts/BUILD comment, goanalysis loader and
+          fixture comments, stdlibmap component contract, and hostpolicy contract
+        - When they are read after the change
+        - Then none claims that a check invokes Capslock, prunes call-graph traversal,
+          emits loader-side standard-library facts, or awaits an already-completed
+          step
+    status: pass
+    evidence: |
+      The named artifacts now describe the current mechanism at README.md:482,
+      go/examples/csvtool/app/app.go:8-24,
+      go/examples/csvtool/csvfile/csvfile.go:8-12,
+      go/examples/csvtool/app/BUILD.bazel:15-18,
+      go/internal/goanalysis/goanalysis.go:72-74,
+      go/internal/goanalysis/fixture_test.go:549-552,
+      go/internal/stdlibmap/component.textproto:1-10, and
+      go/internal/hostpolicy/hostpolicy.go:1-16. The package-layout contract also
+      removes the old cross-check claim at docs/package-layout-schema.md:130-157;
+      the stale-terminology inspection is recorded in work.log:109-111.
+  - text: |
+      **Repository gates pass**
+        - Given the completed removal and documentation repair
+        - When `CGO_ENABLED=0 just ci` runs
+        - Then all routine native, self-hosting, and Bazel checks pass without
+          weakening explicit stdlib provenance or fail-closed behavior
+    status: pass
+    evidence: |
+      A fresh review run of PATH=/home/xtof/.local/go/bin:$PATH CGO_ENABLED=0
+      just ci exited 0, including protoc/gen-is-clean, go vet, gofmt, native unit
+      and integration tests, stdlib-map pin validation, selfcheck, bazel build/test,
+      and both shell validation tests. The final committed-state evidence is also
+      recorded at work.log:127-130, and the working copy remained clean.
+
+findings: []
+
+ecosystem_reviews: []

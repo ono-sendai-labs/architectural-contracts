@@ -1,0 +1,102 @@
+result:
+  task_file: .agents/tasks/2026-08-04-compositional-component-analysis/step06/task-08-remove-legacy-stdlib-heuristics-and-refresh-cutover-docs.code-task.md
+  change_id: mpxslrrxlxvxvomlvrntvmtsywuvtzzp
+  status: completed
+  schema_version: 2
+  produced_at: 2026-09-10T06:26:30Z
+
+acceptance_criteria:
+  - text: |
+      **No path heuristic decides standard-library identity**
+        - Given the repository after remediation
+        - When production Go and Starlark sources are searched
+        - Then `hostpolicy.IsStdlibPath` and equivalent dot-in-first-segment stdlib
+          predicates are absent, and checker membership decisions use the authority
+          map port
+    addressed: yes
+    evidence: |
+      `go/internal/hostpolicy/hostpolicy.go:1-16` now documents namespace
+      canonicalization and explicitly assigns check-time stdlib membership to the
+      total `StdlibAuthority` map. The production `rg` audit recorded no
+      `IsStdlibPath` or dot-in-first-segment predicate in `go`/`bazel_rules`
+      (`work.log:102-107`); `checker/classify.go:123-166` is the remaining
+      membership dispatch and uses the authority port.
+  - text: |
+      **Layout resolution uses explicit provenance**
+        - Given layouts containing an explicitly identified stdlib package and a
+          dotless host/non-stdlib package
+        - When each layout is parsed and served through the driver
+        - Then the stdlib package resolves from its declared SDK provenance, the
+          dotless package remains non-stdlib, and missing required data fails closed
+    addressed: yes
+    evidence: |
+      `TestValidateAndResolve_LayoutWinsOnCollision` in
+      `go/internal/packagelayout/packagelayout_test.go:1330-1400` asserts that
+      `is_stdlib: true` resolves the package under the SDK root. The dotless and
+      structural cases are covered by
+      `TestValidateAndResolveHonorsExplicitNonStdlibProvenance` (lines 48-74) and
+      `TestValidateAndResolveUsesSDKDiscoveryAsStructuralStdlib` (lines 76-116).
+      `TestCheck_LayoutMapKnownImportMissingFromLayoutFailsClosed` in
+      `go/cmd/arcc/app/check_integration_test.go:296-353` runs the production
+      Runner and proves exit 2 with neither artifact published.
+  - text: |
+      **Host canonicalization remains unambiguous**
+        - Given a non-identity but idempotent canonical path policy
+        - When a layout containing rewritten non-stdlib packages is validated
+        - Then structural provenance is honored without a second path-based stdlib
+          verdict or a false standard-library classification
+    addressed: yes
+    evidence: |
+      `TestValidateAndResolveHonorsStructuralProvenanceUnderCanonicalization` in
+      `go/internal/packagelayout/packagelayout_test.go:145-180` uses an idempotent
+      `host/` to `canonical/` policy while asserting the explicitly non-stdlib
+      package resolves from the workspace. The loader-path canonicalization
+      regression remains in `go/internal/goanalysis/canonicalization_test.go:253`
+      (`TestLoadPackageFactsRejectsNonIdentityLoaderPathInLayoutMode`).
+  - text: |
+      **Cutover documentation describes the current architecture**
+        - Given the README, csvtool contracts/BUILD comment, goanalysis loader and
+          fixture comments, stdlibmap component contract, and hostpolicy contract
+        - When they are read after the change
+        - Then none claims that a check invokes Capslock, prunes call-graph traversal,
+          emits loader-side standard-library facts, or awaits an already-completed
+          step
+    addressed: yes
+    evidence: |
+      `go/internal/hostpolicy/hostpolicy.go:1-16`,
+      `go/internal/goanalysis/goanalysis.go:72-74`,
+      `go/internal/goanalysis/fixture_test.go:549-552`,
+      `go/internal/stdlibmap/component.textproto:2-10`,
+      `go/examples/csvtool/app/app.go:8-24`,
+      `go/examples/csvtool/csvfile/csvfile.go:8-12`,
+      `go/examples/csvtool/app/BUILD.bazel:15-18`, and `README.md:482-483`
+      describe typed references/imports, structural boundaries, map classification,
+      and generation-only Capslock. `docs/package-layout-schema.md:130-157` also
+      removes the deleted host-policy cross-check. The stale-terminology inspection
+      is recorded in `work.log:109-111`.
+  - text: |
+      **Repository gates pass**
+        - Given the completed removal and documentation repair
+        - When `CGO_ENABLED=0 just ci` runs
+        - Then all routine native, self-hosting, and Bazel checks pass without
+          weakening explicit stdlib provenance or fail-closed behavior
+    addressed: yes
+    evidence: |
+      The final committed-state run `PATH=/home/xtof/.local/go/bin:$PATH
+      CGO_ENABLED=0 just ci` exited 0 and passed protoc/gen-is-clean, go vet,
+      gofmt, native unit/integration tests, stdlib-map pin validation, selfcheck,
+      `bazel build //...`, `bazel test //...`, and both shell validation tests
+      (`work.log:127-130`). The final clean jj state and stable produced `@-`
+      change ID are recorded in `work.log:142-147`.
+
+artifacts:
+  scratchpad_dir: .agents/scratchpad/2026-08-04-compositional-component-analysis/step06/task-08-remove-legacy-stdlib-heuristics-and-refresh-cutover-docs/
+  files:
+    - context.md
+    - plan.md
+    - progress.md
+    - work.log
+    - result.yaml
+
+notes: |
+  Removed the host-policy standard-library path heuristic and made layout loading rely only on explicit emitter/SDK provenance. Added structural, canonicalization, and production Runner regressions that preserve fail-closed handling for missing map-known or declared dependency data, and refreshed the cutover documentation. The work was committed in three ordered jj changes, with final task tip mpxslrrxlxvxvomlvrntvmtsywuvtzzp and an empty working copy; `CGO_ENABLED=0 just ci` passes.
