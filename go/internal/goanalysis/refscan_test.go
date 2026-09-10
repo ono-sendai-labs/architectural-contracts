@@ -21,18 +21,33 @@ const refscanDep = "github.com/ono-sendai-labs/architectural-contracts/go/intern
 
 const refscanMember = "github.com/ono-sendai-labs/architectural-contracts/go/internal/goanalysis/testdata/refscan/member"
 
+const unsafeRefscanMember = "github.com/ono-sendai-labs/architectural-contracts/go/internal/goanalysis/testdata/unsafe/member"
+
 func loadRefScan(t *testing.T) ([]*packages.Package, facts.MemberSet, string) {
 	t.Helper()
 	root, err := filepath.Abs(refscanRoot)
 	if err != nil {
 		t.Fatalf("failed to resolve fixture root: %v", err)
 	}
-	members := []string{
+	return loadRefScanPackages(t, root, []string{
 		refscanMember + "/builtins",
 		refscanMember + "/concrete",
 		refscanMember + "/dispatch",
 		refscanMember + "/kinds",
+	})
+}
+
+func loadUnsafeRefScan(t *testing.T) ([]*packages.Package, facts.MemberSet, string) {
+	t.Helper()
+	root, err := filepath.Abs("testdata/unsafe")
+	if err != nil {
+		t.Fatalf("failed to resolve unsafe fixture root: %v", err)
 	}
+	return loadRefScanPackages(t, root, []string{unsafeRefscanMember})
+}
+
+func loadRefScanPackages(t *testing.T, root string, members []string) ([]*packages.Package, facts.MemberSet, string) {
+	t.Helper()
 	ms, err := facts.NewMemberSet(members...)
 	if err != nil {
 		t.Fatalf("invalid member set: %v", err)
@@ -47,10 +62,10 @@ func loadRefScan(t *testing.T) ([]*packages.Package, facts.MemberSet, string) {
 	// matching by the go tool but resolve when named.
 	pkgs, err := packages.Load(cfg, members...)
 	if err != nil {
-		t.Fatalf("failed to load fixture packages: %v", err)
+		t.Fatalf("failed to load reference-scan fixture packages: %v", err)
 	}
 	if packages.PrintErrors(pkgs) > 0 {
-		t.Fatalf("fixture packages have load errors")
+		t.Fatalf("reference-scan fixture packages have load errors")
 	}
 	return pkgs, ms, root
 }
@@ -117,8 +132,8 @@ func TestScanReferences_ObservesAllSites(t *testing.T) {
 	expect(facts.RefType, concretePkg, refscanDep, refscanDep+".Impl", "member/concrete/concrete.go", 8)
 	expect(facts.RefMethod, concretePkg, refscanDep, "("+refscanDep+".Impl).Greet", "member/concrete/concrete.go", 9)
 
-	// Builtins, labels and universe objects produce no edges, stdlib
-	// references are observed like any other external object.
+	// Universe builtins, labels and other package-less objects produce no edges;
+	// package-scoped builtins are retained like any other external object.
 	expect(facts.RefFunc, refscanMember+"/builtins", "fmt", "fmt.Println", "member/builtins/builtins.go", 14)
 	expect(facts.RefFunc, refscanMember+"/builtins", refscanDep, refscanDep+".Hello", "member/builtins/builtins.go", 14)
 	for _, e := range refs {
@@ -167,6 +182,45 @@ func TestScanReferences_ObservesAllSites(t *testing.T) {
 	importEdge(dispatchPkg, refscanDep, 4, facts.ImportResolved)
 	importEdge(concretePkg, refscanDep, 4, facts.ImportResolved)
 	importEdge(refscanMember+"/builtins", "fmt", 4, facts.ImportResolved)
+}
+
+func TestScanReferences_UnsafeBuiltinsAndUniverseBuiltins(t *testing.T) {
+	pkgs, ms, root := loadUnsafeRefScan(t)
+
+	refs, _, err := goanalysis.ScanReferences(pkgs, ms, root)
+	if err != nil {
+		t.Fatalf("unexpected error scanning unsafe references: %v", err)
+	}
+
+	want := map[facts.ReferenceKey]bool{}
+	for _, tc := range []struct {
+		name string
+		line int
+	}{
+		{name: "Sizeof", line: 9},
+		{name: "StringData", line: 10},
+		{name: "Slice", line: 11},
+	} {
+		want[facts.ReferenceKey{
+			Kind:            facts.RefFunc,
+			FromPackage:     unsafeRefscanMember,
+			ReferentPackage: "unsafe",
+			Referent:        facts.SymbolID("unsafe." + tc.name),
+			Site:            facts.SourceSite{File: "member/unsafe.go", Line: tc.line},
+		}] = true
+	}
+	if len(refs) != len(want) {
+		t.Fatalf("unsafe reference count = %d, want %d: %+v", len(refs), len(want), refs)
+	}
+	for _, edge := range refs {
+		if !want[edge.Key()] {
+			t.Errorf("unexpected unsafe reference edge: %+v", edge)
+		}
+		delete(want, edge.Key())
+	}
+	for key := range want {
+		t.Errorf("missing unsafe reference edge: %+v", key)
+	}
 }
 
 func TestScanReferences_DedupsUsesAndSelections(t *testing.T) {

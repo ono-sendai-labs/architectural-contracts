@@ -14,9 +14,11 @@ import (
 // declared methods use Func.Origin() and their receiver's base named type
 // (no pointer marker, no type arguments); interface method specs and struct
 // fields key their declaring interface or struct type; the aggregate
-// init is pkg.init. Objects that are not declared symbols — local
-// variables, parameters, type parameters, builtins, package names — are
-// rejected with an actionable error rather than guessed.
+// init is pkg.init. Package-scoped exported compiler builtins, such as the
+// functions in unsafe, key themselves as top-level symbols; universe builtins
+// are rejected because they have no declaring package. Other objects that are
+// not declared symbols — local variables, parameters, type parameters and
+// package names — are rejected with an actionable error rather than guessed.
 //
 // The package path is canonicalized through the host-policy hook, so the
 // emitted IDs are in the canonical namespace, persisted only that way.
@@ -33,6 +35,8 @@ func FromObject(obj types.Object) (SymbolID, error) {
 		return fromConst(o)
 	case *types.TypeName:
 		return fromTypeName(o)
+	case *types.Builtin:
+		return fromBuiltin(o)
 	default:
 		return "", fmt.Errorf("object %q (%T) is not a declared symbol", obj.Name(), obj)
 	}
@@ -154,6 +158,23 @@ func fromTypeName(tn *types.TypeName) (SymbolID, error) {
 		return "", fmt.Errorf("type %q is not a package-level declaration (type parameters are not declared symbols)", tn.Name())
 	}
 	return canonicalID(pkgPathOf(tn), tn.Name())
+}
+
+// fromBuiltin implements the package-scoped compiler-builtin row. The Go
+// type checker places exported unsafe intrinsics in unsafe's package scope,
+// while ordinary universe builtins have no declaring package. Only the former
+// are externally referencable symbols (DR-05); the latter fail closed here.
+func fromBuiltin(b *types.Builtin) (SymbolID, error) {
+	if b.Pkg() == nil {
+		return "", fmt.Errorf("builtin %q has no declaring package (universe builtin)", b.Name())
+	}
+	if !isPackageLevel(b) {
+		return "", fmt.Errorf("builtin %q is not a package-level declaration", b.Name())
+	}
+	if !b.Exported() {
+		return "", fmt.Errorf("builtin %q is not exported", b.Name())
+	}
+	return canonicalID(pkgPathOf(b), b.Name())
 }
 
 // pkgPathOf returns obj's package import path, or "" for universe and

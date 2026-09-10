@@ -317,6 +317,7 @@ func f() {
 	_ = x
 	_ = len("x")
 }
+
 `
 	fset := token.NewFileSet()
 	file, err := parser.ParseFile(fset, "p.go", src, 0)
@@ -352,11 +353,82 @@ func f() {
 		obj  types.Object
 	}{
 		{"local variable", local},
-		{"builtin", builtin},
+		{"universe builtin", builtin},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if _, err := symbol.FromObject(tc.obj); err == nil {
 				t.Fatalf("FromObject(%v) = nil error; want rejection", tc.obj)
+			}
+		})
+	}
+}
+
+// TestFromObject_UnsafeBuiltins pins the package-owned compiler builtins in
+// unsafe to the same top-level grammar as ordinary package declarations. The
+// complete table matters because the shared converter is also used by the
+// reference scanner and the stdlib inventory.
+func TestFromObject_UnsafeBuiltins(t *testing.T) {
+	src := `package p
+
+import "unsafe"
+
+type record struct {
+	field int
+}
+
+func use() {
+	var p unsafe.Pointer
+	var s []int
+	var text string
+	_ = unsafe.Add(p, 1)
+	_ = unsafe.Alignof(record{})
+	_ = unsafe.Offsetof(record{}.field)
+	_ = unsafe.Sizeof(record{})
+	_ = unsafe.Slice((*int)(nil), 0)
+	_ = unsafe.SliceData(s)
+	_ = unsafe.String((*byte)(nil), 0)
+	_ = unsafe.StringData(text)
+}
+`
+	fset := token.NewFileSet()
+	file, err := parser.ParseFile(fset, "p.go", src, 0)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	info := &types.Info{
+		Defs:       map[*ast.Ident]types.Object{},
+		Uses:       map[*ast.Ident]types.Object{},
+		Selections: map[*ast.SelectorExpr]*types.Selection{},
+		Types:      map[ast.Expr]types.TypeAndValue{},
+	}
+	conf := types.Config{Importer: importer.Default()}
+	if _, err := conf.Check("p", fset, []*ast.File{file}, info); err != nil {
+		t.Fatalf("check: %v", err)
+	}
+
+	objects := map[string]types.Object{}
+	for _, obj := range info.Uses {
+		if obj.Pkg() != nil && obj.Pkg().Path() == "unsafe" {
+			objects[obj.Name()] = obj
+		}
+	}
+	for _, name := range []string{
+		"Add", "Alignof", "Offsetof", "Sizeof", "Slice", "SliceData", "String", "StringData",
+	} {
+		t.Run(name, func(t *testing.T) {
+			obj, ok := objects[name]
+			if !ok {
+				t.Fatalf("unsafe.%s was not recorded in types.Info.Uses", name)
+			}
+			if _, ok := obj.(*types.Builtin); !ok {
+				t.Fatalf("unsafe.%s has type %T, want *types.Builtin", name, obj)
+			}
+			id, err := symbol.FromObject(obj)
+			if err != nil {
+				t.Fatalf("FromObject(unsafe.%s) error = %v", name, err)
+			}
+			if want := symbol.SymbolID("unsafe." + name); id != want {
+				t.Errorf("FromObject(unsafe.%s) = %q, want %q", name, id, want)
 			}
 		})
 	}

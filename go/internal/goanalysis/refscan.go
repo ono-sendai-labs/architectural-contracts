@@ -33,10 +33,12 @@ import (
 // duplicate-free, so identical inputs produce identical output in any map
 // enumeration order (N4).
 //
-// Builtins, labels and other universe objects (nil package) are not declared
-// symbols and are skipped. Malformed input — an import path that cannot be
-// read, or a position outside the component root — is an error: the scan
-// returns no partial facts.
+// Universe builtins, labels and other objects with no declaring package are
+// not declared symbols and are skipped. Exported package-scoped compiler
+// builtins, such as unsafe.Slice, are external function symbols and are
+// retained. Malformed input — an import path that cannot be read, or a
+// position outside the component root — is an error: the scan returns no
+// partial facts.
 //
 // root is the component root (native mode) or active workspace directory
 // (layout mode) used to make SourceSite.File component-relative, mirroring
@@ -200,12 +202,14 @@ func scanPackage(
 }
 
 // externalObject reports whether obj denotes a declared symbol outside the
-// member set: non-nil, package-scoped (not a universe object such as builtins
-// or the predeclared error type), and not a member package's object. Package
-// names and labels are not declared symbols and are rejected here.
+// member set: non-nil, package-scoped (not a universe object such as a
+// predeclared builtin or the predeclared error type), and not a member
+// package's object. Package names and labels are not declared symbols and are
+// rejected here. Package-scoped compiler builtins remain eligible for the
+// shared SymbolID conversion.
 func externalObject(obj types.Object, members facts.MemberSet) bool {
 	switch obj.(type) {
-	case nil, *types.PkgName, *types.Label, *types.Builtin:
+	case nil, *types.PkgName, *types.Label:
 		return false
 	}
 	if obj.Pkg() == nil {
@@ -229,6 +233,8 @@ func classifyingReference(obj types.Object) (facts.ReferenceKind, facts.SymbolID
 		} else {
 			kind = facts.RefFunc
 		}
+	case *types.Builtin:
+		kind = facts.RefFunc
 	case *types.Var:
 		if o.Parent() != nil && o.Pkg() != nil && o.Parent() == o.Pkg().Scope() {
 			kind = facts.RefVar
