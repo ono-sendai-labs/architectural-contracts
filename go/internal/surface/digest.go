@@ -10,6 +10,17 @@ import (
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/schema/gen"
 )
 
+// DigestForSources computes the producer digest for an already assembled
+// surface and a byte-only source/manifest input set. The native dependency
+// consumer uses this same framing without loading or parsing Go packages, so
+// its freshness result is comparable to the digest emitted by Derive.
+func DigestForSources(sources []SourceFile, manifestBytes []byte, m *gen.SurfaceManifest) (string, error) {
+	if m == nil {
+		return "", fmt.Errorf("surface digest: manifest is missing")
+	}
+	return computeDigest(sources, manifestBytes, m)
+}
+
 // computeDigest returns the lowercase hex SHA-256 over the semantic producer
 // inputs (DR-03): member source bytes sorted by canonical path, the component
 // manifest bytes, the surface format version, the namespace, the SDK key and

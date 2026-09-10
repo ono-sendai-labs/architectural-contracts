@@ -84,3 +84,18 @@ func TestDigestInsensitiveToEnumerationOrder(t *testing.T) {
 		t.Errorf("digest changed with enumeration order: %s != %s", m.Digest, want)
 	}
 }
+
+func TestDigestForSourcesSharesProducerFraming(t *testing.T) {
+	in, _ := digestInput(t)
+	m, err := surface.Derive(in)
+	if err != nil {
+		t.Fatalf("Derive: %v", err)
+	}
+	got, err := surface.DigestForSources(in.Sources, in.Manifest, m)
+	if err != nil {
+		t.Fatalf("DigestForSources: %v", err)
+	}
+	if got != m.Digest {
+		t.Fatalf("DigestForSources = %q, Derive digest = %q", got, m.Digest)
+	}
+}
