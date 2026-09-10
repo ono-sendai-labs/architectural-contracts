@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -299,11 +300,88 @@ func TestResolveDependencySurface_ValidationFailsClosed(t *testing.T) {
 			binding: checkedResolverBinding(), report: passReport, want: "namespace mismatch",
 		},
 		{
+			name: "format version mismatch",
+			makeSurface: func(t *testing.T) []byte {
+				return replaceResolverSurfaceJSON(t, baseSurface, `"formatVersion": 1`, `"formatVersion": 2`)
+			},
+			binding: checkedResolverBinding(), report: passReport, want: "format",
+		},
+		{
+			name: "interface style shape",
+			makeSurface: func(t *testing.T) []byte {
+				return []byte(`{"formatVersion":1,"component":"dep","interfaceStyle":"INTERFACE_STYLE_PACKAGE_SURFACE","symbols":["example.com/dep.API"]}`)
+			},
+			binding: checkedResolverBinding(), report: passReport, want: "PACKAGE_SURFACE",
+		},
+		{
+			name: "symbol grammar",
+			makeSurface: func(t *testing.T) []byte {
+				return replaceResolverSurfaceJSON(t, baseSurface, `"example.com/dep.API"`, `"not a symbol!"`)
+			},
+			binding: checkedResolverBinding(), report: passReport, want: "symbol",
+		},
+		{
+			name: "authority shape",
+			makeSurface: func(t *testing.T) []byte {
+				return []byte(`{"formatVersion":1,"component":"dep","authority":{"authority":"UNKNOWN","declaredAuthority":["FILES"]}}`)
+			},
+			binding: checkedResolverBinding(), report: passReport, want: "UNKNOWN",
+		},
+		{
 			name: "SDK goexperiment mismatch",
 			makeSurface: func(t *testing.T) []byte {
 				return mutateResolverSurface(t, baseSurface, func(m *gen.SurfaceManifest) { m.SdkKey.Goexperiment = "regabiargs" })
 			},
 			binding: checkedResolverBinding(), report: passReport, want: "goexperiment",
+		},
+		{
+			name: "SDK toolchain mismatch",
+			makeSurface: func(t *testing.T) []byte {
+				return mutateResolverSurface(t, baseSurface, func(m *gen.SurfaceManifest) { m.SdkKey.ToolchainVersion = "go1.25.0" })
+			},
+			binding: checkedResolverBinding(), report: passReport, want: "toolchain_version",
+		},
+		{
+			name: "SDK GOOS mismatch",
+			makeSurface: func(t *testing.T) []byte {
+				return mutateResolverSurface(t, baseSurface, func(m *gen.SurfaceManifest) { m.SdkKey.Goos = "darwin" })
+			},
+			binding: checkedResolverBinding(), report: passReport, want: "goos",
+		},
+		{
+			name: "SDK GOARCH mismatch",
+			makeSurface: func(t *testing.T) []byte {
+				return mutateResolverSurface(t, baseSurface, func(m *gen.SurfaceManifest) { m.SdkKey.Goarch = "arm64" })
+			},
+			binding: checkedResolverBinding(), report: passReport, want: "goarch",
+		},
+		{
+			name: "SDK cgo mismatch",
+			makeSurface: func(t *testing.T) []byte {
+				return mutateResolverSurface(t, baseSurface, func(m *gen.SurfaceManifest) { m.SdkKey.CgoEnabled = true })
+			},
+			binding: checkedResolverBinding(), report: passReport, want: "cgo_enabled",
+		},
+		{
+			name: "SDK build tags mismatch",
+			makeSurface: func(t *testing.T) []byte {
+				return mutateResolverSurface(t, baseSurface, func(m *gen.SurfaceManifest) { m.SdkKey.BuildTags = []string{"feature-c"} })
+			},
+			binding: checkedResolverBinding(), report: passReport, want: "build_tags",
+		},
+		{
+			name: "SDK classifier mismatch",
+			makeSurface: func(t *testing.T) []byte {
+				return mutateResolverSurface(t, baseSurface, func(m *gen.SurfaceManifest) { m.SdkKey.ClassifierHash = "different-classifier" })
+			},
+			binding: checkedResolverBinding(), report: passReport, want: "classifier_hash",
+		},
+		{
+			name: "SDK map format mismatch",
+			makeSurface: func(t *testing.T) []byte {
+				return mutateResolverSurface(t, baseSurface, func(m *gen.SurfaceManifest) { m.SdkKey.MapFormatVersion = 2 })
+			},
+			binding: checkedResolverBinding(), report: passReport, want: "map_format_version",
 		},
 		{
 			name: "symbol outside package set",
@@ -404,6 +482,15 @@ func mutateResolverSurface(t *testing.T, data []byte, mutate func(*gen.SurfaceMa
 	return encoded
 }
 
+func replaceResolverSurfaceJSON(t *testing.T, data []byte, old, replacement string) []byte {
+	t.Helper()
+	replaced := strings.Replace(string(data), old, replacement, 1)
+	if replaced == string(data) {
+		t.Fatalf("resolver fixture anchor %q not found", old)
+	}
+	return []byte(replaced)
+}
+
 func TestResolveDependencySurface_NativeFreshnessStatesRemainByteOnly(t *testing.T) {
 	declared, err := manifest.NewDeclared("FILES")
 	if err != nil {
@@ -461,6 +548,45 @@ func TestResolveDependencySurface_NativeFreshnessStatesRemainByteOnly(t *testing
 				t.Errorf("freshness = %q, want %q", got.Freshness, tt.want)
 			}
 		})
+	}
+}
+
+func TestResolveDependencySurface_RejectsNonCanonicalPackagePath(t *testing.T) {
+	oldCanonicalize, oldIsCanonical := hostpolicy.CanonicalizePath, hostpolicy.IsCanonicalPath
+	t.Cleanup(func() {
+		hostpolicy.CanonicalizePath = oldCanonicalize
+		hostpolicy.IsCanonicalPath = oldIsCanonical
+	})
+	hostpolicy.CanonicalizePath = func(path string) string {
+		if path == "example.com/dep" {
+			return "vendor/example.com/dep"
+		}
+		return path
+	}
+	hostpolicy.IsCanonicalPath = func(path string) bool { return path != "example.com/dep" }
+
+	declared := mustDeclaredAuthority(t)
+	surfaceBytes := resolverSurface(t, "dep", declared, manifest.InterfaceStyleUnspecified, []string{"example.com/dep"}, []string{"example.com/dep.API"}, nil, nil)
+	files := map[string][]byte{
+		"workspace/dep.surface.json": surfaceBytes,
+		"workspace/dep.report.json":  resolverReport(t, "dep", false),
+	}
+	got, err := goanalysis.ResolveDependencySurface(goanalysis.DependencySurfaceRequest{
+		Dependency:   manifest.ComponentDependency{Name: "dep", Manifest: "dep.component.textproto"},
+		Binding:      &packagelayout.DependencyArtifactBinding{Dependency: "dep", Surface: "dep.surface.json", Report: "dep.report.json", Provenance: packagelayout.DependencyArtifactProvenanceChecked},
+		Namespace:    "namespace-a",
+		ExpectedSDK:  resolverSDKKey(),
+		Mode:         goanalysis.DependencySurfaceLayout,
+		WorkspaceDir: "workspace",
+		ReadFile: func(path string) ([]byte, error) {
+			return files[path], nil
+		},
+	})
+	if err == nil || !strings.Contains(err.Error(), "not canonical") {
+		t.Fatalf("ResolveDependencySurface() error = %v, want canonical-path error", err)
+	}
+	if !reflect.DeepEqual(got, facts.DependencyInterface{}) {
+		t.Fatalf("failed resolution returned partial facts: %+v", got)
 	}
 }
 
@@ -546,6 +672,15 @@ func TestResolveDependencySurface_NativeDefaultReaderUsesOnlyMemberBytes(t *test
 	if err := os.WriteFile(depRoot+"/component.surface.json", surfaceBytes, 0o644); err != nil {
 		t.Fatalf("WriteFile(surface): %v", err)
 	}
+	var readFiles, readDirs []string
+	readFile := func(path string) ([]byte, error) {
+		readFiles = append(readFiles, path)
+		return os.ReadFile(path)
+	}
+	readDir := func(path string) ([]fs.DirEntry, error) {
+		readDirs = append(readDirs, path)
+		return os.ReadDir(path)
+	}
 
 	got, err := goanalysis.ResolveDependencySurface(goanalysis.DependencySurfaceRequest{
 		DeclaringRoot: root,
@@ -553,12 +688,84 @@ func TestResolveDependencySurface_NativeDefaultReaderUsesOnlyMemberBytes(t *test
 		Namespace:     "namespace-a",
 		ExpectedSDK:   resolverSDKKey(),
 		Mode:          goanalysis.DependencySurfaceNative,
+		ReadFile:      readFile,
+		ReadDir:       readDir,
 	})
 	if err != nil {
 		t.Fatalf("ResolveDependencySurface: %v", err)
 	}
 	if got.Freshness != facts.DependencyFreshnessVerified {
 		t.Errorf("freshness = %q, want VERIFIED", got.Freshness)
+	}
+	if len(readDirs) == 0 {
+		t.Fatal("default freshness reader did not enumerate a package directory")
+	}
+	for _, path := range readFiles {
+		if strings.HasSuffix(path, "dep_test.go") || strings.HasSuffix(path, "unrelated.txt") {
+			t.Errorf("default freshness reader opened excluded file %q", path)
+		}
+	}
+}
+
+func TestResolveDependencySurface_NativeDefaultReaderUnknownForBuildConstraints(t *testing.T) {
+	declared := mustDeclaredAuthority(t)
+	manifestBytes := []byte("name: \"dep\"\n")
+	memberBytes := []byte("package dep\n\nfunc API() {}\n")
+	cases := []struct {
+		name string
+		file string
+		data []byte
+	}{
+		{
+			name: "inactive filename",
+			file: "dep_windows.go",
+			data: []byte("package dep\n\nfunc WindowsOnly() {}\n"),
+		},
+		{
+			name: "go build directive",
+			file: "tagged.go",
+			data: []byte("//go:build never\n\npackage dep\n"),
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			root := t.TempDir()
+			depRoot := filepath.Join(root, "dep")
+			if err := os.MkdirAll(depRoot, 0o755); err != nil {
+				t.Fatalf("MkdirAll: %v", err)
+			}
+			files := map[string][]byte{
+				"go.mod":              []byte("module example.com/dep\n\ngo 1.26\n"),
+				"dep.go":              memberBytes,
+				tc.file:               tc.data,
+				"component.textproto": manifestBytes,
+			}
+			for name, data := range files {
+				if err := os.WriteFile(filepath.Join(depRoot, name), data, 0o644); err != nil {
+					t.Fatalf("WriteFile(%s): %v", name, err)
+				}
+			}
+			surfaceBytes := resolverSurface(t, "dep", declared, manifest.InterfaceStyleUnspecified,
+				[]string{"example.com/dep"}, []string{"example.com/dep.API"},
+				[]surface.SourceFile{{Path: "dep.go", Bytes: memberBytes}}, manifestBytes)
+			if err := os.WriteFile(filepath.Join(depRoot, "component.surface.json"), surfaceBytes, 0o644); err != nil {
+				t.Fatalf("WriteFile(surface): %v", err)
+			}
+
+			got, err := goanalysis.ResolveDependencySurface(goanalysis.DependencySurfaceRequest{
+				DeclaringRoot: root,
+				Dependency:    manifest.ComponentDependency{Name: "dep", Manifest: "dep/component.textproto"},
+				Namespace:     "namespace-a",
+				ExpectedSDK:   resolverSDKKey(),
+				Mode:          goanalysis.DependencySurfaceNative,
+			})
+			if err != nil {
+				t.Fatalf("ResolveDependencySurface: %v", err)
+			}
+			if got.Freshness != facts.DependencyFreshnessUnknown {
+				t.Fatalf("freshness = %q, want UNKNOWN when source selection is constrained", got.Freshness)
+			}
+		})
 	}
 }
 

@@ -643,6 +643,13 @@ func readNativeDependencySources(root string, packages []string, readFile Depend
 			if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".go") || strings.HasSuffix(entry.Name(), "_test.go") {
 				continue
 			}
+			// The producer's p.GoFiles set is selected by the target build
+			// context. A byte-only directory reader cannot prove that a
+			// filename-constrained file is active without reimplementing the
+			// Go build selector, so conservatively make freshness UNKNOWN.
+			if hasBuildConstraintFilename(entry.Name()) {
+				return nil, fmt.Errorf("source set contains build-constrained file %q", entry.Name())
+			}
 			packageFiles = append(packageFiles, filepath.Join(dir, entry.Name()))
 		}
 		if len(packageFiles) == 0 {
@@ -659,6 +666,9 @@ func readNativeDependencySources(root string, packages []string, readFile Depend
 		if err != nil {
 			return nil, err
 		}
+		if hasBuildConstraintDirective(bytes) {
+			return nil, fmt.Errorf("source set contains a Go build constraint in %q", path)
+		}
 		rel, err := filepath.Rel(root, path)
 		if err != nil || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || rel == ".." {
 			return nil, fmt.Errorf("member source %q is not under dependency root %q", path, root)
@@ -667,6 +677,46 @@ func readNativeDependencySources(root string, packages []string, readFile Depend
 	}
 	slices.SortFunc(out, func(a, b surface.SourceFile) int { return strings.Compare(a.Path, b.Path) })
 	return out, nil
+}
+
+// nativeBuildConstraintNames is deliberately conservative. If a filename
+// carries one of these standard GOOS/GOARCH suffixes, the byte-only reader
+// cannot establish whether it belongs to the producer's target without
+// duplicating the Go build selector. Custom tags and directives are handled by
+// hasBuildConstraintDirective below.
+var nativeBuildConstraintNames = map[string]bool{
+	"386": true, "aix": true, "amd64": true, "android": true, "arm": true,
+	"arm64": true, "cgo": true, "darwin": true, "dragonfly": true,
+	"freebsd": true, "hurd": true, "illumos": true, "ios": true, "js": true,
+	"linux": true, "loong64": true, "mips": true, "mips64": true,
+	"mips64le": true, "mipsle": true, "netbsd": true, "openbsd": true,
+	"plan9": true, "ppc64": true, "ppc64le": true, "riscv64": true,
+	"s390x": true, "solaris": true, "unix": true, "wasip1": true,
+	"wasm": true, "windows": true,
+}
+
+func hasBuildConstraintFilename(name string) bool {
+	stem := strings.TrimSuffix(name, ".go")
+	parts := strings.Split(stem, "_")
+	if len(parts) < 2 {
+		return false
+	}
+	for _, part := range parts[1:] {
+		if nativeBuildConstraintNames[part] {
+			return true
+		}
+	}
+	return false
+}
+
+func hasBuildConstraintDirective(data []byte) bool {
+	for _, line := range strings.Split(string(data), "\n") {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "//go:build") || strings.HasPrefix(trimmed, "// +build") {
+			return true
+		}
+	}
+	return false
 }
 
 func findModuleRoot(root string, readFile DependencySurfaceReadFile) (string, string, error) {
