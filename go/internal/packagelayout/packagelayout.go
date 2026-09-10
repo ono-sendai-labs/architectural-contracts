@@ -54,6 +54,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"unicode"
 
 	"golang.org/x/tools/go/packages"
 )
@@ -749,7 +750,7 @@ func validateDependencyArtifactBindings(bindings []DependencyArtifactBinding) er
 }
 
 func validateDependencyArtifactPath(dependency, kind, value string) error {
-	if strings.ContainsRune(value, '\x00') || strings.Contains(value, "\\") || path.IsAbs(value) || filepath.VolumeName(value) != "" || hasWindowsVolumePrefix(value) || value == "." {
+	if strings.IndexFunc(value, unicode.IsControl) >= 0 || strings.Contains(value, "\\") || path.IsAbs(value) || filepath.VolumeName(value) != "" || hasWindowsVolumePrefix(value) || value == "." {
 		return fmt.Errorf("unsafe dependency artifact path %q for dependency %q (%s path)", value, dependency, kind)
 	}
 	if value == ".." || strings.HasPrefix(value, "../") {

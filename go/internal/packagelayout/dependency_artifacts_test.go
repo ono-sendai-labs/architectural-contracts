@@ -99,6 +99,7 @@ func TestParseRejectsInvalidDependencyArtifactBindings(t *testing.T) {
 		{name: "parent surface", bindings: `[{"dependency":"dep","surface":"../dep.surface.json","provenance":"checked"}]`, wantInErr: "unsafe dependency artifact path"},
 		{name: "non-normalized surface", bindings: `[{"dependency":"dep","surface":"frame/../dep.surface.json","provenance":"checked"}]`, wantInErr: "non-normalized dependency artifact path"},
 		{name: "backslash surface", bindings: `[{"dependency":"dep","surface":"frame\\dep.surface.json","provenance":"checked"}]`, wantInErr: "unsafe dependency artifact path"},
+		{name: "control report", bindings: `[{"dependency":"dep","surface":"dep.surface.json","report":"frame\nreport.json","provenance":"checked"}]`, wantInErr: "unsafe dependency artifact path"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
