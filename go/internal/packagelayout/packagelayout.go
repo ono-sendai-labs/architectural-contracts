@@ -18,7 +18,8 @@
 //     and the ARCC_PACKAGE_LAYOUT/ARCC_DRIVER_MODE environment markers set
 //     by WithDriverEnv/WithTemporaryLayout when invoked as the driver
 //     subprocess.
-//   - What it provides: Layout/Platform, Parse, MarshalJSON/UnmarshalJSON,
+//   - What it provides: Layout/Platform and direct dependency artifact bindings,
+//     Parse, MarshalJSON/UnmarshalJSON,
 //     ValidateAndResolve, BuildContextForLayout (target-derived release and
 //     tool tags), FileMatchesBuildConstraints(Context), SurvivingSourceFiles,
 //     discoverStdlibWithContext, StdlibLayout, IsStdlibPackage,
@@ -45,6 +46,7 @@ import (
 	"go/token"
 	"io"
 	"os"
+	"path"
 	"path/filepath"
 	"runtime"
 	"slices"
@@ -65,6 +67,11 @@ type Layout struct {
 	Platform  *Platform           `json:"platform,omitempty"`
 	Roots     []string            `json:"roots"`
 	Packages  []*packages.Package `json:"packages"`
+	// DependencyArtifactBindings associate every direct component dependency
+	// with the artifacts its provider published. The paths use the same
+	// runfiles frame as the manifest and package layout; this is structural
+	// build metadata, not a verdict, authority, or freshness claim.
+	DependencyArtifactBindings []DependencyArtifactBinding `json:"dependency_artifact_bindings,omitempty"`
 
 	// The layout wire schema extends each emitter-listed package with an
 	// `is_stdlib` boolean. It records build-graph provenance (SDK/toolchain
@@ -80,6 +87,30 @@ type Layout struct {
 	// deliberately excluded from the layout JSON schema.
 	UnresolvedImports []UnresolvedImport `json:"-"`
 	importsOmitted    map[string]bool
+}
+
+// DependencyArtifactProvenance identifies how a dependency's artifact pair was
+// produced in the build graph. It deliberately has no authority or verdict
+// semantics: those are decoded by the later surface consumer from the
+// artifacts and their report.
+type DependencyArtifactProvenance string
+
+const (
+	DependencyArtifactProvenanceChecked  DependencyArtifactProvenance = "checked"
+	DependencyArtifactProvenanceAsserted DependencyArtifactProvenance = "asserted"
+)
+
+// DependencyArtifactBinding binds one manifest dependency name to the surface
+// and optional report files published by its ArccComponentInfo provider.
+// Surface and report are runfiles-frame paths, not filesystem paths. A checked
+// provider must publish both files; an asserted provider publishes only the
+// package-level surface. This record carries no semantic trust claim.
+type DependencyArtifactBinding struct {
+	Dependency   string                       `json:"dependency"`
+	Surface      string                       `json:"surface"`
+	Report       string                       `json:"report,omitempty"`
+	AutoAttached bool                         `json:"auto_attached"`
+	Provenance   DependencyArtifactProvenance `json:"provenance"`
 }
 
 // UnresolvedImport records a surviving source-level import for which the
@@ -638,10 +669,107 @@ func Parse(r io.Reader) (*Layout, error) {
 	return &l, nil
 }
 
-// MarshalJSON serializes the Layout with deterministic canonical ordering of Roots and Packages
-// without mutating the original caller-owned data. The layout-only `is_stdlib`
-// field is emitted for emitter-listed packages and carries build-graph
-// provenance, never a duplicated import-path heuristic.
+// cloneDependencyArtifactBindings validates and canonically sorts bindings
+// without mutating the caller's slice. Dependency names are the primary key;
+// the remaining fields are a deterministic tie-break for defensive callers
+// even though duplicate names are rejected.
+func cloneDependencyArtifactBindings(bindings []DependencyArtifactBinding) ([]DependencyArtifactBinding, error) {
+	if err := validateDependencyArtifactBindings(bindings); err != nil {
+		return nil, err
+	}
+	cloned := slices.Clone(bindings)
+	slices.SortFunc(cloned, func(a, b DependencyArtifactBinding) int {
+		if c := strings.Compare(a.Dependency, b.Dependency); c != 0 {
+			return c
+		}
+		if c := strings.Compare(a.Surface, b.Surface); c != 0 {
+			return c
+		}
+		if c := strings.Compare(a.Report, b.Report); c != 0 {
+			return c
+		}
+		if a.AutoAttached != b.AutoAttached {
+			if a.AutoAttached {
+				return 1
+			}
+			return -1
+		}
+		return strings.Compare(string(a.Provenance), string(b.Provenance))
+	})
+	return cloned, nil
+}
+
+// validateDependencyArtifactBindings enforces the wire contract for direct
+// dependency artifact metadata before any package driver uses the layout.
+// Paths are slash-separated runfiles-frame paths: absolute, parent-escaping,
+// platform-specific, and non-clean spellings are rejected rather than
+// allowing a later consumer to resolve a different artifact.
+func validateDependencyArtifactBindings(bindings []DependencyArtifactBinding) error {
+	seenDependencies := make(map[string]bool, len(bindings))
+	seenSurfaces := make(map[string]string, len(bindings))
+	for _, binding := range bindings {
+		if binding.Dependency == "" {
+			return errors.New("dependency artifact binding has empty dependency name")
+		}
+		if seenDependencies[binding.Dependency] {
+			return fmt.Errorf("duplicate dependency artifact binding for dependency %q", binding.Dependency)
+		}
+		seenDependencies[binding.Dependency] = true
+
+		if binding.Surface == "" {
+			return fmt.Errorf("dependency artifact binding for dependency %q has empty surface path", binding.Dependency)
+		}
+		if err := validateDependencyArtifactPath(binding.Dependency, "surface", binding.Surface); err != nil {
+			return err
+		}
+		if previous, exists := seenSurfaces[binding.Surface]; exists && previous != binding.Dependency {
+			return fmt.Errorf("duplicate dependency surface path %q assigned to dependencies %q and %q", binding.Surface, previous, binding.Dependency)
+		}
+		seenSurfaces[binding.Surface] = binding.Dependency
+
+		switch binding.Provenance {
+		case DependencyArtifactProvenanceChecked:
+			if binding.Report == "" {
+				return fmt.Errorf("checked dependency artifact binding for dependency %q has no report path", binding.Dependency)
+			}
+		case DependencyArtifactProvenanceAsserted:
+			if binding.Report != "" {
+				return fmt.Errorf("asserted dependency artifact binding for dependency %q must not have a report path", binding.Dependency)
+			}
+		default:
+			return fmt.Errorf("unknown dependency artifact provenance %q for dependency %q", binding.Provenance, binding.Dependency)
+		}
+		if binding.Report != "" {
+			if err := validateDependencyArtifactPath(binding.Dependency, "report", binding.Report); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func validateDependencyArtifactPath(dependency, kind, value string) error {
+	if strings.ContainsRune(value, '\x00') || strings.Contains(value, "\\") || path.IsAbs(value) || filepath.VolumeName(value) != "" || hasWindowsVolumePrefix(value) || value == "." {
+		return fmt.Errorf("unsafe dependency artifact path %q for dependency %q (%s path)", value, dependency, kind)
+	}
+	if value == ".." || strings.HasPrefix(value, "../") {
+		return fmt.Errorf("unsafe dependency artifact path %q for dependency %q (%s path)", value, dependency, kind)
+	}
+	if path.Clean(value) != value {
+		return fmt.Errorf("non-normalized dependency artifact path %q for dependency %q (%s path)", value, dependency, kind)
+	}
+	return nil
+}
+
+func hasWindowsVolumePrefix(value string) bool {
+	return len(value) >= 2 && ((value[0] >= 'a' && value[0] <= 'z') || (value[0] >= 'A' && value[0] <= 'Z')) && value[1] == ':'
+}
+
+// MarshalJSON serializes the Layout with deterministic canonical ordering of
+// Roots, dependency artifact bindings, and Packages without mutating the
+// original caller-owned data. The layout-only `is_stdlib` field is emitted for
+// emitter-listed packages and carries build-graph provenance, never a
+// duplicated import-path heuristic.
 func (l *Layout) MarshalJSON() ([]byte, error) {
 	var roots []string
 	if l.Roots != nil {
@@ -661,6 +789,10 @@ func (l *Layout) MarshalJSON() ([]byte, error) {
 		})
 	} else {
 		pkgs = []*packages.Package{}
+	}
+	bindingCloned, err := cloneDependencyArtifactBindings(l.DependencyArtifactBindings)
+	if err != nil {
+		return nil, fmt.Errorf("invalid dependency artifact bindings: %w", err)
 	}
 
 	packageJSON := make([]json.RawMessage, len(pkgs))
@@ -691,15 +823,17 @@ func (l *Layout) MarshalJSON() ([]byte, error) {
 	}
 
 	return json.Marshal(&struct {
-		GoSDKRoot string            `json:"go_sdk_root"`
-		Platform  *Platform         `json:"platform,omitempty"`
-		Roots     []string          `json:"roots"`
-		Packages  []json.RawMessage `json:"packages"`
+		GoSDKRoot                  string                      `json:"go_sdk_root"`
+		Platform                   *Platform                   `json:"platform,omitempty"`
+		Roots                      []string                    `json:"roots"`
+		Packages                   []json.RawMessage           `json:"packages"`
+		DependencyArtifactBindings []DependencyArtifactBinding `json:"dependency_artifact_bindings,omitempty"`
 	}{
-		GoSDKRoot: l.GoSDKRoot,
-		Platform:  l.Platform,
-		Roots:     roots,
-		Packages:  packageJSON,
+		GoSDKRoot:                  l.GoSDKRoot,
+		Platform:                   l.Platform,
+		Roots:                      roots,
+		Packages:                   packageJSON,
+		DependencyArtifactBindings: bindingCloned,
 	})
 }
 
@@ -709,13 +843,18 @@ func (l *Layout) MarshalJSON() ([]byte, error) {
 // missing provenance from the package path.
 func (l *Layout) UnmarshalJSON(data []byte) error {
 	var wire struct {
-		GoSDKRoot string            `json:"go_sdk_root"`
-		Platform  *Platform         `json:"platform,omitempty"`
-		Roots     []string          `json:"roots"`
-		Packages  []json.RawMessage `json:"packages"`
+		GoSDKRoot                  string                      `json:"go_sdk_root"`
+		Platform                   *Platform                   `json:"platform,omitempty"`
+		Roots                      []string                    `json:"roots"`
+		Packages                   []json.RawMessage           `json:"packages"`
+		DependencyArtifactBindings []DependencyArtifactBinding `json:"dependency_artifact_bindings,omitempty"`
 	}
 	if err := json.Unmarshal(data, &wire); err != nil {
 		return err
+	}
+	bindingCloned, err := cloneDependencyArtifactBindings(wire.DependencyArtifactBindings)
+	if err != nil {
+		return fmt.Errorf("invalid dependency artifact bindings: %w", err)
 	}
 
 	packagesList := make([]*packages.Package, len(wire.Packages))
@@ -744,6 +883,7 @@ func (l *Layout) UnmarshalJSON(data []byte) error {
 	l.Platform = wire.Platform
 	l.Roots = wire.Roots
 	l.Packages = packagesList
+	l.DependencyArtifactBindings = bindingCloned
 	l.stdlibByID = stdlibByID
 	l.stdlibByPath = make(map[string]bool, len(stdlibByID))
 	l.emittedPackageID = emittedPackageID
@@ -755,6 +895,12 @@ func (l *Layout) UnmarshalJSON(data []byte) error {
 // ValidateAndResolve validates the layout's structural consistency and resolves
 // all workspace-relative and SDK-relative source paths, checking that each file exists.
 func ValidateAndResolve(l *Layout, workspaceDir string) error {
+	bindingCloned, err := cloneDependencyArtifactBindings(l.DependencyArtifactBindings)
+	if err != nil {
+		return fmt.Errorf("invalid dependency artifact bindings: %w", err)
+	}
+	l.DependencyArtifactBindings = bindingCloned
+
 	bctx, err := BuildContextForLayout(l)
 	if err != nil {
 		return err

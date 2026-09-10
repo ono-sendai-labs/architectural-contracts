@@ -23,6 +23,15 @@ left to be inferred from the field names.
     "cgo_enabled": false
   },
   "roots": ["example.com/svc", "example.com/svc/impl"],
+  "dependency_artifact_bindings": [
+    {
+      "dependency": "logger",
+      "surface": "_main/components/logger.surface.json",
+      "report": "_main/components/logger.report.json",
+      "auto_attached": false,
+      "provenance": "checked"
+    }
+  ],
   "packages": [
     {
       "ID": "example.com/svc",
@@ -41,6 +50,7 @@ left to be inferred from the field names.
 | `go_sdk_root` | Path to the Go SDK's `src` directory. arcc enumerates and type-checks the standard library from here itself; the emitter does **not** list stdlib packages. |
 | `platform` | The target the analysis is for (§3). Optional; absent means `build.Default`. |
 | `roots` | The component's member packages. Must equal the manifest's `members`, or the load fails (§2). |
+| `dependency_artifact_bindings` | Sorted direct dependency artifact bindings. Each names the manifest dependency and its runfiles-frame surface, optional report, edge origin, and structural producer provenance (§6). |
 | `packages` | Every package in the closure, in `go/packages`' own driver "flat" encoding, plus the layout-only `is_stdlib` bit (§4). |
 
 Per-package fields are exactly `packages.Package`'s JSON, so `ID`, `Name`,
@@ -53,7 +63,8 @@ unique.
 sources. Which directory that is, is the emitter's contract with its own check
 runner; the Bazel rules use the runfiles root, the one frame in which both
 main-repo and external-repo sources have `..`-free names. A path containing `..`
-is rejected.
+is rejected. Dependency surface and report paths use this same frame and are
+validated as relative, normalized slash paths before the driver runs.
 
 ## 2. `roots` and members
 
@@ -166,3 +177,29 @@ pointing at files that will not be in the sandbox. Native mode is unaffected,
 because the go tool preprocesses cgo before `go/packages` sees it. See the
 README's limitations for what that means for a component whose closure includes
 cgo code.
+
+## 6. Direct dependency artifact bindings
+
+`dependency_artifact_bindings` is build metadata emitted from the direct
+`ArccComponentInfo` provider edges. It is not an authored trust claim and does
+not carry authority, a report verdict, or freshness. The collection is sorted
+by `dependency` and contains at most one record for each direct dependency.
+
+Each record has the following fields:
+
+| Field | Meaning |
+|---|---|
+| `dependency` | The logical name from the manifest's direct component dependency. |
+| `surface` | Required runfiles-frame path to the dependency's surface artifact. |
+| `report` | Optional runfiles-frame path to the dependency's report artifact; present for checked providers and absent for asserted providers. |
+| `auto_attached` | Whether the edge was attached by the build-system infrastructure mechanism rather than authored in the manifest. |
+| `provenance` | Structural producer kind, exactly `checked` or `asserted`; it is derived from the provider and is not read from the surface file. |
+
+The emitter must fail analysis for a missing surface, a checked provider without
+a report, an asserted provider with a report, unknown provider provenance,
+duplicate dependency names, or an authored/auto-attached name collision. A
+surface path may not be empty, absolute, parent-escaping, or non-normalized;
+duplicate surface paths across dependency names are rejected as well. The
+checked action declares every bound surface and report as a direct input and
+constructs its path frame from those explicit files; transitive dependency
+runfiles are not the source of binding discovery.

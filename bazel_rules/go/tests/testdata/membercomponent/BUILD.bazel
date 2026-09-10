@@ -105,9 +105,11 @@ testing_go_component(
     visibility = ["//bazel_rules:__subpackages__"],
 )
 
-# Test target where authored edge wins over auto-attachment.
+# Test target where the same component name is authored and auto-attached;
+# binding emission rejects the conflicting edge identity.
 testing_go_component(
     name = "authored_wins_infra_component",
+    tags = ["manual"],
     interface = "//bazel_rules/go/tests/testdata/api:api",
     component_deps = [":package_surface_component"],
     infra_deps = [":package_surface_component"],

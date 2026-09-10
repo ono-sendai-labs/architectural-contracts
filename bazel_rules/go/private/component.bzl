@@ -13,7 +13,9 @@ component takes the asserted producer instead
 (design I6): its package-level asserted surface is written at analysis time,
 with no symbols and the empty digest, `report = None` and
 `provenance = "asserted"`; Step 11 replaces the tag-based selection with
-`authority: UNKNOWN`. The rule classifies the union of the interface and
+`authority: UNKNOWN`. Direct provider edges are also written into the layout as
+sorted, structural dependency artifact bindings; Task 2 consumes those bindings
+later. The rule classifies the union of the interface and
 declared member package closures into component-dep-covered and member
 packages (design §3.1, §4.8), and forwards the interface library's Go
 providers so the component target is usable as a `deps` entry.
@@ -120,7 +122,7 @@ def _manifest_content(ctx, interface_files, component_deps, auto_attached_deps, 
 
     return "\n".join(lines) + "\n"
 
-def _layout_content(ctx, merged, roots, go_sdk_root, platform, target):
+def _layout_content(ctx, merged, roots, go_sdk_root, platform, target, dependency_bindings):
     packages = []
     for importpath in sorted(merged.keys()):
         pkg = merged[importpath]
@@ -150,6 +152,12 @@ def _layout_content(ctx, merged, roots, go_sdk_root, platform, target):
         "roots": roots,
         "packages": packages,
     }
+    if dependency_bindings:
+        # Binding order is part of the layout contract. The caller has already
+        # rejected duplicate dependency names and supplied this list in the
+        # canonical name order; the artifact paths remain ordinary runfiles
+        # frame data, never semantic trust claims.
+        layout_data["dependency_artifact_bindings"] = dependency_bindings
     if platform:
         layout_platform = {
             "goos": platform.goos,
@@ -173,6 +181,90 @@ def _layout_content(ctx, merged, roots, go_sdk_root, platform, target):
         layout_data,
         indent = "  ",
     ) + "\n"
+
+def _dependency_binding_record(ctx, info, auto_attached):
+    """Validates one provider and projects it into layout metadata plus files."""
+    dependency = info.component_name
+    if not dependency:
+        fail("component %s: direct dependency provider has an empty component name" % ctx.label.name)
+    if info.surface == None:
+        fail("component %s: dependency %s has no surface artifact" % (ctx.label.name, dependency))
+
+    provenance = info.provenance
+    if provenance == "checked":
+        if info.report == None:
+            fail("component %s: checked dependency %s has no report artifact" % (ctx.label.name, dependency))
+    elif provenance == "asserted":
+        if info.report != None:
+            fail("component %s: asserted dependency %s unexpectedly has a report artifact" % (ctx.label.name, dependency))
+    else:
+        fail("component %s: dependency %s has unknown provider provenance %r" % (ctx.label.name, dependency, provenance))
+
+    artifacts = [info.surface]
+    if info.report != None:
+        artifacts.append(info.report)
+    return struct(
+        info = info,
+        binding = {
+            "dependency": dependency,
+            "surface": runfiles_path(ctx, info.surface),
+            "auto_attached": auto_attached,
+            "provenance": provenance,
+        } | ({"report": runfiles_path(ctx, info.report)} if info.report != None else {}),
+        artifacts = artifacts,
+    )
+
+def _direct_dependency_binding_records(ctx, authored_deps, attached_infra):
+    """Returns canonical direct-edge records and rejects provider ambiguity."""
+    authored_by_name = {}
+    authored_records = []
+    for dep in authored_deps:
+        info = dep[ArccComponentInfo]
+        record = _dependency_binding_record(ctx, info, False)
+        if info.component_name in authored_by_name:
+            fail("component %s: duplicate direct dependency name %s" % (ctx.label.name, info.component_name))
+        authored_by_name[info.component_name] = info
+        authored_records.append(record)
+
+    auto_by_name = {}
+    auto_records = []
+    auto_deps = []
+    auto_targets = []
+    auto_patterns = []
+    for item in attached_infra:
+        info = item.info
+        record = _dependency_binding_record(ctx, info, True)
+        if info.component_name in authored_by_name:
+            fail(("component %s: authored and auto-attached dependencies named %s " +
+                  "have conflicting edge identity") % (ctx.label.name, info.component_name))
+        if info.component_name in auto_by_name:
+            fail("component %s: duplicate auto-attached dependency name %s" % (ctx.label.name, info.component_name))
+        auto_by_name[info.component_name] = info
+        auto_records.append(record)
+        auto_deps.append(info)
+        auto_targets.append(item.target)
+        for pattern in item.patterns:
+            auto_patterns.append((pattern, info.component_name))
+
+    records_by_name = {}
+    for record in authored_records + auto_records:
+        records_by_name[record.binding["dependency"]] = record
+    records = [records_by_name[name] for name in sorted(records_by_name.keys())]
+
+    seen_surfaces = {}
+    for record in records:
+        surface = record.binding["surface"]
+        dependency = record.binding["dependency"]
+        if surface in seen_surfaces and seen_surfaces[surface] != dependency:
+            fail(("component %s: direct dependencies %s and %s share surface path %s") % (
+                ctx.label.name,
+                seen_surfaces[surface],
+                dependency,
+                surface,
+            ))
+        seen_surfaces[surface] = dependency
+
+    return records, auto_deps, auto_targets, auto_patterns
 
 def _classify(ctx, merged, effective_members, covered):
     """Splits the FR2 frontier into covered and member (design §3.1, §4.8)."""
@@ -313,8 +405,9 @@ def _checked_analysis_action(ctx, manifest, layout, closure_srcs, transitive_man
     and layout, today's source and runfile closure (including the direct
     dependencies' own), the SDK sources today's loader reads, the declared
     stdlib map, and the direct dependencies' report/surface artifacts as
-    ordering inputs (never parsed here — Step 7 replaces
-    `ResolveDependencyInterface`). Export data is not an input until Step 8.
+    ordering inputs. The layout names those artifacts through its direct
+    dependency bindings; they are still not parsed here — Step 7 replaces
+    `ResolveDependencyInterface`. Export data is not an input until Step 8.
 
     No environment at all: the argv and the frame symlinks fully determine
     the action; network access is blocked.
@@ -334,7 +427,11 @@ def _checked_analysis_action(ctx, manifest, layout, closure_srcs, transitive_man
         verdict_only = True,
     )
 
-    frame_files = list(closure_srcs) + [sdk_root_file]
+    # The bound artifacts are explicit frame inputs as well as direct action
+    # inputs. Keeping them in this list makes repository symlink construction
+    # independent of transitive dependency runfiles, which may contain the
+    # files today only as an incidental consequence of provider wiring.
+    frame_files = list(closure_srcs) + list(dep_artifacts) + [sdk_root_file]
     frame_files += transitive_manifests.to_list() + transitive_layouts.to_list()
     frame_files += dep_runfiles.to_list()
 
@@ -377,27 +474,15 @@ def go_component_impl(ctx, attachment_fn = go_attached_infra):
                 ", ".join(ALL_AUTHORITIES),
             ))
 
-    authored_dep_names = {}
-    for dep in ctx.attr.component_deps:
-        info = dep[ArccComponentInfo]
-        authored_dep_names[info.component_name] = True
-
     roots = ([ctx.attr.interface] if ctx.attr.interface else []) + ctx.attr.members
 
     attached_infra = attachment_fn(ctx, roots, ctx.attr.infra_deps)
-    auto_attached_deps = []
-    auto_attached_targets = []
-    auto_attached_patterns = []
-
-    for item in attached_infra:
-        info = item.info
-        if info.component_name in authored_dep_names:
-            continue
-
-        auto_attached_deps.append(info)
-        auto_attached_targets.append(item.target)
-        for p in item.patterns:
-            auto_attached_patterns.append((p, info.component_name))
+    dependency_binding_records, auto_attached_deps, auto_attached_targets, auto_attached_patterns = _direct_dependency_binding_records(
+        ctx,
+        ctx.attr.component_deps,
+        attached_infra,
+    )
+    dependency_bindings = [record.binding for record in dependency_binding_records]
 
     covered = {}
     for dep in ctx.attr.component_deps:
@@ -487,6 +572,7 @@ def go_component_impl(ctx, attachment_fn = go_attached_infra):
                 go_sdk_root = go_sdk_root(ctx),
                 platform = platform,
                 target = target_mode,
+                dependency_bindings = dependency_bindings,
             ),
         )
         direct_layouts = [layout]
@@ -535,21 +621,13 @@ def go_component_impl(ctx, attachment_fn = go_attached_infra):
 
     covered_or_member = {importpath: True for importpath in members}
 
-    # Direct checked dependencies' report/surface artifacts, declared as
-    # inputs of this component's analysis action (task req 3): building this
-    # component's analysis orders the dependency's producer chain (R8), but
-    # nothing parses them here — Step 7 replaces the dependency-interface
-    # resolution. Auto-attached infra components are checked components too.
+    # Direct dependency artifacts are the same files named by the layout
+    # bindings. They are direct action inputs so the producer chain is ordered
+    # by the build graph (R8); the current action still treats them as ordering
+    # inputs and does not parse them until the later surface-consumption task.
     dep_artifacts = []
-    for dep in ctx.attr.component_deps:
-        info = dep[ArccComponentInfo]
-        for artifact in (info.report, info.surface):
-            if artifact != None:
-                dep_artifacts.append(artifact)
-    for info in auto_attached_deps:
-        for artifact in (info.report, info.surface):
-            if artifact != None:
-                dep_artifacts.append(artifact)
+    for record in dependency_binding_records:
+        dep_artifacts += record.artifacts
 
     report = None
     surface = None

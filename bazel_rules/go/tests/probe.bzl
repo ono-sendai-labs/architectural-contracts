@@ -19,6 +19,56 @@ ArccGoPlatformInfo = provider(
     fields = ["goos", "goarch", "tags", "cgo_enabled", "infra_attached", "registry"],
 )
 
+def _fake_component_info_impl(ctx):
+    """Publishes deliberately malformed provider shapes for fail-closed tests."""
+    surface = None
+    report = None
+    outputs = []
+    if ctx.attr.mode != "missing_surface":
+        surface = ctx.actions.declare_file(ctx.label.name + ".surface.json")
+        ctx.actions.write(output = surface, content = "{}\n")
+        outputs.append(surface)
+    if ctx.attr.mode in ["checked", "asserted_with_report", "conflict"]:
+        report = ctx.actions.declare_file(ctx.label.name + ".report.json")
+        ctx.actions.write(output = report, content = "{}\n")
+        outputs.append(report)
+
+    provenance = {
+        "checked": "checked",
+        "checked_without_report": "checked",
+        "asserted": "asserted",
+        "asserted_with_report": "asserted",
+        "conflict": "checked",
+        "unknown": "future",
+        "missing_surface": "checked",
+    }.get(ctx.attr.mode, "future")
+    return [
+        DefaultInfo(files = depset(outputs)),
+        ArccComponentInfo(
+            component_name = ctx.attr.component_name,
+            component_root = ctx.label.package,
+            manifest = None,
+            layout = None,
+            transitive_manifests = depset(),
+            transitive_layouts = depset(),
+            closure = depset(),
+            contracts = depset(),
+            surface = surface,
+            report = report,
+            provenance = provenance,
+        ),
+    ]
+
+fake_component_info = rule(
+    implementation = _fake_component_info_impl,
+    attrs = {
+        "component_name": attr.string(mandatory = True),
+        "mode": attr.string(mandatory = True),
+    },
+    provides = [ArccComponentInfo],
+    doc = "Test-only malformed ArccComponentInfo provider shape.",
+)
+
 def _darwin_arm64_transition_impl(settings, attr):
     return {
         "//command_line_option:platforms": [

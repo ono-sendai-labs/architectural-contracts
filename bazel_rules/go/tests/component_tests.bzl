@@ -23,6 +23,14 @@ _NEVER_INFRA_COMPONENT = "//bazel_rules/go/tests/testdata/membercomponent:never_
 _AUTHORED_WINS_INFRA_COMPONENT = "//bazel_rules/go/tests/testdata/membercomponent:authored_wins_infra_component"
 _MULTI_INFRA_A = "//bazel_rules/go/tests/testdata/membercomponent:multi_infra_a"
 _MULTI_INFRA_B = "//bazel_rules/go/tests/testdata/membercomponent:multi_infra_b"
+_BINDINGS_COMPONENT = "//bazel_rules/go/tests/testdata/reportboundary/consumer:bindings_component"
+
+_MISSING_SURFACE_COMPONENT = "//bazel_rules/go/tests/testdata/reportboundary/consumer:missing_surface_component"
+_CHECKED_WITHOUT_REPORT_COMPONENT = "//bazel_rules/go/tests/testdata/reportboundary/consumer:checked_without_report_component"
+_ASSERTED_WITH_REPORT_COMPONENT = "//bazel_rules/go/tests/testdata/reportboundary/consumer:asserted_with_report_component"
+_UNKNOWN_PROVENANCE_COMPONENT = "//bazel_rules/go/tests/testdata/reportboundary/consumer:unknown_provenance_component"
+_DUPLICATE_DEPENDENCY_COMPONENT = "//bazel_rules/go/tests/testdata/reportboundary/consumer:duplicate_dependency_component"
+_CONFLICTING_EDGE_COMPONENT = "//bazel_rules/go/tests/testdata/reportboundary/consumer:conflicting_edge_component"
 
 def _membership_classification_test(name):
     analysis_test(
@@ -308,26 +316,19 @@ def _never_infra_impl(env, target):
         [file.basename for file in info.transitive_manifests.to_list()],
     ).contains_exactly(["never_infra_component.component.textproto"])
 
-def _authored_wins_infra_test(name):
+def _authored_auto_conflict_test(name):
     analysis_test(
         name = name,
         target = _AUTHORED_WINS_INFRA_COMPONENT,
-        impl = _authored_wins_infra_impl,
+        impl = _authored_auto_conflict_impl,
         attr_values = {"size": "small"},
+        expect_failure = True,
     )
 
-def _authored_wins_infra_impl(env, target):
-    info = target[ArccComponentInfo]
-    env.expect.that_collection(
-        [file.basename for file in info.transitive_manifests.to_list()],
-    ).contains_exactly([
-        "authored_wins_infra_component.component.textproto",
-        "package_surface_component.component.textproto",
-    ])
-    manifest_path = "bazel_rules/go/tests/testdata/membercomponent/authored_wins_infra_component.component.textproto"
-    action = env.expect.that_target(target).action_generating(manifest_path)
-    action.content().contains('name: "package_surface_component"')
-    action.content().split("\n").not_contains("  auto_attached: true")
+def _authored_auto_conflict_impl(env, target):
+    env.expect.that_target(target).failures().contains_predicate(
+        matching.str_matches("*authored and auto-attached dependencies named package_surface_component*"),
+    )
 
 def _deterministic_multi_infra_test(name):
     analysis_test(
@@ -372,6 +373,99 @@ def _deterministic_multi_infra_impl(env, target):
     layout_a = action_layout_a.actual.content
     layout_b_norm = action_layout_b.actual.content.replace("multi_infra_b", "multi_infra_a")
     env.expect.that_str(layout_a).equals(layout_b_norm)
+
+def _dependency_artifact_bindings_test(name):
+    analysis_test(
+        name = name,
+        target = _BINDINGS_COMPONENT,
+        impl = _dependency_artifact_bindings_impl,
+        attr_values = {"size": "small"},
+    )
+
+def _dependency_artifact_bindings_impl(env, target):
+    info = target[ArccComponentInfo]
+    layout = env.expect.that_target(target).action_generating(info.layout.short_path).actual.content
+    bindings = json.decode(layout)["dependency_artifact_bindings"]
+    env.expect.that_collection([binding["dependency"] for binding in bindings]).contains_exactly([
+        "manual_component",
+        "runtime_component",
+        "shared_component",
+    ]).in_order()
+    env.expect.that_bool(bindings[0].get("auto_attached", False)).equals(False)
+    env.expect.that_str(bindings[0]["provenance"]).equals("asserted")
+    env.expect.that_bool(bindings[0].get("report", "") == "").equals(True)
+    env.expect.that_bool(bindings[1]["auto_attached"]).equals(True)
+    env.expect.that_str(bindings[1]["provenance"]).equals("checked")
+    env.expect.that_bool(bindings[2]["auto_attached"]).equals(False)
+
+    # Authored checked/asserted edges plus an auto-attached checked edge exercise
+    # every binding field. The collection is canonicalized by dependency name.
+    env.expect.that_str(layout).contains('"dependency_artifact_bindings": [')
+    env.expect.that_str(layout).contains('"dependency": "manual_component"')
+    env.expect.that_str(layout).contains('reportboundary/manual/manual_component.surface.json')
+    env.expect.that_str(layout).contains('"dependency": "shared_component"')
+    env.expect.that_str(layout).contains('"report": "_main/bazel_rules/go/tests/testdata/shared/shared_component.report.json"')
+    env.expect.that_str(layout).contains('"auto_attached": true')
+    env.expect.that_str(layout).contains('"dependency": "runtime_component"')
+    env.expect.that_str(layout).contains('"report": "_main/bazel_rules/go/tests/testdata/infra/runtime/runtime_component.report.json"')
+    env.expect.that_str(layout).contains('"provenance": "checked"')
+    env.expect.that_str(layout).contains('"provenance": "asserted"')
+
+def _dependency_artifact_inputs_test(name):
+    analysis_test(
+        name = name,
+        target = _BINDINGS_COMPONENT,
+        impl = _dependency_artifact_inputs_impl,
+        attr_values = {"size": "small"},
+    )
+
+def _dependency_artifact_inputs_impl(env, target):
+    info = target[ArccComponentInfo]
+    action = env.expect.that_target(target).action_generating(info.report.short_path).actual
+    inputs = {file.basename: True for file in action.inputs.to_list()}
+    for artifact in [
+        "shared_component.surface.json",
+        "shared_component.report.json",
+        "manual_component.surface.json",
+        "runtime_component.surface.json",
+        "runtime_component.report.json",
+    ]:
+        env.expect.that_bool(inputs.get(artifact, False)).equals(True)
+
+def _dependency_provider_failure_impl(env, target):
+    env.expect.that_target(target).failures().contains_predicate(
+        matching.str_matches("*component *:*"),
+    )
+    env.expect.that_target(target).failures().contains_predicate(
+        matching.str_matches("*dependency*"),
+    )
+
+def _dependency_provider_failure_test(name, target):
+    analysis_test(
+        name = name,
+        target = target,
+        impl = _dependency_provider_failure_impl,
+        attr_values = {"size": "small"},
+        expect_failure = True,
+    )
+
+def _missing_surface_provider_test(name):
+    _dependency_provider_failure_test(name, _MISSING_SURFACE_COMPONENT)
+
+def _checked_without_report_provider_test(name):
+    _dependency_provider_failure_test(name, _CHECKED_WITHOUT_REPORT_COMPONENT)
+
+def _asserted_with_report_provider_test(name):
+    _dependency_provider_failure_test(name, _ASSERTED_WITH_REPORT_COMPONENT)
+
+def _unknown_provenance_provider_test(name):
+    _dependency_provider_failure_test(name, _UNKNOWN_PROVENANCE_COMPONENT)
+
+def _duplicate_dependency_provider_test(name):
+    _dependency_provider_failure_test(name, _DUPLICATE_DEPENDENCY_COMPONENT)
+
+def _conflicting_edge_provider_test(name):
+    _dependency_provider_failure_test(name, _CONFLICTING_EDGE_COMPONENT)
 
 def _checked_action(env, target):
     """The component's ArccCheck action, as (subject, raw action)."""
@@ -641,8 +735,16 @@ def go_component_test_suite(name):
             _closure_attached_infra_test,
             _root_collection_attachment_test,
             _never_infra_test,
-            _authored_wins_infra_test,
+            _authored_auto_conflict_test,
             _deterministic_multi_infra_test,
+            _dependency_artifact_bindings_test,
+            _dependency_artifact_inputs_test,
+            _missing_surface_provider_test,
+            _checked_without_report_provider_test,
+            _asserted_with_report_provider_test,
+            _unknown_provenance_provider_test,
+            _duplicate_dependency_provider_test,
+            _conflicting_edge_provider_test,
             _checked_component_outputs_test,
             _checked_action_command_test,
             _checked_action_inputs_test,

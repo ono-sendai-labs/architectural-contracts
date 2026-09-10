@@ -281,8 +281,11 @@ Expands to:
     default outputs, so `bazel build //...` runs no component analysis;
     building the group, or any consumer of the artifacts, builds the
     analysis. Direct `component_deps` artifacts are declared inputs
-    of the action, so building a dependent's analysis orders its
-    dependencies' producer chain. The provider's `surface`, `report` and
+    of the action and are named in the layout's sorted
+    `dependency_artifact_bindings` collection. Each binding is build metadata
+    linking a manifest dependency to its runfiles-frame artifacts and structural
+    `checked`/`asserted` producer kind; it carries no authority, verdict, or
+    freshness claim. The provider's `surface`, `report` and
     `provenance = "checked"` fields carry the results.
     Declared-style targets also forward the interface library's Go
     providers, so only those component targets can be used as a `deps`

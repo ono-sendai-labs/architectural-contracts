@@ -1,4 +1,6 @@
 load("@rules_arcc//bazel_rules/go:defs.bzl", "go_component")
+load("//bazel_rules/go/tests:testing.bzl", "testing_go_component")
+load("//bazel_rules/go/tests:probe.bzl", "fake_component_info")
 load("@rules_go//go:def.bzl", "go_library")
 
 go_library(
@@ -23,6 +25,87 @@ go_component(
         "//bazel_rules/go/tests/testdata/reportboundary/manual:manual_component",
     ],
     interface = ":consumer",
+    check_tags = ["manual"],
+    visibility = ["//bazel_rules:__subpackages__"],
+)
+
+# Binding-shape fixture: authored checked and asserted dependencies plus an
+# auto-attached checked infrastructure dependency. Its generated check is
+# analysis-test material, so the check assertion itself stays manual.
+testing_go_component(
+    name = "bindings_component",
+    component_deps = [
+        "//bazel_rules/go/tests/testdata/shared:shared_component",
+        "//bazel_rules/go/tests/testdata/reportboundary/manual:manual_component",
+    ],
+    infra_deps = ["//bazel_rules/go/tests/testdata/infra/runtime:runtime_component"],
+    interface = ":consumer",
+    test_infra_attach = "ALWAYS",
+    check_tags = ["manual"],
+    visibility = ["//bazel_rules:__subpackages__"],
+)
+
+fake_component_info(name = "missing_surface_provider", component_name = "missing_surface_dep", mode = "missing_surface")
+fake_component_info(name = "checked_without_report_provider", component_name = "checked_without_report_dep", mode = "checked_without_report")
+fake_component_info(name = "asserted_with_report_provider", component_name = "asserted_with_report_dep", mode = "asserted_with_report")
+fake_component_info(name = "unknown_provenance_provider", component_name = "unknown_provenance_dep", mode = "unknown")
+fake_component_info(name = "duplicate_dependency_provider_a", component_name = "duplicate_dep", mode = "checked")
+fake_component_info(name = "duplicate_dependency_provider_b", component_name = "duplicate_dep", mode = "checked")
+fake_component_info(name = "conflicting_authored_provider", component_name = "conflicting_dep", mode = "conflict")
+fake_component_info(name = "conflicting_auto_provider", component_name = "conflicting_dep", mode = "conflict")
+
+testing_go_component(
+    name = "missing_surface_component",
+    tags = ["manual"],
+    component_deps = [":missing_surface_provider"],
+    interface = ":consumer",
+    check_tags = ["manual"],
+    visibility = ["//bazel_rules:__subpackages__"],
+)
+
+testing_go_component(
+    name = "checked_without_report_component",
+    tags = ["manual"],
+    component_deps = [":checked_without_report_provider"],
+    interface = ":consumer",
+    check_tags = ["manual"],
+    visibility = ["//bazel_rules:__subpackages__"],
+)
+
+testing_go_component(
+    name = "asserted_with_report_component",
+    tags = ["manual"],
+    component_deps = [":asserted_with_report_provider"],
+    interface = ":consumer",
+    check_tags = ["manual"],
+    visibility = ["//bazel_rules:__subpackages__"],
+)
+
+testing_go_component(
+    name = "unknown_provenance_component",
+    tags = ["manual"],
+    component_deps = [":unknown_provenance_provider"],
+    interface = ":consumer",
+    check_tags = ["manual"],
+    visibility = ["//bazel_rules:__subpackages__"],
+)
+
+testing_go_component(
+    name = "duplicate_dependency_component",
+    tags = ["manual"],
+    component_deps = [":duplicate_dependency_provider_a", ":duplicate_dependency_provider_b"],
+    interface = ":consumer",
+    check_tags = ["manual"],
+    visibility = ["//bazel_rules:__subpackages__"],
+)
+
+testing_go_component(
+    name = "conflicting_edge_component",
+    tags = ["manual"],
+    component_deps = [":conflicting_authored_provider"],
+    infra_deps = [":conflicting_auto_provider"],
+    interface = ":consumer",
+    test_infra_attach = "ALWAYS",
     check_tags = ["manual"],
     visibility = ["//bazel_rules:__subpackages__"],
 )

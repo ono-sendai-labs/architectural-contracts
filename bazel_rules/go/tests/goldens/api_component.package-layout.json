@@ -1,4 +1,13 @@
 {
+  "dependency_artifact_bindings": [
+    {
+      "auto_attached": false,
+      "dependency": "shared_component",
+      "provenance": "checked",
+      "report": "_main/bazel_rules/go/tests/testdata/shared/shared_component.report.json",
+      "surface": "_main/bazel_rules/go/tests/testdata/shared/shared_component.surface.json"
+    }
+  ],
   "go_sdk_root": "<GO_SDK_ROOT>",
   "packages": [
     {
