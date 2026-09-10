@@ -24,10 +24,12 @@ const (
 	MemberOverlap            Kind = "MEMBER_OVERLAP"
 
 	// Warnings
-	AnalysisLimitation    Kind = "ANALYSIS_LIMITATION"
-	AllowedWithWarning    Kind = "ALLOWED_WITH_WARNING"
-	UnusedDependency      Kind = "UNUSED_DEPENDENCY"
-	InterfaceFileExcluded Kind = "INTERFACE_FILE_EXCLUDED"
+	AnalysisLimitation     Kind = "ANALYSIS_LIMITATION"
+	AllowedWithWarning     Kind = "ALLOWED_WITH_WARNING"
+	UnusedDependency       Kind = "UNUSED_DEPENDENCY"
+	InterfaceFileExcluded  Kind = "INTERFACE_FILE_EXCLUDED"
+	DependencyCheckFailed  Kind = "DEPENDENCY_CHECK_FAILED"
+	DependencySurfaceStale Kind = "DEPENDENCY_SURFACE_STALE"
 )
 
 // String returns the string representation of the Kind.
@@ -68,9 +70,47 @@ type Finding struct {
 	Sites    []AuthoritySite `json:"sites,omitempty"`
 }
 
-// DependencyBoundary represents a component dependency boundary annotation in a report.
+// DependencyProvenance identifies the structural producer and conformance
+// result behind a dependency surface. It is separate from freshness and
+// authority so a report cannot collapse distinct trust states into one label.
+type DependencyProvenance string
+
+const (
+	DependencyProvenanceCheckedPass DependencyProvenance = "CHECKED_PASS"
+	DependencyProvenanceCheckedFail DependencyProvenance = "CHECKED_FAIL"
+	DependencyProvenanceAsserted    DependencyProvenance = "ASSERTED"
+)
+
+// DependencyFreshness identifies how a dependency surface was tied to its
+// producer inputs.
+type DependencyFreshness string
+
+const (
+	DependencyFreshnessBuildGraph DependencyFreshness = "BUILD_GRAPH"
+	DependencyFreshnessVerified   DependencyFreshness = "VERIFIED"
+	DependencyFreshnessStale      DependencyFreshness = "STALE"
+	DependencyFreshnessUnknown    DependencyFreshness = "UNKNOWN"
+)
+
+// DependencyAuthority identifies the structural authority declaration carried
+// by a dependency surface. DeclaredAuthority is meaningful for DECLARED and
+// remains empty for UNKNOWN.
+type DependencyAuthority string
+
+const (
+	DependencyAuthorityDeclared DependencyAuthority = "DECLARED"
+	DependencyAuthorityUnknown  DependencyAuthority = "UNKNOWN"
+)
+
+// DependencyBoundary represents a component dependency boundary annotation
+// in a report. The three status axes are deliberately persisted separately;
+// the text renderer only adds familiar summary words for their combinations.
 type DependencyBoundary struct {
-	Component string `json:"component"`
+	Component         string               `json:"component"`
+	Provenance        DependencyProvenance `json:"provenance,omitempty"`
+	Freshness         DependencyFreshness  `json:"freshness,omitempty"`
+	Authority         DependencyAuthority  `json:"authority,omitempty"`
+	DeclaredAuthority []string             `json:"declared_authority,omitempty"`
 }
 
 // ConformanceReport is the overall result of analyzing a component against its manifest.
@@ -148,7 +188,32 @@ func renderFinding(sb *strings.Builder, f Finding) {
 }
 
 func formatDependencyBoundary(dep DependencyBoundary) string {
-	return fmt.Sprintf("- %s", dep.Component)
+	words := dependencyStatusWords(dep)
+	if len(words) == 0 {
+		return fmt.Sprintf("- %s", dep.Component)
+	}
+	return fmt.Sprintf("- %s (%s)", dep.Component, strings.Join(words, ", "))
+}
+
+func dependencyStatusWords(dep DependencyBoundary) []string {
+	var words []string
+	switch dep.Provenance {
+	case DependencyProvenanceCheckedPass:
+		if dep.Freshness != DependencyFreshnessStale {
+			words = append(words, "certified")
+		}
+	case DependencyProvenanceCheckedFail:
+		words = append(words, "check failed")
+	case DependencyProvenanceAsserted:
+		words = append(words, "asserted")
+	}
+	if dep.Freshness == DependencyFreshnessStale {
+		words = append(words, "stale")
+	}
+	if dep.Authority == DependencyAuthorityUnknown {
+		words = append(words, "untrusted")
+	}
+	return words
 }
 
 // Verdict is the explicit pass/fail outcome recorded in a persisted report

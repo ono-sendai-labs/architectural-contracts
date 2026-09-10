@@ -5,7 +5,10 @@
     "component": "api_component",
     "dependencies": [
       {
-        "component": "shared_component"
+        "component": "shared_component",
+        "provenance": "CHECKED_PASS",
+        "freshness": "BUILD_GRAPH",
+        "authority": "DECLARED"
       }
     ],
     "violations": null,

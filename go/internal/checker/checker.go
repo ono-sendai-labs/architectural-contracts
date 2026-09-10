@@ -149,6 +149,26 @@ func Check(in Inputs) (report.ConformanceReport, error) {
 		}
 	}
 
+	// A checked-fail dependency remains a usable architectural boundary: its
+	// surface still owns the packages and symbols, while its own violations
+	// stay in its report. Record one downstream warning per failed report rather
+	// than copying findings or failing the dependent a second time. Native stale
+	// surfaces are likewise usable, but their best-effort byte audit is visible.
+	for _, di := range in.DepIfaces {
+		if di.Provenance == facts.DependencyProvenanceCheckedFail {
+			warnings = append(warnings, report.Finding{
+				Kind:    report.DependencyCheckFailed,
+				Message: fmt.Sprintf("dependency %q failed its conformance check", di.Component),
+			})
+		}
+		if di.Freshness == facts.DependencyFreshnessStale {
+			warnings = append(warnings, report.Finding{
+				Kind:    report.DependencySurfaceStale,
+				Message: fmt.Sprintf("dependency %q surface is stale", di.Component),
+			})
+		}
+	}
+
 	// 6. FR6 policy-aware ambient-authority rule (DR-11, DR-17): aggregate
 	// the stdlib classifications and bypass observations, then apply the
 	// effective policy.
@@ -183,9 +203,23 @@ func Check(in Inputs) (report.ConformanceReport, error) {
 
 	var depBoundaries []report.DependencyBoundary
 	for _, di := range in.DepIfaces {
-		depBoundaries = append(depBoundaries, report.DependencyBoundary{
-			Component: di.Component,
-		})
+		boundary := report.DependencyBoundary{Component: di.Component}
+		// Zero-value interfaces are retained for pure checker fixtures written
+		// before the surface status axes existed. Every production surface
+		// resolver supplies provenance, freshness, and authority, so published
+		// reports always carry all three axes.
+		if di.Provenance != "" || di.Freshness != "" || di.Authority.Known || len(di.Authority.Set) > 0 {
+			boundary.Provenance = report.DependencyProvenance(di.Provenance)
+			boundary.Freshness = report.DependencyFreshness(di.Freshness)
+			if di.Authority.Known {
+				boundary.Authority = report.DependencyAuthorityDeclared
+				boundary.DeclaredAuthority = slices.Clone(di.Authority.Set)
+				slices.Sort(boundary.DeclaredAuthority)
+			} else {
+				boundary.Authority = report.DependencyAuthorityUnknown
+			}
+		}
+		depBoundaries = append(depBoundaries, boundary)
 	}
 	slices.SortFunc(depBoundaries, func(a, b report.DependencyBoundary) int {
 		return strings.Compare(a.Component, b.Component)

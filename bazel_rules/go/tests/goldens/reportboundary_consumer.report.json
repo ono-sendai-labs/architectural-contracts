@@ -5,10 +5,16 @@
     "component": "consumer_component",
     "dependencies": [
       {
-        "component": "manual_component"
+        "component": "manual_component",
+        "provenance": "ASSERTED",
+        "freshness": "BUILD_GRAPH",
+        "authority": "UNKNOWN"
       },
       {
-        "component": "shared_component"
+        "component": "shared_component",
+        "provenance": "CHECKED_PASS",
+        "freshness": "BUILD_GRAPH",
+        "authority": "DECLARED"
       }
     ],
     "violations": null,

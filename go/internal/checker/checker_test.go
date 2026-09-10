@@ -1903,3 +1903,61 @@ func TestCheck_InventoryGapIsToolError(t *testing.T) {
 		t.Errorf("error = %v, want it to name the absent symbol", err)
 	}
 }
+
+func TestCheck_FailedDependencyWarnsWithoutCopyingFindings(t *testing.T) {
+	in := checker.Inputs{
+		Manifest: manifest.Manifest{Name: "consumer"},
+		Facts: facts.PackageFacts{
+			Packages: []facts.PackageFact{{ImportPath: "consumer/pkg"}},
+		},
+		DepIfaces: []facts.DependencyInterface{{
+			Component:  "failed-dep",
+			Packages:   []string{"example.com/failed"},
+			Provenance: facts.DependencyProvenanceCheckedFail,
+			Freshness:  facts.DependencyFreshnessBuildGraph,
+			Authority:  manifest.UnknownAuthority(),
+		}},
+		Authority: newStubAuthority(),
+		SDKKey:    checkKey,
+	}
+
+	rep := check(t, in)
+	if len(rep.Violations) != 0 {
+		t.Fatalf("violations = %#v, want no copied dependency findings", rep.Violations)
+	}
+	if len(rep.Warnings) != 1 || rep.Warnings[0].Kind != report.DependencyCheckFailed {
+		t.Fatalf("warnings = %#v, want one DEPENDENCY_CHECK_FAILED warning", rep.Warnings)
+	}
+	if strings.Contains(rep.Warnings[0].Message, "failed-dep") == false {
+		t.Errorf("warning = %q, want dependency name", rep.Warnings[0].Message)
+	}
+	if len(rep.Dependencies) != 1 || rep.Dependencies[0].Provenance != report.DependencyProvenanceCheckedFail {
+		t.Errorf("dependencies = %#v, want CHECKED_FAIL boundary", rep.Dependencies)
+	}
+}
+
+func TestCheck_StaleDependencyWarnsAndRemainsUsable(t *testing.T) {
+	in := checker.Inputs{
+		Manifest: manifest.Manifest{Name: "consumer"},
+		Facts: facts.PackageFacts{
+			Packages: []facts.PackageFact{{ImportPath: "consumer/pkg"}},
+		},
+		DepIfaces: []facts.DependencyInterface{{
+			Component:  "stale-dep",
+			Packages:   []string{"example.com/stale"},
+			Provenance: facts.DependencyProvenanceAsserted,
+			Freshness:  facts.DependencyFreshnessStale,
+			Authority:  manifest.UnknownAuthority(),
+		}},
+		Authority: newStubAuthority(),
+		SDKKey:    checkKey,
+	}
+
+	rep := check(t, in)
+	if len(rep.Violations) != 0 {
+		t.Fatalf("violations = %#v, want stale status to remain usable", rep.Violations)
+	}
+	if len(rep.Warnings) != 1 || rep.Warnings[0].Kind != report.DependencySurfaceStale {
+		t.Fatalf("warnings = %#v, want one stale-surface warning", rep.Warnings)
+	}
+}

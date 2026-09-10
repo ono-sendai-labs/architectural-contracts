@@ -169,6 +169,69 @@ func TestJSON_DependenciesSerialization(t *testing.T) {
 	})
 }
 
+func TestDependencyBoundary_StatusAxesRenderOrthogonally(t *testing.T) {
+	rep := report.ConformanceReport{
+		Component: "consumer",
+		Dependencies: []report.DependencyBoundary{
+			{
+				Component:         "checked",
+				Provenance:        report.DependencyProvenanceCheckedPass,
+				Freshness:         report.DependencyFreshnessBuildGraph,
+				Authority:         report.DependencyAuthorityDeclared,
+				DeclaredAuthority: []string{"FILES"},
+			},
+			{
+				Component:  "failed",
+				Provenance: report.DependencyProvenanceCheckedFail,
+				Freshness:  report.DependencyFreshnessBuildGraph,
+				Authority:  report.DependencyAuthorityDeclared,
+			},
+			{
+				Component:  "unknown",
+				Provenance: report.DependencyProvenanceAsserted,
+				Freshness:  report.DependencyFreshnessStale,
+				Authority:  report.DependencyAuthorityUnknown,
+			},
+		},
+	}
+
+	text := report.RenderText(rep)
+	for _, word := range []string{"certified", "check failed", "asserted", "stale", "untrusted"} {
+		if !strings.Contains(text, word) {
+			t.Errorf("text = %q, want status word %q", text, word)
+		}
+	}
+	if strings.Contains(strings.Split(text, "- failed ")[1], "certified") {
+		t.Errorf("failed boundary was certified in text = %q", text)
+	}
+
+	data, err := json.Marshal(rep)
+	if err != nil {
+		t.Fatalf("json.Marshal() error = %v", err)
+	}
+	var decoded struct {
+		Dependencies []struct {
+			Component         string   `json:"component"`
+			Provenance        string   `json:"provenance"`
+			Freshness         string   `json:"freshness"`
+			Authority         string   `json:"authority"`
+			DeclaredAuthority []string `json:"declared_authority"`
+		} `json:"dependencies"`
+	}
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v", err)
+	}
+	if len(decoded.Dependencies) != 3 {
+		t.Fatalf("decoded dependencies = %#v, want 3 entries", decoded.Dependencies)
+	}
+	if got := decoded.Dependencies[0]; got.Provenance != "CHECKED_PASS" || got.Freshness != "BUILD_GRAPH" || got.Authority != "DECLARED" || !reflect.DeepEqual(got.DeclaredAuthority, []string{"FILES"}) {
+		t.Errorf("checked boundary axes = %#v", got)
+	}
+	if got := decoded.Dependencies[2]; got.Provenance != "ASSERTED" || got.Freshness != "STALE" || got.Authority != "UNKNOWN" {
+		t.Errorf("unknown boundary axes = %#v", got)
+	}
+}
+
 func TestRenderText_WithFindings(t *testing.T) {
 	rep := report.ConformanceReport{
 		Component: "test-comp",

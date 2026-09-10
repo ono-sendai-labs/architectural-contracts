@@ -526,7 +526,7 @@ func TestSelfHostingManifests(t *testing.T) {
 		},
 		"../facts/component.textproto": {
 			name:           "facts",
-			interfaceFiles: []string{"bypass.go", "facts.go", "member.go", "refs.go"},
+			interfaceFiles: []string{"bypass.go", "dependency_status.go", "facts.go", "member.go", "refs.go"},
 			dependencies: map[string]string{
 				"manifest": "../manifest/component.textproto",
 				"symbol":   "../symbol/component.textproto",

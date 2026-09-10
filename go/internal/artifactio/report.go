@@ -187,9 +187,27 @@ func sortDependencies(deps []report.DependencyBoundary) []report.DependencyBound
 		return nil
 	}
 	sorted := make([]report.DependencyBoundary, len(deps))
-	copy(sorted, deps)
+	for i, dep := range deps {
+		sorted[i] = dep
+		if dep.DeclaredAuthority != nil {
+			sorted[i].DeclaredAuthority = slices.Clone(dep.DeclaredAuthority)
+			slices.Sort(sorted[i].DeclaredAuthority)
+		}
+	}
 	slices.SortFunc(sorted, func(a, b report.DependencyBoundary) int {
-		return compareStrings(a.Component, b.Component)
+		if c := compareStrings(a.Component, b.Component); c != 0 {
+			return c
+		}
+		if c := compareStrings(string(a.Provenance), string(b.Provenance)); c != 0 {
+			return c
+		}
+		if c := compareStrings(string(a.Freshness), string(b.Freshness)); c != 0 {
+			return c
+		}
+		if c := compareStrings(string(a.Authority), string(b.Authority)); c != 0 {
+			return c
+		}
+		return compareStringSlices(a.DeclaredAuthority, b.DeclaredAuthority)
 	})
 	return sorted
 }

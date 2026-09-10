@@ -92,8 +92,7 @@ type DependencyInterface struct {
 	Symbols  []SymbolID // the exact declaring-object symbol set (derived, not declared)
 
 	// Provenance, Freshness, and Authority are independent boundary axes. They
-	// are populated by the surface consumer; the legacy source-backed resolver
-	// remains available during the additive Step 7 transition.
+	// are populated only by the validated surface consumer.
 	Provenance DependencyProvenance
 	Freshness  DependencyFreshness
 	Authority  manifest.AuthorityDeclaration
