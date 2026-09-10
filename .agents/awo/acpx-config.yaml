@@ -12,15 +12,39 @@ roles:
 
   # §4.3/§4.5 — writes the code. Session spans one task and all its rework rounds.
   #
-  # TEMPORARY (2026-09-09): switched from opencode/opencode-go/glm-5.3-flash, whose
-  # weekly usage quota was exhausted mid-round on step 6 task 05 — the turn simply
-  # stopped emitting ACP events while its adapter stayed alive, which reads as a
-  # stall rather than as a quota error. Quota resets ~2026-09-13. Revisit then;
-  # this is a cost/capability change, not a considered role decision.
+  # Runs at MAX effort, above the reviewer's xhigh. That inverts the usual
+  # instinct, deliberately. The skill's own rationale is that a task reviewer is
+  # handed acceptance criteria a capable task_generator already wrote and has to
+  # check work against a written contract, not derive from first principles —
+  # it concludes only that the reviewer must not be WEAKER than the implementer,
+  # never that it must be stronger. Working out how to satisfy a criterion is the
+  # harder reasoning problem than checking whether it was satisfied.
+  #
+  # Two things made this affordable and worth doing on 2026-09-09:
+  #   - Step 6 task 06 removed the ~300s stdlib-map generation from every routine
+  #     test invocation, so a slower implementer is no longer prohibitive.
+  #     Before it, max effort would have been paid on top of a pathological gate.
+  #   - The retired opencode implementer (glm-5.3-flash) reportedly defaults to
+  #     max effort already, so it was competing at its ceiling while luna ran at
+  #     high. luna has never been run as implementer at its own ceiling, and
+  #     benchmarks do not put glm above luna. So this is a straight upgrade over
+  #     the previous implementer rather than a lateral move.
+  #
+  # Evidence for the change is suggestive, not conclusive: of three implementer
+  # errors observed at high, one (reporting an acceptance criterion met without
+  # running the query that disproved it) is the kind more reasoning plausibly
+  # prevents; one (mistaking its own acpx session for a competing one) was fixed
+  # by prompt wording instead; one (miscounting its own commits) is universal.
+  #
+  # The agent/model choice here is separate from the effort level and remains
+  # provisional: it moved off opencode only because that quota was exhausted.
+  # If opencode is dropped for good, this becomes the permanent implementer and
+  # `effort: max` should stay; if it is restored, note that glm takes
+  # `effort: null` and this setting does not carry over.
   implementer:
     agent: codex
     model: gpt-5.6-luna
-    effort: high
+    effort: max
 
   # §4.4 — reviews ONE task and its rework rounds. Scoped to a task, so it does not
   # carry cross-task reasoning; that is step_reviewer's job.
