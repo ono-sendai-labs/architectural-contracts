@@ -293,6 +293,65 @@ func Use(p *int) []int {
 	}
 }
 
+func TestCheck_LayoutMapKnownImportMissingFromLayoutFailsClosed(t *testing.T) {
+	workspace := t.TempDir()
+	if err := os.WriteFile(filepath.Join(workspace, "go.mod"), []byte("module example.com/missingstdlib\n\ngo 1.26\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	componentDir := filepath.Join(workspace, "component")
+	if err := os.MkdirAll(componentDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(componentDir, "api.go"), []byte("package component\n\nimport _ \"fmt\"\n\nfunc Use() {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	const member = "example.com/missingstdlib/component"
+	manifestPath := filepath.Join(componentDir, "component.textproto")
+	if err := os.WriteFile(manifestPath, []byte("name: \"missing-stdlib\"\ninterface_style: INTERFACE_STYLE_PACKAGE_SURFACE\nmembers: \""+member+"\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	layout := map[string]any{
+		"roots": []string{member},
+		"packages": []map[string]any{{
+			"id": member, "name": "component", "pkgPath": member,
+			"is_stdlib":       false,
+			"goFiles":         []string{"component/api.go"},
+			"compiledGoFiles": []string{"component/api.go"},
+		}},
+	}
+	layoutData, err := json.Marshal(layout)
+	if err != nil {
+		t.Fatal(err)
+	}
+	layoutPath := filepath.Join(workspace, "package-layout.json")
+	if err := os.WriteFile(layoutPath, layoutData, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	mapPath := filepath.Join(t.TempDir(), "map.json")
+	writePinnedMap(t, mapPath)
+	reportPath := filepath.Join(workspace, "missing-stdlib.report.json")
+	surfacePath := filepath.Join(workspace, "missing-stdlib.surface.json")
+	code, stderr := runRunnerFromWorkspace2(t, workspace, fullRunner(), []string{
+		"check", manifestPath,
+		"--package-layout=" + layoutPath,
+		"--stdlib-map=" + mapPath,
+		"--report-out=" + reportPath,
+		"--surface-out=" + surfacePath,
+	})
+	if code != 2 {
+		t.Fatalf("map-known missing import exit = %d, want 2; stderr = %s", code, stderr)
+	}
+	if !strings.Contains(stderr, "no type or layout data") || !strings.Contains(stderr, `"fmt"`) {
+		t.Fatalf("stderr = %q, want fmt missing-data diagnostic", stderr)
+	}
+	if _, err := os.Stat(reportPath); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("report artifact was published after missing stdlib data (stat error: %v)", err)
+	}
+	if _, err := os.Stat(surfacePath); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("surface artifact was published after missing stdlib data (stat error: %v)", err)
+	}
+}
+
 // TestCheck_UnpinnedLayoutIncompleteSDKKey is the unpinned-layout leg of the
 // fail-closed contract (AC 2; review round 2): a declared map whose SDK key
 // names no concrete target — missing toolchain_version, goos, goarch — must be
