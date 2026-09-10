@@ -382,7 +382,7 @@ func stageCSVToolDependencies(t *testing.T, workspace string) {
 	}
 }
 
-func appendUnavailablePackageToSurface(t *testing.T, surfacePath string) {
+func appendUnavailablePackageToSurface(t *testing.T, workspace, surfacePath string) {
 	t.Helper()
 	data, err := os.ReadFile(surfacePath)
 	if err != nil {
@@ -395,6 +395,13 @@ func appendUnavailablePackageToSurface(t *testing.T, surfacePath string) {
 	if len(decoded.Packages) == 0 {
 		t.Fatal("CSV surface has no package to make unavailable")
 	}
+	unavailableRoot := filepath.Join(workspace, "examples/csvtool/csvfile/unavailable")
+	if err := os.MkdirAll(unavailableRoot, 0o755); err != nil {
+		t.Fatalf("create unavailable CSV source: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(unavailableRoot, "unavailable.go"), []byte("package unavailable\n"), 0o644); err != nil {
+		t.Fatalf("write unavailable CSV source: %v", err)
+	}
 	decoded.Packages = append(decoded.Packages, decoded.Packages[0]+"/unavailable")
 	updated, err := artifactio.MarshalSurface(decoded)
 	if err != nil {
@@ -402,6 +409,9 @@ func appendUnavailablePackageToSurface(t *testing.T, surfacePath string) {
 	}
 	if err := os.WriteFile(surfacePath, updated, 0o644); err != nil {
 		t.Fatalf("write CSV surface with unavailable package: %v", err)
+	}
+	if err := os.Rename(unavailableRoot, unavailableRoot+".unavailable"); err != nil {
+		t.Fatalf("make CSV source unavailable: %v", err)
 	}
 }
 
@@ -1232,7 +1242,7 @@ func TestIntegration_CSVTool_StatusDemo(t *testing.T) {
 	// source, while the native byte-only audit cannot enumerate the complete
 	// persisted source set and must expose UNKNOWN rather than failing the tool.
 	csvfileManifest := filepath.Join(workspace, "examples/csvtool/csvfile/component.textproto")
-	appendUnavailablePackageToSurface(t, artifactio.SurfacePath(csvfileManifest))
+	appendUnavailablePackageToSurface(t, workspace, artifactio.SurfacePath(csvfileManifest))
 	stdout, stderr, code = runArccEnvDir(workspace, nil, []string{"check", appManifest, "--format=json"})
 	if code != 0 {
 		t.Fatalf("CSV unknown run: exit %d, stderr=%q, stdout=%q", code, stderr, stdout)
