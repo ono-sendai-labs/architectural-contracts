@@ -1,0 +1,106 @@
+result:
+  task_file: .agents/tasks/2026-08-04-compositional-component-analysis/step08/task-06-prune-source-inputs-and-report-export-data-diagnostics.code-task.md
+  change_id: mvxlrzlokqylmmtrnlzywnxmqmrwkwuw
+  status: completed
+  schema_version: 2
+  produced_at: 2026-09-11T13:16:04Z
+
+acceptance_criteria:
+  - text: |
+      Bazel action contains only allowed inputs
+      - Given a checked component with a direct dependency and stdlib imports
+      - When an analysis test inspects its `ArccCheck` action
+      - Then inputs include member sources, export data/graph metadata, direct dependency surfaces/reports, manifest/layout, and map, and include no dependency or SDK `.go` source and no toolchain binary/cache.
+    addressed: yes
+    evidence: |
+      `bazel_rules/go/private/component.bzl:635-718` now registers only member_srcs,
+      export/graph metadata, manifest/layout/map, stdlib export inputs, and direct
+      dependency artifacts. `bazel_rules/go/tests/component_tests.bzl:695-800`
+      asserts the exact input set and member-only .go list; `just ci` passed the
+      Bazel action-input and hermetic tests.
+  - text: |
+      Member analyses still have required source
+      - Given interface files, build-tagged member files, assembly/cgo/linkname detection fixtures, and surface emission
+      - When the action runs after pruning
+      - Then every selected member input remains available and existing findings/digests are unchanged.
+    addressed: yes
+    evidence: |
+      `go/internal/packagelayout/packagelayout.go:1800-1895` resolves and filters
+      only member roots while preserving their source/import validation;
+      `go/internal/goanalysis/member_only_integration_test.go:79-247` proves typed
+      facts and references still load with dependency source removed. Native and
+      Bazel integration/self-check lanes passed in `just ci`.
+  - text: |
+      Diagnostics are accurate and deterministic
+      - Given a closure where multiple package records may reference the same physical export artifact
+      - When the report is emitted twice
+      - Then diagnostics record the unique artifact count and exact deduplicated byte sum, and canonical report bytes are identical.
+    addressed: yes
+    evidence: |
+      `go/internal/goanalysis/goanalysis.go:497-575` deduplicates resolved paths,
+      stats regular files, and rejects missing/overflow data. The focused test
+      `TestCollectExportDataDiagnostics_DeduplicatesResolvedArtifacts` covers exact
+      count/bytes, and `go/internal/artifactio/report_test.go:83-112`
+      (`TestMarshalReport_DiagnosticsRemainCanonicalAcrossRepeatedEmission`) pins
+      repeated canonical bytes.
+  - text: |
+      Older reports remain readable
+      - Given a valid persisted report without a diagnostics field
+      - When it is decoded
+      - Then decoding succeeds with zero-value diagnostics and its verdict is unchanged.
+    addressed: yes
+    evidence: |
+      `go/internal/artifactio/report_test.go:193-205`
+      (`TestDecodeReport_LegacyArtifactDefaultsDiagnostics`) decodes the pre-
+      diagnostics envelope, asserts zero diagnostics, and preserves `fail`; the
+      existing `decodePersistedReport` path derives verdict only from violations.
+  - text: |
+      Deep closure works without dependency source
+      - Given the Step 8 synthetic deep closure with every dependency `.go` file absent from the sandbox
+      - When the check runs
+      - Then it succeeds with correct `Uses`/`Selections`, import facts, report, surface, and non-member metrics.
+    addressed: yes
+    evidence: |
+      `go/internal/goanalysis/member_only_integration_test.go:79-247`
+      (`TestLoadPackageFacts_DeepExportClosureWithoutDependencySources`) deletes
+      dep/deep source directories, verifies dep/deep references and imports, and
+      asserts 2 export artifacts totaling 5,000 bytes. The integration suite passed.
+  - text: |
+      Step demo evidence is recorded
+      - Given the final implementation
+      - When the checked action inputs and representative load timing are captured
+      - Then the research note shows no dependency source, lists the export-data inputs, and compares load time with Step 6 without imposing a flaky timeout.
+    addressed: yes
+    evidence: |
+      `.agents/planning/2026-08-04-compositional-component-analysis/research/step08-input-pruning.md:7-46`
+      and `docs/package-layout-schema.md:254-262` list the final input inventory,
+      confirm source absence, record the 0.020 s deep-fixture run and 2/5,000-byte
+      metrics, and compare Step 6 timings without a timeout benchmark.
+  - text: |
+      Integration remains green
+      - Given the final Step 8 state
+      - When `just ci` and self-check run in both supported modes
+      - Then all checks pass and the action remains network-blocked and toolchain-exec-free under Bazel.
+    addressed: yes
+    evidence: |
+      The final `just ci` run passed Go vet/build/unit/integration, the routine
+      stdlib-map pin check, native self-check staging, Bazel build/test, network
+      and toolchain-input hermetic tests, and the malformed-action negative path.
+      The action retains `execution_requirements = {"block-network": "1"}` at
+      `bazel_rules/go/private/component.bzl:714-716`.
+
+artifacts:
+  scratchpad_dir: .agents/scratchpad/2026-08-04-compositional-component-analysis/step08/task-06-prune-source-inputs-and-report-export-data-diagnostics/
+  files:
+    - context.md
+    - plan.md
+    - progress.md
+    - work.log
+    - result.yaml
+
+notes: |
+  Completed Step 8 Task 6 in three fresh jj commits: report diagnostics, Bazel
+  input pruning, and canonical diagnostic-report determinism coverage. Member-only
+  loading now accounts for validated deduplicated export artifacts in native and
+  layout modes, while reports remain backward-readable and violation-derived.
+  The final working copy is empty and `just ci` plus native/Bazel self-checks pass.

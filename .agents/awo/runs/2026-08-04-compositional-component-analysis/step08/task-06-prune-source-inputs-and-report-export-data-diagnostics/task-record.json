@@ -1,0 +1,63 @@
+{
+  "task_file": ".agents/tasks/2026-08-04-compositional-component-analysis/step08/task-06-prune-source-inputs-and-report-export-data-diagnostics.code-task.md",
+  "planning_slug": "2026-08-04-compositional-component-analysis",
+  "step": 8,
+  "task": 6,
+  "implementer_session": "awo-impl-2026-08-04-compositional-component-analysis-step08-task06",
+  "reviewer_session": "awo-rev-2026-08-04-compositional-component-analysis-step08-task06",
+  "base": {
+    "change_id": "vsooxpnpusloswwymnwpsoqovkvuznus",
+    "bookmark": "pr/awo-record-2026-08-04-compositional-component-analysis-step08-task-05"
+  },
+  "produced_changes": [
+    "uowsklqwvorproslrqlzwmkpzwmpvzts",
+    "rwvopzpmvwloumqxwxxqpmzqmwnvvllw",
+    "mvxlrzlokqylmmtrnlzywnxmqmrwkwuw"
+  ],
+  "rounds": [
+    {
+      "round": 0,
+      "role": "implementer",
+      "out": ".agents/runs-acpx/20260911-055025-step08-task-06-prune-source-inputs-and-report-export-data-diagnostics/round-0.implementer",
+      "status": "completed",
+      "tokens": {
+        "total": 387708,
+        "input": 435,
+        "cachedRead": 386816,
+        "output": 457
+      },
+      "context_pct": 45.6,
+      "elapsed_s": 1630,
+      "tool_calls": 1216,
+      "compaction": false,
+      "e0_check": "series added .agents/planning/.../research/step08-input-pruning.md; cleared under E.2 - required deliverable per task TR9/AC6, not a spec amendment"
+    },
+    {
+      "round": 0,
+      "role": "reviewer",
+      "out": ".agents/runs-acpx/20260911-055025-step08-task-06-prune-source-inputs-and-report-export-data-diagnostics/round-0.reviewer",
+      "verdict": "approved",
+      "findings": 1,
+      "findings_severity": "1 nit",
+      "tokens": {
+        "total": 241540,
+        "input": 2916,
+        "cachedRead": 238336,
+        "output": 288
+      },
+      "context_pct": 28.4,
+      "elapsed_s": 606,
+      "tool_calls": 2374,
+      "compaction": false
+    }
+  ],
+  "session_restarts": [],
+  "outcome": {
+    "status": "approved",
+    "rounds": 1,
+    "acceptance_criteria": "7/7",
+    "open_findings": "1 nit (tab indent in component.bzl load), carried in commit description",
+    "orchestrator_gate_check": "just ci exit 0",
+    "bookmark": "pr/2026-08-04-compositional-component-analysis/step08/task-06-prune-source-inputs-and-report-export-data-diagnostics.code-task"
+  }
+}

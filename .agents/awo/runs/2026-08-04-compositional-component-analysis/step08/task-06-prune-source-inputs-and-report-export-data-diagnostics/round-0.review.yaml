@@ -1,0 +1,126 @@
+review:
+  task_file: .agents/tasks/2026-08-04-compositional-component-analysis/step08/task-06-prune-source-inputs-and-report-export-data-diagnostics.code-task.md
+  change_id: mvxlrzlokqylmmtrnlzywnxmqmrwkwuw
+  reviewed_at: 2026-09-11T13:27:14Z
+  verdict: approved
+  schema_version: 2
+  lsp_coverage: unavailable
+
+merge_request:
+  title: "review: prune source inputs and export diagnostics [Component Analysis: Step 08/Task 06]"
+  body: |
+    Reviews the complete ordered task series from base change
+    vsooxpnpusloswwymnwpsoqovkvuznus through the initial diagnostics
+    implementation uowsklqwvorproslrqlzwmkpzwmpvzts, the Bazel input-pruning
+    change rwvopzpmvwloumqxwxxqpmzqmwnvvllw, and the follow-up canonical report
+    determinism test mvxlrzlokqylmmtrnlzywnxmqmrwkwuw.
+
+summary: |
+  The complete three-change series satisfies all seven acceptance criteria: the Bazel ArccCheck action is limited to member sources and the declared export/contract artifacts, diagnostics are fail-closed and deterministic, legacy reports remain readable, and the deep source-absent integration path passes. The required Step 8 research note records the final input inventory and representative timing comparison, and `just ci` passed including native and Bazel self-checks. One nit remains for a tab character in a Starlark load statement; no LSP diagnostics were available in this harness.
+
+acceptance_criteria:
+  - text: |
+      1. **Bazel action contains only allowed inputs**
+         - Given a checked component with a direct dependency and stdlib imports
+         - When an analysis test inspects its `ArccCheck` action
+         - Then inputs include member sources, export data/graph metadata, direct dependency surfaces/reports, manifest/layout, and map, and include no dependency or SDK `.go` source and no toolchain binary/cache.
+    status: pass
+    evidence: |
+      `bazel_rules/go/private/component.bzl:635-718` registers only member
+      sources, the manifest/layout/map, ordinary export and import-graph data,
+      stdlib export inputs, and direct dependency artifacts. The
+      specification-derived positive and negative input assertions are in
+      `bazel_rules/go/tests/component_tests.bzl:695-792`; the final `just ci`
+      Bazel analysis, hermeticity, and toolchain-input tests passed.
+  - text: |
+      2. **Member analyses still have required source**
+         - Given interface files, build-tagged member files, assembly/cgo/linkname detection fixtures, and surface emission
+         - When the action runs after pruning
+         - Then every selected member input remains available and existing findings/digests are unchanged.
+    status: pass
+    evidence: |
+      `bazel_rules/go/private/component.bzl:898-905` derives action sources from
+      effective member roots and retains only Go files. The member-only loader
+      resolves and target-filters root sources at
+      `go/internal/packagelayout/packagelayout.go:1800-1824`, while the
+      dependency-source-absent/refscan coverage remains in
+      `go/internal/goanalysis/member_only_integration_test.go:79-247` and
+      `:250-477`. Native/Bazel analysis, surface, and self-check lanes passed in
+      `just ci`.
+  - text: |
+      3. **Diagnostics are accurate and deterministic**
+         - Given a closure where multiple package records may reference the same physical export artifact
+         - When the report is emitted twice
+         - Then diagnostics record the unique artifact count and exact deduplicated byte sum, and canonical report bytes are identical.
+    status: pass
+    evidence: |
+      `go/internal/goanalysis/goanalysis.go:497-575` resolves, deduplicates,
+      validates, stats, and sums non-member export artifacts with checked
+      overflow. Exact count/bytes, missing-file, and overflow cases are tested
+      in `go/internal/goanalysis/export_diagnostics_test.go:14-121`; repeated
+      canonical report bytes and both diagnostic fields are covered by
+      `go/internal/artifactio/report_test.go:83-112`.
+  - text: |
+      4. **Older reports remain readable**
+         - Given a valid persisted report without a diagnostics field
+         - When it is decoded
+         - Then decoding succeeds with zero-value diagnostics and its verdict is unchanged.
+    status: pass
+    evidence: |
+      `go/internal/artifactio/report_test.go:193-205` decodes a pre-diagnostics
+      persisted report, asserts zero-value diagnostics, and expects `fail`.
+      `go/internal/artifactio/report.go:91-138` decodes the optional embedded
+      report and validates the persisted verdict solely with
+      `report.VerdictOf`, which considers violations.
+  - text: |
+      5. **Deep closure works without dependency source**
+         - Given the Step 8 synthetic deep closure with every dependency `.go` file absent from the sandbox
+         - When the check runs
+         - Then it succeeds with correct `Uses`/`Selections`, import facts, report, surface, and non-member metrics.
+    status: pass
+    evidence: |
+      `go/internal/goanalysis/member_only_integration_test.go:79-247` stages
+      export data for a member/dependency/deep-dependency graph, removes both
+      dependency source directories, verifies import and typed reference facts,
+      and asserts the exact deduplicated metrics. The integration suite and
+      native/Bazel self-checks passed in `just ci`.
+  - text: |
+      6. **Step demo evidence is recorded**
+         - Given the final implementation
+         - When the checked action inputs and representative load timing are captured
+         - Then the research note shows no dependency source, lists the export-data inputs, and compares load time with Step 6 without imposing a flaky timeout.
+    status: pass
+    evidence: |
+      `.agents/planning/2026-08-04-compositional-component-analysis/research/step08-input-pruning.md:7-46` lists the final ArccCheck inventory, explicitly records absence of dependency/SDK source, gives the deep-closure 0.020 s measurement and 2-artifact/5,000-byte result, and compares Step 6 measurements without a timeout benchmark. The package-layout documentation is updated at `docs/package-layout-schema.md:254-262`.
+  - text: |
+      7. **Integration remains green**
+         - Given the final Step 8 state
+         - When `just ci` and self-check run in both supported modes
+         - Then all checks pass and the action remains network-blocked and toolchain-exec-free under Bazel.
+    status: pass
+    evidence: |
+      The review reran `just ci`; Go vet/build/unit/integration, the native
+      staging self-check, Bazel build/test, network/toolchain-input hermeticity,
+      and the malformed-component path all passed. The action keeps
+      `execution_requirements = {"block-network": "1"}` at
+      `bazel_rules/go/private/component.bzl:714-716` and invokes only the arcc
+      executable as its tool at `:712`.
+
+findings:
+  - severity: nit
+    category: style
+    file: bazel_rules/go/private/component.bzl
+    line: 38
+    title: Use spaces for Starlark load indentation
+    details: |
+      The `go_build_platform` entry at `bazel_rules/go/private/component.bzl:38`
+      begins with a tab while the surrounding load entries use four spaces.
+      This is a formatting inconsistency introduced in the task range. No
+      Starlark formatter or LSP was available, and Bazel execution remains
+      unaffected.
+    suggested_action: |
+      Replace the leading tab with the surrounding four-space indentation (or
+      run the repository's Starlark formatter when one is available).
+    source: built-in
+
+ecosystem_reviews: []
