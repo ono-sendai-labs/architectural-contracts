@@ -6,6 +6,7 @@ go_library(
     srcs = [
         "artifactio.go",
         "digest.go",
+        "golden.go",
         "report.go",
     "stdlibmap.go",
     "stdlibmapreader.go",
@@ -38,6 +39,7 @@ go_test(
     srcs = [
         "artifactio_test.go",
         "decode_test.go",
+        "golden_test.go",
         "rework_test.go",
         "report_test.go",
         "stdlibmap_test.go",
