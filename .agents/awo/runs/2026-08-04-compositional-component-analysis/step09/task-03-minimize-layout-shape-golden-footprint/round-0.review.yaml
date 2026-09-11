@@ -1,0 +1,172 @@
+review:
+  task_file: .agents/tasks/2026-08-04-compositional-component-analysis/step09/task-03-minimize-layout-shape-golden-footprint.code-task.md
+  change_id: pmrwlpwlyrwznvoruxkkwmzrrysqrwuk
+  reviewed_at: 2026-09-11T18:46:02Z
+  verdict: changes_requested
+  schema_version: 2
+  lsp_coverage: unavailable
+
+merge_request:
+  title: "minimize layout-shape golden footprint [Compositional Analysis: Step 09/Task 03]"
+  body: |
+    Reviews the complete three-change series: the initial split from combined
+    manifest/layout goldens to typed package-layout shape assertions, removal
+    of redundant snapshots, and addition of the portability guard; the follow-
+    up research/README documentation; and the final deterministic role-file
+    ordering tests and size-cap coverage.
+
+summary: |
+  The implementation separates verdict and layout-shape assertions, adds the
+  typed layout command and portability guard, and records the retained golden
+  contracts with passing focused Bazel checks. The Step 9 inventory table does
+  not account for the two pre-existing raw package-layout files, so its
+  before/after category counts are internally inconsistent. The layout-shape
+  validator also accepts import maps and roots that do not resolve to the
+  declared package closure, leaving the claimed final-shape validation
+  incomplete.
+
+acceptance_criteria:
+  - text: |
+      **Verdict and layout assertions are structurally separate**
+        - Given the Bazel golden targets
+        - When their inputs and runfiles are inspected
+        - Then verdict tests consume only reports and semantic verdict data, while layout-shape tests consume layouts and explicit shape goldens; no combined manifest/layout/verdict assertion remains.
+    status: pass
+    evidence: |
+      The dedicated layout rule stages only the layout, shape golden, and arcc
+      in bazel_rules/go/private/check.bzl:564-617; the corresponding structural
+      tests are in bazel_rules/go/tests/layout_shape_tests.bzl:27-41. Verdict
+      targets remain report/golden assertions in check.bzl:620-670, and the
+      obsolete combined helper is removed.
+  - text: |
+      **Manifest byte goldens are removed when redundant**
+        - Given generated component manifests with host-rewritten import paths
+        - When repository tests run
+        - Then semantic `manifestparity` comparison covers them through canonicalization and no duplicate generated-manifest byte golden requires patching.
+    status: pass
+    evidence: |
+      The two generated-manifest textproto goldens and golden_test.sh are
+      removed in the reviewed range. The manifestparity implementation
+      canonicalizes comparison paths at go/internal/manifestparity/manifestparity.go:180-190,
+      and the task work.log records passing self-parity and manifest-parity
+      checks at lines 318-326 and 341-344.
+  - text: |
+      **Remaining layout goldens cover distinct final shapes**
+        - Given the retained direct-dependency and export-backed member fixtures
+        - When layout-shape tests run
+        - Then final Step 8 package roles, import closure, export metadata, target identity, and dependency bindings are checked after validated normalization.
+    status: partial
+    evidence: |
+      The typed snapshot retains the relevant fields in
+      go/cmd/arcc/app/layoutshape.go:125-177 and :200-324, and both retained
+      Bazel shape goldens pass. However, validation at layoutshape.go:531-540
+      checks only that each import target has a non-empty ID; it does not verify
+      that the target ID exists in the package closure, that roots resolve to
+      packages, or that the member/non-member role constraints are coherent.
+  - text: |
+      **Verdict contamination is rejected**
+        - Given a verdict golden containing an absolute path, a package-closure field, SDK/export metadata, diagnostic metrics, or a configured host prefix
+        - When the portability guard runs
+        - Then it fails and names both the file and the forbidden content category.
+    status: pass
+    evidence: |
+      verdict_golden_portability_test.sh:8-39 scans each supplied verdict
+      golden, BUILD.bazel:530-542 supplies the globbed inventory, and the
+      synthetic probes at verdict_golden_portability_test.sh:60-90 assert
+      nonzero status plus file/class diagnostics for every forbidden class.
+      The target passed in the focused Bazel run.
+  - text: |
+      **Rewritten namespaces preserve semantic goldens**
+        - Given upstream and simulated host-rewritten import namespaces
+        - When verdict golden comparisons run
+        - Then the verdict bytes and outcomes are identical, while any intentionally host-shaped layout value is handled by the documented layout normalizer.
+    status: pass
+    evidence: |
+      The preserved verdict regression at go/cmd/arcc/app/verdict_test.go:222-290
+      compares bytes and both verdict-golden outcomes under an idempotent
+      prefix rewrite. The corresponding layout normalization is tested at
+      go/cmd/arcc/app/layoutshape_test.go:52-80 and implemented at
+      layoutshape.go:588-609; the focused Bazel and recorded Go checks passed.
+  - text: |
+      **The patch-footprint reduction is measured**
+        - Given the completed golden inventory
+        - When the Step 9 research note is reviewed
+        - Then it records reproducible before/after counts, cites the 45-file downstream baseline, and lists every remaining host-patchable golden with its distinct shape-coverage purpose.
+    status: partial
+    evidence: |
+      The note records the inventory commands and 45-file baseline at
+      .agents/planning/2026-08-04-compositional-component-analysis/research/step09-golden-footprint.md:5-16
+      and :43-58, and names the retained shape artifacts and purposes at
+      :67-103. Its count table omits the two pre-existing raw
+      *.package-layout.json files: the listed Before values sum to 15 rather
+      than the stated 16, so the category breakdown is not complete.
+  - text: |
+      **Golden updates are deterministic and documented**
+        - Given an intentional layout or artifact schema change
+        - When the documented update commands are followed twice
+        - Then they produce byte-identical normalized goldens without copying machine-local absolute paths.
+    status: pass
+    evidence: |
+      snapshotLayoutShape rejects non-canonical input before normalization at
+      go/cmd/arcc/app/layoutshape.go:55-73, and sorts shape collections at
+      :205-252 and :269-314. The reordered/repeated update regression is at
+      go/cmd/arcc/app/layoutshape_test.go:82-110. The typed --print workflow
+      and prohibition on raw copies are documented in the research note at
+      :128-144 and README.md:252-260.
+  - text: |
+      **Integration remains green**
+        - Given the minimized golden suite
+        - When `just ci`, self-check, and manifest parity run
+        - Then all checks pass and coverage for final layout shape, report/surface/map artifacts, and semantic verdicts remains present.
+    status: pass
+    evidence: |
+      The task work.log records the complete just ci run and its self-check,
+      manifest-parity, artifact-shape, layout-shape, verdict, portability, and
+      162-test Bazel results at lines 318-326 and 341-344. The focused current
+      Bazel run also passed the layout-shape, portability, and member-order
+      targets.
+
+findings:
+  - severity: important
+    category: acceptance_criteria
+    file: .agents/planning/2026-08-04-compositional-component-analysis/research/step09-golden-footprint.md
+    line: 55
+    title: Before/after inventory omits raw layout snapshots
+    details: |
+      The table claims a 16-to-14 golden-directory reduction, but its category
+      rows omit the two pre-task full package-layout JSON snapshots that were
+      part of the four combined/layout files. Consequently the Before column
+      sums to 15 (3 verdict + 4 report + 3 surface + 2 map + 0 typed layout +
+      2 manifest), not 16. The note therefore does not provide a complete
+      before/after count by category as required by AC6, even though the files
+      themselves were removed/replaced in the change.
+    suggested_action: |
+      Add an explicit row for the raw full package-layout snapshots (2 before,
+      0 after), or classify them in a clearly named layout row while separately
+      showing the new typed layout goldens (0 before, 2 after). Make the row
+      totals reconcile with the stated 16-to-14 result.
+    source: built-in
+  - severity: important
+    category: acceptance_criteria
+    file: go/cmd/arcc/app/layoutshape.go
+    line: 532
+    title: Layout-shape validation does not verify closure references
+    details: |
+      validateLayoutShape checks roots and package uniqueness, but for each
+      Imports entry it only checks that the value is non-nil and has a non-empty
+      ID (layoutshape.go:532-540). It never indexes the declared packages to
+      verify that an import target exists, and it does not verify that every
+      root resolves to a package or that the import key agrees with the target
+      package identity. A malformed final layout can therefore be normalized
+      and accepted by artifact-shape layout, undermining AC3's required import
+      closure and final package-role validation.
+    suggested_action: |
+      Build canonical ID and package-path indexes during validation, require
+      every root and import target to resolve to a declared package, reject
+      canonical identity mismatches/collisions, and enforce the member-root
+      versus non-member export/import role constraints before producing the
+      shape snapshot. Add regression cases for a missing root and a dangling or
+      mismatched import target.
+    source: built-in
+
+ecosystem_reviews: []

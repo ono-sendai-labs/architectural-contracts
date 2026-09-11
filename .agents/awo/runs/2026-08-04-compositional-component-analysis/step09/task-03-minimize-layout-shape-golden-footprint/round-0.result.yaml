@@ -1,0 +1,115 @@
+result:
+  task_file: .agents/tasks/2026-08-04-compositional-component-analysis/step09/task-03-minimize-layout-shape-golden-footprint.code-task.md
+  change_id: pmrwlpwlyrwznvoruxkkwmzrrysqrwuk
+  status: completed
+  schema_version: 2
+  produced_at: "2026-09-11T18:31:38Z"
+
+acceptance_criteria:
+  - text: |
+      **Verdict and layout assertions are structurally separate**
+        - Given the Bazel golden targets
+        - When their inputs and runfiles are inspected
+        - Then verdict tests consume only reports and semantic verdict data, while layout-shape tests consume layouts and explicit shape goldens; no combined manifest/layout/verdict assertion remains.
+    addressed: yes
+    evidence: |
+      The dedicated layout rule and its layout-only runfiles are implemented in
+      bazel_rules/go/private/check.bzl:564-617 and registered at
+      bazel_rules/go/tests/BUILD.bazel:544-560. The verdict rule remains a
+      report-only assertion, and `bazel test //...` passed all 162 tests.
+  - text: |
+      **Manifest byte goldens are removed when redundant**
+        - Given generated component manifests with host-rewritten import paths
+        - When repository tests run
+        - Then semantic `manifestparity` comparison covers them through canonicalization and no duplicate generated-manifest byte golden requires patching.
+    addressed: yes
+    evidence: |
+      The redundant `golden_test.sh` and two generated-manifest goldens are
+      deleted; the final inventory and 16-to-14 reduction are recorded in
+      .agents/planning/2026-08-04-compositional-component-analysis/research/step09-golden-footprint.md:43-58.
+      `go/examples/csvtool/app:manifest_parity_test` and the app self-parity
+      target ran successfully in `just ci`.
+  - text: |
+      **Remaining layout goldens cover distinct final shapes**
+        - Given the retained direct-dependency and export-backed member fixtures
+        - When layout-shape tests run
+        - Then final Step 8 package roles, import closure, export metadata, target identity, and dependency bindings are checked after validated normalization.
+    addressed: yes
+    evidence: |
+      The typed package snapshot retains source roles, export files, imports,
+      target/stdlib metadata, and dependency bindings in
+      go/cmd/arcc/app/layoutshape.go:125-177 and :200-324. The distinct API
+      direct-binding and member export-closure goldens are
+      bazel_rules/go/tests/goldens/api_component.layout.shape.golden.json:1
+      and member_component.layout.shape.golden.json:1; both live targets pass.
+  - text: |
+      **Verdict contamination is rejected**
+        - Given a verdict golden containing an absolute path, a package-closure field, SDK/export metadata, diagnostic metrics, or a configured host prefix
+        - When the portability guard runs
+        - Then it fails and names both the file and the forbidden content category.
+    addressed: yes
+    evidence: |
+      bazel_rules/go/tests/verdict_golden_portability_test.sh:8-39 scans each
+      file, and :60-90 executes contamination probes for every forbidden class
+      while checking file/class diagnostics. BUILD.bazel:530-542 supplies the
+      `glob(["goldens/*.verdict.golden"])` inventory; the guard target passed.
+  - text: |
+      **Rewritten namespaces preserve semantic goldens**
+        - Given upstream and simulated host-rewritten import namespaces
+        - When verdict golden comparisons run
+        - Then the verdict bytes and outcomes are identical, while any intentionally host-shaped layout value is handled by the documented layout normalizer.
+    addressed: yes
+    evidence: |
+      go/cmd/arcc/app/verdict_test.go:222-290 proves byte-identical verdict
+      goldens/outcomes under an idempotent prefix rewrite. The corresponding
+      layout import-path normalization is covered by
+      go/cmd/arcc/app/layoutshape_test.go:52-80 and the typed normalizer at
+      go/cmd/arcc/app/layoutshape.go:600-620; both focused tests pass.
+  - text: |
+      **The patch-footprint reduction is measured**
+        - Given the completed golden inventory
+        - When the Step 9 research note is reviewed
+        - Then it records reproducible before/after counts, cites the 45-file downstream baseline, and lists every remaining host-patchable golden with its distinct shape-coverage purpose.
+    addressed: yes
+    evidence: |
+      The research/demo note at
+      .agents/planning/2026-08-04-compositional-component-analysis/research/step09-golden-footprint.md:9-58 records both inventory commands, the 45-file baseline, and category counts; :67-103 names every retained shape-golden group and its purpose.
+  - text: |
+      **Golden updates are deterministic and documented**
+        - Given an intentional layout or artifact schema change
+        - When the documented update commands are followed twice
+        - Then they produce byte-identical normalized goldens without copying machine-local absolute paths.
+    addressed: yes
+    evidence: |
+      snapshotLayoutShape validates canonical layout bytes before placeholder
+      normalization in go/cmd/arcc/app/layoutshape.go:50-100, sorts all shape
+      collections at :205-252 and :270-314, and the repeated/reordered update
+      test is go/cmd/arcc/app/layoutshape_test.go:82-110. The safe `--print`
+      maintenance command and no-raw-copy rule are documented at the research
+      note :128-144 and README.md:252-260.
+  - text: |
+      **Integration remains green**
+        - Given the minimized golden suite
+        - When `just ci`, self-check, and manifest parity run
+        - Then all checks pass and coverage for final layout shape, report/surface/map artifacts, and semantic verdicts remains present.
+    addressed: yes
+    evidence: |
+      The final `just ci` run is recorded in the task work log at
+      .agents/scratchpad/2026-08-04-compositional-component-analysis/step09/task-03-minimize-layout-shape-golden-footprint/work.log:318-326 and :341-344: generated-file checks, Go unit/integration tests, self-check, Bazel build, all 162 Bazel tests, manifest parity, layout/artifact shapes, verdict goldens, and portability checks passed.
+
+artifacts:
+  scratchpad_dir: .agents/scratchpad/2026-08-04-compositional-component-analysis/step09/task-03-minimize-layout-shape-golden-footprint/
+  files:
+    - context.md
+    - plan.md
+    - progress.md
+    - work.log
+    - result.yaml
+
+notes: |
+  Replaced the combined manifest/layout golden flow with typed, validated
+  package-layout shape assertions and removed redundant manifest snapshots.
+  Added the globbed verdict portability guard, deterministic namespace/path
+  normalization coverage, and the Step 9 inventory/demo note. Three fresh
+  unbookmarked jj changes were produced; the final task change is
+  pmrwlpwlyrwznvoruxkkwmzrrysqrwuk and the working copy is empty.
