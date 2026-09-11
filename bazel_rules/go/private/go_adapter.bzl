@@ -461,7 +461,8 @@ def go_stdlib_export_data(ctx, expected_mode = None):
             ", ".join(missing),
         ))
 
-    export_files = depset(transitive = [cache_dir, libs])
+    export_depsets = [artifact for artifact in [cache_dir, libs] if artifact != None]
+    export_files = depset(transitive = export_depsets)
     if not export_files.to_list():
         fail(("component %s: GoStdLib exposes no compiled standard-library " +
               "export artifacts") % ctx.label.name)
