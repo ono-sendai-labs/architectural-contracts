@@ -3,7 +3,7 @@ load("@rules_go//go:def.bzl", "go_library", "go_test")
 go_library(
     name = "manifestparity",
     testonly = True,
-    srcs = ["manifestparity.go"],
+    srcs = ["manifestparity.go", "ownership_inventory.go"],
     importpath = "github.com/ono-sendai-labs/architectural-contracts/go/internal/manifestparity",
     visibility = ["//visibility:public"],
     deps = [

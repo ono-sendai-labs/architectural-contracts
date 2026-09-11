@@ -4,9 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"os"
-	"path/filepath"
 	"slices"
-	"strings"
 	"testing"
 
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/manifest"
@@ -55,6 +53,7 @@ var retainedXToolsMembers = []string{
 // Bazel label spelling; both must enumerate the same retained closure exactly.
 func TestXToolsHasOneConcreteOwnerAndBuildParity(t *testing.T) {
 	manifests := checkedInComponentManifests(t)
+	bazelComponents := checkedInBazelComponents(t)
 	wrapper, ok := manifests["x-tools"]
 	if !ok {
 		t.Fatal("checked-in manifest for component x-tools not found")
@@ -72,21 +71,16 @@ func TestXToolsHasOneConcreteOwnerAndBuildParity(t *testing.T) {
 		t.Fatalf("x-tools manifest members = %v, want retained closure %v", wrapper.Members, retainedXToolsMembers)
 	}
 
-	buildPath := filepath.Join("..", "xtools", "BUILD.bazel")
-	buildMembers := xToolsBuildMembers(t, string(mustRead(t, buildPath)))
+	bazelWrapper := bazelComponent(t, bazelComponents, "x-tools")
+	if bazelWrapper.InterfaceStyle != "PACKAGE_SURFACE" {
+		t.Fatalf("x-tools Bazel interface style = %q, want PACKAGE_SURFACE", bazelWrapper.InterfaceStyle)
+	}
+	buildMembers := bazelMemberImportPaths(t, bazelWrapper)
+	if !slices.IsSorted(buildMembers) || hasDuplicate(buildMembers) {
+		t.Fatalf("x-tools BUILD members are not sorted and unique: %v", buildMembers)
+	}
 	if !slices.Equal(buildMembers, wrapper.Members) {
 		t.Fatalf("x-tools BUILD members = %v, want checked-in manifest members %v", buildMembers, wrapper.Members)
-	}
-
-	for name, component := range manifests {
-		if name == "x-tools" {
-			continue
-		}
-		for _, member := range component.Members {
-			if isXToolsBoundaryPackage(member) {
-				t.Errorf("foreign package %q is also a member of component %q", member, name)
-			}
-		}
 	}
 }
 
@@ -190,57 +184,4 @@ func reflectEqualSDKKey(a, b assertedSDKKey) bool {
 		a.Goexperiment == b.Goexperiment &&
 		a.ClassifierHash == b.ClassifierHash &&
 		a.MapFormatVersion == b.MapFormatVersion
-}
-
-func xToolsBuildMembers(t *testing.T, build string) []string {
-	t.Helper()
-	inMembers := false
-	var members []string
-	for _, raw := range strings.Split(build, "\n") {
-		line := strings.TrimSpace(raw)
-		if line == "members = [" {
-			inMembers = true
-			continue
-		}
-		if !inMembers {
-			continue
-		}
-		if line == "]," {
-			break
-		}
-		line = strings.TrimSuffix(line, ",")
-		line = strings.Trim(line, `"`)
-		var importPrefix string
-		switch {
-		case strings.HasPrefix(line, "@org_golang_x_mod//"):
-			importPrefix = "golang.org/x/mod/"
-			line = strings.TrimPrefix(line, "@org_golang_x_mod//")
-		case strings.HasPrefix(line, "@org_golang_x_sync//"):
-			importPrefix = "golang.org/x/sync/"
-			line = strings.TrimPrefix(line, "@org_golang_x_sync//")
-		case strings.HasPrefix(line, "@org_golang_x_tools//"):
-			importPrefix = "golang.org/x/tools/"
-			line = strings.TrimPrefix(line, "@org_golang_x_tools//")
-		default:
-			t.Fatalf("unexpected x-tools component member label %q", line)
-		}
-		parts := strings.SplitN(line, ":", 2)
-		if len(parts) != 2 || parts[0] == "" || parts[1] == "" || filepath.Base(parts[0]) != parts[1] {
-			t.Fatalf("malformed x-tools component member label %q", line)
-		}
-		members = append(members, importPrefix+parts[0])
-	}
-	if !inMembers || len(members) == 0 {
-		t.Fatal("x-tools BUILD target has no external member labels")
-	}
-	if !slices.IsSorted(members) || hasDuplicate(members) {
-		t.Fatalf("x-tools BUILD member labels are not sorted and unique: %v", members)
-	}
-	return members
-}
-
-func isXToolsBoundaryPackage(pkg string) bool {
-	return strings.HasPrefix(pkg, "golang.org/x/tools/") ||
-		strings.HasPrefix(pkg, "golang.org/x/mod/") ||
-		strings.HasPrefix(pkg, "golang.org/x/sync/")
 }

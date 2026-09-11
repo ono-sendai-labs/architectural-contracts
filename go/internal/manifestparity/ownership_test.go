@@ -12,47 +12,72 @@ import (
 	"testing"
 
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/manifest"
+	"github.com/ono-sendai-labs/architectural-contracts/go/internal/manifestparity"
 )
 
-// checkedInComponentManifests parses every checked-in component manifest in
-// the Go tree keyed by component name. The Go tree's manifests live in exactly
-// two roots — one per package under go/internal and the CLI's under
-// go/cmd/arcc — so scanning those two roots enumerates all checked-in
-// component manifests in the repository. The test binary runs with the package
-// directory as working directory, so the paths are relative to
-// go/internal/manifestparity.
+// checkedInManifestInventory walks the repository production roots recursively.
+// The inventory helper owns the explicit testdata exclusion and duplicate-name
+// failure; keeping this path-bearing form available lets ownership diagnostics
+// name the actual manifest that made a bad claim.
+func checkedInManifestInventory(t *testing.T) manifestparity.ManifestInventory {
+	t.Helper()
+
+	root := filepath.Join("..", "..", "..")
+	inventory, err := manifestparity.DiscoverProductionManifests(root)
+	if err != nil {
+		t.Fatalf("discovering checked-in production manifests: %v", err)
+	}
+	return inventory
+}
+
+// checkedInComponentManifests is the compatibility view used by the older
+// ownership tests. It is backed by the complete recursive inventory rather
+// than a shallow directory scan.
 func checkedInComponentManifests(t *testing.T) map[string]manifest.Manifest {
 	t.Helper()
 
-	roots := []string{"..", filepath.Join("..", "..", "cmd")}
-	manifests := map[string]manifest.Manifest{}
-	for _, root := range roots {
-		entries, err := os.ReadDir(root)
-		if err != nil {
-			t.Fatalf("reading %s: %v", root, err)
-		}
-		for _, entry := range entries {
-			if !entry.IsDir() {
-				continue
-			}
-			path := filepath.Join(root, entry.Name(), "component.textproto")
-			content, err := os.ReadFile(path)
-			if err != nil {
-				// Directories without a checked-in manifest are skipped; a
-				// directory that promises one but cannot be parsed is fatal.
-				if !os.IsNotExist(err) {
-					t.Fatalf("reading %s: %v", path, err)
-				}
-				continue
-			}
-			m, err := manifest.Parse(bytes.NewReader(content))
-			if err != nil {
-				t.Fatalf("parsing %s: %v", path, err)
-			}
-			manifests[m.Name] = m
+	inventory := checkedInManifestInventory(t)
+	if err := manifestparity.AuditForeignManifestOwnership(inventory); err != nil {
+		t.Fatalf("checked-in foreign ownership audit: %v", err)
+	}
+	return inventory.ByName()
+}
+
+func checkedInBazelComponents(t *testing.T) manifestparity.BazelInventory {
+	t.Helper()
+
+	root := filepath.Join("..", "..", "..")
+	inventory, err := manifestparity.DiscoverProductionBazelComponents(root)
+	if err != nil {
+		t.Fatalf("discovering production Bazel components: %v", err)
+	}
+	if err := manifestparity.AuditForeignBazelOwnership(inventory); err != nil {
+		t.Fatalf("checked-in Bazel foreign ownership audit: %v", err)
+	}
+	return inventory
+}
+
+func bazelComponent(t *testing.T, inventory manifestparity.BazelInventory, name string) manifestparity.BazelComponent {
+	t.Helper()
+	for _, component := range inventory.Components {
+		if component.Name == name {
+			return component
 		}
 	}
-	return manifests
+	t.Fatalf("production go_component %q not found", name)
+	return manifestparity.BazelComponent{}
+}
+
+func bazelMemberImportPaths(t *testing.T, component manifestparity.BazelComponent) []string {
+	t.Helper()
+	members := make([]string, len(component.Members))
+	for i, member := range component.Members {
+		if member.ImportPath == "" {
+			t.Fatalf("go_component %q member label %q in %q has no resolved import path", component.Name, member.Label, component.BuildPath)
+		}
+		members[i] = member.ImportPath
+	}
+	return members
 }
 
 const modulePrefix = "github.com/ono-sendai-labs/architectural-contracts/go/"
@@ -262,6 +287,7 @@ func TestSchemaSurfaceCoversCapabilityTaxonomy(t *testing.T) {
 // consumer cannot resolve one closure while the build graph owns another.
 func TestProtobufRuntimeHasOneConcreteOwnerAndBuildParity(t *testing.T) {
 	manifests := checkedInComponentManifests(t)
+	bazelComponents := checkedInBazelComponents(t)
 	wrapper, ok := manifests["protobuf-runtime"]
 	if !ok {
 		t.Fatal("checked-in manifest for component protobuf-runtime not found")
@@ -279,25 +305,16 @@ func TestProtobufRuntimeHasOneConcreteOwnerAndBuildParity(t *testing.T) {
 		t.Fatalf("protobuf-runtime manifest members contain duplicates: %v", wrapper.Members)
 	}
 
-	buildPath := filepath.Join("..", "protobufruntime", "BUILD.bazel")
-	buildData, err := os.ReadFile(buildPath)
-	if err != nil {
-		t.Fatalf("reading %s: %v", buildPath, err)
+	bazelWrapper := bazelComponent(t, bazelComponents, "protobuf-runtime")
+	if bazelWrapper.InterfaceStyle != "PACKAGE_SURFACE" {
+		t.Fatalf("protobuf-runtime Bazel interface style = %q, want PACKAGE_SURFACE", bazelWrapper.InterfaceStyle)
 	}
-	buildMembers := protobufBuildMembers(t, string(buildData))
+	buildMembers := bazelMemberImportPaths(t, bazelWrapper)
+	if !slices.IsSorted(buildMembers) || hasDuplicate(buildMembers) {
+		t.Fatalf("protobuf-runtime BUILD members are not sorted and unique: %v", buildMembers)
+	}
 	if !slices.Equal(buildMembers, wrapper.Members) {
 		t.Fatalf("protobuf-runtime BUILD members = %v, want checked-in manifest members %v", buildMembers, wrapper.Members)
-	}
-
-	for name, component := range manifests {
-		if name == "protobuf-runtime" {
-			continue
-		}
-		for _, member := range component.Members {
-			if strings.HasPrefix(member, "google.golang.org/protobuf/") {
-				t.Errorf("protobuf package %q is also a member of component %q", member, name)
-			}
-		}
 	}
 }
 
@@ -495,35 +512,6 @@ func hasDuplicate(values []string) bool {
 		}
 	}
 	return false
-}
-
-func protobufBuildMembers(t *testing.T, build string) []string {
-	t.Helper()
-	const prefix = "@org_golang_google_protobuf//"
-	var members []string
-	for _, line := range strings.Split(build, "\n") {
-		line = strings.TrimSpace(line)
-		if !strings.HasPrefix(line, `"`+prefix) {
-			continue
-		}
-		line = strings.Trim(strings.TrimSuffix(line, ","), `"`)
-		label := strings.TrimPrefix(line, prefix)
-		parts := strings.SplitN(label, ":", 2)
-		if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
-			t.Fatalf("malformed protobuf BUILD member label %q", line)
-		}
-		if parts[1] != filepath.Base(parts[0]) {
-			t.Fatalf("protobuf BUILD member label %q does not use its package basename as target", line)
-		}
-		members = append(members, "google.golang.org/protobuf/"+parts[0])
-	}
-	if len(members) == 0 {
-		t.Fatal("protobuf BUILD target has no external runtime member labels")
-	}
-	if !slices.IsSorted(members) || hasDuplicate(members) {
-		t.Fatalf("protobuf BUILD member labels are not sorted and unique: %v", members)
-	}
-	return members
 }
 
 func mustRead(t *testing.T, path string) []byte {
