@@ -437,6 +437,10 @@ func TestLoadPackageFacts_RefscanMatrixWithDependencySourcesAbsent(t *testing.T)
 	wantRef(facts.RefMethod, refscanMember+"/concrete", refscanDep, "("+refscanDep+".Impl).Greet", "member/concrete/concrete.go", 9)
 	wantRef(facts.RefFunc, refscanMember+"/builtins", "fmt", "fmt.Println", "member/builtins/builtins.go", 14)
 	wantRef(facts.RefFunc, refscanMember+"/builtins", refscanDep, refscanDep+".Hello", "member/builtins/builtins.go", 14)
+	wantRef(facts.RefField, kinds, refscanDep, refscanDep+".Base", kindsFile, 27)
+	if len(refs) != 23 {
+		t.Fatalf("member-only reference set has %d entries, want exactly 23: %+v", len(refs), refs)
+	}
 
 	imports := make(map[facts.ImportKey]int, len(loaded.Imports))
 	for _, edge := range loaded.Imports {
@@ -456,6 +460,9 @@ func TestLoadPackageFacts_RefscanMatrixWithDependencySourcesAbsent(t *testing.T)
 	wantImport(refscanMember+"/concrete", refscanDep, 4)
 	wantImport(refscanMember+"/builtins", "fmt", 4)
 	wantImport(refscanMember+"/builtins", refscanDep, 6)
+	if len(imports) != 7 {
+		t.Fatalf("member-only import set has %d entries, want exactly 7: %+v", len(imports), imports)
+	}
 }
 
 func importFile(pkg string) string {
