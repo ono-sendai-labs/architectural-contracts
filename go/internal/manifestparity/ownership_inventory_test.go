@@ -159,6 +159,79 @@ go_component(
 	}
 }
 
+func TestAuditForeignBazelOwnership_InspectsInterfaceRoot(t *testing.T) {
+	root := t.TempDir()
+	writeInventoryFixture(t, root, "go/internal/foreign/BUILD.bazel", `
+go_library(
+    name = "foreign",
+    importpath = "google.golang.org/protobuf/proto",
+)
+
+go_component(
+    name = "bad-interface-owner",
+    interface = ":foreign",
+)
+`)
+
+	inventory, err := manifestparity.DiscoverProductionBazelComponents(root)
+	if err != nil {
+		t.Fatalf("DiscoverProductionBazelComponents() error = %v", err)
+	}
+	if err := manifestparity.AuditForeignBazelOwnership(inventory); err == nil {
+		t.Fatal("AuditForeignBazelOwnership() accepted a foreign interface root in a non-wrapper component")
+	} else if !strings.Contains(err.Error(), "bad-interface-owner") {
+		t.Errorf("foreign interface diagnostic = %q, want component name", err)
+	}
+}
+
+func TestCheckedInProductionInventoriesIncludeNestedExamples(t *testing.T) {
+	manifestInventory := checkedInManifestInventory(t)
+	wantManifests := []struct {
+		name string
+		path string
+	}{
+		{name: "app", path: "go/examples/csvtool/app/component.textproto"},
+		{name: "csvfile", path: "go/examples/csvtool/csvfile/component.textproto"},
+		{name: "parsecsv", path: "go/examples/csvtool/internal/parsecsv/component.textproto"},
+		{name: "toprow", path: "go/examples/csvtool/toprow/component.textproto"},
+	}
+	for _, want := range wantManifests {
+		found := false
+		for _, component := range manifestInventory.Components {
+			if component.Manifest.Name == want.name && component.Path == want.path {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("recursive manifest inventory is missing %q at %q", want.name, want.path)
+		}
+	}
+
+	bazelInventory := checkedInBazelComponents(t)
+	wantBazel := []struct {
+		name string
+		path string
+	}{
+		{name: "app_component", path: "go/examples/csvtool/app/BUILD.bazel"},
+		{name: "csvfile_component", path: "go/examples/csvtool/csvfile/BUILD.bazel"},
+		{name: "parsecsv_component", path: "go/examples/csvtool/internal/parsecsv/BUILD.bazel"},
+		{name: "toprow_component", path: "go/examples/csvtool/toprow/BUILD.bazel"},
+	}
+	for _, want := range wantBazel {
+		found := false
+		for _, component := range bazelInventory.Components {
+			if component.Name == want.name && component.BuildPath == want.path {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("recursive Bazel inventory is missing %q at %q", want.name, want.path)
+		}
+	}
+}
+
 func writeInventoryFixture(t *testing.T, root, relativePath, content string) {
 	t.Helper()
 	path := filepath.Join(root, filepath.FromSlash(relativePath))
