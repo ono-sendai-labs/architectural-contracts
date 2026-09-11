@@ -1,0 +1,60 @@
+result:
+  task_file: .agents/tasks/2026-08-04-compositional-component-analysis/step08/task-07-restore-bazel-member-defeat-scan-inputs.code-task.md
+  change_id: xmyszupsrsnrtyqupxszpxsvxllwlyum
+  status: completed
+  schema_version: 2
+  produced_at: 2026-09-11T13:56:53Z
+
+acceptance_criteria:
+  - text: |
+      **Assembly remains analysis-defeating after input pruning**
+      - Given a Bazel component member with a declared `.s` file
+      - When its checked analysis action runs
+      - Then the file is a declared member input, reaches `packages.Package.OtherFiles`, and produces an assembly `AnalysisDefeating` finding.
+    addressed: yes
+    evidence: |
+      bazel_rules/go/private/component.bzl:147-172 emits declared non-Go files as OtherFiles and :909-916 stages every member source. The fixture at bazel_rules/go/tests/testdata/defeat/stub.s is asserted by bazel_rules/go/tests/component_tests.bzl:831-833 and the executing defeat_strict_component_fails_test at bazel_rules/go/tests/BUILD.bazel:78-88.
+  - text: |
+      **Excluded Go files remain visible without being type-checked**
+      - Given member Go files excluded by the target build context that contain `//go:linkname` and cgo syntax
+      - When the member-only layout is validated and loaded
+      - Then the files are absent from selected `GoFiles`/`CompiledGoFiles`, present in `IgnoredFiles`, and both bypass kinds are reported.
+    addressed: yes
+    evidence: |
+      go/internal/packagelayout/packagelayout.go:1813-1837 resolves all member roles and moves excluded Go files into deterministic IgnoredFiles; splitGoFilesByBuildConstraints at :1955-1976 keeps them out of selected roots. TestValidateAndResolveForMemberOnlyPreservesMemberAnalysisFileRoles at go/internal/packagelayout/member_file_roles_test.go:12-55 verifies the partition, while the Bazel fixture files ignored_link.go and ignored_cgo.go and the strict/WARN tests assert both report sites.
+  - text: |
+      **Non-member source remains pruned**
+      - Given the same component with ordinary and standard-library dependencies
+      - When an analysis test inspects `ArccCheck`
+      - Then every required declared member analysis file is present and no dependency or SDK source file appears directly, transitively, or through provider runfiles.
+    addressed: yes
+    evidence: |
+      bazel_rules/go/tests/component_tests.bzl:803-845 requires every fixture member basename, including ignored Go and assembly, rejects shared.go, and rejects every unexpected .go/.s input. The test passes for the component with the shared direct dependency and strings import; the existing complete action-input test and `just ci` also pass.
+  - text: |
+      **Policy behavior stays fail-closed**
+      - Given the Bazel defeat fixture under strict policy and under the explicit WARN carrier
+      - When both reports are decoded
+      - Then strict produces violations, WARN produces `ANALYSIS_LIMITATION` warnings, and neither path silently drops any site.
+    addressed: yes
+    evidence: |
+      bazel_rules/go/tests/BUILD.bazel:78-103 defines executing strict and WARN report assertions for AnalysisDefeating/ANALYSIS_LIMITATION plus ignored_cgo.go, ignored_link.go, and stub.s. Both tests pass, preserving all three sites in their canonical reports.
+  - text: |
+      **Repository checks pass**
+      - Given the completed remediation
+      - When focused Go/Bazel tests and `just ci` run
+      - Then all checks pass with deterministic artifacts.
+    addressed: yes
+    evidence: |
+      `cd go && go test ./...`, the focused and complete Bazel component suites, and `just ci` all exited 0. `just ci` ran vet, formatting, builds, native/integration Go tests, self-check staging, `bazel build //...`, and `bazel test //...` with all 145 Bazel tests passing.
+
+artifacts:
+  scratchpad_dir: .agents/scratchpad/2026-08-04-compositional-component-analysis/step08/task-07-restore-bazel-member-defeat-scan-inputs/
+  files:
+    - context.md
+    - plan.md
+    - progress.md
+    - work.log
+    - result.yaml
+
+notes: |
+  Restored the complete member-file vocabulary through Bazel layout emission, member-only validation, and driver projection: selected Go remains type-checked, excluded Go is retained as IgnoredFiles, and assembly remains OtherFiles. Added an executing strict/WARN Bazel fixture and bidirectional action-input coverage, with all focused tests and `just ci` passing. The final task change is xmyszupsrsnrtyqupxszpxsvxllwlyum, with an empty working-copy change left at `@`.

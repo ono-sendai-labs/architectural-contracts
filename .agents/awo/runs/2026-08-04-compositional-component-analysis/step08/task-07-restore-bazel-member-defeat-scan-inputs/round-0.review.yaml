@@ -1,0 +1,97 @@
+review:
+  task_file: .agents/tasks/2026-08-04-compositional-component-analysis/step08/task-07-restore-bazel-member-defeat-scan-inputs.code-task.md
+  change_id: xmyszupsrsnrtyqupxszpxsvxllwlyum
+  reviewed_at: 2026-09-11T14:07:18Z
+  verdict: approved
+  schema_version: 2
+  lsp_coverage: unavailable
+
+merge_request:
+  title: "feat(bazel): restore member defeat-scan inputs [Compositional Analysis: Step 08/Task 07]"
+  body: |
+    Reviews the complete two-change series: the initial implementation restores
+    member IgnoredFiles and OtherFiles roles, projects them through the driver,
+    and stages the complete member source set; the follow-up adds an executing
+    assembly/linkname/cgo Bazel fixture plus bidirectional ArccCheck input tests
+    and strict/WARN report assertions.
+
+summary: |
+  The complete implementation and remediation change series closes the Step 8
+  fail-closed gap: selected member Go files remain type-checking roots, excluded
+  Go files are retained as IgnoredFiles, and assembly remains OtherFiles while
+  non-member source roles are cleared from the driver projection. The executing
+  Bazel fixture observes all three sites under strict and explicit WARN policy,
+  and the action-input test retains all member files while excluding dependency
+  and SDK source. Focused tests and `just ci` pass; no LSP diagnostic tool was
+  available in the review harness.
+
+acceptance_criteria:
+  - text: |
+      **Assembly remains analysis-defeating after input pruning**
+      - Given a Bazel component member with a declared `.s` file
+      - When its checked analysis action runs
+      - Then the file is a declared member input, reaches `packages.Package.OtherFiles`, and produces an assembly `AnalysisDefeating` finding.
+    status: pass
+    evidence: |
+      component.bzl:147-172 emits declared non-Go member files as OtherFiles,
+      and component.bzl:909-916 stages the complete deduplicated member source
+      set. The real fixture declares stub.s at
+      bazel_rules/go/tests/testdata/defeat/BUILD.bazel:4-12; the executing
+      strict report test requires its AnalysisDefeating report site at
+      bazel_rules/go/tests/BUILD.bazel:78-88 and the action-input assertion
+      requires the input at component_tests.bzl:831-833.
+  - text: |
+      **Excluded Go files remain visible without being type-checked**
+      - Given member Go files excluded by the target build context that contain `//go:linkname` and cgo syntax
+      - When the member-only layout is validated and loaded
+      - Then the files are absent from selected `GoFiles`/`CompiledGoFiles`, present in `IgnoredFiles`, and both bypass kinds are reported.
+    status: pass
+    evidence: |
+      packagelayout.go:1813-1837 resolves member IgnoredFiles and OtherFiles,
+      partitions excluded Go files out of GoFiles and CompiledGoFiles, and
+      preserves them in IgnoredFiles; splitGoFilesByBuildConstraints is
+      deterministic at packagelayout.go:1955-1976. The focused partition test
+      asserts all four roles at member_file_roles_test.go:12-55, while the
+      executing fixture declares ignored_link.go and ignored_cgo.go at
+      bazel_rules/go/tests/testdata/defeat/BUILD.bazel:4-12 and asserts both
+      report sites at bazel_rules/go/tests/BUILD.bazel:78-103.
+  - text: |
+      **Non-member source remains pruned**
+      - Given the same component with ordinary and standard-library dependencies
+      - When an analysis test inspects `ArccCheck`
+      - Then every required declared member analysis file is present and no dependency or SDK source file appears directly, transitively, or through provider runfiles.
+    status: pass
+    evidence: |
+      The final ArccCheck action declares member sources directly and only the
+      declared export/metadata inputs at component.bzl:716-727. The focused
+      analysis test derives the complete declared member set and checks exact
+      input equality, explicitly requires ignored Go and assembly, and rejects
+      shared.go and unexpected .go/.s source at component_tests.bzl:803-845.
+  - text: |
+      **Policy behavior stays fail-closed**
+      - Given the Bazel defeat fixture under strict policy and under the explicit WARN carrier
+      - When both reports are decoded
+      - Then strict produces violations, WARN produces `ANALYSIS_LIMITATION` warnings, and neither path silently drops any site.
+    status: pass
+    evidence: |
+      The strict and explicit-WARN checked components are defined in
+      bazel_rules/go/tests/testdata/defeat/BUILD.bazel:20-37. Their report
+      tests decode/assert the recorded verdict and grep for the corresponding
+      policy kind plus ignored_cgo.go, ignored_link.go, and stub.s at
+      bazel_rules/go/tests/BUILD.bazel:78-103.
+  - text: |
+      **Repository checks pass**
+      - Given the completed remediation
+      - When focused Go/Bazel tests and `just ci` run
+      - Then all checks pass with deterministic artifacts.
+    status: pass
+    evidence: |
+      TDD and validation records show the focused role tests, defeat fixture
+      tests, complete Go/Bazel suites, and just ci passing at work.log:82-455.
+      The review reran `PATH=/home/xtof/.local/go/bin:$PATH just ci` successfully,
+      including vet, gofmt, Go tests, integration tests, Bazel build/test, and
+      the staging checks; the working copy remains clean.
+
+findings: []
+
+ecosystem_reviews: []
