@@ -5,7 +5,7 @@
 (asserted surfaces are package-level — see I6); 2026-09-09 (bounded routine stdlib-map
 generation and CI feedback time — see N5); 2026-09-10 (Step 7 residual
 AnalysisDefeating policy carrier)
-**Status:** design complete; implementation not started.
+**Status:** design complete; implementation series in progress.
 **Baseline:** `dev-exp-go-bazel-mvp` @ `5011b726` (code unchanged through `cca66212`)
 **Inputs:** [`../rough-idea.md`](../rough-idea.md), [`../idea-honing.md`](../idea-honing.md),
 [`../research/current-analysis-pipeline.md`](../research/current-analysis-pipeline.md),
