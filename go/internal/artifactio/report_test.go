@@ -80,6 +80,32 @@ func TestMarshalReport_DeterministicAcrossOrderings(t *testing.T) {
 	}
 }
 
+func TestMarshalReport_DiagnosticsRemainCanonicalAcrossRepeatedEmission(t *testing.T) {
+	input := report.ConformanceReport{
+		Component: "c",
+		Diagnostics: report.Diagnostics{
+			NonMemberExportArtifactCount: 4,
+			NonMemberExportBytes:         1234,
+		},
+		Violations: []report.Finding{{Kind: report.UndeclaredDependency, Message: "m"}},
+	}
+
+	first, err := artifactio.MarshalReport(input)
+	if err != nil {
+		t.Fatalf("first MarshalReport() error = %v", err)
+	}
+	second, err := artifactio.MarshalReport(input)
+	if err != nil {
+		t.Fatalf("second MarshalReport() error = %v", err)
+	}
+	if string(first) != string(second) {
+		t.Fatalf("repeated diagnostic report emission changed bytes:\n%s\n---\n%s", first, second)
+	}
+	if !strings.Contains(string(first), `"non_member_export_artifact_count": 4`) || !strings.Contains(string(first), `"non_member_export_bytes": 1234`) {
+		t.Fatalf("canonical report omitted diagnostics: %s", first)
+	}
+}
+
 func TestMarshalReport_DeterministicAcrossDependencyAndEvidenceOrderings(t *testing.T) {
 	evidenceA := []string{"alpha frame", "beta frame"}
 	evidenceB := []string{"beta frame", "alpha frame"}
