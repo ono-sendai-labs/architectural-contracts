@@ -1,0 +1,54 @@
+{
+  "task_file": ".agents/tasks/2026-08-04-compositional-component-analysis/step09/task-02-add-persisted-artifact-shape-goldens.code-task.md",
+  "planning_slug": "2026-08-04-compositional-component-analysis",
+  "step": 9,
+  "task": 2,
+  "implementer_session": "awo-impl-2026-08-04-compositional-component-analysis-step09-task02",
+  "reviewer_session": "awo-rev-2026-08-04-compositional-component-analysis-step09-task02",
+  "base": {
+    "change_id": "rxrosrrnmtyprpxpwuqlsrswnzkqoxzy",
+    "bookmark": "pr/awo-record-2026-08-04-compositional-component-analysis-step09-task-01"
+  },
+  "produced_changes": [
+    "prlotxsystpzvqqunsqpwpoqmxoloklx",
+    "somrukrmorwooxkyvvuwulmpxosxoxro",
+    "tyrzltsqknwtrvnluwlqypqokkktyrwx",
+    "kqtzxmluvpqsmknxzkzmzlxwtvzmslyw",
+    "vywuwwpomvpttpnslrmxsxktqvyzypsu",
+    "wooxvxsvnrnkqtyoyunxslvzskxlpkpp"
+  ],
+  "rounds": [
+    {
+      "round": 0,
+      "role": "implementer",
+      "status": "completed",
+      "tokens": {
+        "total": 433909,
+        "cachedRead": 431872
+      },
+      "wall_s": 2667,
+      "tool_calls": 2311,
+      "compacted": false,
+      "window_pct": 53.7
+    },
+    {
+      "round": 0,
+      "role": "reviewer",
+      "verdict": "approved",
+      "findings": 0,
+      "acceptance": "8/8",
+      "tokens": {
+        "total": 257495
+      },
+      "wall_s": 528,
+      "tool_calls": 115,
+      "compacted": false
+    }
+  ],
+  "session_restarts": [],
+  "outcome": {
+    "status": "approved",
+    "rounds": 1,
+    "bookmark": "pr/2026-08-04-compositional-component-analysis/step09/task-02-add-persisted-artifact-shape-goldens.code-task"
+  }
+}

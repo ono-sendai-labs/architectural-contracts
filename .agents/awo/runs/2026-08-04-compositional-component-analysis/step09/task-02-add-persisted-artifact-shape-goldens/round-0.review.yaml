@@ -1,0 +1,137 @@
+review:
+  task_file: .agents/tasks/2026-08-04-compositional-component-analysis/step09/task-02-add-persisted-artifact-shape-goldens.code-task.md
+  change_id: wooxvxsvnrnkqtyoyunxslvzskxlpkpp
+  reviewed_at: 2026-09-11T17:43:58Z
+  verdict: approved
+  schema_version: 2
+  lsp_coverage: unavailable
+
+merge_request:
+  title: "test(artifacts): add persisted shape goldens [Persisted Artifacts: Step 09/Task 02]"
+  body: |
+    Reviews the complete six-change series from the typed artifactio snapshot seam,
+    through the artifact-shape CLI and Bazel report/surface/map goldens, the
+    multi-site report fixture and placeholder-policy documentation, to the final
+    fail-closed SDK-key validation change.
+
+summary: |
+  All eight acceptance criteria are satisfied across the complete ordered jj
+  change series. The implementation validates bounded persisted artifacts through
+  production decoders, keeps normalization explicit, and adds deterministic
+  report, checked/asserted surface, and bounded stdlib-map shape coverage without
+  duplicating whole-SDK generation. Focused Go/vet/gofmt and Bazel shape tests
+  pass, and the recorded `just ci` run is green; no LSP tool was available in
+  this review environment.
+
+acceptance_criteria:
+  - text: |
+      **Report shape is pinned independently of verdict-only tests**
+        - Given passing and finding-bearing canonical reports
+        - When shape snapshots are compared
+        - Then the persisted envelope, dependency axes, diagnostics, and ordered findings are covered while host-absolute paths and machine-dependent metric values are represented only by documented placeholders.
+    status: pass
+    evidence: |
+      The typed report snapshot retains the envelope, verdict, component,
+      dependency axes, diagnostics shape, finding kind/class/site fields, and
+      null-versus-empty collections in go/internal/artifactio/golden.go:181-318;
+      unit coverage is in go/internal/artifactio/golden_test.go:12-117. The
+      independently named live report-shape targets and passing/finding goldens
+      are registered in bazel_rules/go/tests/BUILD.bazel:470-501 and stored in
+      bazel_rules/go/tests/goldens/api_component.report.shape.golden.json:1-22,
+      violation_component.report.shape.golden.json:1-35, and
+      strict_component.report.shape.golden.json:1-64.
+  - text: |
+      **Checked surface contracts are visible**
+        - Given checked declared-interface and package-surface fixtures
+        - When their artifacts are shape-compared
+        - Then concrete packages, exact symbol behavior, declared authority, namespace, SDK-key structure, producer identity, and non-empty digest semantics match the goldens.
+    status: pass
+    evidence: |
+      The surface snapshot adapter retains interface style, authority, concrete
+      packages, symbols, namespace, complete SDK key, producer version, and
+      digest semantics in go/internal/artifactio/golden.go:334-450. Checked
+      declared-interface and PACKAGE_SURFACE fixtures are wired as separate live
+      shape targets in bazel_rules/go/tests/BUILD.bazel:503-515, with the
+      contracts pinned in bazel_rules/go/tests/goldens/api_component.surface.shape.golden.json:1-33
+      and package_surface_component.surface.shape.golden.json:1-27.
+  - text: |
+      **Asserted surface semantics are visible**
+        - Given an asserted component
+        - When its surface is shape-compared
+        - Then the golden records `PACKAGE_SURFACE`, unknown authority, no symbols, and an empty digest, and no `ArccCheck` action is introduced.
+    status: pass
+    evidence: |
+      The analysis-time asserted writer emits the package-level UNKNOWN surface
+      without derived symbols or digest in bazel_rules/go/private/component.bzl:961-1014
+      and assembles its canonical field order in :470-532. The asserted shape
+      target and launcher checks are in bazel_rules/go/tests/BUILD.bazel:517-522
+      and bazel_rules/go/tests/artifact_shape_tests.bzl:74-95; the expected
+      PACKAGE_SURFACE/UNKNOWN/empty shape is pinned in
+      bazel_rules/go/tests/goldens/manual_component.surface.shape.golden.json:1-26.
+  - text: |
+      **Map shape is covered without routine regeneration**
+        - Given the bounded map fixture or existing pinned default map
+        - When the map shape test runs in routine CI
+        - Then SDK-key, package, symbol, init, evidence, ordering, and terminal-classification shapes are checked without generating a new whole-SDK map or storing a duplicate full-size artifact.
+    status: pass
+    evidence: |
+      mapShape retains the complete key and ordered package, symbol, init, and
+      evidence records, including classifications and provenance, in
+      go/internal/artifactio/golden.go:452-555. The single bounded fixture and
+      its shape golden are shown in
+      bazel_rules/go/tests/goldens/stdlib_map_shape.fixture.json:1-72 and
+      stdlib_map_shape.golden.json:1-84, and the routine target only invokes the
+      fixture through the shape script in bazel_rules/go/tests/BUILD.bazel:524-542.
+  - text: |
+      **Normalization cannot hide malformed artifacts**
+        - Given malformed, oversized, unsupported-version, unsorted, or otherwise non-canonical artifacts
+        - When the shape helper processes them
+        - Then it fails through the production validation boundary rather than emitting a passing normalized snapshot.
+    status: pass
+    evidence: |
+      Snapshot reads through bounded production report/surface/map decoders and
+      requires exact re-encoding before shaping in
+      go/internal/artifactio/golden.go:71-178. The malformed, oversized, wrong
+      version, and non-canonical cases are covered by
+      go/internal/artifactio/golden_test.go:280-354, while the CLI preserves
+      tool-error exit 2 for validation failures in
+      go/cmd/arcc/app/artifactshape.go:60-95 and its canonicality test at
+      go/cmd/arcc/app/artifactshape_test.go:69-90.
+  - text: |
+      **Artifact snapshots are deterministic**
+        - Given logically identical artifact messages assembled in different input orders
+        - When snapshots are produced twice
+        - Then their bytes are identical; changing a stable schema or semantic value yields a focused golden diff.
+    status: pass
+    evidence: |
+      Reordered report, surface, and map inputs are compared for byte-identical
+      snapshots in go/internal/artifactio/golden_test.go:187-278. A stable
+      component-field change is required to produce a focused field/value diff
+      by the comparator test at :356-384, with the mismatch type and diff
+      implementation in go/internal/artifactio/golden.go:27-122.
+  - text: |
+      **Repository checks pass**
+        - Given all shape goldens and targets
+        - When `just ci` runs
+        - Then routine validation remains green and does not add a native whole-SDK generation or more than the already permitted Bazel generation.
+    status: pass
+    evidence: |
+      The scratchpad work log records the complete successful `just ci` pipeline,
+      including Go tests, selfcheck, Bazel build/test, and the routine map-pin
+      checks at work.log:198-458. The final targeted shape suite also passes at
+      work.log:523-542, and the bounded fixture-only map target is declared in
+      bazel_rules/go/tests/BUILD.bazel:524-542.
+  - text: |
+      **Keep artifact-shape tests separate and clearly named so downstream hosts can identify the small set of intentionally layout/target-sensitive fixtures instead of patching semantic verdict goldens.**
+    status: pass
+    evidence: |
+      Dedicated report-shape, surface-shape, asserted-surface-shape, and map-shape
+      targets are separated from verdict goldens in
+      bazel_rules/go/tests/BUILD.bazel:443-542. The structural suite requires the
+      typed artifact-shape launcher, minimal staged runfiles, and no analysis
+      rerun for asserted surfaces in bazel_rules/go/tests/artifact_shape_tests.bzl:1-105;
+      the README documents the explicit placeholder boundary at README.md:252-258.
+
+findings: []
+
+ecosystem_reviews: []
