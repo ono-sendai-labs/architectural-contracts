@@ -1,0 +1,315 @@
+review:
+  project: 2026-08-04-compositional-component-analysis
+  scope: step
+  step: 8
+  plan_path: .agents/planning/2026-08-04-compositional-component-analysis/implementation/plan.md
+  design_path: .agents/planning/2026-08-04-compositional-component-analysis/design/detailed-design.md
+  reviewed_at: 2026-09-11T13:36:35Z
+  schema_version: 1
+  steps_in_scope: [8]
+  commits_in_scope: 25
+  remediation_step: .agents/tasks/2026-08-04-compositional-component-analysis/step08/
+  verdict: remediation_required
+
+summary: |
+  Step 8 delivers the export-data schema, ordinary and standard-library artifact
+  adapters, member-only type loading, deterministic diagnostics, and a hermetic
+  one-ArccCheck topology across all six completed tasks. The repaired Task 04
+  topology is correctness-sound and the intended asymmetry is respected by the
+  final action graph: ArccImportGraph alone reads ordinary non-member source,
+  while ArccCheck receives only member source and declared metadata/export
+  artifacts. One critical cross-task regression remains: Bazel layout emission
+  and Task 06 pruning discard member assembly and build-excluded Go file roles,
+  so the Step 6 AnalysisDefeating scan can silently miss those constructs. The
+  repair bullet also conflicts with unchanged design claims that all dependency
+  source scanning and closure-shaped work disappeared; two remediation tasks
+  address the code defect and the documentation/performance contract.
+
+architecture:
+  - element: Export-data layout schema and fail-closed closure validation
+    expected: |
+      Component layouts distinguish member source roots from export-backed
+      non-members, retain a transitively complete import graph, and reject
+      malformed paths, missing nodes, missing artifacts, and omitted leaf maps
+      before packages.Load.
+    actual: |
+      Layout, OrdinaryImportData, and StdlibExportData form the effective graph;
+      ValidateAndResolveForMemberOnly resolves only root source, materializes
+      ordinary and stdlib descriptors, and validates the complete reachable
+      export closure before serving the driver.
+    status: aligned
+    files:
+      - go/internal/packagelayout/packagelayout.go
+      - go/internal/packagelayout/ordinary_import_data.go
+      - go/internal/packagelayout/stdlib_export_data.go
+      - docs/package-layout-schema.md
+    notes: |
+      Source-backed whole-stdlib layouts retain their separate validation path.
+
+  - element: Ordinary package export-data adapter and exact import graph
+    expected: |
+      The rules_go-specific adapter exposes one deterministic export artifact per
+      ordinary package, while a host-neutral projection supplies exact imports,
+      including ordinary-to-stdlib edges omitted by GoArchive.direct.
+    actual: |
+      go_adapter.bzl confines GoArchive.data.export_file access to the adapter;
+      the aspect merges duplicate package records fail-closed, and ArccImportGraph
+      emits sorted target-selected imports that the runtime resolves against the
+      effective package graph.
+    status: aligned
+    files:
+      - bazel_rules/go/private/go_adapter.bzl
+      - bazel_rules/go/private/aspect.bzl
+      - bazel_rules/go/private/component.bzl
+      - go/internal/packagelayout/ordinary_import_data.go
+    notes: |
+      The stale comments recorded as F3 do not affect the graph implementation.
+
+  - element: Target-configured standard-library export-data seam
+    expected: |
+      A host-neutral adapter supplies the target stdlib graph, export artifacts,
+      and complete GOOS/GOARCH/cgo/tags/toolchain/GOEXPERIMENT identity without
+      exposing SDK source or toolchain executables to ArccCheck.
+    actual: |
+      GoStdLib metadata plus generated cache/pkg trees are validated against the
+      selected map identity and merged into the effective layout; ArccCheck sees
+      only those generated artifacts.
+    status: aligned
+    files:
+      - bazel_rules/go/private/go_adapter.bzl
+      - go/internal/packagelayout/stdlib_export_data.go
+      - bazel_rules/go/tests/stdlib_export_data_tests.bzl
+    notes: |
+      The successful seam test does not directly pin three less-visible identity
+      fields; that task-level suggestion is retained as F4.
+
+  - element: One-analysis-action topology and auxiliary metadata producers
+    expected: |
+      Exactly one ArccCheck action checks each checked component. Auxiliary
+      declared-input producers may read non-member source when the pinned ruleset
+      cannot supply metadata, but must be hermetic and must not pass that source
+      through to ArccCheck.
+    actual: |
+      ArccImportGraph reads a declared ordinary non-member source set and emits
+      one import descriptor; ArccLayout reads only the base layout and descriptor;
+      ArccCheck reads the final layout, descriptor, member files, exports, map,
+      and direct dependency artifacts. All three use arcc rather than a toolchain
+      executable, have empty environments, and block network access.
+    status: aligned
+    files:
+      - bazel_rules/go/private/component.bzl
+      - bazel_rules/go/tests/component_tests.bzl
+    notes: |
+      The repaired topology decision is sound. Task 06 pruning respects the
+      source asymmetry: neither ArccImportGraph's request/source inputs nor
+      ArccLayout's base input are ArccCheck inputs, and no dependency/SDK Go
+      source is staged on ArccCheck.
+
+  - element: Component-only work and closure-independence invariant
+    expected: |
+      The design overview and composition sections say a component check scans
+      only its own source, eliminates all work over dependency source, and leaves
+      only compiler export files proportional to the closure.
+    actual: |
+      Every checked Bazel component registers ArccImportGraph over all ordinary
+      non-root source files in its closure. The action is cached, lexical, and
+      outside ArccCheck, but its input volume and scan work still scale with that
+      component's dependency closure.
+    status: drifted
+    files:
+      - .agents/planning/2026-08-04-compositional-component-analysis/design/detailed-design.md
+      - bazel_rules/go/private/component.bzl
+      - docs/package-layout-schema.md
+    notes: |
+      This may be accepted evolution because the repaired build-topology bullet
+      explicitly permits it, but the rest of the design and future performance
+      acceptance must state and measure the tradeoff. F2 recommends updating the
+      documentation rather than reverting the approved topology.
+
+  - element: Member-only go/packages loading and typed reference fidelity
+    expected: |
+      Production component loads omit NeedDeps, keep full syntax and types.Info
+      only for members, read every reachable non-member from export data, reject
+      incomplete or version-skewed artifacts, and preserve the Step 6 reference
+      and import semantics.
+    actual: |
+      componentLoadMode omits NeedDeps; the driver clears non-member source
+      fields; pre- and post-load guards enforce the role split; and integration
+      matrices cover source-absent deep closures, typed references, imports,
+      incomplete graphs, and incompatible producer versions.
+    status: aligned
+    files:
+      - go/internal/goanalysis/goanalysis.go
+      - go/internal/packagelayout/packagelayout.go
+      - go/internal/goanalysis/member_only_integration_test.go
+      - go/internal/goanalysis/member_only_load_test.go
+    notes: |
+      Native mode intentionally obtains export data through the host go driver.
+
+  - element: Complete member source vocabulary for AnalysisDefeating scanning
+    expected: |
+      Member type-checking receives selected Go files, while the defeat scan also
+      receives declared assembly and build-excluded Go files so linkname, assembly,
+      and cgo bypasses remain fail-closed after source pruning.
+    actual: |
+      Bazel layout emission writes only .go files into GoFiles and
+      CompiledGoFiles, member-only filtering discards excluded files rather than
+      retaining IgnoredFiles, and ArccCheck input derivation drops every non-.go
+      member file. ScanAnalysisDefeats therefore has no Bazel-visible OtherFiles
+      for assembly and no IgnoredFiles for excluded linkname/cgo source.
+    status: partial
+    files:
+      - bazel_rules/go/private/component.bzl
+      - go/internal/packagelayout/packagelayout.go
+      - go/internal/goanalysis/defeatscan.go
+    notes: |
+      Native tests exercise the scanner with go-list metadata, but no Bazel
+      fixture covers this seam. F1 is a fail-closed soundness defect.
+
+  - element: Export-data diagnostics and canonical report integration
+    expected: |
+      Reports record the deduplicated count and byte total of actual non-member
+      export artifacts in native and Bazel modes without affecting verdicts, and
+      older reports remain readable.
+    actual: |
+      The loader validates, canonicalizes, deduplicates, stats, and overflow-checks
+      export paths; the application carries the values into deterministic report
+      JSON/text, and legacy reports decode with zero diagnostics.
+    status: aligned
+    files:
+      - go/internal/goanalysis/goanalysis.go
+      - go/internal/facts/facts.go
+      - go/internal/report/report.go
+      - go/internal/artifactio/report.go
+    notes: ""
+
+doc_code_alignment:
+  - artifact: .agents/planning/2026-08-04-compositional-component-analysis/design/detailed-design.md
+    section: Error Handling / Analysis-defeating inputs
+    issue: |
+      The design requires assembly, cgo, and linkname in member code to produce
+      visible AnalysisDefeating findings, but Bazel member-only layout/input
+      projection drops assembly and excluded Go-file metadata before the scanner.
+    suggested_action: update_code
+    related_finding: F1
+
+  - artifact: .agents/planning/2026-08-04-compositional-component-analysis/design/detailed-design.md
+    section: Overview and Composition across components
+    issue: |
+      These sections still claim that checks scan only member source, eliminate
+      all closure work, and never re-read dependency source, while the repaired
+      topology permits and implements a per-component non-member lexical import
+      projection.
+    suggested_action: update_doc
+    related_finding: F2
+
+findings:
+  - id: F1
+    severity: critical
+    category: architecture
+    file: bazel_rules/go/private/component.bzl
+    line: 142
+    title: Bazel pruning drops member files required by defeat scanning
+    details: |
+      `_layout_content` emits only `.go` sources as GoFiles/CompiledGoFiles
+      (lines 142-157), and final action-input derivation again accepts only
+      `.go` files (lines 898-905). ValidateAndResolveForMemberOnly filters
+      excluded root files out of both lists at packagelayout.go:1814-1821 but
+      never retains them as IgnoredFiles. ScanAnalysisDefeats can observe only
+      GoFiles, IgnoredFiles, and OtherFiles (defeatscan.go:62-109), so a Bazel
+      member's `.s` file or a build-excluded `.go` file containing linkname/cgo
+      syntax disappears before the fail-closed scan. This violates DR-11 and
+      Task 06 requirements 2-3/acceptance criterion 2 and can let a checked
+      component pass despite an analysis bypass; the current tests cover the
+      scanner only with native go-list metadata and contain no Bazel seam fixture.
+    suggested_action: |
+      Preserve declared member assembly and excluded Go files in layout roles
+      and ArccCheck inputs, retain excluded files as IgnoredFiles without
+      type-checking them, keep all non-member source pruned, and add an executing
+      Bazel fixture that pins strict/WARN findings for assembly, linkname, and cgo.
+    source: built-in
+    addressed_by: .agents/tasks/2026-08-04-compositional-component-analysis/step08/task-07-restore-bazel-member-defeat-scan-inputs.code-task.md
+
+  - id: F2
+    severity: important
+    category: doc_divergence
+    file: .agents/planning/2026-08-04-compositional-component-analysis/design/detailed-design.md
+    line: 43
+    title: Repaired topology contradicts closure-independence claims
+    details: |
+      The new build-topology bullet at lines 258-264 explicitly permits an
+      auxiliary metadata action to read non-member source, and
+      component.bzl:246-309 registers one ArccImportGraph action per checked
+      component over its ordinary non-root source closure. That decision is
+      hermetic and correctness-sound, but it contradicts the unchanged overview
+      at lines 43-49 (only member source is scanned and only export files remain
+      closure-shaped) and composition text at lines 372-374 (nothing re-reads or
+      parses dependency source). The discrepancy also risks a misleading Step 13
+      performance result if only ArccCheck loader time is measured and the
+      per-component projection cost is omitted.
+    suggested_action: |
+      Keep the approved auxiliary topology, but update the overview, N1/N2
+      boundary explanation, composition section, and performance acceptance to
+      disclose and measure the cached lexical non-member import projection.
+    source: built-in
+    addressed_by: .agents/tasks/2026-08-04-compositional-component-analysis/step08/task-08-reconcile-auxiliary-projection-design-claims.code-task.md
+
+  - id: F3
+    severity: suggestion
+    category: consistency
+    file: bazel_rules/go/tests/aspect_tests.bzl
+    line: 138
+    title: Fixture comments describe the pre-split embed graph
+    details: |
+      The normal probe now uses the direct core fixture, while the actual embed
+      edge is under the separate embed probe. Comments at lines 138-140 and
+      185-186 still attribute the normal closure shape to embed folding and say
+      core inherits extradep from an embedded library. Assertions are correct,
+      but the comments can mislead future fixture changes.
+    suggested_action: |
+      Rewrite the comments for the direct core fixture and point embed-specific
+      reasoning at the dedicated embed probe.
+    source: built-in
+
+  - id: F4
+    severity: suggestion
+    category: coverage
+    file: bazel_rules/go/tests/stdlib_export_data_tests.bzl
+    line: 36
+    title: Positive stdlib seam test omits three identity fields
+    details: |
+      The successful descriptor test directly asserts GOOS, GOARCH, and cgo but
+      not build tags, normalized toolchain version, or GOEXPERIMENT. Production
+      comparison covers all six fields and mismatch coverage exists, so this is
+      non-blocking residue rather than a correctness gap.
+    suggested_action: |
+      Assert all successful target identity fields or add focused transitioned
+      fixtures for tags, toolchain version, and GOEXPERIMENT.
+    source: built-in
+
+  - id: F5
+    severity: nit
+    category: style
+    file: bazel_rules/go/private/component.bzl
+    line: 38
+    title: Starlark load entry uses a tab
+    details: |
+      The go_build_platform load entry begins with a tab while the surrounding
+      entries use four spaces. Bazel behavior is unaffected.
+    suggested_action: |
+      Replace the tab with the surrounding indentation when this file is next
+      touched.
+    source: built-in
+
+remediation_tasks:
+  - path: .agents/tasks/2026-08-04-compositional-component-analysis/step08/task-07-restore-bazel-member-defeat-scan-inputs.code-task.md
+    title: Restore Bazel Member Defeat-Scan Inputs
+    addresses_findings: [F1]
+    sequence: 1
+
+  - path: .agents/tasks/2026-08-04-compositional-component-analysis/step08/task-08-reconcile-auxiliary-projection-design-claims.code-task.md
+    title: Reconcile Auxiliary Projection Design Claims
+    addresses_findings: [F2]
+    sequence: 2
+
+ecosystem_reviews: []
