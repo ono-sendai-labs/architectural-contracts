@@ -33,6 +33,12 @@ import (
 type PackageFacts struct {
 	Packages []PackageFact
 
+	// ExportDataDiagnostics records the validated, non-member compiler export
+	// artifacts consumed by the member-only loader. It is shell-produced data
+	// carried across the application boundary for report publication; it does
+	// not affect checker verdicts.
+	ExportDataDiagnostics ExportDataDiagnostics
+
 	// References are the typed object-reference edges of the member
 	// packages (Uses/Selections under the declaring-object rule, DR-04),
 	// sorted and duplicate-free. Every boundary and stdlib authority
@@ -47,6 +53,14 @@ type PackageFacts struct {
 	// Bypasses records the analysis-defeating constructs (DR-11) found in
 	// member sources: linkname directives, assembly files and cgo use.
 	Bypasses []BypassObservation
+}
+
+// ExportDataDiagnostics is the deterministic cost summary of the export-data
+// inputs read by one member-only package load. Artifact paths are deduplicated
+// before both values are computed.
+type ExportDataDiagnostics struct {
+	NonMemberExportArtifactCount uint64
+	NonMemberExportBytes         uint64
 }
 
 // PackageFact represents metadata and extracted facts about a single loaded Go package.
@@ -81,7 +95,7 @@ type ExportedSymbol struct {
 // (DR-04), decoded from the surface and compared exactly. Native freshness may
 // read dependency source bytes for a best-effort digest audit, but that path
 // does not parse or type-check the dependency; source loading remains reserved
-// for the component's own member analysis until Step 8.
+// for the component's own member analysis.
 type DependencyInterface struct {
 	Component string
 

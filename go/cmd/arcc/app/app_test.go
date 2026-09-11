@@ -1396,13 +1396,11 @@ component_dependencies: {
 		t.Errorf("stderr = %q, want empty", stderr.String())
 	}
 	gotText := stdout.String()
-	wantText := `Component "declared-comp" conforms; does not exceed declared authority
-
-Dependencies:
-- declared-dep (asserted)
-`
-	if gotText != wantText {
-		t.Errorf("stdout =\n%q\nwant:\n%q", gotText, wantText)
+	wantTextPrefix := "Component \"declared-comp\" conforms; does not exceed declared authority\n\n" +
+		"Dependencies:\n- declared-dep (asserted)\n\n" +
+		"Diagnostics:\n- non-member export artifacts: 1\n"
+	if !strings.HasPrefix(gotText, wantTextPrefix) || !strings.Contains(gotText, "- non-member export bytes: ") {
+		t.Errorf("stdout =\n%q\nwant the diagnostics section with a non-zero byte total", gotText)
 	}
 
 	// 2. JSON mode
@@ -1421,5 +1419,8 @@ Dependencies:
 	}
 	if len(rep.Dependencies) != 1 || rep.Dependencies[0].Component != "declared-dep" {
 		t.Errorf("report.Dependencies = %+v, want declared-dep boundary", rep.Dependencies)
+	}
+	if rep.Diagnostics.NonMemberExportArtifactCount == 0 || rep.Diagnostics.NonMemberExportBytes == 0 {
+		t.Errorf("report.Diagnostics = %+v, want non-member export metrics", rep.Diagnostics)
 	}
 }

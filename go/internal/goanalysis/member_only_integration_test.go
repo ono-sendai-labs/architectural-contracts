@@ -148,6 +148,8 @@ type Value struct { Name string }
 	if byPath["example.com/hermetic/member"] == nil || byPath["example.com/hermetic/dep"] == nil || byPath["example.com/hermetic/deep"] == nil {
 		t.Fatalf("go list closure paths = %v, want member, dep, and deep", sortedPackagePaths(byPath))
 	}
+	var expectedExportBytes uint64
+	expectedExportArtifacts := make(map[string]bool)
 	for _, pkg := range listed {
 		current := byPath[pkg.ID]
 		if current == nil {
@@ -177,6 +179,10 @@ type Value struct { Name string }
 		}
 		if err := os.WriteFile(archivePath, archive, 0o644); err != nil {
 			t.Fatalf("staging export data for %s: %v", pkg.ID, err)
+		}
+		if !expectedExportArtifacts[archiveName] {
+			expectedExportArtifacts[archiveName] = true
+			expectedExportBytes += uint64(len(archive))
 		}
 		current.ExportFile = archiveName
 		// These paths deliberately do not exist after the source closure is
@@ -232,6 +238,13 @@ type Value struct { Name string }
 	if !sawDep || !sawDeep {
 		t.Fatalf("typed references = %+v, want dep and deep declaring objects", loaded.References)
 	}
+	if got, want := loaded.ExportDataDiagnostics.NonMemberExportArtifactCount, uint64(len(expectedExportArtifacts)); got != want {
+		t.Fatalf("non-member export artifact count = %d, want %d", got, want)
+	}
+	if got, want := loaded.ExportDataDiagnostics.NonMemberExportBytes, expectedExportBytes; got != want {
+		t.Fatalf("non-member export bytes = %d, want %d", got, want)
+	}
+	t.Logf("deep closure export metrics: artifacts=%d bytes=%d", loaded.ExportDataDiagnostics.NonMemberExportArtifactCount, loaded.ExportDataDiagnostics.NonMemberExportBytes)
 }
 
 func TestLoadPackageFacts_RefscanMatrixWithDependencySourcesAbsent(t *testing.T) {

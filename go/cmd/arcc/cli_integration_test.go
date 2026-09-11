@@ -806,16 +806,17 @@ func Hello() {
 	// Verify against deterministic golden output to assert stability and the
 	// DR-17 finding model: one counted finding carrying its sorted site and
 	// the map's canned evidence.
-	want := `Component: authorityapp
-
-Violations:
+	wantFindings := `Violations:
 - [UNDECLARED_AUTHORITY] use of undeclared authority "FILES"
   at main.go:4 (1 sites)
   Evidence:
     - os.ReadFile at :0
 `
-	if strings.TrimSpace(normalizedStdout1) != strings.TrimSpace(want) {
-		t.Errorf("normalized stdout does not match golden output.\nGOT:\n%q\nWANT:\n%q", normalizedStdout1, want)
+	if !strings.Contains(normalizedStdout1, strings.TrimSpace(wantFindings)) {
+		t.Errorf("normalized stdout does not contain the finding golden.\nGOT:\n%q\nWANT FINDING:\n%q", normalizedStdout1, wantFindings)
+	}
+	if !strings.Contains(normalizedStdout1, "Diagnostics:\n- non-member export artifacts: 54\n- non-member export bytes: ") {
+		t.Errorf("normalized stdout does not contain export diagnostics: %q", normalizedStdout1)
 	}
 }
 
@@ -1291,14 +1292,10 @@ func TestIntegration_App_Success(t *testing.T) {
 		t.Errorf("expected empty stderr, got %q", stderr)
 	}
 
-	wantText := `Component "app" conforms; does not exceed declared authority
-
-Dependencies:
-- csvfile (asserted)
-- toprow (asserted)
-`
-	if stdout != wantText {
-		t.Errorf("stdout =\n%q\nwant:\n%q", stdout, wantText)
+	wantTextPrefix := "Component \"app\" conforms; does not exceed declared authority\n\n" +
+		"Dependencies:\n- csvfile (asserted)\n- toprow (asserted)\n"
+	if !strings.HasPrefix(stdout, wantTextPrefix) || !strings.Contains(stdout, "Diagnostics:\n- non-member export artifacts: 67\n- non-member export bytes: ") {
+		t.Errorf("stdout =\n%q\nwant conformance and export diagnostics", stdout)
 	}
 }
 
@@ -1845,13 +1842,10 @@ component_dependencies {
 	if stderr != "" {
 		t.Errorf("expected empty stderr, got %q", stderr)
 	}
-	wantText := `Component "declared-caller-cli" conforms; does not exceed declared authority
-
-Dependencies:
-- declared-dep-cli (asserted)
-`
-	if stdout != wantText {
-		t.Errorf("stdout =\n%q\nwant:\n%q", stdout, wantText)
+	wantTextPrefix := "Component \"declared-caller-cli\" conforms; does not exceed declared authority\n\n" +
+		"Dependencies:\n- declared-dep-cli (asserted)\n"
+	if !strings.HasPrefix(stdout, wantTextPrefix) || !strings.Contains(stdout, "Diagnostics:\n- non-member export artifacts: 1\n- non-member export bytes: ") {
+		t.Errorf("stdout =\n%q\nwant conformance and export diagnostics", stdout)
 	}
 
 	// 2. JSON mode check

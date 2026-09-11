@@ -11,6 +11,10 @@
         "authority": "DECLARED"
       }
     ],
+    "diagnostics": {
+      "non_member_export_artifact_count": 42,
+      "non_member_export_bytes": 20124990
+    },
     "violations": null,
     "warnings": null
   }

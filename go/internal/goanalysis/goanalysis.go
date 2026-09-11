@@ -36,6 +36,9 @@ import (
 var (
 	membershipMu sync.RWMutex
 	loadedFiles  = make(map[uintptr]map[string]bool)
+	// exportDataStat is a seam for checking fail-closed size accounting without
+	// constructing multi-terabyte fixtures in tests.
+	exportDataStat = os.Stat
 	// loadPackages is a loader seam for exercising driver-specific package
 	// provenance. Production loads use go/packages directly; integration tests
 	// can model a rewriting host without replacing the package analysis graph.
@@ -200,6 +203,13 @@ func LoadPackageFacts(req LoadRequest) (facts.PackageFacts, error) {
 			return facts.PackageFacts{}, err
 		}
 	}
+	var exportDataDiagnostics facts.ExportDataDiagnostics
+	if memberOnlyLoad {
+		exportDataDiagnostics, err = collectExportDataDiagnostics(pkgs, compPkgPaths, dir)
+		if err != nil {
+			return facts.PackageFacts{}, err
+		}
+	}
 	isEffectiveMember := func(pkgPath string) bool {
 		return compPkgPaths[hostpolicy.CanonicalizePath(pkgPath)]
 	}
@@ -285,10 +295,11 @@ func LoadPackageFacts(req LoadRequest) (facts.PackageFacts, error) {
 	}
 
 	res := facts.PackageFacts{
-		Packages:   factsPkgs,
-		References: referenceEdges,
-		Imports:    importEdges,
-		Bypasses:   bypasses,
+		Packages:              factsPkgs,
+		ExportDataDiagnostics: exportDataDiagnostics,
+		References:            referenceEdges,
+		Imports:               importEdges,
+		Bypasses:              bypasses,
 	}
 
 	if len(factsPkgs) > 0 {
@@ -481,6 +492,86 @@ func hasExportBackedNonMembers(pkgs []*packages.Package, memberPaths map[string]
 		}
 	})
 	return found
+}
+
+// collectExportDataDiagnostics counts the resolved compiler artifacts that a
+// member-only load can consume. The package graph may mention one artifact from
+// several package records, so paths are canonicalized and deduplicated before
+// statting and summing. This runs after layout/native load validation, making a
+// missing artifact or a size-accounting overflow a tool error rather than a
+// partial report value.
+func collectExportDataDiagnostics(pkgs []*packages.Package, memberPaths map[string]bool, baseDir string) (facts.ExportDataDiagnostics, error) {
+	paths := make(map[string]bool)
+	pathPackages := make(map[string][]string)
+	var missing []string
+	packages.Visit(pkgs, nil, func(pkg *packages.Package) {
+		if pkg == nil || memberPaths[hostpolicy.CanonicalizePath(pkg.PkgPath)] || pkg.PkgPath == "unsafe" {
+			return
+		}
+		if pkg.ExportFile == "" {
+			missing = append(missing, fmt.Sprintf("non-member package %q has no export artifact", pkg.PkgPath))
+			return
+		}
+		resolved := filepath.Clean(pkg.ExportFile)
+		if !filepath.IsAbs(resolved) {
+			resolved = filepath.Join(baseDir, resolved)
+		}
+		absolute, err := filepath.Abs(resolved)
+		if err != nil {
+			missing = append(missing, fmt.Sprintf("export artifact %q for package %q cannot be resolved: %v", pkg.ExportFile, pkg.PkgPath, err))
+			return
+		}
+		absolute = filepath.Clean(absolute)
+		paths[absolute] = true
+		pathPackages[absolute] = append(pathPackages[absolute], pkg.PkgPath)
+	})
+	if len(missing) > 0 {
+		sort.Strings(missing)
+		return facts.ExportDataDiagnostics{}, fmt.Errorf("invalid non-member export inputs:\n%s", strings.Join(missing, "\n"))
+	}
+
+	sortedPaths := make([]string, 0, len(paths))
+	for path := range paths {
+		sortedPaths = append(sortedPaths, path)
+	}
+	sort.Strings(sortedPaths)
+
+	var total uint64
+	for _, path := range sortedPaths {
+		info, err := exportDataStat(path)
+		if err != nil {
+			packagesForPath := append([]string(nil), pathPackages[path]...)
+			sort.Strings(packagesForPath)
+			return facts.ExportDataDiagnostics{}, fmt.Errorf("stating non-member export artifact %q for packages %s: %w", path, strings.Join(packagesForPath, ", "), err)
+		}
+		if info == nil {
+			packagesForPath := append([]string(nil), pathPackages[path]...)
+			sort.Strings(packagesForPath)
+			return facts.ExportDataDiagnostics{}, fmt.Errorf("stating non-member export artifact %q for packages %s returned no file info", path, strings.Join(packagesForPath, ", "))
+		}
+		if info.IsDir() || !info.Mode().IsRegular() {
+			packagesForPath := append([]string(nil), pathPackages[path]...)
+			sort.Strings(packagesForPath)
+			return facts.ExportDataDiagnostics{}, fmt.Errorf("non-member export artifact %q for packages %s is not a regular file", path, strings.Join(packagesForPath, ", "))
+		}
+		if info.Size() < 0 {
+			packagesForPath := append([]string(nil), pathPackages[path]...)
+			sort.Strings(packagesForPath)
+			return facts.ExportDataDiagnostics{}, fmt.Errorf("non-member export artifact %q for packages %s has negative size %d", path, strings.Join(packagesForPath, ", "), info.Size())
+		}
+		size := uint64(info.Size())
+		if ^uint64(0)-total < size {
+			packagesForPath := append([]string(nil), pathPackages[path]...)
+			sort.Strings(packagesForPath)
+			return facts.ExportDataDiagnostics{}, fmt.Errorf("non-member export artifact byte total overflows uint64 at %q for packages %s", path, strings.Join(packagesForPath, ", "))
+		}
+		total += size
+	}
+
+	return facts.ExportDataDiagnostics{
+		NonMemberExportArtifactCount: uint64(len(sortedPaths)),
+		NonMemberExportBytes:         total,
+	}, nil
 }
 
 // completeLoadedExportTypes fills the incomplete placeholder packages that

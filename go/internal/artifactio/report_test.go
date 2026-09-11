@@ -164,6 +164,21 @@ func TestDecodeReport_RoundTrip(t *testing.T) {
 	}
 }
 
+func TestDecodeReport_LegacyArtifactDefaultsDiagnostics(t *testing.T) {
+	legacy := []byte(`{"format_version":1,"verdict":"fail","report":{"component":"legacy","violations":[{"kind":"UNDECLARED_DEPENDENCY","message":"old"}],"warnings":[]}}`)
+
+	got, err := artifactio.DecodeReport(legacy)
+	if err != nil {
+		t.Fatalf("DecodeReport() error = %v", err)
+	}
+	if got.Report.Diagnostics != (report.Diagnostics{}) {
+		t.Fatalf("legacy diagnostics = %#v, want zero value", got.Report.Diagnostics)
+	}
+	if got.Verdict != report.VerdictFail {
+		t.Fatalf("legacy verdict = %q, want %q", got.Verdict, report.VerdictFail)
+	}
+}
+
 func TestDecodeReport_RejectsInvalidInput(t *testing.T) {
 	passing, err := artifactio.MarshalReport(report.ConformanceReport{Component: "c"})
 	if err != nil {

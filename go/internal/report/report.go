@@ -113,10 +113,20 @@ type DependencyBoundary struct {
 	DeclaredAuthority []string             `json:"declared_authority,omitempty"`
 }
 
+// Diagnostics records the measured non-member export-data footprint of the
+// component load. The loader deduplicates resolved artifact paths before
+// populating these fields. Diagnostics are observational only: verdicts remain
+// derived exclusively from Violations.
+type Diagnostics struct {
+	NonMemberExportArtifactCount uint64 `json:"non_member_export_artifact_count"`
+	NonMemberExportBytes         uint64 `json:"non_member_export_bytes"`
+}
+
 // ConformanceReport is the overall result of analyzing a component against its manifest.
 type ConformanceReport struct {
 	Component    string               `json:"component"`
 	Dependencies []DependencyBoundary `json:"dependencies,omitempty"`
+	Diagnostics  Diagnostics          `json:"diagnostics"`
 	Violations   []Finding            `json:"violations"`
 	Warnings     []Finding            `json:"warnings"`
 }
@@ -138,6 +148,7 @@ func (r ConformanceReport) RenderText() string {
 				sb.WriteString("\n")
 			}
 		}
+		renderDiagnostics(&sb, r.Diagnostics)
 		return sb.String()
 	}
 
@@ -150,6 +161,7 @@ func (r ConformanceReport) RenderText() string {
 			sb.WriteString("\n")
 		}
 	}
+	renderDiagnostics(&sb, r.Diagnostics)
 
 	if len(r.Violations) > 0 {
 		sb.WriteString("\nViolations:\n")
@@ -166,6 +178,15 @@ func (r ConformanceReport) RenderText() string {
 	}
 
 	return sb.String()
+}
+
+func renderDiagnostics(sb *strings.Builder, diagnostics Diagnostics) {
+	if diagnostics == (Diagnostics{}) {
+		return
+	}
+	sb.WriteString("\nDiagnostics:\n")
+	sb.WriteString(fmt.Sprintf("- non-member export artifacts: %d\n", diagnostics.NonMemberExportArtifactCount))
+	sb.WriteString(fmt.Sprintf("- non-member export bytes: %d\n", diagnostics.NonMemberExportBytes))
 }
 
 // renderFinding renders one finding as a single text entry. A finding with

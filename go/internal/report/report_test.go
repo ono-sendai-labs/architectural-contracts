@@ -69,6 +69,24 @@ func TestRenderText_Conforms(t *testing.T) {
 	}
 }
 
+func TestRenderText_ExportDataDiagnostics(t *testing.T) {
+	rep := report.ConformanceReport{
+		Component: "member",
+		Diagnostics: report.Diagnostics{
+			NonMemberExportArtifactCount: 3,
+			NonMemberExportBytes:         42,
+		},
+	}
+
+	got := report.RenderText(rep)
+	if !strings.Contains(got, "Diagnostics:\n") {
+		t.Fatalf("RenderText() = %q, want diagnostics section", got)
+	}
+	if !strings.Contains(got, "non-member export artifacts: 3") || !strings.Contains(got, "non-member export bytes: 42") {
+		t.Fatalf("RenderText() = %q, want deterministic export metrics", got)
+	}
+}
+
 func TestRenderText_ConformsWithDependencies(t *testing.T) {
 	rep := report.ConformanceReport{
 		Component: "test-comp",

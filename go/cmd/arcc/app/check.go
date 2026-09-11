@@ -258,6 +258,10 @@ func (r *Runner) runCheck(opts checkOptions, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "error: %v\n", err)
 		return 2
 	}
+	conformanceReport.Diagnostics = report.Diagnostics{
+		NonMemberExportArtifactCount: loadedFacts.ExportDataDiagnostics.NonMemberExportArtifactCount,
+		NonMemberExportBytes:         loadedFacts.ExportDataDiagnostics.NonMemberExportBytes,
+	}
 	for _, exclusion := range interfaceExclusions {
 		conformanceReport.Warnings = append(conformanceReport.Warnings, report.Finding{
 			Kind:    report.InterfaceFileExcluded,
