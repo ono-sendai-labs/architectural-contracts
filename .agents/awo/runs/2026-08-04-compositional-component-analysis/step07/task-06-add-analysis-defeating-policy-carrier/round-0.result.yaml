@@ -1,0 +1,115 @@
+result:
+  task_file: .agents/tasks/2026-08-04-compositional-component-analysis/step07/task-06-add-analysis-defeating-policy-carrier.code-task.md
+  change_id: lpzoqkknlovyxmvsovqxvqxrrtyxtplu
+  status: completed
+  schema_version: 2
+  produced_at: 2026-09-11T03:16:59Z
+
+acceptance_criteria:
+  - text: |
+      **Strict remains the default**
+      - Given a manifest that omits the new field and reaches an `UNANALYZED` stdlib symbol or analysis-defeating bypass
+      - When it is checked
+      - Then the finding remains a violation and the report verdict is fail
+    addressed: yes
+    evidence: |
+      `go/internal/manifest/authority.go:23-27` defines the strict zero value and
+      `go/cmd/arcc/app/check.go:326-330` maps every non-WARN value to
+      `capanalyzer.StrictPolicy()`. `go/cmd/arcc/cli_integration_test.go:590-607`
+      and `go/cmd/arcc/app/check_test.go:366-417` assert strict exit 1 and an
+      `UNDECLARED_AUTHORITY` AnalysisDefeating finding.
+  - text: |
+      **Explicit warn policy remains visible**
+      - Given the same component with the manifest policy set to `WARN`
+      - When it is checked
+      - Then the finding becomes an `ANALYSIS_LIMITATION` warning retaining class, sites, SDK key/evidence, and source locations, and is never silently omitted
+    addressed: yes
+    evidence: |
+      `go/internal/checker/aggregate.go:140-195` preserves the class, SDK key,
+      sorted sites and evidence while selecting `ANALYSIS_LIMITATION` for
+      AnalysisDefeating. The production CSV and bypass tests at
+      `go/cmd/arcc/cli_integration_test.go:618-643` and
+      `go/cmd/arcc/app/check_integration_test.go:1372-1400` compare the visible
+      warning sites and keys with the strict findings.
+  - text: |
+      **True authority cannot use the carrier**
+      - Given a component that selects WARN but references undeclared FILES or NETWORK authority
+      - When it is checked
+      - Then the true-authority finding remains an `UNDECLARED_AUTHORITY` violation unless separately declared
+    addressed: yes
+    evidence: |
+      `go/cmd/arcc/app/check_test.go:419-460` runs a WARN manifest with a fake
+      `os.ReadFile`/FILES map classification and asserts exit 1, one strict
+      `TrueAuthority` violation, and no warning. `policyForManifest` adds only
+      the empty key at `go/cmd/arcc/app/check.go:321-330`.
+  - text: |
+      **Native and Bazel policy declarations agree**
+      - Given checked-in and Bazel-generated parsecsv manifests plus invalid attribute/schema values
+      - When parity and analysis tests run
+      - Then the valid manifests produce the same policy and invalid values fail early with actionable errors
+    addressed: yes
+    evidence: |
+      Schema field 11 and the `STRICT`/`WARN` enum are documented in
+      `proto/archcontracts/v1/component.proto:57-90`; Bazel validates the closed
+      `strict`/`warn` vocabulary at `bazel_rules/go/private/component.bzl:507-511`
+      and emits only explicit WARN at lines 101-105. Native/Bazel policy parity is
+      checked by `go/internal/manifestparity/manifestparity.go:145-154` and the
+      Bazel analysis tests in `bazel_rules/go/tests/component_tests.bzl:212-240`.
+  - text: |
+      **Residual components run normally**
+      - Given parsecsv and capslockadapter after the wrapper migrations
+      - When their Bazel/native checks run as applicable
+      - Then they complete without exemption, report their honest residuals as warnings, and retain all other strict violations
+    addressed: yes
+    evidence: |
+      `go/examples/csvtool/internal/parsecsv/BUILD.bazel:11-19` uses the public
+      WARN attribute with no `check_tags`, and
+      `go/examples/csvtool/internal/parsecsv/component.textproto:1-4` carries the
+      matching field. `go/internal/capslockadapter/component.textproto:1-3` and
+      `justfile:138-145` restore the native gated check. Production residual tests
+      at `go/cmd/arcc/cli_integration_test.go:646-720` prove visible warnings and
+      strict violations for the actual capslockadapter component.
+  - text: |
+      **No Step 6 exemption survives**
+      - Given repository-wide searches of `check_tags`, selfcheck comments, skip lists, and AC8b TODOs
+      - When Step 7 completes
+      - Then none of the five components is exempted and no replacement bypass was introduced
+    addressed: yes
+    evidence: |
+      The recorded live-tree inspection in this task's `work.log` found no
+      `AC8b`, `EXEMPT`, `TODO(Step 7)`, or `residual-UNANALYZED` marker and no
+      `check_tags` in the five owner BUILD files. `justfile:121-145` stages the
+      dependency order and runs ordinary final checks for artifactio, manifest,
+      goanalysis, capslockadapter and parsecsv; parsecsv's former exemption is
+      absent from `go/examples/csvtool/internal/parsecsv/BUILD.bazel:14-19`.
+  - text: |
+      **Classifier semantics are unchanged**
+      - Given the pinned stdlib map and generation classifier tests
+      - When the repository gates run
+      - Then `UNANALYZED` records, I2 minting-site rules, classifier hash, and fail-closed map behavior are unchanged; only manifest-directed report policy differs
+    addressed: yes
+    evidence: |
+      Existing map/classifier pins remain covered by
+      `go/internal/stdlibmap/generate_integration_test.go:133-164`,
+      `go/internal/capslockadapter/generation_integration_test.go:9-21`, and the
+      pinned SDK check in `go/internal/teststdlibmap/pinned_test.go:9-23`.
+      `just gen-is-clean` and the full `just ci` run passed; the new policy tests
+      compare report kind/verdict and preserve the same sites and SDK key without
+      changing map-generation code or classifier fingerprint inputs.
+
+artifacts:
+  scratchpad_dir: .agents/scratchpad/2026-08-04-compositional-component-analysis/step07/task-06-add-analysis-defeating-policy-carrier/
+  files:
+    - context.md
+    - plan.md
+    - progress.md
+    - work.log
+    - result.yaml
+
+notes: |
+  Implemented the versioned strict/WARN manifest carrier, pure model mapping,
+  Bazel emission and parity validation, and applied it only to parsecsv and
+  capslockadapter. Production tests prove strict violations, visible DR-17
+  warnings, unchanged true authority, bypass coverage, and deterministic reports;
+  `just gen-is-clean` and `just ci` pass. The final task tip is the fresh jj
+  change `lpzoqkknlovyxmvsovqxvqxrrtyxtplu`, with an empty working-copy change.
