@@ -9,6 +9,8 @@ go_library(
     visibility = ["//visibility:public"],
 )
 
+exports_files(["runtime_consumer.go"], visibility = ["//visibility:public"])
+
 # This is the matching infrastructure wrapper. UNKNOWN keeps the fixture's
 # boundary asserted, so the consumer test proves that the auto-attached edge
 # carries the existing surface/provenance path without making runtime source a
@@ -33,11 +35,12 @@ testing_go_component(
         "//bazel_rules/go/tests/testdata/core",
         "//bazel_rules/go/tests/testdata/extradep",
         "//bazel_rules/go/tests/testdata/lowlevel",
+        "//bazel_rules/go/tests:injected_runtime_member",
     ],
     infra_deps = [":runtime_boundary"],
     test_runtime_deps = [":runtime"],
     test_infra_attach = "CLOSURE",
-    test_infra_patterns = ["example.com/injected/*"],
+    test_infra_patterns = ["example.com/injected/runtime"],
     check_tags = ["manual"],
     visibility = ["//bazel_rules:__subpackages__"],
 )

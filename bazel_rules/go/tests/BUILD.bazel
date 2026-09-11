@@ -14,7 +14,10 @@ load(":stdlib_map_tests.bzl", "stdlib_map_full_test_suite", "stdlib_map_test_sui
 load(":stdlib_export_data_tests.bzl", "stdlib_export_data_test_suite")
 load(
     ":runtime_injection_tests.bzl",
+    "fake_go_member",
+    "fake_go_member_probe",
     "fake_runtime_package",
+    "runtime_layout",
     "runtime_injection_defaults_probe",
     "runtime_injection_test_suite",
 )
@@ -25,6 +28,18 @@ exports_files([
     "test_export_a.data",
     "test_export_b.data",
 ])
+
+fake_go_member(
+    name = "injected_runtime_member",
+    importpath = "example.com/injected/consumer",
+    src = "//bazel_rules/go/tests/testdata/injected_runtime:runtime_consumer.go",
+    export_file = "test_export_a.data",
+    visibility = ["//bazel_rules:__subpackages__"],
+)
+fake_go_member_probe(
+    name = "injected_runtime_member_probe",
+    target = ":injected_runtime_member",
+)
 
 testing_infra_attachment_probe(
     name = "exact_self_infra_attachment_probe",
@@ -128,6 +143,18 @@ arcc_checked_analysis_test(
     name = "injected_runtime_analysis_test",
     size = "small",
     component = "//bazel_rules/go/tests/testdata/injected_runtime:runtime_injection_component",
+)
+
+runtime_layout(
+    name = "injected_runtime_final_layout",
+    component = "//bazel_rules/go/tests/testdata/injected_runtime:runtime_injection_component",
+)
+sh_test(
+    name = "injected_runtime_final_layout_test",
+    srcs = ["runtime_injection_layout_test.sh"],
+    size = "small",
+    args = ["$(rootpath :injected_runtime_final_layout)"],
+    data = [":injected_runtime_final_layout"],
 )
 
 stdlib_export_data_probe(name = "stdlib_export_data_probe")

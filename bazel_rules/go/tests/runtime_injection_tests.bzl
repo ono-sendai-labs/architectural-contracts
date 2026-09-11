@@ -3,8 +3,10 @@
 load("@rules_testing//lib:analysis_test.bzl", "analysis_test")
 load("@rules_testing//lib:truth.bzl", "matching")
 load("@rules_testing//lib/private:util.bzl", "get_test_name_from_function")
+load("@rules_go//go:def.bzl", "GoArchive", "GoInfo")
 load("//bazel_rules:providers.bzl", "ArccComponentInfo")
 load("//bazel_rules/go:providers.bzl", "ArccPackageInfo")
+load("//bazel_rules/go/private:aspect.bzl", "arcc_deps_aspect")
 load(
     "//bazel_rules/go/private:go_adapter.bzl",
     "extra_runtime_packages",
@@ -19,6 +21,86 @@ _CONFLICT_COMPONENT = "//bazel_rules/go/tests:injected_conflict_component"
 _ORDINARY_CONFLICT_COMPONENT = "//bazel_rules/go/tests:injected_ordinary_conflict_component"
 _ORDER_COMPONENT_A = "//bazel_rules/go/tests:injected_order_component_a"
 _ORDER_COMPONENT_B = "//bazel_rules/go/tests:injected_order_component_b"
+
+def _fake_go_member_impl(ctx):
+    return [
+        DefaultInfo(files = depset([ctx.file.src])),
+        GoInfo(
+            importpath = ctx.attr.importpath,
+            srcs = (ctx.file.src,),
+            mode = struct(
+                goos = "linux",
+                goarch = "amd64",
+                tags = tuple(),
+                pure = True,
+            ),
+        ),
+        GoArchive(
+            data = struct(
+                importpath = ctx.attr.importpath,
+                export_file = ctx.file.export_file,
+            ),
+            direct = tuple(),
+        ),
+    ]
+
+fake_go_member = rule(
+    implementation = _fake_go_member_impl,
+    attrs = {
+        "importpath": attr.string(mandatory = True),
+        "src": attr.label(allow_single_file = True, mandatory = True),
+        "export_file": attr.label(allow_single_file = True, mandatory = True),
+    },
+    provides = [GoInfo, GoArchive],
+    doc = "Test-only source root with a filtered Go closure provider.",
+)
+
+def _fake_go_member_probe_impl(ctx):
+    target = ctx.attr.target
+    return [
+        DefaultInfo(),
+        RuntimeInjectionProbeInfo(
+            attrs = {
+                "go_info": GoInfo in target,
+                "go_archive": GoArchive in target,
+                "importpath": target[GoInfo].importpath,
+            },
+            packages = target[ArccPackageInfo].packages.to_list(),
+        ),
+    ]
+
+fake_go_member_probe = rule(
+    implementation = _fake_go_member_probe_impl,
+    attrs = {
+        "target": attr.label(
+            mandatory = True,
+            providers = [GoInfo, GoArchive],
+            aspects = [arcc_deps_aspect],
+        ),
+    },
+    provides = [RuntimeInjectionProbeInfo],
+    doc = "Exposes the fake Go member's aspect projection for contract tests.",
+)
+
+def _runtime_layout_impl(ctx):
+    layout = ctx.attr.component[ArccComponentInfo].layout
+    return [
+        DefaultInfo(
+            files = depset([layout]),
+            runfiles = ctx.runfiles(files = [layout]),
+        ),
+    ]
+
+runtime_layout = rule(
+    implementation = _runtime_layout_impl,
+    attrs = {
+        "component": attr.label(
+            mandatory = True,
+            providers = [ArccComponentInfo],
+        ),
+    },
+    doc = "Republishes the injected-runtime component's final layout for a shell test.",
+)
 
 def _fake_runtime_package_impl(ctx):
     return [
@@ -68,6 +150,23 @@ def _runtime_injection_defaults_test(name):
         attr_values = {"size": "small"},
     )
 
+def _fake_go_member_projection_test(name):
+    analysis_test(
+        name = name,
+        target = "//bazel_rules/go/tests:injected_runtime_member_probe",
+        impl = _fake_go_member_projection_impl,
+        attr_values = {"size": "small"},
+    )
+
+def _fake_go_member_projection_impl(env, target):
+    info = target[RuntimeInjectionProbeInfo]
+    env.expect.that_dict(info.attrs).contains_exactly({
+        "go_info": True,
+        "go_archive": True,
+        "importpath": "example.com/injected/consumer",
+    })
+    env.expect.that_int(len(info.packages)).equals(1)
+
 def _runtime_injection_defaults_impl(env, target):
     env.expect.that_dict(target[RuntimeInjectionProbeInfo].attrs).contains_exactly({})
     env.expect.that_collection(target[RuntimeInjectionProbeInfo].packages).contains_exactly([])
@@ -89,6 +188,7 @@ def _injected_runtime_is_merged_and_attached_impl(env, target):
         "example.com/aspect/core",
         "example.com/aspect/extradep",
         "example.com/aspect/lowlevel",
+        "example.com/injected/consumer",
     ])
 
     manifest = env.expect.that_target(target).action_generating(
@@ -111,6 +211,9 @@ def _injected_runtime_is_merged_and_attached_impl(env, target):
         for package in json.decode(base_layout)["packages"]
         if package["PkgPath"] == "example.com/injected/runtime"
     ]
+    env.expect.that_collection(json.decode(base_layout)["roots"]).not_contains(
+        "example.com/injected/runtime",
+    )
     env.expect.that_int(len(packages)).equals(1)
     env.expect.that_str(packages[0]["ExportFile"]).contains("runtime.x")
     bindings = [
@@ -124,6 +227,7 @@ def _injected_runtime_is_merged_and_attached_impl(env, target):
 
     check_action = env.expect.that_target(target).action_generating(info.report.short_path).actual
     check_inputs = [file.basename for file in check_action.inputs.to_list()]
+    env.expect.that_collection(check_inputs).contains("runtime_consumer.go")
     env.expect.that_collection(check_inputs).contains("runtime_boundary.surface.json")
     env.expect.that_collection(check_inputs).contains("runtime.x")
     env.expect.that_collection([name for name in check_inputs if name == "runtime.go"]).contains_exactly([])
@@ -206,6 +310,7 @@ def runtime_injection_test_suite(name):
     test_names = []
     for setup_func in [
         _runtime_injection_defaults_test,
+        _fake_go_member_projection_test,
         _injected_runtime_is_merged_and_attached_test,
         _injected_cgo_fails_test,
         _injected_export_conflict_fails_test,
