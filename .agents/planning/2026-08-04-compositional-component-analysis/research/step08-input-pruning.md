@@ -1,6 +1,6 @@
 # Step 8 input-pruning and export-data diagnostics
 
-**Date:** 2026-09-11  
+**Date:** 2026-09-11
 **Scope:** Step 8 Task 6 final action-input contract and a representative deep
 closure demonstration.
 
@@ -8,7 +8,9 @@ closure demonstration.
 
 The checked component-analysis action declares only:
 
-- the target-selected `.go` files for the effective member roots;
+- all declared member analysis files for the effective roots: selected Go files
+  in `GoFiles`/`CompiledGoFiles`, target-excluded declared Go files in
+  `IgnoredFiles`, and declared assembly or other non-Go files in `OtherFiles`;
 - the generated component manifest and package layout;
 - ordinary non-member compiler export artifacts and the ordinary-import graph
   descriptor;
@@ -17,12 +19,17 @@ The checked component-analysis action declares only:
 - each direct dependency's surface and applicable report; and
 - the target SDK-keyed stdlib authority map.
 
-The action does not declare or receive dependency/SDK `.go` source, a Go or other
-toolchain binary, an undeclared cache, or network access. The auxiliary
-`ArccImportGraph` metadata action may read ordinary source to project direct
-imports; that is not a component analysis action input. The Bazel analysis test
-`checked_action_inputs_test` asserts the positive inventory and the exact set of
-member-only `.go` inputs.
+Only selected member Go files enter package parsing and type-checking in
+`ArccCheck`. Ignored Go files and assembly remain declared inputs for the
+fail-closed `ScanAnalysisDefeats` scan; assembly is represented in `OtherFiles`,
+while other declared non-Go files remain visible in that role without becoming
+type-checking inputs. The action does not declare or receive any ordinary
+non-member or SDK source file, a Go or other toolchain binary, an undeclared
+cache, or network access. The auxiliary `ArccImportGraph` metadata action may
+read ordinary source to project direct imports; that is not a component analysis
+action input. The Bazel analysis tests `checked_action_inputs_test` and
+`defeat_member_action_inputs_test` assert the positive inventory and the exact
+complete member-file set, including the `IgnoredFiles` and `OtherFiles` roles.
 
 This inventory describes the final component-analysis action, not every action in the
 producer chain. Because the pinned rules_go provider does not expose the exact ordinary
