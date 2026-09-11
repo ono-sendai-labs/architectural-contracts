@@ -1,0 +1,289 @@
+review:
+  project: 2026-08-04-compositional-component-analysis
+  scope: step
+  step: 7
+  plan_path: .agents/planning/2026-08-04-compositional-component-analysis/implementation/plan.md
+  design_path: .agents/planning/2026-08-04-compositional-component-analysis/design/detailed-design.md
+  reviewed_at: 2026-09-11T03:36:37Z
+  schema_version: 1
+  steps_in_scope: [7]
+  commits_in_scope: 28
+  remediation_step: .agents/tasks/2026-08-04-compositional-component-analysis/step07/
+  verdict: remediation_required
+
+summary: |
+  The surface-binding, validated-consumption, status-axis, overlap, wrapper-ownership,
+  and manifest-policy slices align with Step 7's design; exhaustive current-tree searches
+  confirm that protobuf and x/tools package ownership is singular, and the producer-authored
+  residual-UNANALYZED decision matches the code. The native selfcheck is nevertheless
+  unsound: it discards most staging verdicts, and an exact reproduction shows the real
+  stdlibmap component currently fails while `just selfcheck` remains green. Repository-wide
+  ownership is true today, but its regression tests omit checked-in example manifests and do
+  not actually enforce the repository-wide scope they claim.
+
+architecture:
+  - element: Direct dependency artifact bindings
+    expected: |
+      Every authored and auto-attached direct dependency has one deterministic layout
+      binding to its surface, optional report, edge provenance, and auto-attached flag;
+      malformed provider combinations fail before action creation.
+    actual: |
+      Package-layout bindings are emitted from ArccComponentInfo edges, validated and
+      canonically sorted, and the same artifacts are direct inputs of the checked action.
+    status: aligned
+    files:
+      - bazel_rules/go/private/component.bzl
+      - go/internal/packagelayout/packagelayout.go
+    notes: |
+      Focused Go and Starlark tests cover checked, asserted, auto-attached, malformed,
+      duplicate, and unsafe-path cases.
+
+  - element: Validated surface-backed dependency resolution
+    expected: |
+      Dependency packages and exact symbols come only from bounded persisted surfaces;
+      namespace, complete SDK identity, interface style, authority, report identity, and
+      structural producer invariants fail closed without loading dependency packages.
+    actual: |
+      ResolveDependencySurface validates the artifact and binding shapes and projects them
+      into facts.DependencyInterface. Native freshness reads bytes only, while layout mode
+      derives provenance and BUILD_GRAPH freshness from provider/report structure.
+    status: aligned
+    files:
+      - go/internal/goanalysis/surface_resolver.go
+      - go/cmd/arcc/app/check.go
+    notes: |
+      The legacy source-backed ResolveDependencyInterface path is absent. NeedDeps and the
+      closure-source input set remain explicitly deferred to Step 8 as planned.
+
+  - element: Boundary status axes and failed/stale dependency reporting
+    expected: |
+      Reports preserve provenance, freshness, and authority as orthogonal axes; checked-fail
+      and stale dependencies warn without importing dependency violations, and text renders
+      certified, asserted, check failed, stale, and untrusted combinations accurately.
+    actual: |
+      The facts and report models carry all three axes, the checker emits the two boundary
+      warnings, and canonical JSON/text tests cover the valid combinations.
+    status: aligned
+    files:
+      - go/internal/facts/dependency_status.go
+      - go/internal/checker/checker.go
+      - go/internal/report/report.go
+    notes: ""
+
+  - element: Direct dependency overlap enforcement
+    expected: |
+      Two direct dependency surfaces claiming one package fail deterministically before a
+      package-to-dependency lookup can be used.
+    actual: |
+      NewBoundaryIndex first collects and sorts collisions and returns DEPENDENCY_OVERLAP
+      before constructing pkgToDep; production tests also assert no artifact publication.
+    status: aligned
+    files:
+      - go/internal/checker/boundary.go
+      - go/cmd/arcc/app/app_test.go
+    notes: ""
+
+  - element: Protobuf runtime package-surface ownership
+    expected: |
+      One asserted UNKNOWN PACKAGE_SURFACE component owns the concrete protobuf runtime
+      closure, and all consumers use explicit component boundaries rather than membership.
+    actual: |
+      protobuf-runtime is the only current manifest or go_component member declaration for
+      google.golang.org/protobuf packages. Its native and Bazel surfaces are asserted,
+      package-level, symbol-free, and empty-digest.
+    status: aligned
+    files:
+      - go/internal/protobufruntime/component.textproto
+      - go/internal/protobufruntime/BUILD.bazel
+      - go/internal/manifestparity/ownership_test.go
+    notes: |
+      A repository-wide search confirmed current singular ownership independently of the
+      narrower regression helper discussed in F3.
+
+  - element: x/tools package-surface ownership
+    expected: |
+      One asserted UNKNOWN PACKAGE_SURFACE component owns the retained x/tools, x/mod, and
+      x/sync closure, with goanalysis and other consumers migrated to explicit boundaries.
+    actual: |
+      x-tools is the only current manifest or go_component member declaration for the
+      retained foreign package set, and goanalysis, capslockadapter, and stdlibmap declare
+      the wrapper dependency.
+    status: aligned
+    files:
+      - go/internal/xtools/component.textproto
+      - go/internal/xtools/BUILD.bazel
+      - go/internal/manifestparity/x_tools_ownership_test.go
+    notes: |
+      Current ownership is singular; F3 concerns the future regression guard's incomplete
+      repository enumeration, not a present duplicate owner.
+
+  - element: Residual AnalysisDefeating policy carrier
+    expected: |
+      Omission is strict; explicit WARN maps only the empty AnalysisDefeating capability key
+      to a visible ANALYSIS_LIMITATION, preserving sites, class, SDK identity, classifier
+      semantics, and genuine authority violations.
+    actual: |
+      Manifest field 11 and the Bazel attribute implement strict/WARN, policyForManifest adds
+      only Warn[""], and report aggregation retains class, sorted sites, and SDK identity.
+      The field is applied only to parsecsv and capslockadapter.
+    status: aligned
+    files:
+      - proto/archcontracts/v1/component.proto
+      - go/internal/manifest/authority.go
+      - go/cmd/arcc/app/check.go
+      - go/internal/checker/aggregate.go
+    notes: |
+      The Step 7 amendments in plan.md and detailed-design.md describe this exact behavior;
+      no classifier-hash or broad SAFE override was introduced.
+
+  - element: stdlibmap component conformance after wrapper migration
+    expected: |
+      The x-tools migration leaves stdlibmap with one-owner dependency boundaries and all
+      repository gates passing except the explicitly documented schema staging failure.
+    actual: |
+      The staged stdlibmap report has verdict fail: cache.go references io.ReadAll and
+      errors.Is under strict AnalysisDefeating policy, and explicit.go/layoutloader.go import
+      and reference packagelayout without a component boundary.
+    status: drifted
+    files:
+      - go/internal/stdlibmap/component.textproto
+      - go/internal/stdlibmap/cache.go
+      - go/internal/stdlibmap/explicit.go
+      - go/internal/stdlibmap/layoutloader.go
+    notes: |
+      This is a real component failure, not a report-only warning. It was hidden by the
+      selfcheck staging behavior in F1.
+
+  - element: Native selfcheck staging and verdict gate
+    expected: |
+      The temporary topological stage supplies fresh dependency artifacts while the
+      selfcheck continues to prove that each analyzed self-hosting component expected to
+      conform actually has a passing verdict; only explicitly asserted wrappers and the
+      documented generated-schema failure are exceptions.
+    actual: |
+      stage_component always uses --report-verdict-only and lines 112-134 do not inspect the
+      resulting verdicts except for schema. The later nine commands do not cover every staged
+      component, and native dependency reports cannot certify or fail their consumers, so a
+      failing stage such as stdlibmap is silently accepted.
+    status: drifted
+    files:
+      - justfile
+      - README.md
+    notes: |
+      An independent run of the exact staging order produced pass for the ordinary staged
+      components except schema and stdlibmap; stdlibmap failed while the recipe's final gate
+      set remained capable of succeeding.
+
+doc_code_alignment:
+  - artifact: .agents/planning/2026-08-04-compositional-component-analysis/design/detailed-design.md
+    section: Determinism and self-check
+    issue: |
+      The design says arcc checks its own components and that selfcheck remains the
+      integration test of record. The current recipe can be green while an analyzed
+      self-hosting component has a failing staged verdict.
+    suggested_action: update_code
+    related_finding: F1
+
+  - artifact: README.md
+    section: Self-Hosting Verification
+    issue: |
+      The README says facts, report, and capanalyzer are checked by the native selfcheck and
+      describes an eight-component native/six-component Bazel split. The current recipe only
+      stages those core components without asserting their verdicts and gates a different,
+      larger set after the Step 7 topology change.
+    suggested_action: update_doc
+    related_finding: F1
+
+findings:
+  - id: F1
+    severity: critical
+    category: coverage
+    file: justfile
+    line: 101
+    title: Selfcheck discards failing staging verdicts
+    details: |
+      stage_component uses --report-verdict-only at justfile:101-106, which always exits zero
+      once analysis ran. With the sole exception of schema at lines 117-120, verdicts from
+      the topological stage are never asserted. The later gate at lines 135-145 covers only
+      nine manifests; native dependency reports are audit-only and always derive ASSERTED
+      provenance, so a failing staged dependency cannot make a gated consumer fail.
+
+      This is observable now, not hypothetical. Re-running the exact stage against the
+      pinned map produced `fail` for internal/stdlibmap/component.textproto while the recipe
+      can still complete successfully. This contradicts the design's selfcheck invariant
+      and makes `just ci` capable of reporting a false green for component conformance.
+    suggested_action: |
+      Make the topological stage assert the expected verdict for every analyzed component:
+      pass by default, with a named explicit expectation only for schema. Keep the asserted
+      protobuf-runtime/x-tools path report-free, and update the final gate set and README so
+      the documented selfcheck coverage exactly matches executable behavior.
+    source: built-in
+    addressed_by: .agents/tasks/2026-08-04-compositional-component-analysis/step07/task-08-enforce-selfcheck-staging-verdicts.code-task.md
+
+  - id: F2
+    severity: important
+    category: architecture
+    file: go/internal/stdlibmap/component.textproto
+    line: 22
+    title: stdlibmap no longer conforms to its component manifest
+    details: |
+      The real staged report contains AnalysisDefeating violations for io.ReadAll at
+      cache.go:119 and errors.Is at cache.go:197. It also contains UNDECLARED_DEPENDENCY
+      findings for the packagelayout import and symbols used by explicit.go and
+      layoutloader.go because packagelayout remains owned as a goanalysis member but
+      stdlibmap declares no boundary that exposes it. Task 5's repository-gate criterion
+      allowed only the then-pending parsecsv and capslockadapter residuals; stdlibmap is an
+      unrecorded additional failure.
+    suggested_action: |
+      Establish a singular, acyclic component boundary for packagelayout that both
+      goanalysis and stdlibmap can consume, then eliminate or narrowly justify the two
+      strict AnalysisDefeating references without applying the residual WARN policy merely
+      to make the gate green. Prove the real stdlibmap manifest exits zero against the
+      pinned map before tightening the staging gate.
+    source: built-in
+    addressed_by: .agents/tasks/2026-08-04-compositional-component-analysis/step07/task-07-restore-stdlibmap-component-conformance.code-task.md
+
+  - id: F3
+    severity: important
+    category: coverage
+    file: go/internal/manifestparity/ownership_test.go
+    line: 17
+    title: One-owner regression tests are not repository-wide
+    details: |
+      checkedInComponentManifests claims to enumerate every checked-in manifest, but it scans
+      only one directory level under go/internal and go/cmd. It omits the production
+      manifests under go/examples/csvtool and all deeper manifests. The protobuf and x-tools
+      tests at ownership_test.go:292-301 and x_tools_ownership_test.go:81-90 therefore cannot
+      enforce their stated repository-wide property; they also infer non-wrapper Bazel
+      ownership through a separate, partial parity target rather than auditing every
+      production go_component declaration.
+
+      Exhaustive searches show no present duplicate protobuf or x/tools member declaration,
+      so the ownership result itself is aligned today. The issue is that a future duplicate
+      owner in an example or newly nested production component would pass the regression
+      guard despite Tasks 4 and 5 requiring one owner repository-wide.
+    suggested_action: |
+      Replace the hard-coded shallow roots with an explicit recursive production-manifest
+      inventory (with documented fixture exclusions), reject duplicate component names, and
+      extend Bazel parity/ownership coverage to every production go_component declaration.
+      Add negative coverage proving a duplicate foreign owner outside go/internal is caught.
+    source: built-in
+    addressed_by: .agents/tasks/2026-08-04-compositional-component-analysis/step07/task-09-make-foreign-ownership-audits-repository-wide.code-task.md
+
+remediation_tasks:
+  - path: .agents/tasks/2026-08-04-compositional-component-analysis/step07/task-07-restore-stdlibmap-component-conformance.code-task.md
+    title: Restore stdlibmap Component Conformance
+    addresses_findings: [F2]
+    sequence: 1
+
+  - path: .agents/tasks/2026-08-04-compositional-component-analysis/step07/task-08-enforce-selfcheck-staging-verdicts.code-task.md
+    title: Enforce Selfcheck Staging Verdicts
+    addresses_findings: [F1]
+    sequence: 2
+
+  - path: .agents/tasks/2026-08-04-compositional-component-analysis/step07/task-09-make-foreign-ownership-audits-repository-wide.code-task.md
+    title: Make Foreign Ownership Audits Repository-Wide
+    addresses_findings: [F3]
+    sequence: 3
+
+ecosystem_reviews: []
