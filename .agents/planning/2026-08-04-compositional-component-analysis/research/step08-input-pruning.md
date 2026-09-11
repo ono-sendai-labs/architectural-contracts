@@ -24,6 +24,15 @@ imports; that is not a component analysis action input. The Bazel analysis test
 `checked_action_inputs_test` asserts the positive inventory and the exact set of
 member-only `.go` inputs.
 
+This inventory describes the final component-analysis action, not every action in the
+producer chain. Because the pinned rules_go provider does not expose the exact ordinary
+import graph, one hermetic, cached `ArccImportGraph` action per checked component reads
+the target-selected ordinary non-member source closure for a limited lexical import
+projection; `ArccLayout` then merges its descriptor into the base layout. That source
+is permitted only on the metadata producer and never reaches `ArccCheck`. The
+projection adds no semantic analysis: it does not type-check or run the typed reference
+scan, SSA, VTA, or Capslock over non-members.
+
 ## Deep-closure demonstration
 
 The integration fixture
@@ -41,7 +50,25 @@ loading for the closure still present, and the 196-package `internal/goanalysis`
 check at **1.46 s wall / 6.28 s CPU**. The new 20 ms figure is the focused
 member-only loader test rather than a full CLI invocation, so it is evidence of
 the source-absent load boundary, not a replacement for the Step 13 scaling
-benchmark or a timeout requirement.
+benchmark or a timeout requirement. It also does not measure the separate
+`ArccImportGraph` lexical projection, whose ordinary-source input volume and scan
+time remain closure-shaped.
+
+## Producer-chain measurement required by Step 13
+
+The deferred depth/width benchmark must measure the complete Bazel producer chain,
+not only the `ArccCheck` loader. For dependency depths 1, 4, and 16, record:
+
+- the number of `ArccImportGraph`, `ArccLayout`, and `ArccCheck` actions;
+- the ordinary non-member source input file count and byte total for each
+  `ArccImportGraph` action;
+- the wall-time/elapsed contribution of import projection and layout merge separately
+  from `ArccCheck` loader time; and
+- the non-member export artifact count/bytes and `ArccCheck` loader time.
+
+These measurements make the cached lexical projection's residual closure scaling
+visible while preserving the source asymmetry: only `ArccImportGraph` sees ordinary
+non-member source, and `ArccCheck` sees the final Step 8 allowlist.
 
 ## Deterministic accounting
 
