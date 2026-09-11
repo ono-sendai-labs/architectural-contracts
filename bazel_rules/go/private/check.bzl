@@ -7,11 +7,13 @@ one analysis command, and these launchers consume its persisted
 `ArccComponentInfo.report` through `command.bzl`'s report-assertion argv.
 `arcc_check_test` asserts the recorded verdict with `arcc verdict`; the grep
 rule asserts the same verdict and then fixed-string-greps the report; the
-golden rule diffs the report against a golden byte-for-byte. Launchers `cd`
-to the runfiles root — the frame every staged path is expressed in — and
-stage nothing but the report plus the assertion-specific arcc or golden
-inputs: no SDK sources, no manifest/layout, no component source closure, so
-an assertion cannot become a second, drifting analysis path.
+verdict-golden rule compares the recorded verdict with a one-line golden; the
+complete-report golden rule is reserved for intentional persisted-artifact
+shape coverage. Launchers `cd` to the runfiles root — the frame every staged
+path is expressed in — and stage nothing but the report plus the
+assertion-specific arcc or golden inputs: no SDK sources, no manifest/layout,
+no component source closure, so an assertion cannot become a second, drifting
+analysis path.
 
 `arcc_checked_analysis_test` remains the execution half of the checked-
 component action (Step 5 task 04): it re-runs the exact command the
@@ -431,12 +433,13 @@ arcc_check_grep_test = rule(
 )
 
 def _launcher_content_with_golden(report_path, golden_file_path):
-    """Launcher for `arcc_check_report_golden_test`: diff the canonical report.
+    """Launcher for persisted report-shape coverage: diff the canonical report.
 
     The golden comparison is byte-for-byte against the provider's canonical
-    report artifact — the exact bytes the analysis action wrote. The report
-    carries its verdict, so a golden diff pins the full persisted artifact;
-    the analysis is never rerun (task req 3).
+    report artifact — the exact bytes the analysis action wrote. This rule is
+    deliberately separate from verdict goldens, so a full-artifact diff is
+    used only where persisted report shape is the contract; analysis is never
+    rerun (task req 3).
     """
     return "\n".join([
         "#!/bin/sh",
@@ -495,7 +498,7 @@ arcc_check_report_golden_test = rule(
         ),
     },
     doc = "Compares a checked go_component's canonical report artifact against a " +
-          "golden file byte-for-byte, without re-running the analysis.",
+          "persisted-artifact shape golden byte-for-byte, without re-running the analysis.",
 )
 
 def _launcher_content_with_verdict_golden(verdict_golden_argv):
