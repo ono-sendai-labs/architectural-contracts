@@ -15,9 +15,12 @@ symbols and the empty digest, `report = None` and `provenance = "asserted"`.
 Direct provider edges are also written into the layout as
 sorted, structural dependency artifact bindings; Task 2 consumes those bindings
 later. The rule classifies the union of the interface and
-declared member package closures into component-dep-covered and member
-packages (design §3.1, §4.8), and forwards the interface library's Go
-providers so the component target is usable as a `deps` entry.
+declared member package closures, plus any host-injected runtime package
+records, into component-dep-covered and member packages (design §3.1, §4.8).
+Injected records enter the same deterministic merge and export-data path as
+ordinary records; the merged view is also available to infra attachment. The
+rule forwards the interface library's Go providers so the component target is
+usable as a `deps` entry.
 """
 
 load(
@@ -38,14 +41,16 @@ load(
     "GO_CONTEXT_DATA_ATTRS",
     "GO_PROVIDERS",
     "GO_TOOLCHAINS",
+    "extra_runtime_packages",
     "forward_go_providers",
     "go_attached_infra",
-	"go_build_platform",
+    "go_build_platform",
     "go_importpath",
     "go_library_srcs",
     "go_sdk_root",
     "go_stdlib_export_data",
     "go_target_mode",
+    "runtime_injection_attrs",
 )
 load(":paths.bzl", "match_path", "runfiles_path")
 load(":stdlib_map.bzl", "stdlib_map_default_attr")
@@ -768,11 +773,31 @@ def _checked_analysis_action(ctx, manifest, layout, member_srcs, export_files, o
     )
     return report, surface
 
-def go_component_impl(ctx, attachment_fn = go_attached_infra):
+def _merge_private_attrs(base, additions, source):
+    """Merges adapter-owned attrs and rejects public/colliding names."""
+    collisions = sorted([name for name in additions.keys() if name in base])
+    if collisions:
+        fail("component adapter %s collides with existing rule attributes: %s" % (
+            source,
+            ", ".join(collisions),
+        ))
+    public = sorted([name for name in additions.keys() if not name.startswith("_")])
+    if public:
+        fail("component adapter %s may add only private rule attributes: %s" % (
+            source,
+            ", ".join(public),
+        ))
+    merged = dict(base)
+    merged.update(additions)
+    return merged
+
+def go_component_impl(ctx, attachment_fn = go_attached_infra, runtime_packages_fn = extra_runtime_packages):
     """Generates a component using the supplied adapter attachment function.
 
     The default is the production adapter seam. A test-only rule may inject a
-    fixture registry without adding test attributes to the production rule.
+    fixture registry and runtime-package callback without adding test controls
+    to the production macro. The callback's records are merged before infra
+    attachment and all later layout/classification stages.
     """
     if ctx.attr.authority not in ALL_COMPONENT_AUTHORITIES:
         fail("component %s: unknown authority %r; accepted values are %s" % (
@@ -812,7 +837,33 @@ def go_component_impl(ctx, attachment_fn = go_attached_infra):
 
     roots = ([ctx.attr.interface] if ctx.attr.interface else []) + ctx.attr.members
 
-    attached_infra = attachment_fn(ctx, roots, ctx.attr.infra_deps)
+    ordinary_root_packages = []
+    for root in roots:
+        ordinary_root_packages.extend(root[ArccPackageInfo].packages.to_list())
+    # Pass a defensive snapshot: a host implementation must treat the ordinary
+    # package projection as read-only while exposing hidden runtime packages.
+    injected_packages = runtime_packages_fn(ctx, list(ordinary_root_packages))
+    if injected_packages == None:
+        injected_packages = []
+    root_packages = ordinary_root_packages + list(injected_packages)
+    merged = merge_by_importpath(root_packages)
+
+    for importpath in sorted(merged.keys()):
+        if merged[importpath].cgo:
+            fail(("component %s: package %s is built with cgo, whose preprocessed sources are not " +
+                  "available at analysis time; cgo closures are not supported yet.") % (
+                ctx.label.name,
+                importpath,
+            ))
+
+    # Attachment must see the same canonical package view used by layout and
+    # classification, including records supplied only by the runtime hook.
+    attached_infra = attachment_fn(
+        ctx,
+        roots,
+        ctx.attr.infra_deps,
+        package_view = merged,
+    )
     dependency_binding_records, auto_attached_deps, auto_attached_targets, auto_attached_patterns = _direct_dependency_binding_records(
         ctx,
         ctx.attr.component_deps,
@@ -852,19 +903,6 @@ def go_component_impl(ctx, attachment_fn = go_attached_infra):
                 ctx.label.name,
                 interface_importpath,
                 covered[interface_importpath],
-            ))
-
-    root_packages = []
-    for root in roots:
-        root_packages.extend(root[ArccPackageInfo].packages.to_list())
-    merged = merge_by_importpath(root_packages)
-
-    for importpath in sorted(merged.keys()):
-        if merged[importpath].cgo:
-            fail(("component %s: package %s is built with cgo, whose preprocessed sources are not " +
-                  "available at analysis time; cgo closures are not supported yet.") % (
-                ctx.label.name,
-                importpath,
             ))
 
     for pattern, comp_name in auto_attached_patterns:
@@ -1115,7 +1153,7 @@ def go_component_impl(ctx, attachment_fn = go_attached_infra):
         providers.extend(forward_go_providers(interface))
     return providers
 
-GO_COMPONENT_ATTRS = {
+_GO_COMPONENT_BASE_ATTRS = {
     "interface": attr.label(
         mandatory = False,
         providers = GO_PROVIDERS,
@@ -1169,6 +1207,15 @@ GO_COMPONENT_ATTRS = {
     # AC 6). The default seam is the adapter-overridable //:arcc_stdlib_map.
     "_stdlib_map": stdlib_map_default_attr(),
 }
+
+# Runtime injection is the one host-specific component-rule extension. Keep
+# its attrs private and reject collisions so an adapter cannot silently replace
+# generic behavior or widen the author-facing macro (design DR-14).
+GO_COMPONENT_ATTRS = _merge_private_attrs(
+    _GO_COMPONENT_BASE_ATTRS,
+    runtime_injection_attrs(arcc_deps_aspect),
+    "runtime_injection_attrs",
+)
 
 go_component_rule = rule(
     implementation = go_component_impl,

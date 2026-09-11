@@ -6,8 +6,10 @@ load(
     "GO_COMPONENT_ATTRS",
     "go_component_impl",
 )
+load("//bazel_rules/go/private:aspect.bzl", "arcc_deps_aspect")
 load(
     "//bazel_rules/go/private:go_adapter.bzl",
+    "GO_PROVIDERS",
     "GO_TOOLCHAINS",
     "go_attach_infra",
     "go_attached_infra",
@@ -19,11 +21,11 @@ load("//bazel_rules/go:defs.bzl", "DECLARED", "UNKNOWN", "validate_component_sha
 
 TestingInfraAttachmentInfo = provider(fields = ["attached_targets"])
 
-def _test_attach_predicate(roots, entry):
+def _test_attach_predicate(roots, entry, package_view = None):
     """Implements attachment modes for fixtures without modifying the host seam."""
     attach_mode = entry.attach_mode
     if attach_mode == "ALWAYS":
-        return go_attach_infra(roots, entry)
+        return go_attach_infra(roots, entry, package_view)
     if attach_mode == "NEVER":
         return False
     if attach_mode == "ROOTS":
@@ -39,14 +41,21 @@ def _test_attach_predicate(roots, entry):
         search_patterns = entry.import_path_patterns
         if not search_patterns:
             search_patterns = ["*runtime*", "*injected*", "*member*"]
-        for root in roots:
-            if ArccPackageInfo in root:
-                for pkg in root[ArccPackageInfo].packages.to_list():
-                    for pattern in search_patterns:
-                        if match_path(pattern, pkg.importpath):
-                            return True
+        if package_view != None:
+            candidates = package_view.keys()
+        else:
+            candidates = [
+                pkg.importpath
+                for root in roots
+                if ArccPackageInfo in root
+                for pkg in root[ArccPackageInfo].packages.to_list()
+            ]
+        for importpath in candidates:
+            for pattern in search_patterns:
+                if match_path(pattern, importpath):
+                    return True
         return False
-    return go_attach_infra(roots, entry)
+    return go_attach_infra(roots, entry, package_view)
 
 def _test_infra_registry(ctx):
     entries = []
@@ -61,12 +70,13 @@ def _test_infra_registry(ctx):
         ))
     return entries
 
-def _testing_attachment_fn(ctx, roots, infra_deps):
+def _testing_attachment_fn(ctx, roots, infra_deps, package_view = None):
     return go_attached_infra(
         ctx,
         roots,
         infra_deps,
         registry = _test_infra_registry(ctx),
+        package_view = package_view,
     )
 
 def _testing_infra_attachment_probe_impl(ctx):
@@ -109,8 +119,27 @@ testing_infra_attachment_probe = rule(
     doc = "Test-only probe for the injected infrastructure attachment seam.",
 )
 
+def _testing_extra_runtime_packages(ctx, root_packages):
+    """Projects test-only runtime targets without changing ordinary roots."""
+    _ = root_packages
+    packages = []
+    for target in ctx.attr.test_runtime_deps:
+        if ArccPackageInfo not in target:
+            fail("component %s: test runtime target %s has no ArccPackageInfo" % (
+                ctx.label.name,
+                target.label,
+            ))
+        packages.extend(target[ArccPackageInfo].packages.to_list())
+    for target in ctx.attr.test_runtime_packages:
+        packages.extend(target[ArccPackageInfo].packages.to_list())
+    return packages
+
 def _testing_go_component_impl(ctx):
-    return go_component_impl(ctx, attachment_fn = _testing_attachment_fn)
+    return go_component_impl(
+        ctx,
+        attachment_fn = _testing_attachment_fn,
+        runtime_packages_fn = _testing_extra_runtime_packages,
+    )
 
 _TEST_COMPONENT_ATTRS = dict(GO_COMPONENT_ATTRS)
 _TEST_COMPONENT_ATTRS.update({
@@ -119,6 +148,15 @@ _TEST_COMPONENT_ATTRS.update({
     ),
     "test_infra_attach": attr.string(
         doc = "Test-only attachment mode: ALWAYS, NEVER, CLOSURE, or ROOTS.",
+    ),
+    "test_runtime_deps": attr.label_list(
+        providers = GO_PROVIDERS,
+        aspects = [arcc_deps_aspect],
+        doc = "Test-only hidden Go targets projected as injected runtime packages.",
+    ),
+    "test_runtime_packages": attr.label_list(
+        providers = [ArccPackageInfo],
+        doc = "Test-only provider records projected as injected runtime packages.",
     ),
 })
 

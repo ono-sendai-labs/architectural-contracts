@@ -9,7 +9,10 @@ interface library, and how to locate the Go SDK root. `aspect.bzl`,
 `component.bzl`, and the rest of the rules import ONLY this adapter and never
 `@rules_go` directly, so a host with a different Go ruleset (e.g. a monorepo's
 in-house rules exposing different providers) ports arcc by replacing just this
-file — the rules above it stay byte-identical.
+file — the rules above it stay byte-identical. The runtime-injection hooks in
+this file are the only additional host-facing component seam: they expose
+private adapter attrs and project hidden runtime dependencies into the same
+host-neutral package records as ordinary roots.
 
 Upstream binds to rules_go (GoInfo / GoArchive / @rules_go//go:toolchain).
 
@@ -69,20 +72,23 @@ def go_build_platform(target):
         cgo_enabled = not mode.pure,
     )
 
-def go_attach_infra(roots, infra):
+def go_attach_infra(roots, infra, package_view = None):
     """Reports whether an infrastructure component should attach to `roots`.
 
     `roots` contains every root target of the component being wrapped: the
     interface, if present, plus all declared members. Layout-generation and
     attachment inputs use this union (M9), rather than one distinguished
-    target. `infra` is one entry from `INFRA_COMPONENTS`. A host may inspect
-    either input when its analysis-phase graph exposes the relevant injected
-    packages. Returning True unconditionally is conforming: an infra dependency
-    is attached structurally when its package set is present in the component's
+    target. `infra` is one entry from `INFRA_COMPONENTS`. `package_view`, when
+    supplied, is the canonical merged importpath -> package-record view for the
+    component's ordinary and injected roots. A host may inspect either input
+    when its analysis-phase graph exposes the relevant injected packages.
+    Returning True unconditionally is conforming: an infra dependency is
+    attached structurally when its package set is present in the component's
     graph, and a component's own authority is charged because its packages are
     roots. Hosts that cannot observe toolchain-injected packages during analysis
-    cannot evaluate a closure-based attachment predicate for those packages.
+    can use the empty upstream default or a host-specific predicate.
     """
+    _ = roots, infra, package_view
     return True
 
 def runtime_injection_attrs(deps_aspect):
@@ -170,7 +176,7 @@ def _canonical_target_label(label):
     """Returns the canonical textual identity of a Bazel target label."""
     return str(label)
 
-def go_attached_infra(ctx, roots, infra_deps, registry = None):
+def go_attached_infra(ctx, roots, infra_deps, registry = None, package_view = None):
     """Evaluates INFRA_COMPONENTS attachment against component roots.
 
     When `ctx` is present, only an infra candidate with the exact same
@@ -178,6 +184,11 @@ def go_attached_infra(ctx, roots, infra_deps, registry = None):
     Component display names are deliberately not used for this identity:
     different Bazel packages may publish the same short component name. The
     registry name remains lookup metadata, not a self-exemption convention.
+
+    `package_view`, when present, is the already-merged package map supplied by
+    the runtime-injection hook. It is passed to the host attachment predicate
+    as its third argument; the first argument remains the original root-target
+    list for compatibility with the M9 root contract.
 
     Returns a list of generic attached component records:
         struct(
@@ -215,9 +226,9 @@ def go_attached_infra(ctx, roots, infra_deps, registry = None):
 
         attach_fn = getattr(entry, "attach_predicate", None)
         if attach_fn != None:
-            should_attach = attach_fn(roots, entry)
+            should_attach = attach_fn(roots, entry, package_view)
         else:
-            should_attach = go_attach_infra(roots, entry)
+            should_attach = go_attach_infra(roots, entry, package_view)
 
         if should_attach:
             patterns = getattr(entry, "import_path_patterns", [])

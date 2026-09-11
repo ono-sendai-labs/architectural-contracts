@@ -1,0 +1,43 @@
+load("@rules_go//go:def.bzl", "go_library")
+load("@rules_arcc//bazel_rules/go:defs.bzl", "PACKAGE_SURFACE", "UNKNOWN")
+load("//bazel_rules/go/tests:testing.bzl", "testing_go_component")
+
+go_library(
+    name = "runtime",
+    srcs = ["runtime.go"],
+    importpath = "example.com/injected/runtime",
+    visibility = ["//visibility:public"],
+)
+
+# This is the matching infrastructure wrapper. UNKNOWN keeps the fixture's
+# boundary asserted, so the consumer test proves that the auto-attached edge
+# carries the existing surface/provenance path without making runtime source a
+# second checked component.
+testing_go_component(
+    name = "runtime_boundary",
+    authority = UNKNOWN,
+    interface_style = PACKAGE_SURFACE,
+    members = [":runtime"],
+    visibility = ["//visibility:public"],
+)
+
+# The runtime target is supplied through the test-only hidden attribute, not
+# through the component's ordinary interface/member closure. Its matching
+# infra component is selected only after the injected package enters the
+# effective package view.
+testing_go_component(
+    name = "runtime_injection_component",
+    interface = "//bazel_rules/go/tests/testdata/api:api",
+    component_deps = ["//bazel_rules/go/tests/testdata/shared:shared_component"],
+    members = [
+        "//bazel_rules/go/tests/testdata/core",
+        "//bazel_rules/go/tests/testdata/extradep",
+        "//bazel_rules/go/tests/testdata/lowlevel",
+    ],
+    infra_deps = [":runtime_boundary"],
+    test_runtime_deps = [":runtime"],
+    test_infra_attach = "CLOSURE",
+    test_infra_patterns = ["example.com/injected/*"],
+    check_tags = ["manual"],
+    visibility = ["//bazel_rules:__subpackages__"],
+)

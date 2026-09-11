@@ -12,7 +12,13 @@ load(":report_assertion_tests.bzl", "report_assertion_test_suite")
 load(":stdlib_map_probe.bzl", "darwin_arm64_stdlib_map", "default_seam_probe", "tagged_stdlib_map")
 load(":stdlib_map_tests.bzl", "stdlib_map_full_test_suite", "stdlib_map_test_suite")
 load(":stdlib_export_data_tests.bzl", "stdlib_export_data_test_suite")
-load(":runtime_injection_tests.bzl", "runtime_injection_test_suite", "runtime_injection_defaults_probe")
+load(
+    ":runtime_injection_tests.bzl",
+    "fake_runtime_package",
+    "runtime_injection_defaults_probe",
+    "runtime_injection_test_suite",
+)
+load(":testing.bzl", "testing_go_component_direct")
 load(":testing.bzl", "testing_infra_attachment_probe")
 
 exports_files([
@@ -36,7 +42,82 @@ stdlib_map_full_test_suite(name = "stdlib_map_full_tests")
 stdlib_export_data_test_suite(name = "stdlib_export_data_tests")
 
 runtime_injection_defaults_probe(name = "runtime_injection_defaults_probe")
+fake_runtime_package(
+    name = "injected_cgo_package",
+    importpath = "example.com/injected/cgo",
+    cgo = True,
+    export_file = "test_export_a.data",
+)
+fake_runtime_package(
+    name = "injected_conflict_node_a",
+    importpath = "example.com/injected/conflict",
+    export_file = "test_export_a.data",
+)
+fake_runtime_package(
+    name = "injected_conflict_node_b",
+    importpath = "example.com/injected/conflict",
+    export_file = "test_export_b.data",
+)
+fake_runtime_package(
+    name = "injected_order_node_a",
+    importpath = "example.com/injected/order-a",
+    export_file = "test_export_a.data",
+)
+fake_runtime_package(
+    name = "injected_order_node_b",
+    importpath = "example.com/injected/order-b",
+    export_file = "test_export_b.data",
+)
+testing_go_component_direct(
+    name = "injected_cgo_component",
+    interface = "//bazel_rules/go/tests/testdata/api:api",
+    tags = ["manual"],
+    test_runtime_packages = [":injected_cgo_package"],
+)
+testing_go_component_direct(
+    name = "injected_conflict_component",
+    interface = "//bazel_rules/go/tests/testdata/api:api",
+    tags = ["manual"],
+    test_runtime_packages = [
+        ":injected_conflict_node_a",
+        ":injected_conflict_node_b",
+    ],
+)
+testing_go_component_direct(
+    name = "injected_order_component_a",
+    component_deps = ["//bazel_rules/go/tests/testdata/shared:shared_component"],
+    interface = "//bazel_rules/go/tests/testdata/api:api",
+    members = [
+        "//bazel_rules/go/tests/testdata/core",
+        "//bazel_rules/go/tests/testdata/extradep",
+        "//bazel_rules/go/tests/testdata/lowlevel",
+    ],
+    test_runtime_packages = [
+        ":injected_order_node_a",
+        ":injected_order_node_b",
+    ],
+)
+testing_go_component_direct(
+    name = "injected_order_component_b",
+    component_deps = ["//bazel_rules/go/tests/testdata/shared:shared_component"],
+    interface = "//bazel_rules/go/tests/testdata/api:api",
+    members = [
+        "//bazel_rules/go/tests/testdata/core",
+        "//bazel_rules/go/tests/testdata/extradep",
+        "//bazel_rules/go/tests/testdata/lowlevel",
+    ],
+    test_runtime_packages = [
+        ":injected_order_node_b",
+        ":injected_order_node_a",
+    ],
+)
 runtime_injection_test_suite(name = "runtime_injection_tests")
+
+arcc_checked_analysis_test(
+    name = "injected_runtime_analysis_test",
+    size = "small",
+    component = "//bazel_rules/go/tests/testdata/injected_runtime:runtime_injection_component",
+)
 
 stdlib_export_data_probe(name = "stdlib_export_data_probe")
 stdlib_export_data_missing_probe(
