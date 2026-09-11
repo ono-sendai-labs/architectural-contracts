@@ -255,6 +255,13 @@ flowchart LR
     ASUR --> PROV
 ```
 
+- **One analysis action per component; auxiliary input-producing actions are not
+  "a second action".** The topology invariant is that a component's code is checked by
+  exactly one `arcc check` action, and that negative and golden tests need no second
+  one. Actions that only compute a *declared input* to it — `arcc_stdlib_map`, and any
+  metadata projection the pinned ruleset's providers cannot supply directly — are
+  permitted, subject to I5. Such a projection action may read non-member source; the
+  analysis action itself may not (N2). (Step 8 task 04 escalation, 2026-09-11.)
 - **The analysis action always exits 0 when analysis ran.** Violations are recorded as
   the report's verdict; tool errors (exit 2 today) still fail the action. This keeps
   `bazel build` semantics unchanged, needs no second action for negative and golden
