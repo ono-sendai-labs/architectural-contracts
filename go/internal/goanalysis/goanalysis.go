@@ -9,6 +9,7 @@ package goanalysis
 
 import (
 	"bufio"
+	"bytes"
 	"fmt"
 	"go/ast"
 	"go/build"
@@ -18,8 +19,10 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -514,6 +517,9 @@ func completeLoadedExportTypes(pkgs []*packages.Package, memberPaths map[string]
 		if memberPaths[hostpolicy.CanonicalizePath(pkg.PkgPath)] || pkg.PkgPath == "unsafe" {
 			continue
 		}
+		if err := validateExportProducerVersion(pkg.ExportFile); err != nil {
+			return fmt.Errorf("package %q: %w", pkg.PkgPath, err)
+		}
 		if pkg.Types != nil && pkg.Types.Complete() {
 			continue
 		}
@@ -543,6 +549,69 @@ func completeLoadedExportTypes(pkgs []*packages.Package, memberPaths map[string]
 		if pkg.Types == nil || !pkg.Types.Complete() {
 			return fmt.Errorf("export data for package %q from %q is incomplete", pkg.PkgPath, pkg.ExportFile)
 		}
+	}
+	return nil
+}
+
+func validateExportProducerVersion(path string) error {
+	if path == "" {
+		return nil
+	}
+	file, err := os.Open(path)
+	if err != nil {
+		return fmt.Errorf("read export artifact %q: %w", path, err)
+	}
+	buffer := make([]byte, 16<<10)
+	readCount, readErr := file.Read(buffer)
+	closeErr := file.Close()
+	if readErr != nil {
+		return fmt.Errorf("read export artifact %q: %w", path, readErr)
+	}
+	if closeErr != nil {
+		return fmt.Errorf("close export artifact %q: %w", path, closeErr)
+	}
+	data := buffer[:readCount]
+	marker := []byte("go object ")
+	start := bytes.Index(data, marker)
+	if start < 0 {
+		return nil
+	}
+	line := data[start:]
+	if end := bytes.IndexByte(line, '\n'); end >= 0 {
+		line = line[:end]
+	}
+	var producerMinor int
+	for _, field := range strings.Fields(string(line)) {
+		if !strings.HasPrefix(field, "go1.") {
+			continue
+		}
+		minorText := strings.TrimPrefix(field, "go1.")
+		if dot := strings.IndexByte(minorText, '.'); dot >= 0 {
+			minorText = minorText[:dot]
+		}
+		producerMinor, err = strconv.Atoi(minorText)
+		if err != nil {
+			return fmt.Errorf("export artifact %q has unsupported producer version %q", path, field)
+		}
+		break
+	}
+	if producerMinor == 0 {
+		return nil
+	}
+	current := runtime.Version()
+	if !strings.HasPrefix(current, "go1.") {
+		return nil
+	}
+	currentMinorText := strings.TrimPrefix(current, "go1.")
+	if dot := strings.IndexByte(currentMinorText, '.'); dot >= 0 {
+		currentMinorText = currentMinorText[:dot]
+	}
+	currentMinor, err := strconv.Atoi(currentMinorText)
+	if err != nil {
+		return nil
+	}
+	if producerMinor > currentMinor || producerMinor+2 < currentMinor {
+		return fmt.Errorf("export artifact %q was produced by unsupported Go version go1.%d (loader runtime is %s)", path, producerMinor, current)
 	}
 	return nil
 }

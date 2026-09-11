@@ -142,6 +142,46 @@ func TestValidateLoadedPackageGraphRejectsNonMemberSourceLists(t *testing.T) {
 	}
 }
 
+func TestValidateLoadedPackageGraphRejectsNonMemberSyntaxAndTypeInfo(t *testing.T) {
+	for _, tt := range []struct {
+		name       string
+		withSyntax bool
+		withInfo   bool
+	}{
+		{name: "syntax", withSyntax: true},
+		{name: "type info", withInfo: true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			dependencyTypes := types.NewPackage("example.com/dep", "dep")
+			dependencyTypes.MarkComplete()
+			dependency := &packages.Package{
+				ID:      "example.com/dep",
+				PkgPath: "example.com/dep",
+				Types:   dependencyTypes,
+				Imports: map[string]*packages.Package{},
+			}
+			if tt.withSyntax {
+				dependency.Syntax = []*ast.File{{}}
+			}
+			if tt.withInfo {
+				dependency.TypesInfo = &types.Info{}
+			}
+			member := &packages.Package{
+				ID:        "example.com/member",
+				PkgPath:   "example.com/member",
+				Syntax:    []*ast.File{},
+				TypesInfo: &types.Info{},
+				Imports:   map[string]*packages.Package{"example.com/dep": dependency},
+			}
+
+			err := validateLoadedPackageGraph([]*packages.Package{member}, map[string]bool{"example.com/member": true}, true)
+			if err == nil || !strings.Contains(err.Error(), `non-member package "example.com/dep" retains source syntax or type-info data`) {
+				t.Fatalf("validateLoadedPackageGraph() error = %v, want syntax/type-info violation", err)
+			}
+		})
+	}
+}
+
 func TestMemberOnlyLayoutRejectsMissingExportBeforeLoading(t *testing.T) {
 	workspace := t.TempDir()
 	if err := os.WriteFile(filepath.Join(workspace, "member.go"), []byte("package member\n\nimport _ \"example.com/dep\"\n"), 0o644); err != nil {

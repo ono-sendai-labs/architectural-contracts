@@ -1,8 +1,9 @@
 //go:build integration
 
-package goanalysis
+package goanalysis_test
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -13,7 +14,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/ono-sendai-labs/architectural-contracts/go/internal/checker"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/facts"
+	"github.com/ono-sendai-labs/architectural-contracts/go/internal/goanalysis"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/packagelayout"
 	"golang.org/x/tools/go/packages"
 )
@@ -57,7 +60,7 @@ func TestLoadPackageFacts_RejectsIncompatibleExportData(t *testing.T) {
 	}
 
 	err = packagelayout.WithDriverEnv(layoutPath, workspace, func() error {
-		_, err := LoadPackageFacts(LoadRequest{
+		_, err := goanalysis.LoadPackageFacts(goanalysis.LoadRequest{
 			ComponentRoot: workspace,
 			Members:       []string{"example.com/member"},
 		})
@@ -205,7 +208,7 @@ type Value struct { Name string }
 	var loaded facts.PackageFacts
 	err = packagelayout.WithDriverEnv(layoutPath, workspace, func() error {
 		var err error
-		loaded, err = LoadPackageFacts(LoadRequest{ComponentRoot: workspace, Members: []string{root.PkgPath}})
+		loaded, err = goanalysis.LoadPackageFacts(goanalysis.LoadRequest{ComponentRoot: workspace, Members: []string{root.PkgPath}})
 		return err
 	})
 	if err != nil {
@@ -228,6 +231,280 @@ type Value struct { Name string }
 	}
 	if !sawDep || !sawDeep {
 		t.Fatalf("typed references = %+v, want dep and deep declaring objects", loaded.References)
+	}
+}
+
+func TestLoadPackageFacts_RefscanMatrixWithDependencySourcesAbsent(t *testing.T) {
+	workspace := t.TempDir()
+	copyTree(t, refscanRoot, workspace)
+	modulePath := "github.com/ono-sendai-labs/architectural-contracts/go/internal/goanalysis/testdata/refscan"
+	if err := os.WriteFile(filepath.Join(workspace, "go.mod"), []byte("module "+modulePath+"\n\ngo 1.26\n"), 0o644); err != nil {
+		t.Fatalf("writing refscan go.mod: %v", err)
+	}
+	kindsSourcePath := filepath.Join(workspace, "member", "kinds", "kinds.go")
+	kindsSource, err := os.ReadFile(kindsSourcePath)
+	if err != nil {
+		t.Fatalf("reading kinds source: %v", err)
+	}
+	kindsSource = bytes.Replace(kindsSource, []byte("import _ \""+modulePath+"/dep/initpkg\"\n"), []byte("import _ \"image/png\"\n"), 1)
+	if err := os.WriteFile(kindsSourcePath, kindsSource, 0o644); err != nil {
+		t.Fatalf("adding blank stdlib import: %v", err)
+	}
+
+	type listedPackage struct {
+		ID         string   `json:"ImportPath"`
+		Name       string   `json:"Name"`
+		Dir        string   `json:"Dir"`
+		GoFiles    []string `json:"GoFiles"`
+		Compiled   []string `json:"CompiledGoFiles"`
+		Imports    []string `json:"Imports"`
+		ExportFile string   `json:"Export"`
+	}
+	cmd := exec.Command("go", "list", "-json", "-deps", "-export", "./member/...")
+	cmd.Dir = workspace
+	cmd.Env = append(os.Environ(), "GOWORK=off")
+	output, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("go list -export refscan fixture: %v", err)
+	}
+	var listed []listedPackage
+	decoder := json.NewDecoder(strings.NewReader(string(output)))
+	for {
+		var pkg listedPackage
+		err := decoder.Decode(&pkg)
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			t.Fatalf("decoding refscan package list: %v", err)
+		}
+		listed = append(listed, pkg)
+	}
+
+	rootPaths := []string{
+		modulePath + "/member/builtins",
+		modulePath + "/member/concrete",
+		modulePath + "/member/dispatch",
+		modulePath + "/member/kinds",
+	}
+	rootSet := make(map[string]bool, len(rootPaths))
+	for _, path := range rootPaths {
+		rootSet[path] = true
+	}
+	packagesByPath := make(map[string]*packages.Package, len(listed))
+	for _, pkg := range listed {
+		packagesByPath[pkg.ID] = &packages.Package{
+			ID: pkg.ID, Name: pkg.Name, PkgPath: pkg.ID,
+			Imports: make(map[string]*packages.Package),
+		}
+	}
+	for _, pkg := range listed {
+		current := packagesByPath[pkg.ID]
+		if current == nil {
+			continue
+		}
+		for _, importPath := range pkg.Imports {
+			if imported := packagesByPath[importPath]; imported != nil {
+				current.Imports[importPath] = imported
+			}
+		}
+		if rootSet[pkg.ID] {
+			current.GoFiles = relativeFiles(workspace, pkg.Dir, pkg.GoFiles)
+			compiled := pkg.Compiled
+			if len(compiled) == 0 {
+				compiled = pkg.GoFiles
+			}
+			current.CompiledGoFiles = relativeFiles(workspace, pkg.Dir, compiled)
+			continue
+		}
+		if pkg.ExportFile == "" {
+			continue
+		}
+		archiveName := filepath.ToSlash(filepath.Join("exports", strings.NewReplacer("/", "_", ".", "_").Replace(pkg.ID)+".a"))
+		archivePath := filepath.Join(workspace, filepath.FromSlash(archiveName))
+		if err := os.MkdirAll(filepath.Dir(archivePath), 0o755); err != nil {
+			t.Fatalf("creating export directory: %v", err)
+		}
+		archive, err := os.ReadFile(pkg.ExportFile)
+		if err != nil {
+			t.Fatalf("reading export data for %s: %v", pkg.ID, err)
+		}
+		if err := os.WriteFile(archivePath, archive, 0o644); err != nil {
+			t.Fatalf("staging export data for %s: %v", pkg.ID, err)
+		}
+		current.ExportFile = archiveName
+		current.GoFiles = []string{"removed/" + strings.ReplaceAll(pkg.ID, "/", "_") + ".go"}
+		current.CompiledGoFiles = append([]string(nil), current.GoFiles...)
+	}
+
+	layout := &packagelayout.Layout{Roots: rootPaths, Packages: make([]*packages.Package, 0, len(packagesByPath))}
+	for _, pkg := range packagesByPath {
+		layout.Packages = append(layout.Packages, pkg)
+	}
+	layoutData, err := json.Marshal(layout)
+	if err != nil {
+		t.Fatalf("marshalling refscan layout: %v", err)
+	}
+	layoutPath := filepath.Join(workspace, "refscan.package-layout.json")
+	if err := os.WriteFile(layoutPath, layoutData, 0o644); err != nil {
+		t.Fatalf("writing refscan layout: %v", err)
+	}
+	if err := os.RemoveAll(filepath.Join(workspace, "dep")); err != nil {
+		t.Fatalf("removing refscan dependency sources: %v", err)
+	}
+
+	var loaded facts.PackageFacts
+	err = packagelayout.WithDriverEnv(layoutPath, workspace, func() error {
+		var err error
+		loaded, err = goanalysis.LoadPackageFacts(goanalysis.LoadRequest{ComponentRoot: workspace, Members: rootPaths})
+		return err
+	})
+	if err != nil {
+		t.Fatalf("member-only refscan load: %v", err)
+	}
+	members, err := facts.NewMemberSet(rootPaths...)
+	if err != nil {
+		t.Fatalf("member set: %v", err)
+	}
+	classified, err := checker.ClassifyEdges(members, nil, loaded.References, loaded.Imports, newFixtureAuthority(t), testSDKKey())
+	if err != nil {
+		t.Fatalf("classifying member-only refscan edges: %v", err)
+	}
+	var imageImport facts.ImportEdge
+	for _, edge := range loaded.Imports {
+		if edge.ImportPath == "image/png" {
+			imageImport = edge
+			break
+		}
+	}
+	if imageImport.ImportPath == "" {
+		t.Fatal("member-only refscan did not retain the blank image/png import")
+	}
+	var imageInitObservation *checker.AuthorityObservation
+	for i := range classified.Authority {
+		observation := &classified.Authority[i]
+		if observation.Referent == facts.SymbolID("image/png.init") {
+			imageInitObservation = observation
+			break
+		}
+	}
+	if imageInitObservation == nil || imageInitObservation.Capability != "FILES" || imageInitObservation.Site != imageImport.Site {
+		t.Fatalf("member-only blank import classification = %+v, want FILES at %+v", imageInitObservation, imageImport.Site)
+	}
+
+	refs := make(map[facts.ReferenceKey]int, len(loaded.References))
+	for _, edge := range loaded.References {
+		refs[edge.Key()]++
+	}
+	wantRef := func(kind facts.ReferenceKind, from, referentPackage, referent, file string, line int) {
+		t.Helper()
+		key := facts.ReferenceKey{Kind: kind, FromPackage: from, ReferentPackage: referentPackage, Referent: facts.SymbolID(referent), Site: facts.SourceSite{File: file, Line: line}}
+		if refs[key] != 1 {
+			t.Errorf("member-only reference %+v count = %d, want 1", key, refs[key])
+		}
+	}
+	kinds := refscanMember + "/kinds"
+	kindsFile := "member/kinds/kinds.go"
+	sub := refscanDep + "/sub"
+	for _, want := range []struct {
+		kind facts.ReferenceKind
+		pkg  string
+		id   string
+		line int
+	}{
+		{facts.RefType, refscanDep, refscanDep + ".Base", 11},
+		{facts.RefField, refscanDep, refscanDep + ".Base", 12},
+		{facts.RefVar, refscanDep, refscanDep + ".ExportedVar", 13},
+		{facts.RefConst, refscanDep, refscanDep + ".ExportedConst", 14},
+		{facts.RefType, refscanDep, refscanDep + ".Plain", 15},
+		{facts.RefType, refscanDep, refscanDep + ".Alias", 16},
+		{facts.RefField, refscanDep, refscanDep + ".Base", 17},
+		{facts.RefType, refscanDep, refscanDep + ".Outer", 18},
+		{facts.RefField, refscanDep, refscanDep + ".Base", 19},
+		{facts.RefType, refscanDep, refscanDep + ".Box", 20},
+		{facts.RefType, refscanDep, refscanDep + ".Box", 21},
+		{facts.RefMethod, refscanDep, "(" + refscanDep + ".Box).Get", 22},
+		{facts.RefType, refscanDep, refscanDep + ".Ptr", 23},
+		{facts.RefMethod, refscanDep, "(" + refscanDep + ".Ptr).Touch", 24},
+		{facts.RefFunc, refscanDep, refscanDep + ".Free", 25},
+		{facts.RefFunc, sub, sub + ".Sub", 28},
+	} {
+		wantRef(want.kind, kinds, want.pkg, want.id, kindsFile, want.line)
+	}
+	wantRef(facts.RefFunc, refscanMember+"/dispatch", refscanDep, refscanDep+".NewGreeter", "member/dispatch/dispatch.go", 8)
+	wantRef(facts.RefMethod, refscanMember+"/dispatch", refscanDep, refscanDep+".Greeter", "member/dispatch/dispatch.go", 9)
+	wantRef(facts.RefType, refscanMember+"/concrete", refscanDep, refscanDep+".Impl", "member/concrete/concrete.go", 8)
+	wantRef(facts.RefMethod, refscanMember+"/concrete", refscanDep, "("+refscanDep+".Impl).Greet", "member/concrete/concrete.go", 9)
+	wantRef(facts.RefFunc, refscanMember+"/builtins", "fmt", "fmt.Println", "member/builtins/builtins.go", 14)
+	wantRef(facts.RefFunc, refscanMember+"/builtins", refscanDep, refscanDep+".Hello", "member/builtins/builtins.go", 14)
+
+	imports := make(map[facts.ImportKey]int, len(loaded.Imports))
+	for _, edge := range loaded.Imports {
+		imports[edge.Key()]++
+	}
+	wantImport := func(from, path string, line int) {
+		t.Helper()
+		key := facts.ImportKey{ImportingPackage: from, ImportPath: path, Resolution: facts.ImportResolved, Site: facts.SourceSite{File: importFile(from), Line: line}}
+		if imports[key] != 1 {
+			t.Errorf("member-only import %+v count = %d, want 1", key, imports[key])
+		}
+	}
+	wantImport(kinds, refscanDep, 4)
+	wantImport(kinds, sub, 5)
+	wantImport(kinds, "image/png", 8)
+	wantImport(refscanMember+"/dispatch", refscanDep, 4)
+	wantImport(refscanMember+"/concrete", refscanDep, 4)
+	wantImport(refscanMember+"/builtins", "fmt", 4)
+	wantImport(refscanMember+"/builtins", refscanDep, 6)
+}
+
+func importFile(pkg string) string {
+	switch {
+	case strings.HasSuffix(pkg, "/kinds"):
+		return "member/kinds/kinds.go"
+	case strings.HasSuffix(pkg, "/dispatch"):
+		return "member/dispatch/dispatch.go"
+	case strings.HasSuffix(pkg, "/concrete"):
+		return "member/concrete/concrete.go"
+	default:
+		return "member/builtins/builtins.go"
+	}
+}
+
+func relativeFiles(root, dir string, names []string) []string {
+	files := make([]string, 0, len(names))
+	for _, name := range names {
+		path, err := filepath.Rel(root, filepath.Join(dir, name))
+		if err != nil {
+			panic(err)
+		}
+		files = append(files, filepath.ToSlash(path))
+	}
+	return files
+}
+
+func copyTree(t *testing.T, source, destination string) {
+	t.Helper()
+	err := filepath.Walk(source, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, err := filepath.Rel(source, path)
+		if err != nil {
+			return err
+		}
+		target := filepath.Join(destination, rel)
+		if info.IsDir() {
+			return os.MkdirAll(target, 0o755)
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		return os.WriteFile(target, data, 0o644)
+	})
+	if err != nil {
+		t.Fatalf("copying fixture tree: %v", err)
 	}
 }
 

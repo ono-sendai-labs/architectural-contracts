@@ -17,7 +17,7 @@ go_library(
 go_test(
     name = "packagelayout_test",
     size = "small",
-    srcs = ["dependency_artifacts_test.go", "export_data_test.go", "packagelayout_test.go"],
+    srcs = ["dependency_artifacts_test.go", "export_data_test.go", "member_only_driver_test.go", "packagelayout_test.go"],
     embed = [":packagelayout"],
     deps = [
         "//go/internal/hostpolicy",

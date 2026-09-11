@@ -3,9 +3,11 @@
 package app_test
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -724,6 +726,112 @@ func TestCheck_EmitsArtifactsNativeMode(t *testing.T) {
 	}
 	if string(reportData) != string(reportData2) {
 		t.Error("report bytes differ between identical invocations")
+	}
+}
+
+func TestCheck_IncompatibleExportDataIsToolErrorWithoutArtifacts(t *testing.T) {
+	workspace := t.TempDir()
+	if err := os.WriteFile(filepath.Join(workspace, "go.mod"), []byte("module example.com/skew\n\ngo 1.26\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(workspace, "member"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(workspace, "dep"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(workspace, "member", "member.go"), []byte("package member\n\nimport _ \"example.com/skew/dep\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(workspace, "dep", "dep.go"), []byte("package dep\n\nconst Name = \"dep\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	type listedPackage struct {
+		Export string `json:"Export"`
+	}
+	list := exec.Command("go", "list", "-json", "-export", "./dep")
+	list.Dir = workspace
+	list.Env = append(os.Environ(), "GOWORK=off")
+	listOutput, err := list.Output()
+	if err != nil {
+		t.Fatalf("go list -export: %v", err)
+	}
+	var listed listedPackage
+	if err := json.Unmarshal(listOutput, &listed); err != nil {
+		t.Fatalf("decode go list export metadata: %v", err)
+	}
+	exportData, err := os.ReadFile(listed.Export)
+	if err != nil {
+		t.Fatalf("read dep export data: %v", err)
+	}
+	mutated := bytes.Replace(exportData, []byte("go1.26.4"), []byte("go1.99.4"), 1)
+	if bytes.Equal(mutated, exportData) {
+		t.Fatal("dep export data did not contain a gc version marker to mutate")
+	}
+	if err := os.MkdirAll(filepath.Join(workspace, "exports"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(workspace, "exports", "incompatible.a"), mutated, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.RemoveAll(filepath.Join(workspace, "dep")); err != nil {
+		t.Fatal(err)
+	}
+
+	const member = "example.com/skew/member"
+	manifestPath := filepath.Join(workspace, "component.textproto")
+	if err := os.WriteFile(manifestPath, []byte("name: \"skew\"\ninterface_style: INTERFACE_STYLE_PACKAGE_SURFACE\nmembers: \""+member+"\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	target := teststdlibmap.PinnedTarget()
+	layout := map[string]any{
+		"roots": []string{member},
+		"platform": map[string]any{
+			"goos": target.GOOS, "goarch": target.GOARCH,
+			"build_tags": target.BuildTags, "cgo_enabled": target.CgoEnabled,
+			"toolchain_version": target.ToolchainVersion,
+		},
+		"packages": []map[string]any{
+			{
+				"id": member, "name": "member", "pkgPath": member,
+				"goFiles": []string{"member/member.go"}, "compiledGoFiles": []string{"member/member.go"},
+				"imports": map[string]string{"example.com/skew/dep": "example.com/skew/dep"},
+			},
+			{
+				"id": "example.com/skew/dep", "name": "dep", "pkgPath": "example.com/skew/dep",
+				"exportFile": "exports/incompatible.a", "imports": map[string]string{},
+			},
+		},
+	}
+	layoutData, err := json.Marshal(layout)
+	if err != nil {
+		t.Fatal(err)
+	}
+	layoutPath := filepath.Join(workspace, "package-layout.json")
+	if err := os.WriteFile(layoutPath, layoutData, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	mapPath := filepath.Join(workspace, "map.json")
+	writePinnedMap(t, mapPath)
+	reportPath := filepath.Join(workspace, "skew.report.json")
+	surfacePath := filepath.Join(workspace, "skew.surface.json")
+	code, stderr := runRunnerFromWorkspace2(t, workspace, fullRunner(), []string{
+		"check", manifestPath, "--package-layout=" + layoutPath,
+		"--stdlib-map=" + mapPath, "--report-out=" + reportPath,
+		"--surface-out=" + surfacePath,
+	})
+	if code != 2 {
+		t.Fatalf("incompatible export exit = %d, want 2; stderr = %s", code, stderr)
+	}
+	if !strings.Contains(stderr, "example.com/skew/dep") || !strings.Contains(stderr, "incompatible.a") {
+		t.Fatalf("incompatible export stderr = %q, want package and artifact", stderr)
+	}
+	if _, err := os.Stat(reportPath); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("report artifact was published after incompatible export (stat error: %v)", err)
+	}
+	if _, err := os.Stat(surfacePath); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("surface artifact was published after incompatible export (stat error: %v)", err)
 	}
 }
 
