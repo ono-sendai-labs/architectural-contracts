@@ -1,0 +1,154 @@
+review:
+  project: 2026-08-04-compositional-component-analysis
+  scope: step
+  step: 9
+  plan_path: .agents/planning/2026-08-04-compositional-component-analysis/implementation/plan.md
+  design_path: .agents/planning/2026-08-04-compositional-component-analysis/design/detailed-design.md
+  reviewed_at: 2026-09-11T19:08:22Z
+  schema_version: 1
+  steps_in_scope: [9]
+  commits_in_scope: 13
+  remediation_step: null
+  verdict: clean
+
+summary: |
+  Step 9 aligns with the design and plan: semantic verdict assertions are now
+  host-independent, while report, surface, map, and final-layout shape contracts
+  are isolated behind typed, bounded comparison paths. The three task series
+  contain 13 implementation commits; their final reviews are approved with every
+  acceptance criterion passing and no unresolved findings, including the two
+  issues corrected during Task 3 rework. Selective current-state inspection found
+  no cross-task duplication, dependency drift, inconsistent pattern, seam-level
+  coverage gap, dead code, or documentation divergence warranting remediation.
+  The focused Bazel review suite passed all 21 selected targets.
+
+architecture:
+  - element: Host-independent semantic verdict goldens
+    expected: |
+      Tests whose purpose is semantic conformance compare only the canonical
+      persisted pass/fail verdict and contain no paths, closure details, SDK
+      identity, diagnostics, source locations, or host-specific import prefixes.
+    actual: |
+      Verdict goldens are canonical one-line pass/fail files. The verdict-golden
+      rule reads the producer report through the shared arcc verdict decoder, and
+      the portability inventory rejects every prohibited content class.
+    status: aligned
+    files:
+      - go/internal/artifactio/report.go
+      - go/cmd/arcc/app/verdict.go
+      - bazel_rules/go/private/check.bzl
+      - bazel_rules/go/tests/verdict_golden_portability_test.sh
+      - bazel_rules/go/tests/goldens/api_component.verdict.golden
+    notes: |
+      Passing, failing, hostile-data, asserted-provider, and rewritten-prefix
+      behavior is covered without deriving a second verdict.
+
+  - element: Single-producer report assertion topology
+    expected: |
+      Verdict and report-shape assertions consume ArccComponentInfo.report from
+      the existing checked component action, stage only assertion inputs, and
+      reject asserted components when a checked verdict is required.
+    actual: |
+      The Starlark assertion rules share factored argv builders, stage the provider
+      artifact, golden, and arcc runfiles, and never construct or invoke a second
+      arcc check command. Asserted providers fail analysis for verdict assertions.
+    status: aligned
+    files:
+      - bazel_rules/go/private/check.bzl
+      - bazel_rules/go/private/command.bzl
+      - bazel_rules/go/tests/report_assertion_tests.bzl
+    notes: |
+      Structural analysis tests cover minimal runfiles, producer authority,
+      default-build laziness, and fail-closed asserted-provider handling.
+
+  - element: Persisted report, surface, and stdlib-map shape goldens
+    expected: |
+      Explicit shape tests validate artifacts through production bounded decoders,
+      preserve stable schema and semantic fields, normalize only documented
+      variable scalars, and avoid duplicate whole-SDK generation or fixtures.
+    actual: |
+      artifactio exposes one typed shape seam for reports, surfaces, and maps. It
+      requires production-canonical input bytes and complete SDK keys, preserves
+      collection and enum structure, and uses named placeholders for the narrowly
+      documented host-, target-, source-, and content-derived values.
+    status: aligned
+    files:
+      - go/internal/artifactio/golden.go
+      - go/internal/artifactio/golden_test.go
+      - go/cmd/arcc/app/artifactshape.go
+      - bazel_rules/go/tests/artifact_shape_tests.bzl
+      - bazel_rules/go/tests/goldens/stdlib_map_shape.fixture.json
+    notes: |
+      The bounded synthetic stdlib-map fixture covers SAFE, capability-bearing,
+      and UNANALYZED records without adding a second full map or map generation.
+
+  - element: Checked and asserted surface serialization coverage
+    expected: |
+      Shape coverage distinguishes checked declared-interface and package surfaces
+      from asserted UNKNOWN package surfaces, including exact empty-symbol and
+      empty-digest semantics on the asserted path.
+    actual: |
+      Dedicated live-provider shape targets pin both checked interface styles and
+      the asserted PACKAGE_SURFACE/UNKNOWN contract. The analysis-time asserted
+      writer now emits the same canonical field ordering required by the persisted
+      artifact boundary without introducing ArccCheck.
+    status: aligned
+    files:
+      - bazel_rules/go/private/component.bzl
+      - bazel_rules/go/tests/BUILD.bazel
+      - bazel_rules/go/tests/goldens/api_component.surface.shape.golden.json
+      - bazel_rules/go/tests/goldens/package_surface_component.surface.shape.golden.json
+      - bazel_rules/go/tests/goldens/manual_component.surface.shape.golden.json
+    notes: |
+      This extends the design's deterministic persisted-format guarantee to both
+      surface producer paths.
+
+  - element: Final package-layout shape assertions
+    expected: |
+      Layout-shape tests are separate from semantic verdict and manifest checks,
+      retain only distinct Step 8 contracts, validate final member/export roles and
+      graph identity before normalization, and canonicalize import namespaces.
+    actual: |
+      Two typed layout snapshots replace the raw full-layout and generated-manifest
+      byte goldens. The validator checks canonical bytes, roots, package identities,
+      member and non-member file roles, ordinary and stdlib import metadata, export
+      data, target identity, and dependency bindings before applying named path and
+      target placeholders.
+    status: aligned
+    files:
+      - go/cmd/arcc/app/layoutshape.go
+      - go/cmd/arcc/app/layoutshape_test.go
+      - go/internal/packagelayout/shape_imports.go
+      - bazel_rules/go/tests/layout_shape_tests.bzl
+      - bazel_rules/go/tests/goldens/api_component.layout.shape.golden.json
+      - bazel_rules/go/tests/goldens/member_component.layout.shape.golden.json
+    notes: |
+      Task 3's final rework closes the earlier package-root/import-target validation
+      gap while preserving descriptor-backed standard-library imports.
+
+  - element: Golden inventory, maintenance, and portability evidence
+    expected: |
+      The step records a reproducible before/after inventory, cites the downstream
+      patch baseline, explains each retained host-sensitive shape, and documents a
+      deterministic typed update workflow plus rewritten-prefix evidence.
+    actual: |
+      The Step 9 research note reconciles the 16-to-14 golden-directory reduction,
+      accounts for every retained shape and unrelated fixture, records successful
+      rewritten-prefix commands, and directs maintainers to print typed normalized
+      snapshots rather than copy raw host output.
+    status: aligned
+    files:
+      - .agents/planning/2026-08-04-compositional-component-analysis/research/step09-golden-footprint.md
+      - README.md
+      - bazel_rules/go/tests/BUILD.bazel
+    notes: |
+      Redundant generated-manifest goldens and the combined manifest/layout helper
+      are removed; semantic manifest equivalence remains owned by manifestparity.
+
+doc_code_alignment: []
+
+findings: []
+
+remediation_tasks: []
+
+ecosystem_reviews: []
