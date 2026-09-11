@@ -1,0 +1,50 @@
+{
+  "formatVersion": 1,
+  "component": "x-tools",
+  "interfaceStyle": "INTERFACE_STYLE_PACKAGE_SURFACE",
+  "authority": {
+    "authority": "UNKNOWN"
+  },
+  "packages": [
+    "golang.org/x/mod/semver",
+    "golang.org/x/sync/errgroup",
+    "golang.org/x/tools/go/ast/astutil",
+    "golang.org/x/tools/go/ast/edge",
+    "golang.org/x/tools/go/ast/inspector",
+    "golang.org/x/tools/go/buildutil",
+    "golang.org/x/tools/go/callgraph",
+    "golang.org/x/tools/go/callgraph/internal/chautil",
+    "golang.org/x/tools/go/callgraph/vta",
+    "golang.org/x/tools/go/callgraph/vta/internal/trie",
+    "golang.org/x/tools/go/gcexportdata",
+    "golang.org/x/tools/go/internal/cgo",
+    "golang.org/x/tools/go/loader",
+    "golang.org/x/tools/go/packages",
+    "golang.org/x/tools/go/ssa",
+    "golang.org/x/tools/go/ssa/ssautil",
+    "golang.org/x/tools/go/types/objectpath",
+    "golang.org/x/tools/go/types/typeutil",
+    "golang.org/x/tools/internal/aliases",
+    "golang.org/x/tools/internal/event",
+    "golang.org/x/tools/internal/event/core",
+    "golang.org/x/tools/internal/event/keys",
+    "golang.org/x/tools/internal/event/label",
+    "golang.org/x/tools/internal/gcimporter",
+    "golang.org/x/tools/internal/gocommand",
+    "golang.org/x/tools/internal/packagesinternal",
+    "golang.org/x/tools/internal/pkgbits",
+    "golang.org/x/tools/internal/stdlib",
+    "golang.org/x/tools/internal/typeparams",
+    "golang.org/x/tools/internal/typesinternal",
+    "golang.org/x/tools/internal/versions"
+  ],
+  "namespace": "upstream",
+  "sdkKey": {
+    "toolchainVersion": "go1.26.4",
+    "goos": "linux",
+    "goarch": "amd64",
+    "classifierHash": "adc198ed82f2ae81de8f2d00e26a0c90a22a1317a19579476ab0d7e33cc52eed",
+    "mapFormatVersion": 1
+  },
+  "producerVersion": "arcc 0.0.0-dev"
+}

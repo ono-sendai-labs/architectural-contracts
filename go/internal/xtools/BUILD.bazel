@@ -13,10 +13,16 @@ go_component(
         "@org_golang_x_tools//go/ast/edge:edge",
         "@org_golang_x_tools//go/ast/inspector:inspector",
         "@org_golang_x_tools//go/buildutil:buildutil",
+        "@org_golang_x_tools//go/callgraph:callgraph",
+        "@org_golang_x_tools//go/callgraph/internal/chautil:chautil",
+        "@org_golang_x_tools//go/callgraph/vta:vta",
+        "@org_golang_x_tools//go/callgraph/vta/internal/trie:trie",
         "@org_golang_x_tools//go/gcexportdata:gcexportdata",
         "@org_golang_x_tools//go/internal/cgo:cgo",
         "@org_golang_x_tools//go/loader:loader",
         "@org_golang_x_tools//go/packages:packages",
+        "@org_golang_x_tools//go/ssa:ssa",
+        "@org_golang_x_tools//go/ssa/ssautil:ssautil",
         "@org_golang_x_tools//go/types/objectpath:objectpath",
         "@org_golang_x_tools//go/types/typeutil:typeutil",
         "@org_golang_x_tools//internal/aliases:aliases",
@@ -37,4 +43,4 @@ go_component(
     visibility = ["//go:__subpackages__"],
 )
 
-exports_files(["component.textproto"])
+exports_files(["component.surface.json", "component.textproto"])
