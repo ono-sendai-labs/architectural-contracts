@@ -357,6 +357,24 @@ def _export_merge_failure_test_impl(env, target):
         matching.str_matches("*export_file*"),
     )
 
+def _missing_export_file_fails_impl(env, target):
+    _export_merge_failure_test_impl(env, target)
+    env.expect.that_target(target).failures().contains_predicate(
+        matching.str_matches("*missing_export_file_fails_test_missing*<missing>*"),
+    )
+    env.expect.that_target(target).failures().contains_predicate(
+        matching.str_matches("*missing_export_file_fails_test_present*bazel_rules/go/tests/test_export_a.data*"),
+    )
+
+def _conflicting_export_files_fail_impl(env, target):
+    _export_merge_failure_test_impl(env, target)
+    env.expect.that_target(target).failures().contains_predicate(
+        matching.str_matches("*conflicting_export_files_fail_test_first*bazel_rules/go/tests/test_export_a.data*"),
+    )
+    env.expect.that_target(target).failures().contains_predicate(
+        matching.str_matches("*conflicting_export_files_fail_test_second*bazel_rules/go/tests/test_export_b.data*"),
+    )
+
 def _missing_export_file_fails_test(name):
     missing = name + "_missing"
     present = name + "_present"
@@ -380,7 +398,7 @@ def _missing_export_file_fails_test(name):
     analysis_test(
         name = name,
         target = ":" + probe,
-        impl = _export_merge_failure_test_impl,
+        impl = _missing_export_file_fails_impl,
         attr_values = {"size": "small"},
         expect_failure = True,
     )
@@ -409,7 +427,7 @@ def _conflicting_export_files_fail_test(name):
     analysis_test(
         name = name,
         target = ":" + probe,
-        impl = _export_merge_failure_test_impl,
+        impl = _conflicting_export_files_fail_impl,
         attr_values = {"size": "small"},
         expect_failure = True,
     )
