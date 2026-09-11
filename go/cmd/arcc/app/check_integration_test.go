@@ -1356,7 +1356,7 @@ func TestDesignFixturesThroughRealCommand(t *testing.T) {
 		if v.Class != "AnalysisDefeating" || v.Kind != "UNDECLARED_AUTHORITY" {
 			t.Errorf("finding = %+v, want UNDECLARED_AUTHORITY class AnalysisDefeating", v)
 		}
-		wantFiles := map[string]int{"member/byp/link.go": 3, "member/byp/cgo.go": 4, "member/byp/stub.s": 1, "member/byp/stub_plan9.s": 1}
+		wantFiles := map[string]int{"member/byp/link.go": 5, "member/byp/cgo.go": 4, "member/byp/stub.s": 1, "member/byp/stub_plan9.s": 1}
 		if len(v.Sites) != len(wantFiles) {
 			t.Fatalf("sites = %+v, want the linkname, cgo and both assembly files", v.Sites)
 		}

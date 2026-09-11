@@ -1,5 +1,7 @@
 package byp
 
-//go:linkname nanotime1 runtime.nanotime1
+import _ "unsafe"
+
+//go:linkname Local runtime.nanotime1
 
 func Local() int { return 1 }

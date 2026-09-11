@@ -74,7 +74,7 @@ func TestScanAnalysisDefeatsFindsEveryBypass(t *testing.T) {
 	}
 	want := []facts.BypassObservation{
 		{Kind: facts.BypassCgo, Site: facts.SourceSite{File: "member/byp/cgo.go", Line: 4}},
-		{Kind: facts.BypassLinkname, Site: facts.SourceSite{File: "member/byp/link.go", Line: 3}},
+		{Kind: facts.BypassLinkname, Site: facts.SourceSite{File: "member/byp/link.go", Line: 5}},
 		{Kind: facts.BypassAssembly, Site: facts.SourceSite{File: "member/byp/stub.s", Line: 1}},
 		{Kind: facts.BypassAssembly, Site: facts.SourceSite{File: "member/byp/stub_plan9.s", Line: 1}},
 	}

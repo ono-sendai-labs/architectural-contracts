@@ -2,7 +2,7 @@
 //
 // Component Contract (FR10):
 // - What it does: Analyzes Go syntax trees and types to load package structures, validate interface file correctness, scan the typed reference/import vocabulary of member sources, and detect analysis-defeating constructs. There is no SSA, no VTA call graph and no check-time Capslock: every stdlib decision is the StdlibAuthority port's.
-// - What it requires: Directory paths on the local filesystem for the component being checked, package manifests, and bounded surface/report bytes plus explicit build-graph or native read seams. Dependency surfaces and the shared packagelayout loader are consumed through explicit component boundaries; only the main member/closure loader retains NeedDeps until Step 8.
+// - What it requires: Directory paths on the local filesystem for the component being checked, package manifests, and bounded surface/report bytes plus explicit build-graph or native read seams. Dependency surfaces and the shared packagelayout loader are consumed through explicit component boundaries; component checks read non-member types from compiled export data.
 // - What it provides: Structural package facts (typed reference and import edges, bypass observations), exact persisted dependency-interface facts, and independent dependency provenance/freshness/authority axes for checking component boundaries.
 // - Ambient Authority: This component is a shell component and requires FILES, EXEC, READ_SYSTEM_STATE, OPERATING_SYSTEM, REFLECT, RUNTIME, and UNSAFE_POINTER.
 package goanalysis
@@ -37,6 +37,14 @@ var (
 	// can model a rewriting host without replacing the package analysis graph.
 	loadPackages = packages.Load
 )
+
+// componentLoadMode is the narrow type-loading contract for component checks.
+// Roots receive syntax and TypesInfo; reachable non-roots are loaded from their
+// compiler export data. NeedDeps would ask go/packages to source-load the whole
+// closure and would defeat the compositional loader boundary (DR-02).
+const componentLoadMode = packages.NeedName | packages.NeedFiles | packages.NeedCompiledGoFiles |
+	packages.NeedImports | packages.NeedSyntax | packages.NeedTypes |
+	packages.NeedTypesInfo | packages.NeedModule
 
 // LoadRequest describes the component-scoped package roots to load. Members are
 // canonical literal import paths; the manifest parser rejects glob
@@ -94,10 +102,8 @@ func LoadPackageFacts(req LoadRequest) (facts.PackageFacts, error) {
 	}
 
 	cfg := &packages.Config{
-		Mode: packages.NeedName | packages.NeedFiles | packages.NeedCompiledGoFiles |
-			packages.NeedImports | packages.NeedDeps | packages.NeedSyntax |
-			packages.NeedTypes | packages.NeedTypesInfo | packages.NeedModule,
-		Dir: dir,
+		Mode: componentLoadMode,
+		Dir:  dir,
 	}
 
 	pkgs, err := loadPackages(cfg, patterns...)
