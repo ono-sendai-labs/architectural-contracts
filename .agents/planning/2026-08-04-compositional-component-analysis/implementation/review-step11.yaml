@@ -1,0 +1,182 @@
+review:
+  project: 2026-08-04-compositional-component-analysis
+  scope: step
+  step: 11
+  plan_path: .agents/planning/2026-08-04-compositional-component-analysis/implementation/plan.md
+  design_path: .agents/planning/2026-08-04-compositional-component-analysis/design/detailed-design.md
+  reviewed_at: 2026-09-11T22:16:41Z
+  schema_version: 1
+  steps_in_scope: [11]
+  commits_in_scope: 5
+  remediation_step: null
+  verdict: clean
+
+summary: |
+  Step 11 aligns with the design and plan: explicit DECLARED/UNKNOWN authority
+  now selects the checked or asserted producer, removes generic Bazel tags from
+  trust decisions, completes the tool-enforced half of I1, and preserves I6's
+  package-level, content-free asserted surface. The Step 5 producer topology
+  and Step 7 consumer validation remain structural: checked providers carry a
+  report, asserted providers do not, and UNKNOWN boundaries stay ASSERTED,
+  BUILD_GRAPH, and visibly untrusted rather than certified. The single task
+  spans five implementation commits, and its final task review approved every
+  acceptance criterion after the determinism rework. One deliberately retained
+  suggestion concerns co-locating rendered-text assertions with the end-to-end
+  JSON boundary fixture; it does not expose architectural drift or warrant a
+  remediation task, and focused Bazel and Go validation passed.
+
+architecture:
+  - element: Explicit component authority selector and tool-enforced I1
+    expected: |
+      DECLARED is the backward-compatible default and always selects a checked
+      component producer. Explicit UNKNOWN selects an unanalysed asserted
+      producer, while generic tags remain scheduling metadata; every public
+      go_component therefore has exactly one verification-status path.
+    actual: |
+      The public macro validates DECLARED and UNKNOWN, defaults to DECLARED,
+      emits a .check target for every declared component, and omits it only for
+      UNKNOWN. The private rule repeats the authority validation and dispatches
+      stdlib/export-data, import-projection, and ArccCheck creation solely from
+      the authority attribute; it no longer inspects tags for trust semantics.
+    status: aligned
+    files:
+      - bazel_rules/authority.bzl
+      - bazel_rules/go/defs.bzl
+      - bazel_rules/go/private/component.bzl
+      - bazel_rules/go/tests/asserted_surface_tests.bzl
+    notes: |
+      A manual-tagged DECLARED regression proves that scheduling metadata cannot
+      suppress its report, surface, analysis action, or generated check. This
+      completes the tool-enforced half of I1 and lifts DR-19.6 as assigned to
+      Step 11; approval of UNKNOWN remains the explicitly deferred governance
+      half rather than a hidden tool exception.
+
+  - element: I6 package-level asserted-surface producer
+    expected: |
+      An UNKNOWN component must be PACKAGE_SURFACE with concrete non-empty
+      members and no declared authority. Its analysis-time surface contains
+      sorted packages, namespace, complete SDK key, format and producer
+      versions, structural UNKNOWN, no symbols, and an empty digest, without
+      loading, type-checking, hashing, or analyzing the component's code.
+    actual: |
+      Public and private validation reject invalid authority values,
+      UNKNOWN-with-declarations, UNKNOWN declared interfaces, and missing
+      package-level members. The UNKNOWN branch writes only the canonical
+      asserted surface alongside manifest/layout metadata, creates no
+      ArccCheck, ordinary-import projection, layout-merge, stdlib-export-data,
+      or report action, and publishes provenance asserted with report unset.
+      Reordered and duplicate multi-package fixtures have byte-identical
+      surfaces and duplicate-free provider package collections.
+    status: aligned
+    files:
+      - bazel_rules/go/defs.bzl
+      - bazel_rules/go/private/component.bzl
+      - bazel_rules/go/tests/asserted_surface_tests.bzl
+      - bazel_rules/go/tests/asserted_surface_determinism_test.sh
+      - bazel_rules/go/tests/testdata/reportboundary/reordered_a/BUILD.bazel
+      - bazel_rules/go/tests/testdata/reportboundary/reordered_b/BUILD.bazel
+      - bazel_rules/go/tests/testdata/reportboundary/reordered_duplicate/BUILD.bazel
+    notes: |
+      The fresh fifth implementation commit resolves the prior task-review gap
+      in reordered multi-package determinism without changing the surface
+      schema or adding a second derivation path.
+
+  - element: Structural producer provenance and Step 7 consumer invariants
+    expected: |
+      Checked and asserted status is established by the producer/provider edge,
+      never by a flag in the surface. Checked providers must carry a report and
+      a content digest with DECLARED authority; asserted providers must carry no
+      report and must be UNKNOWN, PACKAGE_SURFACE, symbol-free, and empty-digest.
+    actual: |
+      ArccComponentInfo publishes checked with report plus surface or asserted
+      with surface and no report. Dependency binding construction rejects
+      missing or contradictory report/provenance combinations, and the surface
+      resolver independently rejects checked UNKNOWN surfaces and asserted
+      surfaces that violate any I6 shape invariant before deriving boundary
+      statuses.
+    status: aligned
+    files:
+      - bazel_rules/go/private/component.bzl
+      - bazel_rules/go/providers.bzl
+      - go/internal/goanalysis/surface_resolver.go
+      - go/internal/goanalysis/surface_resolver_test.go
+    notes: |
+      This preserves the asserted/checked producer split established in Step 5
+      and the fail-closed persisted-surface consumption established in Step 7.
+
+  - element: Unknown dependency boundary visibility
+    expected: |
+      A checked dependent may cross an UNKNOWN package-level surface, but every
+      such boundary retains independent ASSERTED provenance and UNKNOWN
+      authority, renders untrusted, and is never rendered certified.
+    actual: |
+      The real Bazel dependent fixture passes while its canonical report records
+      ASSERTED provenance, BUILD_GRAPH freshness, and UNKNOWN authority. Report
+      rendering tests require asserted, stale, and untrusted for an unknown
+      boundary and forbid certified; canonical report-shape coverage pins the
+      real dependency edge independently of the renderer unit test.
+    status: aligned
+    files:
+      - bazel_rules/go/tests/testdata/reportboundary/consumer/BUILD.bazel
+      - bazel_rules/go/tests/goldens/reportboundary_consumer.report.shape.golden.json
+      - go/internal/report/report.go
+      - go/internal/report/report_test.go
+    notes: |
+      Finding F1 records the accepted suggestion that the end-to-end fixture
+      itself could assert the rendered text instead of relying on the existing
+      combination of the real JSON artifact, shape golden, and renderer test.
+
+  - element: Production wrapper migration and governance documentation
+    expected: |
+      Genuine unowned package-surface wrappers use explicit UNKNOWN rather than
+      a manual tag. Public documentation distinguishes UNKNOWN from verified
+      empty authority, teaches visible untrusted boundaries, and states that
+      UNKNOWN approval remains external governance until the deferred Q7
+      predicate exists.
+    actual: |
+      The protobuf-runtime and x-tools Bazel wrappers and checked-in manifests
+      now declare UNKNOWN explicitly, while remaining manual/check_tags uses are
+      documented as scheduling-only. README and rule documentation describe the
+      enforced I1 half, I1-prime governance assumption, I6 restriction, and the
+      checked-versus-asserted artifact topology; manifest-parity and ownership
+      tests pass.
+    status: aligned
+    files:
+      - go/internal/protobufruntime/BUILD.bazel
+      - go/internal/protobufruntime/component.textproto
+      - go/internal/xtools/BUILD.bazel
+      - go/internal/xtools/component.textproto
+      - README.md
+      - justfile
+    notes: |
+      No package-name match or generic-tag inspection remains in the production
+      selector path, and no later-step adapter work was treated as missing.
+
+doc_code_alignment: []
+
+findings:
+  - id: F1
+    severity: suggestion
+    category: coverage
+    file: bazel_rules/go/tests/testdata/reportboundary/consumer/BUILD.bazel
+    line: 37
+    title: End-to-end unknown-boundary fixture asserts JSON but not rendered text
+    details: |
+      consumer_unknown_boundary_status_test exercises the real checked
+      dependent and asserts ASSERTED provenance plus UNKNOWN authority in its
+      persisted JSON report. The report-shape golden and Go renderer tests
+      separately pin absence of certification and the rendered untrusted word,
+      so the Step 11 contract is covered and every acceptance criterion passed.
+      The task review and merge-request commit description deliberately retain
+      this as suggestion-severity residue: co-locating the text-facing checks
+      would improve auditability but is not an implementation or architecture
+      gap, so no remediation task is generated.
+    suggested_action: |
+      If the fixture is revisited, add a CLI-facing assertion over this same
+      dependent edge that requires untrusted and rejects certified or declared
+      status wording while retaining the current JSON checks.
+    source: code-task-review
+
+remediation_tasks: []
+
+ecosystem_reviews: []
