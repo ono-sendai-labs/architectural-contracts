@@ -268,6 +268,45 @@ func TestResolveDependencySurface_NativeStatusesAreAsserted(t *testing.T) {
 	}
 }
 
+func TestResolveDependencySurface_OptionalWrappedMissingReport(t *testing.T) {
+	manifestBytes := []byte("name: \"dep\"\n")
+	declared, err := manifest.NewDeclared("FILES")
+	if err != nil {
+		t.Fatalf("manifest.NewDeclared: %v", err)
+	}
+	sources := []surface.SourceFile{{Path: "dep.go", Bytes: []byte("package dep\n")}}
+	surfaceBytes := resolverSurface(t, "dep", declared, manifest.InterfaceStyleUnspecified, []string{"example.com/dep"}, []string{"example.com/dep.API"}, sources, manifestBytes)
+
+	got, err := goanalysis.ResolveDependencySurface(goanalysis.DependencySurfaceRequest{
+		DeclaringRoot: "/declaring",
+		Dependency:    manifest.ComponentDependency{Name: "dep", Manifest: "dep.component.textproto"},
+		Namespace:     "namespace-a",
+		ExpectedSDK:   resolverSDKKey(),
+		Mode:          goanalysis.DependencySurfaceNative,
+		ReadFile: func(path string) ([]byte, error) {
+			switch path {
+			case "/declaring/dep.component.surface.json":
+				return surfaceBytes, nil
+			case "/declaring/dep.component.textproto":
+				return manifestBytes, nil
+			case "/declaring/dep.component.report.json":
+				return nil, fmt.Errorf("report was not produced: %w", fs.ErrNotExist)
+			default:
+				return nil, fmt.Errorf("unexpected artifact read %q", path)
+			}
+		},
+		ReadSourceFiles: func(string, []string) ([]surface.SourceFile, error) {
+			return sources, nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("ResolveDependencySurface: %v", err)
+	}
+	if got.Provenance != facts.DependencyProvenanceAsserted || got.Freshness != facts.DependencyFreshnessVerified {
+		t.Fatalf("native status = %q/%q, want ASSERTED/VERIFIED with a wrapped missing report", got.Provenance, got.Freshness)
+	}
+}
+
 func TestResolveDependencySurface_ValidationFailsClosed(t *testing.T) {
 	declared, err := manifest.NewDeclared("FILES")
 	if err != nil {

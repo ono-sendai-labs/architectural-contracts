@@ -612,7 +612,52 @@ func readDependencyReport(req DependencySurfaceRequest, path string, readFile De
 }
 
 func isNotExist(err error) bool {
-	return os.IsNotExist(err) || err == fs.ErrNotExist
+	return isNotExistDepth(err, 0)
+}
+
+// isNotExistDepth preserves errors.Is-style matching without adding a direct
+// reference to errors.Is to the checked goanalysis member package. The stdlib
+// map intentionally classifies errors.Is as UNANALYZED; this resolver still
+// needs its prior recursive missing-artifact behavior for wrapped filesystem
+// errors, so the small equivalent walk handles both single- and multi-error
+// Unwrap contracts and stops pathological cycles.
+func isNotExistDepth(err error, depth int) bool {
+	if err == nil || depth > 100 {
+		return false
+	}
+	if os.IsNotExist(err) || err == fs.ErrNotExist {
+		return true
+	}
+	switch unwrapped := err.(type) {
+	case interface{ Is(error) bool }:
+		if unwrapped.Is(fs.ErrNotExist) {
+			return true
+		}
+		return isNotExistUnwrap(err, depth)
+	case interface{ Unwrap() error }:
+		return isNotExistDepth(unwrapped.Unwrap(), depth+1)
+	case interface{ Unwrap() []error }:
+		for _, child := range unwrapped.Unwrap() {
+			if isNotExistDepth(child, depth+1) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func isNotExistUnwrap(err error, depth int) bool {
+	switch unwrapped := err.(type) {
+	case interface{ Unwrap() error }:
+		return isNotExistDepth(unwrapped.Unwrap(), depth+1)
+	case interface{ Unwrap() []error }:
+		for _, child := range unwrapped.Unwrap() {
+			if isNotExistDepth(child, depth+1) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func deriveStatuses(req DependencySurfaceRequest, decoded validatedDependencySurface, verdict string, reportPresent bool) (facts.DependencyProvenance, facts.DependencyFreshness, error) {

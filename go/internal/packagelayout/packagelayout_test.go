@@ -2128,6 +2128,50 @@ func TestValidateAndResolve_ImportRecovery_Errors(t *testing.T) {
 			t.Errorf("unexpected error message: %v", err)
 		}
 	})
+
+	t.Run("package clause must terminate before import", func(t *testing.T) {
+		filePath := filepath.Join(workspace, "api_bad_package_import.go")
+		if err := os.WriteFile(filePath, []byte("package api import \"fmt\"\n"), 0644); err != nil {
+			t.Fatalf("failed to write file: %v", err)
+		}
+		defer os.Remove(filePath)
+
+		l := &Layout{
+			GoSDKRoot: sdkSrc,
+			Roots:     []string{"example.com/api"},
+			Packages: []*packages.Package{{
+				ID: "example.com/api", Name: "api", PkgPath: "example.com/api",
+				GoFiles: []string{"api_bad_package_import.go"},
+			}},
+		}
+		if err := ValidateAndResolve(l, workspace); err == nil {
+			t.Fatal("expected malformed package/import declaration to fail")
+		} else if !strings.Contains(err.Error(), "api_bad_package_import.go") {
+			t.Errorf("error = %v, want malformed file name", err)
+		}
+	})
+
+	t.Run("duplicate package clause", func(t *testing.T) {
+		filePath := filepath.Join(workspace, "api_duplicate_package.go")
+		if err := os.WriteFile(filePath, []byte("package api\npackage other\n"), 0644); err != nil {
+			t.Fatalf("failed to write file: %v", err)
+		}
+		defer os.Remove(filePath)
+
+		l := &Layout{
+			GoSDKRoot: sdkSrc,
+			Roots:     []string{"example.com/api"},
+			Packages: []*packages.Package{{
+				ID: "example.com/api", Name: "api", PkgPath: "example.com/api",
+				GoFiles: []string{"api_duplicate_package.go"},
+			}},
+		}
+		if err := ValidateAndResolve(l, workspace); err == nil {
+			t.Fatal("expected duplicate package clause to fail")
+		} else if !strings.Contains(err.Error(), "api_duplicate_package.go") {
+			t.Errorf("error = %v, want malformed file name", err)
+		}
+	})
 }
 
 func TestValidateAndResolve_ExcludedUnresolvedImportIsIgnored(t *testing.T) {

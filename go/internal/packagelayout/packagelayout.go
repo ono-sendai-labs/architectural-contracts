@@ -695,10 +695,11 @@ func scanSDKPackageDir(dir string, bctx build.Context) (string, []string, []stri
 	return packageName, goFiles, sortedImports, nil
 }
 
-// scanGoSource extracts the package clause and imports from valid Go source
-// using the standard lexical scanner. It is deliberately conservative about
-// lexical errors and malformed string literals; callers fail closed rather
-// than publishing a partial package graph.
+// scanGoSource extracts the package clause and imports from Go source using the
+// standard lexical scanner. In addition to lexical errors it validates the
+// package/import declaration grammar and delimiter balance. This is the small
+// syntax subset needed by layout construction, and keeps malformed source from
+// being accepted merely because its import strings were recoverable.
 func scanGoSource(path string, source []byte) (string, []string, bool, error) {
 	fset := token.NewFileSet()
 	tokenFile := fset.AddFile(path, -1, len(source))
@@ -711,45 +712,98 @@ func scanGoSource(path string, source []byte) (string, []string, bool, error) {
 	}, scanner.ScanComments)
 
 	packageName := ""
+	packageSeen := false
 	expectingPackageName := false
+	packageClausePending := false
+	seenNonCommentToken := false
 	inImport := false
-	importDepth := 0
+	importGroup := false
+	importState := importNeedsPathOrAlias
 	imports := make(map[string]bool)
 	usesCgo := false
+	var delimiters []token.Token
 	for {
 		_, tok, literal := sourceScanner.Scan()
 		if tok == token.EOF {
 			break
 		}
+		if scanErr != nil {
+			return "", nil, false, fmt.Errorf("parsing source file %q: %w", path, scanErr)
+		}
+		if tok == token.COMMENT {
+			continue
+		}
+		if !seenNonCommentToken {
+			seenNonCommentToken = true
+			if tok != token.PACKAGE {
+				return "", nil, false, fmt.Errorf("parsing source file %q: package clause must be first", path)
+			}
+		}
+		if packageClausePending && tok != token.SEMICOLON {
+			return "", nil, false, fmt.Errorf("parsing source file %q: package clause is not terminated before %s", path, tok)
+		}
 		if tok == token.PACKAGE {
+			if packageSeen {
+				return "", nil, false, fmt.Errorf("parsing source file %q: duplicate package clause", path)
+			}
+			packageSeen = true
 			expectingPackageName = true
 			continue
 		}
 		if tok == token.IDENT && expectingPackageName {
 			packageName = literal
 			expectingPackageName = false
+			packageClausePending = true
 			continue
 		}
-		switch tok {
-		case token.IMPORT:
-			inImport = true
-		case token.LPAREN:
-			if inImport {
-				importDepth++
+		if tok == token.SEMICOLON {
+			if packageClausePending {
+				packageClausePending = false
+				continue
 			}
-		case token.RPAREN:
-			if inImport && importDepth > 0 {
-				importDepth--
-				if importDepth == 0 {
+			if inImport {
+				if !importGroup {
+					if importState != importAfterPath {
+						return "", nil, false, fmt.Errorf("parsing source file %q: import declaration has no path", path)
+					}
 					inImport = false
+					continue
 				}
+				switch importState {
+				case importNeedsPathOrAlias:
+					// Blank lines and explicit semicolons between grouped imports
+					// are harmless.
+				case importAfterPath:
+					importState = importNeedsPathOrAlias
+				default:
+					return "", nil, false, fmt.Errorf("parsing source file %q: import specifier has no path", path)
+				}
+				continue
 			}
-		case token.SEMICOLON:
-			if inImport && importDepth == 0 {
+			continue
+		}
+		if inImport {
+			switch {
+			case !importGroup && importState == importNeedsPathOrAlias && tok == token.LPAREN:
+				importGroup = true
+				importState = importNeedsPathOrAlias
+				delimiters = append(delimiters, tok)
+				continue
+			case importGroup && tok == token.RPAREN:
+				if importState != importNeedsPathOrAlias && importState != importAfterPath {
+					return "", nil, false, fmt.Errorf("parsing source file %q: import specifier has no path", path)
+				}
+				if len(delimiters) == 0 || delimiters[len(delimiters)-1] != token.LPAREN {
+					return "", nil, false, fmt.Errorf("parsing source file %q: import group has an unmatched close delimiter", path)
+				}
+				delimiters = delimiters[:len(delimiters)-1]
 				inImport = false
-			}
-		case token.STRING:
-			if inImport {
+				importGroup = false
+				continue
+			case importState == importNeedsPathOrAlias && (tok == token.IDENT || tok == token.PERIOD):
+				importState = importNeedsPath
+				continue
+			case importState == importNeedsPath && tok == token.STRING:
 				importPath, err := strconv.Unquote(literal)
 				if err != nil {
 					return "", nil, false, fmt.Errorf("parsing import path in source file %q: %w", path, err)
@@ -759,7 +813,40 @@ func scanGoSource(path string, source []byte) (string, []string, bool, error) {
 				} else {
 					imports[importPath] = true
 				}
+				importState = importAfterPath
+				continue
+			case importState == importNeedsPathOrAlias && tok == token.STRING:
+				importPath, err := strconv.Unquote(literal)
+				if err != nil {
+					return "", nil, false, fmt.Errorf("parsing import path in source file %q: %w", path, err)
+				}
+				if importPath == "C" {
+					usesCgo = true
+				} else {
+					imports[importPath] = true
+				}
+				importState = importAfterPath
+				continue
+			case importState == importAfterPath:
+				return "", nil, false, fmt.Errorf("parsing source file %q: unexpected %s after import path", path, tok)
+			default:
+				return "", nil, false, fmt.Errorf("parsing source file %q: unexpected %s in import declaration", path, tok)
 			}
+		}
+		if tok == token.IMPORT {
+			inImport = true
+			importGroup = false
+			importState = importNeedsPathOrAlias
+			continue
+		}
+		switch tok {
+		case token.LPAREN, token.LBRACE, token.LBRACK:
+			delimiters = append(delimiters, tok)
+		case token.RPAREN, token.RBRACE, token.RBRACK:
+			if len(delimiters) == 0 || !matchingSourceDelimiter(delimiters[len(delimiters)-1], tok) {
+				return "", nil, false, fmt.Errorf("parsing source file %q: unmatched delimiter %s", path, tok)
+			}
+			delimiters = delimiters[:len(delimiters)-1]
 		}
 	}
 	if scanErr != nil || sourceScanner.ErrorCount > 0 {
@@ -771,6 +858,16 @@ func scanGoSource(path string, source []byte) (string, []string, bool, error) {
 	if expectingPackageName || packageName == "" {
 		return "", nil, false, fmt.Errorf("parsing source file %q: no package clause", path)
 	}
+	if inImport {
+		if !importGroup && importState == importAfterPath {
+			inImport = false
+		} else {
+			return "", nil, false, fmt.Errorf("parsing source file %q: incomplete import declaration", path)
+		}
+	}
+	if len(delimiters) > 0 {
+		return "", nil, false, fmt.Errorf("parsing source file %q: unclosed delimiter", path)
+	}
 
 	sortedImports := make([]string, 0, len(imports))
 	for importPath := range imports {
@@ -778,6 +875,27 @@ func scanGoSource(path string, source []byte) (string, []string, bool, error) {
 	}
 	sort.Strings(sortedImports)
 	return packageName, sortedImports, usesCgo, nil
+}
+
+type importScanState uint8
+
+const (
+	importNeedsPathOrAlias importScanState = iota
+	importNeedsPath
+	importAfterPath
+)
+
+func matchingSourceDelimiter(open, close token.Token) bool {
+	switch close {
+	case token.RPAREN:
+		return open == token.LPAREN
+	case token.RBRACE:
+		return open == token.LBRACE
+	case token.RBRACK:
+		return open == token.LBRACK
+	default:
+		return false
+	}
 }
 
 // noGoPackageName reports the package name a source-less standard-library
