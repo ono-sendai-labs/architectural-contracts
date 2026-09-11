@@ -9,7 +9,7 @@ go_library(
     visibility = ["//visibility:public"],
 )
 
-exports_files(["runtime_consumer.go"], visibility = ["//visibility:public"])
+exports_files(["consumer/runtime_consumer.go"], visibility = ["//visibility:public"])
 
 # This is the matching infrastructure wrapper. UNKNOWN keeps the fixture's
 # boundary asserted, so the consumer test proves that the auto-attached edge
