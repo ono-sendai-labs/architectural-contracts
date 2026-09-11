@@ -472,6 +472,20 @@ sh_test(
     ],
 )
 
+sh_test(
+    name = "multi_infra_order_test",
+    srcs = ["member_order_test.sh"],
+    size = "small",
+    args = [
+        "$(rootpaths //bazel_rules/go/tests/testdata/membercomponent:multi_infra_a)",
+        "$(rootpaths //bazel_rules/go/tests/testdata/membercomponent:multi_infra_b)",
+    ],
+    data = [
+        "//bazel_rules/go/tests/testdata/membercomponent:multi_infra_a",
+        "//bazel_rules/go/tests/testdata/membercomponent:multi_infra_b",
+    ],
+)
+
 go_test(
     name = "platform_layout_test",
     size = "small",

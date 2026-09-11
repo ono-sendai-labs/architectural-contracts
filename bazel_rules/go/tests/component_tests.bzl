@@ -531,6 +531,85 @@ def _checked_action(env, target):
     subject.mnemonic().equals("ArccCheck")
     return subject, subject.actual
 
+def _action_with_mnemonic(target, mnemonic):
+    actions = [action for action in target.actions if action.mnemonic == mnemonic]
+    if len(actions) != 1:
+        fail("expected exactly one %s action, found %d" % (mnemonic, len(actions)))
+    return actions[0]
+
+def _component_action_topology_test(name):
+    analysis_test(
+        name = name,
+        target = _API_COMPONENT,
+        impl = _component_action_topology_impl,
+        attr_values = {"size": "small"},
+    )
+
+def _component_action_topology_impl(env, target):
+    """Pins the auxiliary-input boundary required by corrected requirement 6."""
+    graph_action = _action_with_mnemonic(target, "ArccImportGraph")
+    layout_action = _action_with_mnemonic(target, "ArccLayout")
+    check_action = _action_with_mnemonic(target, "ArccCheck")
+
+    env.expect.that_int(len([action for action in target.actions if action.mnemonic == "ArccCheck"])).equals(1)
+
+    graph_inputs = [file.short_path for file in graph_action.inputs.to_list()]
+    graph_input_basenames = [path.rsplit("/", 1)[-1] for path in graph_inputs]
+    env.expect.that_collection(graph_input_basenames).contains("api_component.package-imports.request.json")
+    env.expect.that_collection(graph_input_basenames).contains("shared.go")
+    env.expect.that_collection([
+        path
+        for path in graph_inputs
+        if path.endswith("/bin/go") or "/pkg/tool/" in path or
+           "/.cache/" in path or "gomodcache" in path or "gopath" in path
+    ]).contains_exactly([])
+    env.expect.that_collection([
+        basename
+        for basename in graph_input_basenames
+        if basename not in [
+            "api_component.package-imports.request.json",
+            "shared.go",
+            "arcc",
+            "arcc.runfiles",
+        ]
+    ]).contains_exactly([])
+    env.expect.that_dict(graph_action.env).contains_exactly({})
+    env.expect.that_str(list(graph_action.argv)[0]).contains("go/cmd/arcc/arcc")
+    env.expect.that_collection(list(graph_action.argv)[1:2]).contains_exactly(["package-imports"])
+
+    layout_inputs = [file.short_path for file in layout_action.inputs.to_list()]
+    layout_input_basenames = [path.rsplit("/", 1)[-1] for path in layout_inputs]
+    env.expect.that_collection(layout_input_basenames).contains_exactly([
+        "api_component.package-imports.json",
+        "api_component.package-layout.base.json",
+        "arcc",
+        "arcc.runfiles",
+    ])
+    env.expect.that_collection([
+        path
+        for path in layout_inputs
+        if path.endswith(".go") or path.endswith("/bin/go") or
+           "/pkg/tool/" in path or "/.cache/" in path or
+           path.endswith("/gocache") or path.endswith("/pkg")
+    ]).contains_exactly([])
+    env.expect.that_dict(layout_action.env).contains_exactly({})
+    env.expect.that_str(list(layout_action.argv)[0]).contains("go/cmd/arcc/arcc")
+    env.expect.that_collection(list(layout_action.argv)[1:2]).contains_exactly(["package-layout-merge"])
+
+    # Only the graph action's declared output crosses into ArccCheck. Its
+    # request/source inputs and ArccLayout's base-layout input remain private
+    # to the auxiliary actions; transitional closure sources are retained by
+    # the existing NeedDeps load path independently of this boundary.
+    check_inputs = [file.short_path for file in check_action.inputs.to_list()]
+    check_input_basenames = [path.rsplit("/", 1)[-1] for path in check_inputs]
+    env.expect.that_collection(check_input_basenames).contains("api_component.package-imports.json")
+    env.expect.that_collection([
+        path
+        for path in check_inputs
+        if path.endswith(".package-imports.request.json") or
+           path.endswith(".package-layout.base.json")
+    ]).contains_exactly([])
+
 def _checked_component_outputs_test(name):
     analysis_test(
         name = name,
@@ -861,6 +940,7 @@ def go_component_test_suite(name):
             _checked_component_outputs_test,
             _checked_action_command_test,
             _checked_action_inputs_test,
+            _component_action_topology_test,
             _export_layout_shape_test,
             _migrated_fixture_stays_checked_test,
             _negative_rules_stage_the_checked_report_test,
