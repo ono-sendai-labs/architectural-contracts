@@ -1,0 +1,102 @@
+result:
+  task_file: .agents/tasks/2026-08-04-compositional-component-analysis/step12/task-02-add-runtime-injection-adapter-hooks.code-task.md
+  change_id: uupkrzpurmzwonqxtmmmtxqnrmwslvzp
+  status: completed
+  schema_version: 2
+  produced_at: 2026-09-11T23:14:01Z
+
+acceptance_criteria:
+  - text: |
+      1. **Empty upstream hooks are inert**
+        - Given the default rules_go adapter returns no runtime attributes or extra packages
+        - When every existing component is analyzed and checked
+        - Then its rule shape, declared actions/inputs, canonical artifacts, and verdict are unchanged.
+    addressed: yes
+    evidence: |
+      `bazel_rules/go/private/go_adapter.bzl:94-132` defines the upstream `{}`/`[]`
+      defaults; `bazel_rules/go/tests/runtime_injection_tests.bzl:47-73` pins them.
+      Existing component shape coverage and `just ci` passed with 175 Bazel tests.
+  - text: |
+      2. **Injected runtime packages enter the effective layout**
+        - Given a fake host adapter exposing a synthetic runtime package that is absent from the ordinary root package records
+        - When a component is analyzed
+        - Then the package is present once in the merged layout/closure with deterministic metadata and the export material needed for non-member type loading.
+    addressed: yes
+    evidence: |
+      `bazel_rules/go/private/component.bzl:840-849` merges the injected records once;
+      `bazel_rules/go/tests/runtime_injection_tests.bzl:83-115` asserts one layout
+      record and its export file, and the synthetic fixture is in
+      `bazel_rules/go/tests/testdata/injected_runtime/BUILD.bazel:24-42`.
+  - text: |
+      3. **The existing infra boundary claims the runtime**
+        - Given the fake injected package matches a registered infra package-surface component
+        - When attachment and component membership are classified
+        - Then that component is auto-attached, the runtime package is covered by its surface, and it is neither made a member nor reported as an undeclared dependency.
+    addressed: yes
+    evidence: |
+      `bazel_rules/go/private/component.bzl:859-866` supplies the merged view to
+      infra attachment before classification; `runtime_injection_tests.bzl:94-123`
+      verifies the auto-attached manifest/layout binding and no runtime member.
+      The checked execution test reports no violations.
+  - text: |
+      4. **No author declaration is required for hidden runtime wiring**
+        - Given member code that type-checks only when the synthetic injected runtime is available
+        - When the component is checked without naming that runtime in `component_deps`, members, or declared authority
+        - Then the check passes, the manifest/layout record an auto-attached dependency edge, and the report records the infra boundary with its actual checked/asserted authority and provenance axes.
+    addressed: yes
+    evidence: |
+      `bazel_rules/go/tests/testdata/injected_runtime/BUILD.bazel:28-42` supplies
+      the runtime through the test-only injection attr and declares no runtime
+      component dependency; `bazel test //bazel_rules/go/tests:injected_runtime_analysis_test`
+      passed with an ASSERTED/UNKNOWN `runtime_boundary` and no violations.
+  - text: |
+      5. **Injected inputs obey the analysis-action allowlist**
+        - Given the synthetic runtime check action
+        - When its declared inputs are inspected
+        - Then it contains member sources, the final manifest/layout, required export data, dependency surfaces/reports, and the stdlib map, but no runtime/dependency Go source or host toolchain binary.
+    addressed: yes
+    evidence: |
+      `bazel_rules/go/tests/runtime_injection_tests.bzl:125-132` inspects the
+      ArccCheck inputs and asserts `runtime.x` and the infra surface are present,
+      `runtime.go` is absent, and exactly one ArccCheck action exists. The checked
+      execution test and `just ci` hermetic action tests pass.
+  - text: |
+      6. **Invalid injected metadata fails closed**
+        - Given an injected cgo package or injected/ordinary records that conflict for one import path
+        - When the component is analyzed
+        - Then analysis fails with an actionable component/package diagnostic instead of selecting data by iteration order.
+    addressed: yes
+    evidence: |
+      `bazel_rules/go/private/component.bzl:849-857` retains the cgo validation
+      after the merge, while `bazel_rules/go/private/aspect.bzl:103-113` rejects
+      conflicting export artifacts. The cgo, injected-injected conflict, and
+      injected-ordinary conflict tests in `runtime_injection_tests.bzl:134-183`
+      all pass with component/package diagnostics.
+  - text: |
+      7. **Determinism and integration remain green**
+        - Given reordered injected package and registry inputs
+        - When artifacts are produced repeatedly and `just ci` runs
+        - Then attachment, layout records, report/surface bytes, and verdicts are identical and all existing self-checks pass.
+    addressed: yes
+    evidence: |
+      `runtime_injection_tests.bzl:185-203` compares reordered injected layouts;
+      `injected_runtime_analysis_test` reproduces the checked report/surface
+      deterministically. The final `just ci` run passed Go build/tests, selfcheck,
+      Bazel build, and all 175 Bazel tests.
+
+artifacts:
+  scratchpad_dir: .agents/scratchpad/2026-08-04-compositional-component-analysis/step12/task-02-add-runtime-injection-adapter-hooks/
+  files:
+    - context.md
+    - plan.md
+    - progress.md
+    - work.log
+    - result.yaml
+
+notes: |
+  Implemented upstream-empty runtime adapter hooks, collision-checked private
+  attribute composition, merged package-view propagation, and test-only runtime
+  injection seams. Synthetic runtime coverage proves infra auto-attachment,
+  export-backed action inputs, deterministic ordering, and fail-closed metadata
+  validation. The final task change is uupkrzpurmzwonqxtmmmtxqnrmwslvzp and the
+  working copy is empty.

@@ -1,0 +1,124 @@
+review:
+  task_file: .agents/tasks/2026-08-04-compositional-component-analysis/step12/task-02-add-runtime-injection-adapter-hooks.code-task.md
+  change_id: yukuxkxnwmzpllwpupztkqxkoosuyzlv
+  reviewed_at: 2026-09-11T23:57:03Z
+  verdict: approved
+  schema_version: 2
+  lsp_coverage: partial
+
+merge_request:
+  title: "feat(bazel): add runtime injection adapter hooks [Compositional Analysis: Step 12/Task 02]"
+  body: |
+    Reviews the complete five-change series: the upstream-empty adapter
+    contracts, merged runtime package view and infra attachment, injected
+    conflict coverage, hidden-runtime type-loading coverage, and the final
+    report-axis assertions plus package-directory cleanup. The focused runtime
+    injection suite, `gopls` checks for the Go fixtures, and `just ci` all pass.
+
+summary: |
+  Both prior important findings are resolved in the latest change: the fixture
+  now proves hidden-runtime type loading and includes an executable report-axis
+  assertion, while the two Go fixture packages are separated and LSP-clean.
+  All seven acceptance criteria pass, with no test regressions, security issues,
+  or additional review findings. The focused suite passes 10 tests and the full
+  repository gate passes all 178 Bazel tests.
+
+acceptance_criteria:
+  - text: |
+      1. **Empty upstream hooks are inert**
+        - Given the default rules_go adapter returns no runtime attributes or extra packages
+        - When every existing component is analyzed and checked
+        - Then its rule shape, declared actions/inputs, canonical artifacts, and verdict are unchanged.
+    status: pass
+    evidence: |
+      `bazel_rules/go/private/go_adapter.bzl:94-132` defines the upstream `{}`
+      and `[]` defaults, and `bazel_rules/go/tests/runtime_injection_tests.bzl:170-172`
+      asserts them. The full current-series `just ci` rerun passed the existing
+      component suite and all repository gates, with 178 Bazel tests green.
+  - text: |
+      2. **Injected runtime packages enter the effective layout**
+        - Given a fake host adapter exposing a synthetic runtime package that is absent from the ordinary root package records
+        - When a component is analyzed
+        - Then the package is present once in the merged layout/closure with deterministic metadata and the export material needed for non-member type loading.
+    status: pass
+    evidence: |
+      `bazel_rules/go/private/component.bzl:840-849` merges injected records
+      before later stages. The fake member projection and hidden-runtime source
+      are defined at `bazel_rules/go/tests/runtime_injection_tests.bzl:25-55`
+      and `bazel_rules/go/tests/testdata/injected_runtime/consumer/runtime_consumer.go:1-7`;
+      the member imports and references the runtime. The analysis assertions at
+      `runtime_injection_tests.bzl:182-236` and final-layout test
+      `runtime_injection_layout_test.sh:6-13` verify the consumer root, one
+      runtime package, and its export artifact. The focused tests pass.
+  - text: |
+      3. **The existing infra boundary claims the runtime**
+        - Given the fake injected package matches a registered infra package-surface component
+        - When attachment and component membership are classified
+        - Then that component is auto-attached, the runtime package is covered by its surface, and it is neither made a member nor reported as an undeclared dependency.
+    status: pass
+    evidence: |
+      `bazel_rules/go/private/component.bzl:859-919` supplies the canonical
+      merged view to attachment before classification. The matching package
+      surface is configured at `bazel_rules/go/tests/testdata/injected_runtime/BUILD.bazel:18-43`,
+      and `runtime_injection_tests.bzl:194-226` verifies the auto-attached
+      manifest/layout binding and excludes the runtime from members. The checked
+      analysis passes without violations.
+  - text: |
+      4. **No author declaration is required for hidden runtime wiring**
+        - Given member code that type-checks only when the synthetic injected runtime is available
+        - When the component is checked without naming that runtime in `component_deps`, members, or declared authority
+        - Then the check passes, the manifest/layout record an auto-attached dependency edge, and the report records the infra boundary with its actual checked/asserted authority and provenance axes.
+    status: pass
+    evidence: |
+      The prior round's missing type-loading behavior is addressed by
+      `runtime_consumer.go:3-7`, its fake member target at
+      `bazel_rules/go/tests/BUILD.bazel:32-42`, and the consumer configuration
+      at `bazel_rules/go/tests/testdata/injected_runtime/BUILD.bazel:30-43`:
+      only `shared_component` is authored as a component dependency and no
+      runtime authority is declared. The new executable report assertion at
+      `bazel_rules/go/tests/BUILD.bazel:159-172` checks the auto-attached
+      boundary's `ASSERTED`, `UNKNOWN`, and `BUILD_GRAPH` axes and the authored
+      dependency's checked/declared axes. The checked analysis passes.
+  - text: |
+      5. **Injected inputs obey the analysis-action allowlist**
+        - Given the synthetic runtime check action
+        - When its declared inputs are inspected
+        - Then it contains member sources, the final manifest/layout, required export data, dependency surfaces/reports, and the stdlib map, but no runtime/dependency Go source or host toolchain binary.
+    status: pass
+    evidence: |
+      `bazel_rules/go/private/component.bzl:1017-1022` stages merged non-member
+      records as export files, and `component.bzl:690-767` constructs the single
+      allowlisted `ArccCheck` action. `runtime_injection_tests.bzl:228-236`
+      checks the member source, infra surface, runtime export, absence of
+      `runtime.go`, and exactly one action; the full `just ci` hermeticity tests
+      also pass.
+  - text: |
+      6. **Invalid injected metadata fails closed**
+        - Given an injected cgo package or injected/ordinary records that conflict for one import path
+        - When the component is analyzed
+        - Then analysis fails with an actionable component/package diagnostic instead of selecting data by iteration order.
+    status: pass
+    evidence: |
+      `bazel_rules/go/private/component.bzl:848-857` retains merge-before-cgo
+      validation, while `bazel_rules/go/private/aspect.bzl:53-113` rejects
+      missing or conflicting export artifacts deterministically. The injected
+      cgo, injected-injected conflict, and injected-ordinary conflict tests at
+      `bazel_rules/go/tests/runtime_injection_tests.bzl:238-287` pass with
+      component/package diagnostics.
+  - text: |
+      7. **Determinism and integration remain green**
+        - Given reordered injected package and registry inputs
+        - When artifacts are produced repeatedly and `just ci` runs
+        - Then attachment, layout records, report/surface bytes, and verdicts are identical and all existing self-checks pass.
+    status: pass
+    evidence: |
+      `bazel_rules/go/tests/runtime_injection_tests.bzl:289-307` compares the
+      layouts for reversed injected-package order. The checked-analysis test
+      re-executes the hidden-runtime check and compares report/surface bytes and
+      the pass verdict; the new report-axis assertion validates the dependency
+      metadata. A fresh `just ci` run passed all 178 Bazel tests and repository
+      self-check stages.
+
+findings: []
+
+ecosystem_reviews: []
