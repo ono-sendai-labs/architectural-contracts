@@ -493,6 +493,13 @@ arcc_check_report_golden_test(
     golden = "goldens/violation_component.report.shape.golden.json",
 )
 
+arcc_check_report_golden_test(
+    name = "strict_component_report_shape_golden_test",
+    size = "small",
+    component = "//bazel_rules/go/tests/testdata/defeat:strict_component",
+    golden = "goldens/strict_component.report.shape.golden.json",
+)
+
 arcc_check_surface_golden_test(
     name = "api_component_surface_shape_golden_test",
     size = "small",

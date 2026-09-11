@@ -1,0 +1,64 @@
+{
+  "format_version": 1,
+  "verdict": "fail",
+  "report": {
+    "component": "strict_component",
+    "dependencies": [
+      {
+        "component": "shared_component",
+        "provenance": "CHECKED_PASS",
+        "freshness": "BUILD_GRAPH",
+        "authority": "DECLARED",
+        "declared_authority": []
+      }
+    ],
+    "diagnostics": {
+      "non_member_export_artifact_count": "<EXPORT_ARTIFACT_COUNT>",
+      "non_member_export_bytes": "<EXPORT_BYTES>"
+    },
+    "violations": [
+      {
+        "kind": "UNDECLARED_AUTHORITY",
+        "message": "<FINDING_MESSAGE>",
+        "location": {
+          "file": "",
+          "line": 0
+        },
+        "evidence": null,
+        "class": "AnalysisDefeating",
+        "sdk_key": "<SDK_KEY>",
+        "sites": [
+          {
+            "file": "<SOURCE_PATH>",
+            "line": 8,
+            "symbol": ""
+          },
+          {
+            "file": "<SOURCE_PATH>",
+            "line": 7,
+            "symbol": ""
+          },
+          {
+            "file": "<SOURCE_PATH>",
+            "line": 1,
+            "symbol": ""
+          }
+        ]
+      }
+    ],
+    "warnings": [
+      {
+        "kind": "UNUSED_DEPENDENCY",
+        "message": "<FINDING_MESSAGE>",
+        "location": {
+          "file": "",
+          "line": 0
+        },
+        "evidence": null,
+        "class": "",
+        "sdk_key": "",
+        "sites": null
+      }
+    ]
+  }
+}
