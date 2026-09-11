@@ -1,0 +1,70 @@
+result:
+  task_file: .agents/tasks/2026-08-04-compositional-component-analysis/step12/task-01-use-label-identity-for-infra-self-exemption.code-task.md
+  change_id: wztlpxqrqqyyuvwrtzpuwxrwotlrwwku
+  status: completed
+  schema_version: 2
+  produced_at: 2026-09-11T22:40:02Z
+
+acceptance_criteria:
+  - text: |
+      The exact infra component does not attach itself
+      - Given a component whose own target also appears in the host infra registry/dependency set
+      - When its infra attachments are evaluated
+      - Then the exact same Bazel label is excluded and no self dependency, self surface binding, or attachment cycle is produced.
+    addressed: yes
+    evidence: |
+      `bazel_rules/go/private/go_adapter.bzl:129-155` compares canonical target labels and skips only equal labels. `bazel_rules/go/tests/component_tests.bzl:283-297` (`exact_self_infra_excluded_test`) asserts that the same real target supplied as consumer and candidate yields an empty attachment collection.
+  - text: |
+      Short-name collisions do not create false exemptions
+      - Given a consumer and an infra component in different Bazel packages whose target basenames or published component names are equal
+      - When the infra predicate selects the candidate
+      - Then the candidate remains attached because its canonical label differs from the consumer's label.
+    addressed: yes
+    evidence: |
+      `bazel_rules/go/tests/testdata/infra/same_short_name/BUILD.bazel:12-22` defines a `runtime_component` in a distinct package that injects `//bazel_rules/go/tests/testdata/infra/runtime:runtime_component`. `bazel_rules/go/tests/component_tests.bzl:299-317` verifies the candidate manifest and `auto_attached: true`; the test passes with both targets publishing the same short component name.
+  - text: |
+      No host-specific identity literal remains
+      - Given the production adapter and component rule
+      - When their self-exemption logic and documentation are inspected
+      - Then identity derives only from the current component label and candidate target label, with no package-name string match or repository-specific allowlist.
+    addressed: yes
+    evidence: |
+      `bazel_rules/go/private/go_adapter.bzl:129-155` contains the adapter-local `_canonical_target_label` helper and label-only self comparison, with documentation explicitly separating registry lookup names from identity. `bazel_rules/go/private/component.bzl:815` only invokes the injected attachment function; the inspection recorded in `work.log` found no `info.component_name == ctx.label.name` self check.
+  - text: |
+      Dependency validation remains fail closed
+      - Given attached dependencies with duplicate names, conflicting authored identity, shared surface paths, or invalid provenance
+      - When the component is analyzed
+      - Then the existing actionable analysis failures still occur for every non-self candidate.
+    addressed: yes
+    evidence: |
+      Existing validation tests remain registered and green: shared-coverage conflict at `bazel_rules/go/tests/component_tests.bzl:199-214`, provider-shape/provenance failures at `:531-564`, duplicate dependency name at `:555-560`, and authored/auto edge conflict at `:561-566`. The full `just ci` run in `work.log` passed all repository tests.
+  - text: |
+      Existing behavior remains green
+      - Given the upstream empty infra registry and the repository's current infra fixtures
+      - When `just ci` runs
+      - Then component manifests, layouts, reports, surfaces, and check verdicts remain unchanged except for tests that deliberately exercise label identity.
+    addressed: yes
+    evidence: |
+      `just ci` completed successfully after the implementation; its complete command/output is recorded in `work.log` under `Criterion existing-behavior-green`. The run includes Go build/test, integration tests, self-check staging, `bazel build //...`, and `bazel test //...` with all 168 Bazel tests passing.
+  - text: |
+      Add focused Starlark analysis tests for exact-self exclusion and same-short-name/non-self eligibility, including a regression fixture whose package path distinguishes two identically named targets.
+    addressed: yes
+    evidence: |
+      `bazel_rules/go/tests/testing.bzl:20,72-110` adds the test-only injected attachment probe without changing production component attributes. `bazel_rules/go/tests/component_tests.bzl:283-317` adds and registers both focused analysis tests, and `bazel_rules/go/tests/testdata/infra/same_short_name/BUILD.bazel:12-22` supplies the package-distinct collision fixture.
+  - text: |
+      Update adapter documentation and stale comments so they describe structural target identity rather than a package or component-name convention.
+    addressed: yes
+    evidence: |
+      `bazel_rules/go/private/go_adapter.bzl:133-140` documents exact canonical target-label self-exemption and explicitly states that registry names are not identity. `bazel_rules/go/tests/testdata/infra/same_short_name/BUILD.bazel:12-15` documents the package-distinct regression intent; the inspection evidence is also recorded in `work.log`.
+
+artifacts:
+  scratchpad_dir: .agents/scratchpad/2026-08-04-compositional-component-analysis/step12/task-01-use-label-identity-for-infra-self-exemption/
+  files:
+    - context.md
+    - plan.md
+    - progress.md
+    - work.log
+    - result.yaml
+
+notes: |
+  The infra self-exemption now compares canonical Bazel target labels in the adapter seam, so only the exact consuming target is excluded. A test-only attachment probe and a package-distinct same-short-name fixture cover exact self exclusion and non-self eligibility while preserving existing dependency validation. The targeted suite and full `just ci` pass, and the implementation was committed as two coherent jj changes; the final produced change is wztlpxqrqqyyuvwrtzpuwxrwotlrwwku.
