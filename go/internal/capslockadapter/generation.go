@@ -1,3 +1,10 @@
+// Package capslockadapter adapts Capslock's classifier for standard-library map generation.
+//
+// Component Contract (FR10):
+// - What it does: Runs the generation-only authority classifier and preserves UNANALYZED results for the total standard-library map.
+// - What it requires: Capslock inputs and the pinned classifier rules supplied by the map-generation shell.
+// - What it provides: Deterministic generation findings, classifier fingerprints, and the minting-site rules used by stdlibmap.
+// - Ambient Authority: This component holds FILES, EXEC, READ_SYSTEM_STATE, OPERATING_SYSTEM, REFLECT, RUNTIME, SYSTEM_CALLS, UNSAFE_POINTER, ARBITRARY_EXECUTION, and MODIFY_SYSTEM_STATE; its component manifest explicitly warns only on residual analysis-defeating findings.
 package capslockadapter
 
 import (

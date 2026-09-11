@@ -363,11 +363,15 @@ source, with structural provenance (R7, R14, Q16, DR-03, DR-06, DR-08, DR-12).
   since the indirect target's own edges are visible as member references; or (b) the
   user-facing policy carrier DR-11 already presumes ("a violation unless policy allows or
   warns") — the checker half exists and is tested (`Warn[""]` downgrades to
-  `ANALYSIS_LIMITATION`), but no manifest field or CLI flag sets it. Step 6's cutover
-  exempted `parsecsv` and the native `capslockadapter` selfcheck pending this decision.
-  Step 7 must remove both exemptions: capability-use curation is sufficient only if tests
-  prove that no residual sites remain; otherwise the policy carrier (or another explicit
-  design correction) must consciously account for the remainder.
+  `ANALYSIS_LIMITATION`), but no manifest field or CLI flag sets it. **Decision
+  (2026-09-10):** the post-wrapper residual is not exhausted by I2-consistent
+  capability-use curation: `csv.Reader.ReadAll` remains UNANALYZED through
+  interface-parameter indirection, while `capslockadapter` owns a broad residual set in
+  Capslock's own source. The manifest carrier is therefore selected. It maps only the
+  empty key to WARN, preserves every finding and classifier/map fingerprint, and leaves
+  future narrowly justified curation possible without adding broad SAFE overrides. Step 7
+  removes both exemptions by carrying `analysis_defeating_policy: WARN` on those two
+  manifests and restoring their ordinary checks.
 - Keep dependencies explicit for hand-authored protobuf imports. Step 12 may auto-attach
   the same runtime component for generated or host-injected imports; auto-attachment
   changes edge provenance, not runtime ownership or the component's surface.

@@ -1133,7 +1133,7 @@ func stageDesignFixtures(t *testing.T) (fixRoot, classifyManifest, refscanManife
 // dispatch and table behaviour at the unit level; this test pins that the
 // real command reaches the same documented outcomes.
 func TestDesignFixturesThroughRealCommand(t *testing.T) {
-	fixRoot, _, _, _, _ := stageDesignFixtures(t)
+	fixRoot, _, _, bypManifest, _ := stageDesignFixtures(t)
 
 	// The package-surface variant of the refscan manifest classifies the same
 	// member trees against dep's PACKAGE_SURFACE dependency manifest.
@@ -1367,6 +1367,35 @@ func TestDesignFixturesThroughRealCommand(t *testing.T) {
 		}
 		if len(v.Evidence) != 0 {
 			t.Errorf("the bypass finding must carry no evidence, got %+v", v.Evidence)
+		}
+
+		warnManifest := filepath.Join(fixRoot, "byp", "warn.component.textproto")
+		data, err := os.ReadFile(bypManifest)
+		if err != nil {
+			t.Fatal(err)
+		}
+		data = append(data, []byte("analysis_defeating_policy: WARN\n")...)
+		if err := os.WriteFile(warnManifest, data, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		warned, warnCode := runJSON(t, "byp/warn.component.textproto")
+		if warnCode != 0 {
+			t.Fatalf("WARN bypass fixture must pass with visible warnings (exit 0), got %d", warnCode)
+		}
+		if len(warned.Violations) != 0 || len(warned.Warnings) != 1 {
+			t.Fatalf("WARN bypass report = %+v, want no violations and one warning", warned)
+		}
+		w := warned.Warnings[0]
+		if w.Kind != report.AnalysisLimitation || w.Class != "AnalysisDefeating" {
+			t.Errorf("WARN bypass finding = %+v, want AnalysisDefeating ANALYSIS_LIMITATION", w)
+		}
+		if len(w.Sites) != len(v.Sites) {
+			t.Fatalf("WARN bypass sites = %+v, want unchanged sites %+v", w.Sites, v.Sites)
+		}
+		for i := range v.Sites {
+			if w.Sites[i] != v.Sites[i] {
+				t.Errorf("WARN bypass site %d = %+v, want strict site %+v", i, w.Sites[i], v.Sites[i])
+			}
 		}
 	})
 }

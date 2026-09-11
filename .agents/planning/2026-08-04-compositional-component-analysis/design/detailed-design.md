@@ -3,7 +3,8 @@
 **Date:** 2026-08-04 · **Revised:** 2026-09-02 (post design review); 2026-09-07
 (hermetic map generation through the layout driver; cgo scoping — see I5); 2026-09-08
 (asserted surfaces are package-level — see I6); 2026-09-09 (bounded routine stdlib-map
-generation and CI feedback time — see N5)
+generation and CI feedback time — see N5); 2026-09-10 (Step 7 residual
+AnalysisDefeating policy carrier)
 **Status:** design complete; implementation not started.
 **Baseline:** `dev-exp-go-bazel-mvp` @ `5011b726` (code unchanged through `cca66212`)
 **Inputs:** [`../rough-idea.md`](../rough-idea.md), [`../idea-honing.md`](../idea-honing.md),
@@ -739,6 +740,24 @@ produced under another rewrite is a silent mismatch. Therefore:
 
 Two behaviours deliberately **not** errors: a reference into a `PACKAGE_SURFACE`
 dependency's exported object, and a reference to an auto-attached infra component (R13).
+
+### Step 7 residual policy decision
+
+After the protobuf-runtime and x/tools closures moved behind asserted
+`PACKAGE_SURFACE` boundaries, the remaining `UNANALYZED` observations were not
+limited to the small class of interface-parameter indirections that could be
+curated consistently with I2. In particular, `csv.Reader.ReadAll` remains
+unanalyzable through its interface parameter, while `capslockadapter` owns a
+broad residual set in Capslock's own source. Step 7 therefore exposes the
+existing DR-11 policy through the versioned manifest field
+`analysis_defeating_policy`; omission is strict and `WARN` maps only the empty
+AnalysisDefeating capability key to `ANALYSIS_LIMITATION`.
+
+The carrier keeps every DR-17 site, class, SDK key and applicable map evidence
+in the report, does not change stdlib-map generation or `classifier_hash`, and
+does not downgrade genuine authority. Future targeted curation remains possible
+when an I2-consistent proof covers a specific residual, but this decision adds
+no broad SAFE override.
 
 ### Findings and evidence (DR-17)
 

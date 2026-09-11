@@ -153,6 +153,18 @@ func TestRunner_VersionAndHelp(t *testing.T) {
 	}
 }
 
+func TestRunner_HelpDocumentsAnalysisDefeatingPolicy(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	if code := (&app.Runner{}).Run([]string{"help"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("help exit = %d, want 0; stderr=%q", code, stderr.String())
+	}
+	for _, want := range []string{"analysis_defeating_policy: WARN", "ANALYSIS_LIMITATION"} {
+		if !strings.Contains(stdout.String(), want) {
+			t.Errorf("help = %q, want %q", stdout.String(), want)
+		}
+	}
+}
+
 func createTempComponent(t *testing.T, name string, manifestContent string, files map[string]string) (string, string) {
 	t.Helper()
 	tmpDir := t.TempDir()

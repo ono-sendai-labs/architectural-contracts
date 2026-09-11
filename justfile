@@ -66,8 +66,8 @@ run *args:
 # membership checking the same components cross-checks the whole membership model.
 # Step 7 gives the foreign protobuf and x/tools closures one package-surface
 # boundary each, so the real component manifests can be staged without
-# dependency overlap. The schema artifact remains a deliberately non-gating
-# dependency check because generated protobuf code is outside this task's two
+# dependency overlap. The schema artifact remains an intentionally expected-
+# failing dependency check because generated protobuf code is outside this task's two
 # residual owners. The parsecsv and capslockadapter residuals are different:
 # their explicit manifest WARN policy keeps every AnalysisDefeating site visible
 # while their ordinary native checks now gate this recipe.
@@ -117,7 +117,7 @@ selfcheck:
 	stage_component internal/schema/component.textproto; \
 	schema_verdict="$(sed -n 's/.*\"verdict\": \"\([^\"]*\)\".*/\1/p' internal/schema/component.report.json | head -n 1)"; \
 	if [ "${schema_verdict}" != "fail" ]; then echo "schema staging verdict changed: got ${schema_verdict}, want the expected generated-protobuf UNANALYZED fail" >&2; exit 1; fi; \
-	echo "schema dependency artifact verdict: fail (expected generated-protobuf UNANALYZED; non-gating and discarded with the temporary stage)"; \
+	echo "schema dependency artifact verdict: fail (expected generated-protobuf UNANALYZED; staged and discarded with the temporary stage)"; \
 	stage_component internal/manifest/component.textproto; \
 	stage_component internal/report/component.textproto; \
 	stage_component internal/stdlibauthority/component.textproto; \

@@ -1,7 +1,7 @@
 // Package app implements CLI orchestration and formatting of architectural checks.
 //
 // Component Contract (FR10):
-// - What it does: Orchestrates manifest parsing, fact loading, stdlib-authority resolution, checker execution over the typed reference/import facts, report rendering, report-verdict assertion, check artifact emission (canonical report and exact surface from one analysis invocation), and the stdlibmap subcommands (generate native and explicit-input mode, inspect).
+// - What it does: Orchestrates manifest parsing, fact loading, stdlib-authority resolution, manifest-carried analysis-defeating policy selection, checker execution over the typed reference/import facts, report rendering, report-verdict assertion, check artifact emission (canonical report and exact surface from one analysis invocation), and the stdlibmap subcommands (generate native and explicit-input mode, inspect).
 // - What it requires: Command-line arguments specifying the command path and output format, as well as an environment for stdout/stderr output. Explicit-input `stdlibmap generate` declares its whole target (package list, config file, SDK root) and performs no host discovery. `verdict` reads only its named report artifact argument. Every check decision reads the declared stdlib-map artifact (--stdlib-map) in layout mode and the Step 4 native discovery/cache services in native mode; the map is validated fail-closed before any verdict.
 // - What it provides: Actionable conformance reports and deterministic exit codes, plus the canonical report and exact surface artifacts consumed by Bazel and native workflows. Check and emitted surface share the same exact declaring-object interface.
 // - Ambient Authority: This component is a shell component and holds FILES, REFLECT, READ_SYSTEM_STATE, and UNSAFE_POINTER. Explicit-input map generation adds no EXEC beyond arcc's own self-exec layout driver: it never runs the toolchain (`go env`, `go list`), while native mode runs the host toolchain.
@@ -147,4 +147,6 @@ func printUsage(w io.Writer) {
 	fmt.Fprintln(w, "classification the check decides from; native mode uses the on-demand cache.")
 	fmt.Fprintln(w, "--report-verdict-only requires --report-out and exits 0 for both pass and")
 	fmt.Fprintln(w, "fail after analysis and publication; tool errors still exit 2.")
+	fmt.Fprintln(w, "Manifests are strict by default; analysis_defeating_policy: WARN")
+	fmt.Fprintln(w, "explicitly keeps AnalysisDefeating findings visible as non-fatal ANALYSIS_LIMITATION warnings.")
 }

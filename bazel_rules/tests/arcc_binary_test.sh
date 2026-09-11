@@ -17,7 +17,8 @@ fi
 
 # A no-argument invocation prints usage and exits 0. Together with --version
 # this exercises the binary past process start-up.
-if ! "${arcc}" | grep -q "Usage:"; then
+usage_output="$("${arcc}")"
+if ! grep -q "Usage:" <<<"${usage_output}"; then
   echo "FAIL: 'arcc' with no arguments did not print usage" >&2
   exit 1
 fi

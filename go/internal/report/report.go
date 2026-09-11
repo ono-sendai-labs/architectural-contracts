@@ -1,7 +1,7 @@
 // Package report defines the conformance report data models and rendering logic.
 //
 // Component Contract (FR10):
-// - What it does: Defines the representation of architectural checker findings, renders them into deterministic, human-readable text, and owns the authoritative pass/fail verdict derivation for the persisted report artifact.
+// - What it does: Defines the representation of architectural checker findings, including visible ANALYSIS_LIMITATION warnings, renders them into deterministic, human-readable text, and owns the authoritative pass/fail verdict derivation for the persisted report artifact.
 // - What it requires: Receives a ConformanceReport struct populated with violations and warnings from the checker.
 // - What it provides: RenderText for plain-text formatting and the Verdict/VerdictOf derivation consumed by the persisted-artifact codec in the artifactio shell. JSON marshaling, filesystem access, and artifact file I/O stay in the shell (artifactio); this package remains free of reflection.
 // - Ambient Authority: This component is guaranteed-pure and holds no ambient authority (performs no filesystem I/O, network, process execution, or reflection).

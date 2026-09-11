@@ -32,6 +32,9 @@ type seamRunnerOpts struct {
 	resolverKey    stdlibauthority.SDKKey
 	writerErr      error
 	resolverCalled *bool
+	stdlibPackages map[string]bool
+	symbolClasses  map[string]stdlibauthority.Classification
+	initClasses    map[string]stdlibauthority.Classification
 }
 
 func seamRunner(t *testing.T, o seamRunnerOpts) (*app.Runner, map[string][]byte, *[]string) {
@@ -64,7 +67,14 @@ func seamRunner(t *testing.T, o seamRunnerOpts) (*app.Runner, map[string][]byte,
 			if o.resolverErr != nil {
 				return nil, o.resolverErr
 			}
-			return seamAuthority{key: fullKey, bypasses: o.bypasses, refs: o.refs}, nil
+			return seamAuthority{
+				key:      fullKey,
+				packages: o.stdlibPackages,
+				symbols:  o.symbolClasses,
+				inits:    o.initClasses,
+				bypasses: o.bypasses,
+				refs:     o.refs,
+			}, nil
 		},
 		SurfaceInputsLoader: func(goanalysis.LoadRequest) (goanalysis.SurfaceInputs, error) { return goanalysis.SurfaceInputs{}, nil },
 		ArtifactWriter: func(path string, data []byte) error {
@@ -84,20 +94,29 @@ func seamRunner(t *testing.T, o seamRunnerOpts) (*app.Runner, map[string][]byte,
 // everything.
 type seamAuthority struct {
 	key      stdlibauthority.SDKKey
+	packages map[string]bool
+	symbols  map[string]stdlibauthority.Classification
+	inits    map[string]stdlibauthority.Classification
 	bypasses []facts.BypassObservation
 	refs     []facts.ReferenceEdge
 }
 
-func (seamAuthority) IsStdlibPackage(string) bool { return false }
+func (s seamAuthority) IsStdlibPackage(pkgPath string) bool { return s.packages[pkgPath] }
 
-func (seamAuthority) SymbolAuthority(id facts.SymbolID) (stdlibauthority.Classification, error) {
+func (s seamAuthority) SymbolAuthority(id facts.SymbolID) (stdlibauthority.Classification, error) {
+	if class, ok := s.symbols[id.Format()]; ok {
+		return class, nil
+	}
 	return stdlibauthority.Classification{}, &stdlibauthority.InventoryGapError{
 		Package: facts.SymbolIDPackage(id),
 		Symbol:  id.Format(),
 	}
 }
 
-func (seamAuthority) PackageInitAuthority(pkgPath string) (stdlibauthority.Classification, error) {
+func (s seamAuthority) PackageInitAuthority(pkgPath string) (stdlibauthority.Classification, error) {
+	if class, ok := s.inits[pkgPath]; ok {
+		return class, nil
+	}
 	return stdlibauthority.Classification{}, &stdlibauthority.InventoryGapError{Package: pkgPath}
 }
 
@@ -394,6 +413,49 @@ func TestRunner_Check_ManifestAnalysisDefeatingPolicy(t *testing.T) {
 				t.Errorf("warning kind = %q, want %q", persisted.Report.Warnings[0].Kind, tt.wantWarningKind)
 			}
 		})
+	}
+}
+
+func TestRunner_Check_ManifestWarnDoesNotDowngradeTrueAuthority(t *testing.T) {
+	_, manifestPath := artifactFixture(t, "example.com/temp/authority-policy")
+	base, err := os.ReadFile(manifestPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(manifestPath, append(base, []byte("analysis_defeating_policy: WARN\n")...), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	runner, recorded, _ := seamRunner(t, seamRunnerOpts{
+		pkgPath: "example.com/temp/authority-policy",
+		refs: []facts.ReferenceEdge{{
+			Kind:            facts.RefFunc,
+			FromPackage:     "example.com/temp/authority-policy",
+			ReferentPackage: "os",
+			Referent:        "os.ReadFile",
+			Site:            facts.SourceSite{File: "member.go", Line: 5},
+		}},
+		stdlibPackages: map[string]bool{"os": true},
+		symbolClasses: map[string]stdlibauthority.Classification{
+			"os.ReadFile": {Capabilities: []string{"FILES"}},
+		},
+	})
+	reportPath := filepath.Join(t.TempDir(), "authority-policy.report.json")
+	_, stderr, code := runRunnerFromWorkspace(t, t.TempDir(), runner, []string{
+		"check", manifestPath, "--report-out=" + reportPath,
+	})
+	if code != 1 {
+		t.Fatalf("exit = %d, want 1 for undeclared FILES; stderr = %q", code, stderr)
+	}
+	persisted, err := artifactio.DecodeReport(recorded[reportPath])
+	if err != nil {
+		t.Fatalf("decode report: %v", err)
+	}
+	if len(persisted.Report.Violations) != 1 || persisted.Report.Violations[0].Kind != "UNDECLARED_AUTHORITY" {
+		t.Fatalf("violations = %+v, want one strict true-authority violation", persisted.Report.Violations)
+	}
+	if persisted.Report.Violations[0].Class != "TrueAuthority" || len(persisted.Report.Warnings) != 0 {
+		t.Errorf("warn policy changed true-authority handling: violations=%+v warnings=%+v", persisted.Report.Violations, persisted.Report.Warnings)
 	}
 }
 

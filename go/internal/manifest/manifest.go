@@ -3,7 +3,7 @@
 // Component Contract (FR10):
 // - What it does: Parses textproto component manifests into a hand-written Go-native Manifest model and validates its syntax.
 // - What it requires: An io.Reader representing the textproto manifest source (as an object capability).
-// - What it provides: A validated Manifest native model with syntactic correctness guaranteed.
+// - What it provides: A validated Manifest native model with syntactic correctness guaranteed, including the strict/default or explicit WARN analysis-defeating policy.
 // - Ambient Authority: This component is clean of filesystem/network ambient authority but leverages REFLECT, RUNTIME, SYSTEM_CALLS, and UNSAFE_POINTER internally via protobuf unmarshaling.
 package manifest
 
@@ -259,7 +259,7 @@ func Parse(r io.Reader) (Manifest, error) {
 // stdlib authority map intentionally keeps io.ReadAll UNANALYZED because its
 // implementation dispatches through an arbitrary reader; spelling the one
 // interface read here lets the component boundary and the reader capability
-// remain visible to the typed scan (Step 7 AC8b migration).
+// remain visible to the typed scan and the manifest-carried policy.
 func readAll(r io.Reader) ([]byte, error) {
 	const chunkSize = 32 * 1024
 	var data []byte

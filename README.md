@@ -242,6 +242,12 @@ Usage:
   arcc --version
 ```
 
+`arcc check` is strict by default. A manifest may explicitly set
+`analysis_defeating_policy: WARN` to keep analysis-defeating findings visible as
+non-fatal `ANALYSIS_LIMITATION` warnings. This policy applies only to the empty
+capability key used for `AnalysisDefeating`; real authority such as `FILES` and
+`NETWORK` still requires `declared_authority`.
+
 ### Check artifact emission
 
 `arcc check` can publish the canonical artifacts Bazel and native workflows
@@ -330,7 +336,7 @@ The repository includes a complete, realistic example of a multi-package command
 
 This example demonstrates how `arcc` tracks ambient authority, allows legitimate capabilities, and checks component boundaries:
 
-1. **`parsecsv`** (Shared Utility): A small in-memory CSV parser, declared as a component of its own so that both `toprow` and `csvfile` can depend on it across a real boundary. It has no declared authority, and its use of `csv.Reader.ReadAll` is honestly reported as `UNANALYZED` by the current stdlib map.
+1. **`parsecsv`** (Shared Utility): A small in-memory CSV parser, declared as a component of its own so that both `toprow` and `csvfile` can depend on it across a real boundary. It has no declared authority and explicitly sets `analysis_defeating_policy: WARN`: its use of `csv.Reader.ReadAll` remains honestly reported as `UNANALYZED` by the current stdlib map, but is visible as an `ANALYSIS_LIMITATION` warning.
 2. **`toprow`** (Pure Logic): This component sorts and extracts top rows from in-memory CSV data, depending on the `parsecsv` component. It performs no file or network I/O; its manifest declares no authority, and checking it succeeds with `0`.
 3. **`csvfile`** (High Authority): This component legitimately accesses the real filesystem to read files using `os.ReadFile`. It explicitly declares its requirement for `FILES` authority in its manifest. Checked on its own, it conforms.
 4. **`app`** (Composition Root): This component calls `csvfile` to load data and `toprow` to sort it. Because both are first-class **component dependencies**, references to their exact declared interfaces are checked as component-boundary edges. The filesystem authority remains owned by `csvfile` and does not become part of `app`'s contract, so `app` checks as conformant and ambient-authority-free.
@@ -361,8 +367,8 @@ for component in internal/parsecsv csvfile toprow app; do
     --report-verdict-only >/dev/null
 done
 
-# 1. Check the shared parser (expected exit 1: its UNANALYZED use is reported)
-"$arcc_bin" check "$csv_demo_root/examples/csvtool/internal/parsecsv/component.textproto" || test "$?" -eq 1
+# 1. Check the shared parser (explicit WARN keeps its UNANALYZED use visible)
+"$arcc_bin" check "$csv_demo_root/examples/csvtool/internal/parsecsv/component.textproto"
 
 # 2. Check the pure sorting logic (conforms, authority-free)
 "$arcc_bin" check "$csv_demo_root/examples/csvtool/toprow/component.textproto"
@@ -374,9 +380,10 @@ done
 "$arcc_bin" check "$csv_demo_root/examples/csvtool/app/component.textproto"
 ```
 
-The first command currently exits `1`: `csv.Reader.ReadAll` is an honest
-`UNANALYZED` result and remains a non-gating AC8b case until a later residual
-policy task supplies its explicit treatment. The other three commands exit `0`. A component with dependencies
+The first command exits `0` with a visible `ANALYSIS_LIMITATION` warning:
+`csv.Reader.ReadAll` is still an honest `UNANALYZED` result, and the manifest's
+explicit policy does not suppress it or change the stdlib map. The other three
+commands also exit `0`. A component with dependencies
 also lists each checked boundary:
 ```
 Component "app" conforms; does not exceed declared authority
@@ -437,9 +444,10 @@ cat bazel-bin/go/examples/csvtool/csvfile/csvfile_component.report.json
 ```
 
 The app report contains `CHECKED_PASS` boundaries (the `certified` text case).
-`parsecsv` is tagged `manual` in the checked-in Bazel graph, so its provider is
-an asserted package-surface dependency; the csvfile/toprow reports therefore
-show the actual asserted parsecsv boundary rather than claiming `CHECKED_FAIL`.
+`parsecsv` is an ordinary checked component with an explicit analysis-defeating
+WARN policy, so its provider is `CHECKED_PASS`; its own report retains the
+`ANALYSIS_LIMITATION` warning rather than turning the residual into a hidden or
+asserted boundary.
 The native JSON run supplies the `STALE` case. The reproducible `UNKNOWN` and
 checked-fail cases use the same test-owned workspace strategy in
 `TestIntegration_CSVTool_StatusDemo` (the latter uses a layout checked binding
@@ -572,6 +580,13 @@ The manifest structure is defined by the following fields:
   component's `declared_authority` is checked; `UNKNOWN` marks a package-level
   adopted surface whose authority has not been analysed. `UNKNOWN` must have an
   empty `declared_authority` and is rendered `untrusted` at dependent boundaries.
+- **`analysis_defeating_policy`** (enum, optional): `STRICT` (the zero-value
+  default) makes `AnalysisDefeating` findings violations. `WARN` is an explicit
+  narrow downgrade that keeps those findings as visible `ANALYSIS_LIMITATION`
+  warnings. It does not downgrade true authority capabilities; `FILES`,
+  `NETWORK`, and other authority still require `declared_authority`. The
+  Bazel `go_component` attribute uses the closed vocabulary `strict`/`warn`
+  and emits this field only for `warn`.
 
 ### Wrapping a library that has no interface: `PACKAGE_SURFACE`
 
@@ -641,6 +656,10 @@ component_dependencies {
 # Permitted ambient capabilities (validated at parse time)
 declared_authority: "FILES"
 declared_authority: "SYSTEM_CALLS"
+
+# Optional: keep analysis-defeating findings visible without making them fatal.
+# Omit this field to retain strict fail-closed behavior.
+analysis_defeating_policy: WARN
 ```
 
 ---
@@ -708,10 +727,10 @@ The tool is built recursively out of components and is checked against itself:
 ```bash
 just selfcheck
 ```
-This compiles the local `arcc` binary and runs it against each of its own eight components' manifests. The two groups prove different things, which is why the recipe separates them:
+This compiles the local `arcc` binary and runs it against the self-hosting manifests. The two groups prove different things, which is why the recipe separates them:
 
 - **The authority-free core** — `checker`, `facts`, `report`, `capanalyzer` — declares *no* ambient authority at all. Their checks confirm the pure checking core genuinely remains ambient-authority-free.
-- **The remaining components** — `manifest`, `goanalysis`, `capslockadapter`, `cli` — legitimately declare authority (`goanalysis` declares nine kinds, `capslockadapter` eight). Their checks confirm something weaker and equally important: that each *does not exceed* what it declares.
+- **The remaining components** — `manifest`, `goanalysis`, `capslockadapter`, `cli` — legitimately declare authority (`goanalysis` declares nine kinds, `capslockadapter` eight). Their checks confirm something weaker and equally important: that each *does not exceed* what it declares. `capslockadapter`'s residual analysis-defeating findings are explicitly visible warnings under its manifest policy.
 
 Conflating the two would overclaim. A conforming component is not an authority-free one; it is one that stayed inside its declaration.
 

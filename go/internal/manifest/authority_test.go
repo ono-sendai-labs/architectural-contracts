@@ -209,3 +209,29 @@ func TestEqual_DistinguishesEmptyFromUnknown(t *testing.T) {
 		t.Fatal("DECLARED{} ⊔ DECLARED{} is not known-empty")
 	}
 }
+
+func TestAnalysisDefeatingPolicyPersistedRoundTrip(t *testing.T) {
+	for _, want := range []manifest.AnalysisDefeatingPolicy{
+		manifest.AnalysisDefeatingPolicyStrict,
+		manifest.AnalysisDefeatingPolicyWarn,
+	} {
+		persisted, err := manifest.ToPersistedAnalysisDefeatingPolicy(want)
+		if err != nil {
+			t.Fatalf("ToPersistedAnalysisDefeatingPolicy(%s): %v", want, err)
+		}
+		got, err := manifest.FromPersistedAnalysisDefeatingPolicy(persisted)
+		if err != nil {
+			t.Fatalf("FromPersistedAnalysisDefeatingPolicy(%s): %v", want, err)
+		}
+		if got != want {
+			t.Errorf("policy round trip = %s, want %s", got, want)
+		}
+	}
+
+	if _, err := manifest.FromPersistedAnalysisDefeatingPolicy(gen.AnalysisDefeatingPolicy(99)); err == nil {
+		t.Fatal("unknown persisted analysis-defeating policy, want error")
+	}
+	if _, err := manifest.ToPersistedAnalysisDefeatingPolicy(manifest.AnalysisDefeatingPolicy(99)); err == nil {
+		t.Fatal("unknown native analysis-defeating policy, want error")
+	}
+}

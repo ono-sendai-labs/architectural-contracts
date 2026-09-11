@@ -3,7 +3,8 @@ load("@rules_go//go:def.bzl", "go_library")
 # capslockadapter is deliberately not declared as a go_component under Bazel:
 # its closure includes golang.org/x/sys/unix (via capslock) which uses cgo, and
 # component.bzl fails closed on cgo closures. It retains native coverage via
-# `just selfcheck`.
+# `just selfcheck`, where its manifest-carried WARN policy keeps the honest
+# AnalysisDefeating residual visible while the check remains gating.
 go_library(
     name = "capslockadapter",
     srcs = ["generation.go"],
