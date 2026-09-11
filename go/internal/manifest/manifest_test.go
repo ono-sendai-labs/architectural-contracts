@@ -339,6 +339,59 @@ func TestParse_UnknownInterfaceStyleRejected(t *testing.T) {
 	}
 }
 
+func TestParse_AnalysisDefeatingPolicy(t *testing.T) {
+	tests := []struct {
+		name    string
+		input   string
+		want    manifest.AnalysisDefeatingPolicy
+		wantErr string
+	}{
+		{
+			name:  "omitted defaults to strict",
+			input: `name: "strict" interface_files: "api.go"`,
+			want:  manifest.AnalysisDefeatingPolicyStrict,
+		},
+		{
+			name:  "explicit strict",
+			input: `name: "strict" interface_files: "api.go" analysis_defeating_policy: STRICT`,
+			want:  manifest.AnalysisDefeatingPolicyStrict,
+		},
+		{
+			name:  "explicit warn",
+			input: `name: "warn" interface_files: "api.go" analysis_defeating_policy: WARN`,
+			want:  manifest.AnalysisDefeatingPolicyWarn,
+		},
+		{
+			name:    "unknown numeric value",
+			input:   `name: "unknown" interface_files: "api.go" analysis_defeating_policy: 99`,
+			wantErr: "analysis-defeating policy",
+		},
+		{
+			name:    "lowercase text is not enum spelling",
+			input:   `name: "lower" interface_files: "api.go" analysis_defeating_policy: warn`,
+			wantErr: "invalid value",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := manifest.Parse(bytes.NewBufferString(tt.input))
+			if tt.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+					t.Fatalf("Parse() error = %v, want text %q", err, tt.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("Parse() failed: %v", err)
+			}
+			if got.AnalysisDefeatingPolicy != tt.want {
+				t.Errorf("AnalysisDefeatingPolicy = %v, want %v", got.AnalysisDefeatingPolicy, tt.want)
+			}
+		})
+	}
+}
+
 // errorReader always returns a custom error on Read.
 type errorReader struct{}
 

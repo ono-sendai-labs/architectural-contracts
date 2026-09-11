@@ -13,6 +13,68 @@ import (
 // Capability names a Capslock ambient-authority capability, e.g. FILES.
 type Capability = string
 
+// AnalysisDefeatingPolicy controls only findings for which the analysis-
+// defeating capability key is empty. Strict is the fail-closed default;
+// Warn makes those findings visible non-fatal limitations without affecting
+// true-authority capabilities.
+type AnalysisDefeatingPolicy uint8
+
+const (
+	// AnalysisDefeatingPolicyStrict is the zero-value, fail-closed policy.
+	AnalysisDefeatingPolicyStrict AnalysisDefeatingPolicy = iota
+	// AnalysisDefeatingPolicyWarn downgrades only AnalysisDefeating findings.
+	AnalysisDefeatingPolicyWarn
+)
+
+// String returns the persisted policy spelling.
+func (p AnalysisDefeatingPolicy) String() string {
+	switch p {
+	case AnalysisDefeatingPolicyStrict:
+		return "STRICT"
+	case AnalysisDefeatingPolicyWarn:
+		return "WARN"
+	default:
+		return fmt.Sprintf("UNKNOWN(%d)", p)
+	}
+}
+
+// UnknownAnalysisDefeatingPolicyError reports a persisted policy value this
+// version does not understand.
+type UnknownAnalysisDefeatingPolicyError struct {
+	Value int32
+}
+
+func (e *UnknownAnalysisDefeatingPolicyError) Error() string {
+	return fmt.Sprintf("unknown analysis-defeating policy: %d", e.Value)
+}
+
+// FromPersistedAnalysisDefeatingPolicy converts the versioned schema enum to
+// the pure manifest model and rejects unknown numeric values at the parse
+// boundary rather than treating them as the strict zero value.
+func FromPersistedAnalysisDefeatingPolicy(policy gen.AnalysisDefeatingPolicy) (AnalysisDefeatingPolicy, error) {
+	switch policy {
+	case gen.AnalysisDefeatingPolicy_STRICT:
+		return AnalysisDefeatingPolicyStrict, nil
+	case gen.AnalysisDefeatingPolicy_WARN:
+		return AnalysisDefeatingPolicyWarn, nil
+	default:
+		return AnalysisDefeatingPolicyStrict, &UnknownAnalysisDefeatingPolicyError{Value: int32(policy)}
+	}
+}
+
+// ToPersistedAnalysisDefeatingPolicy converts the pure model to its schema
+// representation and refuses an invalid value instead of normalizing it.
+func ToPersistedAnalysisDefeatingPolicy(policy AnalysisDefeatingPolicy) (gen.AnalysisDefeatingPolicy, error) {
+	switch policy {
+	case AnalysisDefeatingPolicyStrict:
+		return gen.AnalysisDefeatingPolicy_STRICT, nil
+	case AnalysisDefeatingPolicyWarn:
+		return gen.AnalysisDefeatingPolicy_WARN, nil
+	default:
+		return gen.AnalysisDefeatingPolicy_STRICT, &UnknownAnalysisDefeatingPolicyError{Value: int32(policy)}
+	}
+}
+
 // AuthorityDeclaration is the structural authority element (design §Data
 // Models, R10, R11): either a known, sorted set of declared capabilities, or
 // the unknown value meaning "not analysed; could be anything".

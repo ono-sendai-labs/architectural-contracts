@@ -251,7 +251,7 @@ func (r *Runner) runCheck(opts checkOptions, stdout, stderr io.Writer) int {
 		DepIfaces: resolvedDeps,
 		Authority: authority,
 		SDKKey:    authority.Key(),
-		Policy:    capanalyzer.StrictPolicy(),
+		Policy:    policyForManifest(parsedManifest),
 	}
 	conformanceReport, err := checker.Check(inputs)
 	if err != nil {
@@ -316,6 +316,18 @@ func (r *Runner) runCheck(opts checkOptions, stdout, stderr io.Writer) int {
 		return 1
 	}
 	return 0
+}
+
+// policyForManifest is the application-layer adapter for the manifest-carried
+// policy. The manifest package remains a pure schema/model boundary and the
+// checker keeps its generic policy port; only the explicit WARN value adds the
+// empty capability key used by AnalysisDefeating findings. No true-authority
+// capability is added to Warn here.
+func policyForManifest(m manifest.Manifest) capanalyzer.CapabilityPolicy {
+	if m.AnalysisDefeatingPolicy == manifest.AnalysisDefeatingPolicyWarn {
+		return capanalyzer.CapabilityPolicy{Warn: map[string]bool{"": true}}
+	}
+	return capanalyzer.StrictPolicy()
 }
 
 // resolveDependencySurfaces resolves every direct (declared or auto-attached)

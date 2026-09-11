@@ -53,6 +53,12 @@ message Component {
   // been analysed. When UNKNOWN, declared_authority must be empty: unknown
   // means the component could use any ambient authority, not that it uses none.
   Authority authority = 10;
+
+  // Policy for findings that defeat typed analysis. The zero value is strict;
+  // only the explicit WARN value downgrades AnalysisDefeating findings to
+  // visible ANALYSIS_LIMITATION warnings. Textproto spelling:
+  // `analysis_defeating_policy: WARN` (wire field 11).
+  AnalysisDefeatingPolicy analysis_defeating_policy = 11;
 }
 
 // Authority distinguishes a verified declaration of ambient authority from an
@@ -69,6 +75,18 @@ enum Authority {
   // The component has not been analysed; its authority is unknown rather than
   // empty. declared_authority must be empty.
   UNKNOWN = 1;
+}
+
+// AnalysisDefeatingPolicy controls only findings whose capability key is empty
+// because the scanner could not establish a typed authority decision. It never
+// downgrades true FILES, NETWORK, or other authority capabilities.
+enum AnalysisDefeatingPolicy {
+  // Strict is the fail-closed default when the field is omitted.
+  STRICT = 0;
+
+  // Warn keeps the finding visible as ANALYSIS_LIMITATION without failing the
+  // component's conformance verdict.
+  WARN = 1;
 }
 
 // InterfaceStyle distinguishes a component that declares its surface from one

@@ -344,6 +344,59 @@ func TestRunner_Check_VerdictOnlySeparatesPolicyFromExecution(t *testing.T) {
 	}
 }
 
+func TestRunner_Check_ManifestAnalysisDefeatingPolicy(t *testing.T) {
+	tests := []struct {
+		name            string
+		policy          string
+		wantCode        int
+		wantViolations  int
+		wantWarnings    int
+		wantWarningKind string
+	}{
+		{name: "omitted is strict", wantCode: 1, wantViolations: 1},
+		{name: "explicit warn", policy: "analysis_defeating_policy: WARN\n", wantCode: 0, wantWarnings: 1, wantWarningKind: "ANALYSIS_LIMITATION"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, manifestPath := artifactFixture(t, "example.com/temp/policy")
+			base, err := os.ReadFile(manifestPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if tt.policy != "" {
+				if err := os.WriteFile(manifestPath, append(base, []byte(tt.policy)...), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			runner, recorded, _ := seamRunner(t, seamRunnerOpts{
+				pkgPath: "example.com/temp/policy",
+				bypasses: []facts.BypassObservation{{
+					Kind: facts.BypassLinkname,
+					Site: facts.SourceSite{File: "member.go", Line: 3},
+				}},
+			})
+			reportPath := filepath.Join(t.TempDir(), "policy.report.json")
+			stdout, stderr, code := runRunnerFromWorkspace(t, t.TempDir(), runner, []string{
+				"check", manifestPath, "--report-out=" + reportPath,
+			})
+			if code != tt.wantCode {
+				t.Fatalf("exit = %d, want %d; stdout=%q stderr=%q", code, tt.wantCode, stdout, stderr)
+			}
+			persisted, err := artifactio.DecodeReport(recorded[reportPath])
+			if err != nil {
+				t.Fatalf("decode report: %v", err)
+			}
+			if len(persisted.Report.Violations) != tt.wantViolations || len(persisted.Report.Warnings) != tt.wantWarnings {
+				t.Fatalf("report findings = %d/%d, want %d/%d: %+v", len(persisted.Report.Violations), len(persisted.Report.Warnings), tt.wantViolations, tt.wantWarnings, persisted.Report)
+			}
+			if tt.wantWarningKind != "" && string(persisted.Report.Warnings[0].Kind) != tt.wantWarningKind {
+				t.Errorf("warning kind = %q, want %q", persisted.Report.Warnings[0].Kind, tt.wantWarningKind)
+			}
+		})
+	}
+}
+
 func TestRunner_Check_OrdinaryExitsPreserved(t *testing.T) {
 	_, manifestPath := artifactFixture(t, "example.com/temp/exits")
 	dir := t.TempDir()

@@ -85,6 +85,58 @@ func (Authority) EnumDescriptor() ([]byte, []int) {
 	return file_archcontracts_v1_component_proto_rawDescGZIP(), []int{0}
 }
 
+// AnalysisDefeatingPolicy controls only findings whose capability key is empty
+// because the scanner could not establish a typed authority decision. It never
+// downgrades true FILES, NETWORK, or other authority capabilities.
+type AnalysisDefeatingPolicy int32
+
+const (
+	// Strict is the fail-closed default when the field is omitted.
+	AnalysisDefeatingPolicy_STRICT AnalysisDefeatingPolicy = 0
+	// Warn keeps the finding visible as ANALYSIS_LIMITATION without failing the
+	// component's conformance verdict.
+	AnalysisDefeatingPolicy_WARN AnalysisDefeatingPolicy = 1
+)
+
+// Enum value maps for AnalysisDefeatingPolicy.
+var (
+	AnalysisDefeatingPolicy_name = map[int32]string{
+		0: "STRICT",
+		1: "WARN",
+	}
+	AnalysisDefeatingPolicy_value = map[string]int32{
+		"STRICT": 0,
+		"WARN":   1,
+	}
+)
+
+func (x AnalysisDefeatingPolicy) Enum() *AnalysisDefeatingPolicy {
+	p := new(AnalysisDefeatingPolicy)
+	*p = x
+	return p
+}
+
+func (x AnalysisDefeatingPolicy) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (AnalysisDefeatingPolicy) Descriptor() protoreflect.EnumDescriptor {
+	return file_archcontracts_v1_component_proto_enumTypes[1].Descriptor()
+}
+
+func (AnalysisDefeatingPolicy) Type() protoreflect.EnumType {
+	return &file_archcontracts_v1_component_proto_enumTypes[1]
+}
+
+func (x AnalysisDefeatingPolicy) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use AnalysisDefeatingPolicy.Descriptor instead.
+func (AnalysisDefeatingPolicy) EnumDescriptor() ([]byte, []int) {
+	return file_archcontracts_v1_component_proto_rawDescGZIP(), []int{1}
+}
+
 // InterfaceStyle distinguishes a component that declares its surface from one
 // that wraps code never written to have an architectural interface.
 type InterfaceStyle int32
@@ -120,11 +172,11 @@ func (x InterfaceStyle) String() string {
 }
 
 func (InterfaceStyle) Descriptor() protoreflect.EnumDescriptor {
-	return file_archcontracts_v1_component_proto_enumTypes[1].Descriptor()
+	return file_archcontracts_v1_component_proto_enumTypes[2].Descriptor()
 }
 
 func (InterfaceStyle) Type() protoreflect.EnumType {
-	return &file_archcontracts_v1_component_proto_enumTypes[1]
+	return &file_archcontracts_v1_component_proto_enumTypes[2]
 }
 
 func (x InterfaceStyle) Number() protoreflect.EnumNumber {
@@ -133,7 +185,7 @@ func (x InterfaceStyle) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use InterfaceStyle.Descriptor instead.
 func (InterfaceStyle) EnumDescriptor() ([]byte, []int) {
-	return file_archcontracts_v1_component_proto_rawDescGZIP(), []int{1}
+	return file_archcontracts_v1_component_proto_rawDescGZIP(), []int{2}
 }
 
 // A component's manifest, stored as component.textproto at the COMPONENT ROOT.
@@ -164,9 +216,14 @@ type Component struct {
 	// backward-compatible default) or is unknown because the component has not
 	// been analysed. When UNKNOWN, declared_authority must be empty: unknown
 	// means the component could use any ambient authority, not that it uses none.
-	Authority     Authority `protobuf:"varint,10,opt,name=authority,proto3,enum=archcontracts.v1.Authority" json:"authority,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	Authority Authority `protobuf:"varint,10,opt,name=authority,proto3,enum=archcontracts.v1.Authority" json:"authority,omitempty"`
+	// Policy for findings that defeat typed analysis. The zero value is strict;
+	// only the explicit WARN value downgrades AnalysisDefeating findings to
+	// visible ANALYSIS_LIMITATION warnings. Textproto spelling:
+	// `analysis_defeating_policy: WARN` (wire field 11).
+	AnalysisDefeatingPolicy AnalysisDefeatingPolicy `protobuf:"varint,11,opt,name=analysis_defeating_policy,json=analysisDefeatingPolicy,proto3,enum=archcontracts.v1.AnalysisDefeatingPolicy" json:"analysis_defeating_policy,omitempty"`
+	unknownFields           protoimpl.UnknownFields
+	sizeCache               protoimpl.SizeCache
 }
 
 func (x *Component) Reset() {
@@ -248,6 +305,13 @@ func (x *Component) GetAuthority() Authority {
 	return Authority_DECLARED
 }
 
+func (x *Component) GetAnalysisDefeatingPolicy() AnalysisDefeatingPolicy {
+	if x != nil {
+		return x.AnalysisDefeatingPolicy
+	}
+	return AnalysisDefeatingPolicy_STRICT
+}
+
 type ComponentDependency struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	Name  string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"` // referenced component's name; must match the `name`
@@ -320,7 +384,7 @@ var File_archcontracts_v1_component_proto protoreflect.FileDescriptor
 
 const file_archcontracts_v1_component_proto_rawDesc = "" +
 	"\n" +
-	" archcontracts/v1/component.proto\x12\x10archcontracts.v1\"\xc7\x03\n" +
+	" archcontracts/v1/component.proto\x12\x10archcontracts.v1\"\xae\x04\n" +
 	"\tComponent\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12'\n" +
 	"\x0finterface_files\x18\x02 \x03(\tR\x0einterfaceFiles\x12\\\n" +
@@ -329,7 +393,8 @@ const file_archcontracts_v1_component_proto_rawDesc = "" +
 	"\amembers\x18\x06 \x03(\tR\amembers\x12I\n" +
 	"\x0finterface_style\x18\a \x01(\x0e2 .archcontracts.v1.InterfaceStyleR\x0einterfaceStyle\x129\n" +
 	"\tauthority\x18\n" +
-	" \x01(\x0e2\x1b.archcontracts.v1.AuthorityR\tauthorityJ\x04\b\x04\x10\x05J\x04\b\b\x10\tJ\x04\b\t\x10\n" +
+	" \x01(\x0e2\x1b.archcontracts.v1.AuthorityR\tauthority\x12e\n" +
+	"\x19analysis_defeating_policy\x18\v \x01(\x0e2).archcontracts.v1.AnalysisDefeatingPolicyR\x17analysisDefeatingPolicyJ\x04\b\x04\x10\x05J\x04\b\b\x10\tJ\x04\b\t\x10\n" +
 	"R\x15absorbed_dependenciesR\x0eown_check_runsR\x17certification_reference\"j\n" +
 	"\x13ComponentDependency\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x1a\n" +
@@ -337,7 +402,11 @@ const file_archcontracts_v1_component_proto_rawDesc = "" +
 	"\rauto_attached\x18\x03 \x01(\bR\fautoAttached*&\n" +
 	"\tAuthority\x12\f\n" +
 	"\bDECLARED\x10\x00\x12\v\n" +
-	"\aUNKNOWN\x10\x01*V\n" +
+	"\aUNKNOWN\x10\x01*/\n" +
+	"\x17AnalysisDefeatingPolicy\x12\n" +
+	"\n" +
+	"\x06STRICT\x10\x00\x12\b\n" +
+	"\x04WARN\x10\x01*V\n" +
 	"\x0eInterfaceStyle\x12\x1f\n" +
 	"\x1bINTERFACE_STYLE_UNSPECIFIED\x10\x00\x12#\n" +
 	"\x1fINTERFACE_STYLE_PACKAGE_SURFACE\x10\x01BOZMgithub.com/ono-sendai-labs/architectural-contracts/go/internal/schema/gen;genb\x06proto3"
@@ -354,23 +423,25 @@ func file_archcontracts_v1_component_proto_rawDescGZIP() []byte {
 	return file_archcontracts_v1_component_proto_rawDescData
 }
 
-var file_archcontracts_v1_component_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
+var file_archcontracts_v1_component_proto_enumTypes = make([]protoimpl.EnumInfo, 3)
 var file_archcontracts_v1_component_proto_msgTypes = make([]protoimpl.MessageInfo, 2)
 var file_archcontracts_v1_component_proto_goTypes = []any{
-	(Authority)(0),              // 0: archcontracts.v1.Authority
-	(InterfaceStyle)(0),         // 1: archcontracts.v1.InterfaceStyle
-	(*Component)(nil),           // 2: archcontracts.v1.Component
-	(*ComponentDependency)(nil), // 3: archcontracts.v1.ComponentDependency
+	(Authority)(0),               // 0: archcontracts.v1.Authority
+	(AnalysisDefeatingPolicy)(0), // 1: archcontracts.v1.AnalysisDefeatingPolicy
+	(InterfaceStyle)(0),          // 2: archcontracts.v1.InterfaceStyle
+	(*Component)(nil),            // 3: archcontracts.v1.Component
+	(*ComponentDependency)(nil),  // 4: archcontracts.v1.ComponentDependency
 }
 var file_archcontracts_v1_component_proto_depIdxs = []int32{
-	3, // 0: archcontracts.v1.Component.component_dependencies:type_name -> archcontracts.v1.ComponentDependency
-	1, // 1: archcontracts.v1.Component.interface_style:type_name -> archcontracts.v1.InterfaceStyle
+	4, // 0: archcontracts.v1.Component.component_dependencies:type_name -> archcontracts.v1.ComponentDependency
+	2, // 1: archcontracts.v1.Component.interface_style:type_name -> archcontracts.v1.InterfaceStyle
 	0, // 2: archcontracts.v1.Component.authority:type_name -> archcontracts.v1.Authority
-	3, // [3:3] is the sub-list for method output_type
-	3, // [3:3] is the sub-list for method input_type
-	3, // [3:3] is the sub-list for extension type_name
-	3, // [3:3] is the sub-list for extension extendee
-	0, // [0:3] is the sub-list for field type_name
+	1, // 3: archcontracts.v1.Component.analysis_defeating_policy:type_name -> archcontracts.v1.AnalysisDefeatingPolicy
+	4, // [4:4] is the sub-list for method output_type
+	4, // [4:4] is the sub-list for method input_type
+	4, // [4:4] is the sub-list for extension type_name
+	4, // [4:4] is the sub-list for extension extendee
+	0, // [0:4] is the sub-list for field type_name
 }
 
 func init() { file_archcontracts_v1_component_proto_init() }
@@ -383,7 +454,7 @@ func file_archcontracts_v1_component_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_archcontracts_v1_component_proto_rawDesc), len(file_archcontracts_v1_component_proto_rawDesc)),
-			NumEnums:      2,
+			NumEnums:      3,
 			NumMessages:   2,
 			NumExtensions: 0,
 			NumServices:   0,

@@ -11,8 +11,9 @@ import (
 
 func TestComponentSchema_AdditiveFieldsAndTextproto(t *testing.T) {
 	component := &gen.Component{
-		Members:        []string{"example.com/app", "example.com/app/internal"},
-		InterfaceStyle: gen.InterfaceStyle_INTERFACE_STYLE_PACKAGE_SURFACE,
+		Members:                 []string{"example.com/app", "example.com/app/internal"},
+		InterfaceStyle:          gen.InterfaceStyle_INTERFACE_STYLE_PACKAGE_SURFACE,
+		AnalysisDefeatingPolicy: gen.AnalysisDefeatingPolicy_WARN,
 		ComponentDependencies: []*gen.ComponentDependency{{
 			Name:         "runtime",
 			Manifest:     "runtime/component.textproto",
@@ -22,9 +23,10 @@ func TestComponentSchema_AdditiveFieldsAndTextproto(t *testing.T) {
 
 	componentFields := component.ProtoReflect().Descriptor().Fields()
 	for name, wantNumber := range map[protoreflect.Name]protoreflect.FieldNumber{
-		"members":         6,
-		"interface_style": 7,
-		"authority":       10,
+		"members":                   6,
+		"interface_style":           7,
+		"authority":                 10,
+		"analysis_defeating_policy": 11,
 	} {
 		field := componentFields.ByName(name)
 		if field == nil {
@@ -60,6 +62,12 @@ func TestComponentSchema_AdditiveFieldsAndTextproto(t *testing.T) {
 	if got := gen.Authority_UNKNOWN; got != 1 {
 		t.Errorf("AUTHORITY_UNKNOWN = %d, want 1", got)
 	}
+	if got := gen.AnalysisDefeatingPolicy_STRICT; got != 0 {
+		t.Errorf("ANALYSIS_DEFEATING_POLICY_STRICT = %d, want 0", got)
+	}
+	if got := gen.AnalysisDefeatingPolicy_WARN; got != 1 {
+		t.Errorf("ANALYSIS_DEFEATING_POLICY_WARN = %d, want 1", got)
+	}
 
 	encoded, err := prototext.Marshal(component)
 	if err != nil {
@@ -71,6 +79,33 @@ func TestComponentSchema_AdditiveFieldsAndTextproto(t *testing.T) {
 	}
 	if !reflect.DeepEqual(component, &decoded) {
 		t.Errorf("extended component round trip mismatch:\n got: %v\nwant: %v", &decoded, component)
+	}
+}
+
+func TestComponentSchema_AnalysisDefeatingPolicyTextprotoSpelling(t *testing.T) {
+	const input = `name: "warned"
+interface_files: "api.go"
+analysis_defeating_policy: WARN
+`
+
+	var component gen.Component
+	if err := prototext.Unmarshal([]byte(input), &component); err != nil {
+		t.Fatalf("unmarshal WARN policy: %v", err)
+	}
+	if got := component.GetAnalysisDefeatingPolicy(); got != gen.AnalysisDefeatingPolicy_WARN {
+		t.Fatalf("analysis-defeating policy = %s, want WARN", got)
+	}
+
+	encoded, err := prototext.Marshal(&component)
+	if err != nil {
+		t.Fatalf("marshal WARN policy: %v", err)
+	}
+	var decoded gen.Component
+	if err := prototext.Unmarshal(encoded, &decoded); err != nil {
+		t.Fatalf("unmarshal marshaled WARN policy: %v", err)
+	}
+	if got := decoded.GetAnalysisDefeatingPolicy(); got != gen.AnalysisDefeatingPolicy_WARN {
+		t.Fatalf("round-trip policy = %s, want WARN", got)
 	}
 }
 
