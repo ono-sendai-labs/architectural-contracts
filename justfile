@@ -47,11 +47,25 @@ run *args:
 selfcheck-staging-test:
 	bash scripts/selfcheck-staging-test.sh
 
-# Self-check leg relationship:
-# The Bazel `.check` targets run by `bazel test //...` (in //go/internal/...)
-# correspond one-to-one with the pure components checked here:
-#   capanalyzer, hostpolicy, symbol, stdlibauthority, facts, report, checker,
-#   manifest, goanalysis, artifactio, surface.
+# Self-check coverage:
+# Native `just selfcheck` stages 19 analyzed production components in dependency
+# order. Eighteen must pass:
+#   capanalyzer, hostpolicy, symbol, manifest, report, stdlibauthority, facts,
+#   surface, artifactio, checker, capslockadapter, stdlibmap, goanalysis,
+#   parsecsv, csvfile, toprow, app, cli.
+# `schema` is the one explicit expected-fail analysis because its generated
+# protobuf code retains documented UNANALYZED findings. The `protobuf-runtime`
+# and `x-tools` wrappers are asserted UNKNOWN package surfaces: they provide a
+# checked-in surface and intentionally produce no report or analysis.
+#
+# The Bazel wildcard has 15 checked component gates: the eleven internal
+# components capanalyzer, hostpolicy, symbol, stdlibauthority, facts, report,
+# checker, manifest, goanalysis, artifactio, and surface, plus the four CSV
+# components parsecsv, csvfile, toprow, and app. Schema's check is manual for
+# the same expected generated-protobuf failure; the two wrappers are manual
+# asserted surfaces; capslockadapter and cli have no Bazel component gate
+# because their closure contains cgo; and stdlibmap is covered by dedicated
+# map-generation tests rather than a go_component check.
 #
 # hostpolicy previously rode inside symbol's member set; it is now its own
 # dependency-only leaf component, declared by symbol and consumed through
@@ -62,20 +76,12 @@ selfcheck-staging-test:
 # arcc rule fails closed on cgo closures, and cli (cmd/arcc) imports
 # capslockadapter. Native mode handles cgo via go/packages preprocessing.
 #
-# schema has no standalone selfcheck gate: it is a generated-schema dependency
-# whose surface is consumed by manifest and artifactio.
-#
 # Keeping both legs is deliberate: native FR1 membership and Bazel declared
-# membership checking the same components cross-checks the whole membership model.
-# Step 7 gives the foreign protobuf and x/tools closures one package-surface
-# boundary each, so the real component manifests can be staged without
-# dependency overlap. The schema artifact remains an intentionally expected-
-# failing dependency check because generated protobuf code is outside this task's two
-# residual owners. The parsecsv and capslockadapter residuals are different:
-# their explicit manifest WARN policy keeps every AnalysisDefeating site visible
-# while their ordinary native checks now gate this recipe.
-# The adopted `protobuf-runtime` and `x-tools` wrappers are package-level UNKNOWN
-# assertions, so staging them performs no analysis and creates no reports.
+# membership checking the same components cross-check the whole membership
+# model. Step 7 gives the foreign protobuf and x/tools closures one package-
+# surface boundary each. The parsecsv and capslockadapter residuals keep every
+# AnalysisDefeating site visible through their explicit WARN policy, while
+# their native report verdicts still gate this recipe.
 selfcheck:
 	@echo "=== Validating pinned selfcheck toolchain ==="
 	@test "$(cd {{go_dir}} && go env GOVERSION)" = "go1.26.4"
@@ -93,59 +99,38 @@ selfcheck:
 	# convention lookup never reads a developer cache or an uncontrolled host path.
 	# The asserted protobuf and x-tools wrappers supply their checked-in surfaces
 	# and no reports; native staging never loads either foreign source tree.
-	# Staging verdicts are consumed in this temporary tree and discarded on exit;
-	# only the final real selfcheck commands below are gate assertions.
+	# Every analyzed staging report is decoded and asserted immediately with the
+	# expected verdict; all staged artifacts are discarded on exit.
 	@selfcheck_stage="$(mktemp -d "${TMPDIR:-/tmp}/arcc-selfcheck.XXXXXX")"; \
 	trap 'rm -rf "$selfcheck_stage"' EXIT; \
 	cp -a "$(pwd)/go" "$selfcheck_stage/go"; \
 	arcc_bin="$(pwd)/bin/arcc"; \
+	stage_helper="$(pwd)/scripts/selfcheck-staging.sh"; \
 	map_path="$selfcheck_stage/go/internal/teststdlibmap/testdata/linux_amd64.stdlib-map.json"; \
 	cd "$selfcheck_stage/go"; \
-	stage_component() { \
-		manifest="$1"; base="${manifest%.textproto}"; stage_manifest="$manifest"; \
-		"$arcc_bin" check "$stage_manifest" --stdlib-map="$map_path" \
-			--report-out="$base.report.json" --surface-out="$base.surface.json" \
-			--report-verdict-only >/dev/null; \
-	}; \
-	stage_asserted_component() { \
-		manifest="$1"; base="${manifest%.textproto}"; \
-		test -f "$base.surface.json" || { echo "missing native asserted surface: $base.surface.json" >&2; exit 1; }; \
-		test ! -e "$base.report.json" || { echo "asserted component unexpectedly has a report: $base.report.json" >&2; exit 1; }; \
-	}; \
-	stage_component internal/capanalyzer/component.textproto; \
-	stage_component internal/hostpolicy/component.textproto; \
-	stage_component internal/symbol/component.textproto; \
-	stage_asserted_component internal/protobufruntime/component.textproto; \
-	stage_asserted_component internal/xtools/component.textproto; \
-	stage_component internal/schema/component.textproto; \
-	schema_verdict="$(sed -n 's/.*\"verdict\": \"\([^\"]*\)\".*/\1/p' internal/schema/component.report.json | head -n 1)"; \
-	if [ "${schema_verdict}" != "fail" ]; then echo "schema staging verdict changed: got ${schema_verdict}, want the expected generated-protobuf UNANALYZED fail" >&2; exit 1; fi; \
+	source "$stage_helper"; \
+	selfcheck_stage_component "$arcc_bin" "$map_path" internal/capanalyzer/component.textproto; \
+	selfcheck_stage_component "$arcc_bin" "$map_path" internal/hostpolicy/component.textproto; \
+	selfcheck_stage_component "$arcc_bin" "$map_path" internal/symbol/component.textproto; \
+	selfcheck_asserted_component internal/protobufruntime/component.textproto; \
+	selfcheck_asserted_component internal/xtools/component.textproto; \
+	selfcheck_stage_component "$arcc_bin" "$map_path" internal/schema/component.textproto fail; \
 	echo "schema dependency artifact verdict: fail (expected generated-protobuf UNANALYZED; staged and discarded with the temporary stage)"; \
-	stage_component internal/manifest/component.textproto; \
-	stage_component internal/report/component.textproto; \
-	stage_component internal/stdlibauthority/component.textproto; \
-	stage_component internal/facts/component.textproto; \
-	stage_component internal/surface/component.textproto; \
-	stage_component internal/artifactio/component.textproto; \
-	stage_component internal/checker/component.textproto; \
-	stage_component internal/capslockadapter/component.textproto; \
-	stage_component internal/stdlibmap/component.textproto; \
-	stage_component internal/goanalysis/component.textproto; \
-	stage_component examples/csvtool/internal/parsecsv/component.textproto; \
-	stage_component examples/csvtool/csvfile/component.textproto; \
-	stage_component examples/csvtool/toprow/component.textproto; \
-	stage_component examples/csvtool/app/component.textproto; \
-	echo "=== Running self-hosting checks (Pillar 3 authority-free core) ==="; \
-	"$arcc_bin" check internal/checker/component.textproto --stdlib-map="$map_path"; \
-	"$arcc_bin" check internal/surface/component.textproto --stdlib-map="$map_path"; \
-	echo "=== Running self-hosting checks (remaining real manifests) ==="; \
-	"$arcc_bin" check internal/manifest/component.textproto --stdlib-map="$map_path" >/dev/null; \
-	"$arcc_bin" check internal/artifactio/component.textproto --stdlib-map="$map_path" >/dev/null; \
-	"$arcc_bin" check internal/goanalysis/component.textproto --stdlib-map="$map_path" >/dev/null; \
-	"$arcc_bin" check internal/capslockadapter/component.textproto --stdlib-map="$map_path" >/dev/null; \
-	"$arcc_bin" check examples/csvtool/internal/parsecsv/component.textproto --stdlib-map="$map_path" >/dev/null; \
-	"$arcc_bin" check cmd/arcc/component.textproto --stdlib-map="$map_path" >/dev/null; \
-	"$arcc_bin" check examples/csvtool/app/component.textproto --stdlib-map="$map_path" >/dev/null
+	selfcheck_stage_component "$arcc_bin" "$map_path" internal/manifest/component.textproto; \
+	selfcheck_stage_component "$arcc_bin" "$map_path" internal/report/component.textproto; \
+	selfcheck_stage_component "$arcc_bin" "$map_path" internal/stdlibauthority/component.textproto; \
+	selfcheck_stage_component "$arcc_bin" "$map_path" internal/facts/component.textproto; \
+	selfcheck_stage_component "$arcc_bin" "$map_path" internal/surface/component.textproto; \
+	selfcheck_stage_component "$arcc_bin" "$map_path" internal/artifactio/component.textproto; \
+	selfcheck_stage_component "$arcc_bin" "$map_path" internal/checker/component.textproto; \
+	selfcheck_stage_component "$arcc_bin" "$map_path" internal/capslockadapter/component.textproto; \
+	selfcheck_stage_component "$arcc_bin" "$map_path" internal/stdlibmap/component.textproto; \
+	selfcheck_stage_component "$arcc_bin" "$map_path" internal/goanalysis/component.textproto; \
+	selfcheck_stage_component "$arcc_bin" "$map_path" examples/csvtool/internal/parsecsv/component.textproto; \
+	selfcheck_stage_component "$arcc_bin" "$map_path" examples/csvtool/csvfile/component.textproto; \
+	selfcheck_stage_component "$arcc_bin" "$map_path" examples/csvtool/toprow/component.textproto; \
+	selfcheck_stage_component "$arcc_bin" "$map_path" examples/csvtool/app/component.textproto; \
+	selfcheck_stage_component "$arcc_bin" "$map_path" cmd/arcc/component.textproto
 
 bazel-test-full:
 	bazel test --define=stdlibmap_full=true //bazel_rules/go/tests:arcc_deps_aspect_full_tests
