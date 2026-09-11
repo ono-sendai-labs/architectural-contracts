@@ -40,16 +40,14 @@ go_library(
 
 # Mirrors the checked-in goanalysis/component.textproto: depends on the pure
 # facts/manifest/symbol contracts plus the artifactio, schema,
-# stdlibauthority, surface, x-tools, report, and hostpolicy component
-# boundaries; retains local member ownership of goanalysis and packagelayout;
-# declares 9 authorities. The foreign x/tools implementation is one adopted
-# package-surface boundary rather than member source, so this component's own
-# analysis does not charge x/tools internals to it.
+# stdlibauthority, surface, x-tools, report, hostpolicy, and packagelayout
+# component boundaries; retains local member ownership only of goanalysis;
+# declares 9 authorities. The foreign x/tools implementation and the in-tree
+# package-layout loader are explicit package-surface boundaries rather than
+# duplicated member source, so this component's own analysis does not charge
+# either dependency's internals to it.
 go_component(
     name = "goanalysis_component",
-    members = [
-        "//go/internal/packagelayout",
-    ],
     component_deps = [
         "//go/internal/artifactio:artifactio_component",
         "//go/internal/facts:facts_component",
@@ -61,6 +59,7 @@ go_component(
         "//go/internal/xtools:x-tools",
         "//go/internal/report:report_component",
         "//go/internal/hostpolicy:hostpolicy_component",
+        "//go/internal/packagelayout:packagelayout_component",
     ],
     declared_authority = [
         ARBITRARY_EXECUTION,

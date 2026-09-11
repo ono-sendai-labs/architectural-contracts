@@ -11,8 +11,8 @@ import (
 // components agree with their checked-in component.textproto counterparts.
 //
 // The test covers the components that have go_component targets: capanalyzer,
-// report, facts, manifest, checker, goanalysis, artifactio, schema, and the
-// asserted protobuf-runtime boundary.
+// report, facts, manifest, checker, goanalysis, packagelayout, artifactio,
+// schema, and the asserted protobuf-runtime boundary.
 //
 // capslockadapter and cli are excluded by design: capslockadapter owns capslock,
 // whose closure contains golang.org/x/sys/unix built with cgo, and the go_component

@@ -48,20 +48,20 @@ selfcheck-staging-test:
 	bash scripts/selfcheck-staging-test.sh
 
 # Self-check coverage:
-# Native `just selfcheck` stages 19 analyzed production components in dependency
-# order. Eighteen must pass:
+# Native `just selfcheck` stages 20 analyzed production components in dependency
+# order. Nineteen must pass:
 #   capanalyzer, hostpolicy, symbol, manifest, report, stdlibauthority, facts,
-#   surface, artifactio, checker, capslockadapter, stdlibmap, goanalysis,
-#   parsecsv, csvfile, toprow, app, cli.
+#   surface, artifactio, checker, capslockadapter, packagelayout, stdlibmap,
+#   goanalysis, parsecsv, csvfile, toprow, app, cli.
 # `schema` is the one explicit expected-fail analysis because its generated
 # protobuf code retains documented UNANALYZED findings. The `protobuf-runtime`
 # and `x-tools` wrappers are asserted UNKNOWN package surfaces: they provide a
 # checked-in surface and intentionally produce no report or analysis.
 #
-# The Bazel wildcard has 15 checked component gates: the eleven internal
+# The Bazel wildcard has 16 checked component gates: the twelve internal
 # components capanalyzer, hostpolicy, symbol, stdlibauthority, facts, report,
-# checker, manifest, goanalysis, artifactio, and surface, plus the four CSV
-# components parsecsv, csvfile, toprow, and app. Schema's check is manual for
+# checker, manifest, goanalysis, artifactio, surface, and packagelayout, plus
+# the four CSV components parsecsv, csvfile, toprow, and app. Schema's check is manual for
 # the same expected generated-protobuf failure; the two wrappers are manual
 # asserted surfaces; capslockadapter and cli have no Bazel component gate
 # because their closure contains cgo; and stdlibmap is covered by dedicated
@@ -114,6 +114,7 @@ selfcheck:
 	selfcheck_stage_component "$arcc_bin" "$map_path" internal/symbol/component.textproto; \
 	selfcheck_asserted_component internal/protobufruntime/component.textproto; \
 	selfcheck_asserted_component internal/xtools/component.textproto; \
+	selfcheck_stage_component "$arcc_bin" "$map_path" internal/packagelayout/component.textproto; \
 	selfcheck_stage_component "$arcc_bin" "$map_path" internal/schema/component.textproto fail; \
 	echo "schema dependency artifact verdict: fail (expected generated-protobuf UNANALYZED; staged and discarded with the temporary stage)"; \
 	selfcheck_stage_component "$arcc_bin" "$map_path" internal/manifest/component.textproto; \

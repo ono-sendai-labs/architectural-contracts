@@ -2,6 +2,9 @@
 // for arcc's hermetic package-layout loader.
 //
 // Component Contract (FR10):
+//   - This package is the singular checked package-surface owner of layout and
+//     driver behavior; goanalysis and stdlibmap consume it through this
+//     boundary rather than duplicating package membership.
 //   - What it does: Defines the layout schema (whole package graph, target
 //     platform block with goos/goarch/build_tags/cgo_enabled and the pinned
 //     toolchain_version/goexperiment), validates and resolves it (build

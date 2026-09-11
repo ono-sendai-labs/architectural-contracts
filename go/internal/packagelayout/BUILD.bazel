@@ -1,3 +1,4 @@
+load("@rules_arcc//bazel_rules/go:defs.bzl", "go_component")
 load("@rules_go//go:def.bzl", "go_library", "go_test")
 
 go_library(
@@ -23,3 +24,26 @@ go_test(
         "@org_golang_x_tools//go/packages",
     ],
 )
+
+# Mirrors the checked-in packagelayout/component.textproto. The layout/driver
+# package is one checked package-surface boundary shared by goanalysis and
+# stdlibmap; x-tools remains the sole foreign closure boundary beneath it.
+go_component(
+    name = "packagelayout_component",
+    interface_style = "PACKAGE_SURFACE",
+    component_deps = ["//go/internal/xtools:x-tools"],
+    declared_authority = [
+        "FILES",
+        "EXEC",
+        "READ_SYSTEM_STATE",
+        "OPERATING_SYSTEM",
+        "MODIFY_SYSTEM_STATE",
+        "REFLECT",
+        "RUNTIME",
+        "UNSAFE_POINTER",
+    ],
+    members = ["//go/internal/packagelayout"],
+    visibility = ["//go:__subpackages__"],
+)
+
+exports_files(["component.textproto"])

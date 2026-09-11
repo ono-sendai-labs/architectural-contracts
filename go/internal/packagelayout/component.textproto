@@ -1,0 +1,18 @@
+name: "packagelayout"
+# The package-layout loader is a checked package-surface component. It is the
+# singular owner of the in-tree layout/driver package; goanalysis and stdlibmap
+# consume this boundary instead of claiming the package as a member.
+interface_style: INTERFACE_STYLE_PACKAGE_SURFACE
+members: "github.com/ono-sendai-labs/architectural-contracts/go/internal/packagelayout"
+component_dependencies {
+  name: "x-tools"
+  manifest: "../xtools/component.textproto"
+}
+declared_authority: "FILES"
+declared_authority: "EXEC"
+declared_authority: "READ_SYSTEM_STATE"
+declared_authority: "OPERATING_SYSTEM"
+declared_authority: "MODIFY_SYSTEM_STATE"
+declared_authority: "REFLECT"
+declared_authority: "RUNTIME"
+declared_authority: "UNSAFE_POINTER"

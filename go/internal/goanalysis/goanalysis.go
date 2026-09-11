@@ -2,7 +2,7 @@
 //
 // Component Contract (FR10):
 // - What it does: Analyzes Go syntax trees and types to load package structures, validate interface file correctness, scan the typed reference/import vocabulary of member sources, and detect analysis-defeating constructs. There is no SSA, no VTA call graph and no check-time Capslock: every stdlib decision is the StdlibAuthority port's.
-// - What it requires: Directory paths on the local filesystem for the component being checked, package manifests, and bounded surface/report bytes plus explicit build-graph or native read seams. Dependency surfaces are consumed as artifacts; only the main member/closure loader retains NeedDeps until Step 8.
+// - What it requires: Directory paths on the local filesystem for the component being checked, package manifests, and bounded surface/report bytes plus explicit build-graph or native read seams. Dependency surfaces and the shared packagelayout loader are consumed through explicit component boundaries; only the main member/closure loader retains NeedDeps until Step 8.
 // - What it provides: Structural package facts (typed reference and import edges, bypass observations), exact persisted dependency-interface facts, and independent dependency provenance/freshness/authority axes for checking component boundaries.
 // - Ambient Authority: This component is a shell component and requires FILES, EXEC, READ_SYSTEM_STATE, OPERATING_SYSTEM, REFLECT, RUNTIME, and UNSAFE_POINTER.
 package goanalysis

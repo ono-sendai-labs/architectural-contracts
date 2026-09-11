@@ -5,7 +5,8 @@
 // fingerprint, total-map Capslock classification and emission, the
 // native SDK-keyed on-demand cache (design DR-05, DR-09, I3), and the
 // explicit-input mode's layout-backed loading through the packagelayout
-// driver (design I5).
+// driver (design I5). packagelayout is consumed through its singular checked
+// package-surface boundary; stdlibmap does not claim that loader as a member.
 //
 // Component Contract (FR10):
 //   - What it does: Discovers the SDK's standard-library package list behind an

@@ -4,7 +4,6 @@ interface_files: "goanalysis.go"
 interface_files: "surface_resolver.go"
 interface_files: "surfaceinputs.go"
 members: "github.com/ono-sendai-labs/architectural-contracts/go/internal/goanalysis"
-members: "github.com/ono-sendai-labs/architectural-contracts/go/internal/packagelayout"
 component_dependencies {
   name: "artifactio"
   manifest: "../artifactio/component.textproto"
@@ -44,6 +43,10 @@ component_dependencies {
 component_dependencies {
   name: "hostpolicy"
   manifest: "../hostpolicy/component.textproto"
+}
+component_dependencies {
+  name: "packagelayout"
+  manifest: "../packagelayout/component.textproto"
 }
 declared_authority: "FILES"
 declared_authority: "EXEC"

@@ -48,6 +48,10 @@ component_dependencies {
   name: "hostpolicy"
   manifest: "../hostpolicy/component.textproto"
 }
+component_dependencies {
+  name: "packagelayout"
+  manifest: "../packagelayout/component.textproto"
+}
 declared_authority: "FILES"
 declared_authority: "EXEC"
 declared_authority: "READ_SYSTEM_STATE"

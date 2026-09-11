@@ -1,6 +1,11 @@
 name: "cli"
-interface_files: "main.go"
-interface_files: "app/app.go"
+# The native-only CLI spans the main package and its app orchestration package.
+# Surface emission is package-scoped, so expose both concrete packages through
+# one package-surface boundary instead of declaring interface files from two
+# different type-checking units.
+interface_style: INTERFACE_STYLE_PACKAGE_SURFACE
+members: "github.com/ono-sendai-labs/architectural-contracts/go/cmd/arcc"
+members: "github.com/ono-sendai-labs/architectural-contracts/go/cmd/arcc/app"
 component_dependencies {
   name: "capanalyzer"
   manifest: "../../internal/capanalyzer/component.textproto"

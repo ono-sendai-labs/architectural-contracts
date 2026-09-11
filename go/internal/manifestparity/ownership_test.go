@@ -395,6 +395,99 @@ func TestProtobufRuntimeNativeSurfaceIsAsserted(t *testing.T) {
 	}
 }
 
+// TestPackageLayoutHasOneBoundaryAndAcyclicConsumers pins the Step 7
+// packagelayout migration: its implementation is owned by one package-surface
+// component, while both shell consumers reach it through that explicit edge.
+// The complete checked-in component graph is walked as a regression against
+// accidentally introducing a cycle through the new shared boundary.
+func TestPackageLayoutHasOneBoundaryAndAcyclicConsumers(t *testing.T) {
+	manifests := checkedInComponentManifests(t)
+	const packageLayout = modulePrefix + "internal/packagelayout"
+
+	owners := []string{}
+	for name, component := range manifests {
+		for _, member := range component.Members {
+			if member == packageLayout {
+				owners = append(owners, name)
+			}
+		}
+	}
+	slices.Sort(owners)
+	if !slices.Equal(owners, []string{"packagelayout"}) {
+		t.Fatalf("packagelayout owners = %v, want exactly [packagelayout]", owners)
+	}
+
+	layout, ok := manifests["packagelayout"]
+	if !ok {
+		t.Fatal("checked-in manifest for component packagelayout not found")
+	}
+	if layout.InterfaceStyle != manifest.InterfaceStylePackageSurface {
+		t.Fatalf("packagelayout interface style = %v, want PACKAGE_SURFACE", layout.InterfaceStyle)
+	}
+	if len(layout.InterfaceFiles) != 0 || !slices.Equal(layout.Members, []string{packageLayout}) {
+		t.Fatalf("packagelayout boundary shape = interface_files %v, members %v", layout.InterfaceFiles, layout.Members)
+	}
+	if !hasDependency(layout, "x-tools", "../xtools/component.textproto") {
+		t.Fatal("packagelayout must consume the shared x-tools boundary")
+	}
+
+	for _, consumer := range []string{"goanalysis", "stdlibmap"} {
+		component, ok := manifests[consumer]
+		if !ok {
+			t.Fatalf("checked-in manifest for component %q not found", consumer)
+		}
+		if hasMember(component, packageLayout) {
+			t.Fatalf("component %q duplicates packagelayout ownership", consumer)
+		}
+		if !hasDependency(component, "packagelayout", "../packagelayout/component.textproto") {
+			t.Errorf("component %q does not declare the packagelayout boundary", consumer)
+		}
+		imports := projectImports(t, filepath.Join("..", "..", "internal", consumer))
+		if !imports[packageLayout] {
+			t.Errorf("component %q production code no longer exposes its packagelayout import for boundary coverage", consumer)
+		}
+	}
+
+	state := map[string]uint8{}
+	var visit func(string)
+	visit = func(name string) {
+		switch state[name] {
+		case 2:
+			return
+		case 1:
+			t.Fatalf("component dependency graph contains a cycle at %q", name)
+		}
+		state[name] = 1
+		component, ok := manifests[name]
+		if !ok {
+			t.Fatalf("component dependency names unknown component %q", name)
+		}
+		for _, dep := range component.ComponentDependencies {
+			if _, ok := manifests[dep.Name]; !ok {
+				t.Fatalf("component %q depends on unknown component %q", name, dep.Name)
+			}
+			visit(dep.Name)
+		}
+		state[name] = 2
+	}
+	for name := range manifests {
+		visit(name)
+	}
+}
+
+func hasMember(component manifest.Manifest, member string) bool {
+	return slices.Contains(component.Members, member)
+}
+
+func hasDependency(component manifest.Manifest, name, manifestPath string) bool {
+	for _, dep := range component.ComponentDependencies {
+		if dep.Name == name && dep.Manifest == manifestPath {
+			return true
+		}
+	}
+	return false
+}
+
 func hasDuplicate(values []string) bool {
 	for i := 1; i < len(values); i++ {
 		if values[i] == values[i-1] {
