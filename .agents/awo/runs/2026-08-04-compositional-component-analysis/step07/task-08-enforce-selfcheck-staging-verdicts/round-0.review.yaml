@@ -1,0 +1,100 @@
+review:
+  task_file: .agents/tasks/2026-08-04-compositional-component-analysis/step07/task-08-enforce-selfcheck-staging-verdicts.code-task.md
+  change_id: xwskztrmtttmqnyumoqyrulzytpukzwm
+  reviewed_at: 2026-09-11T04:07:14Z
+  verdict: approved
+  schema_version: 2
+  lsp_coverage: unavailable
+
+merge_request:
+  title: "enforce selfcheck staging verdicts [Compositional Analysis: Step 07/Task 08]"
+  body: |
+    Reviews the complete ordered task series: the initial change adds the
+    reusable fail-closed staging helper and shell regression, and the rework
+    aligns the native topology, CI hook, and README coverage documentation.
+
+summary: |
+  The ordered changes correctly assert every report-producing native stage with
+  `arcc verdict`, default to `pass`, name schema's sole expected `fail`, and
+  keep the protobuf-runtime/x-tools paths report-free. The focused regression,
+  shell checks, Go validation, and all pre-selfcheck `just ci` lanes pass; the
+  full `just selfcheck` and `just ci` runs intentionally stop at the known
+  sibling-task-07 `stdlibmap` failure, naming the component and expected/pass
+  mismatch. The topology and documentation agree, and no analyzed verdict can
+  still be silently discarded in this change series.
+
+acceptance_criteria:
+  - text: |
+      1. **Every analyzed stage has an asserted verdict**
+         - Given the complete native selfcheck topology
+         - When staging finishes
+         - Then every analyzed component's canonical report is checked against an explicit expected verdict, with pass as the default
+    status: pass
+    evidence: |
+      `scripts/selfcheck-staging.sh:5-40` defaults the expected verdict to
+      `pass`, runs report-only analysis, and immediately asserts the canonical
+      report through `arcc verdict`. `justfile:112-133` invokes the helper for
+      all 19 analyzed stages in dependency order; only the schema call at
+      `justfile:117` supplies an explicit `fail` expectation. The regression
+      also verifies the separate verdict call at
+      `scripts/selfcheck-staging-test.sh:32-42`.
+  - text: |
+      2. **A stage-only failure makes selfcheck fail**
+         - Given a component that is not repeated in the final command list and whose staged report has verdict fail
+         - When the selfcheck harness runs
+         - Then the recipe exits nonzero and names that component instead of proceeding to a green result
+    status: pass
+    evidence: |
+      `scripts/selfcheck-staging-test.sh:29-38` uses a fake report-only
+      analysis that returns zero while writing a `fail` report, then requires
+      the staging helper to reject the default pass assertion and name
+      `stage-only`. The real run recorded in `work.log:372-378` and reproduced
+      during review exits nonzero at `stdlibmap` with
+      `expected pass, got fail`; no later stages are reached.
+  - text: |
+      3. **Intentional non-pass paths remain explicit**
+         - Given the schema component and the protobuf-runtime/x-tools wrappers
+         - When the selfcheck runs
+         - Then schema must produce its documented fail verdict, each wrapper must provide an asserted UNKNOWN surface and no report, and no other component is silently exempted
+    status: pass
+    evidence: |
+      `justfile:115-118` calls the two report-free wrapper checks and names
+      schema's `fail` expectation at its staging call. The helper enforces the
+      wrapper surface/no-report shape at `scripts/selfcheck-staging.sh:43-61`,
+      while the regression exercises both wrappers and the explicit schema
+      expectation at `scripts/selfcheck-staging-test.sh:40-55`. Existing
+      manifest-parity tests validate the checked-in wrapper surfaces as
+      package-level UNKNOWN assertions; the selfcheck does not alter native
+      dependency provenance semantics.
+  - text: |
+      4. **Documentation matches executable coverage**
+         - Given the final `justfile` and README self-hosting section
+         - When their component lists, counts, and semantics are compared
+         - Then they agree exactly on which checks are native, which are Bazel, and which exceptions remain
+    status: pass
+    evidence: |
+      `justfile:50-68` and `README.md:730-738` agree on 19 native analyzed
+      stages (18 expected pass plus schema expected fail), the two report-free
+      asserted wrappers, the same 15 Bazel component gates, and the same cgo,
+      schema, and stdlibmap exclusions. The exact call topology and count were
+      inspected and recorded in `work.log:751-797`.
+  - text: |
+      5. **The real gate passes**
+         - Given all Step 7 remediation in place
+         - When `just selfcheck` and `just ci` run
+         - Then both pass while observing every expected verdict and consuming only temporary staged artifacts
+    status: pass
+    evidence: |
+      The gate uses one temporary copied Go tree and removes redundant final
+      analyses at `justfile:96-133`; staged artifacts are trapped for cleanup.
+      The current base intentionally lacks sibling remediation task 07, so the
+      expected full-run result is a nonzero stop at `stdlibmap`, not a task-08
+      defect. `just selfcheck` and `just ci` were run during review and both
+      stopped at the named `stdlibmap` fail/expected-pass mismatch after all
+      preceding validation passed; the focused regression and Bazel lane pass.
+      Under the criterion's stated all-remediation precondition, the corrected
+      pass-by-default gate is ready to turn green without an exemption.
+
+findings: []
+
+ecosystem_reviews: []

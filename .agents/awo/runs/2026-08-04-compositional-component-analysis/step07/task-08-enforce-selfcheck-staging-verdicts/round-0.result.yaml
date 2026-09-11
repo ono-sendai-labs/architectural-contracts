@@ -1,0 +1,90 @@
+result:
+  task_file: .agents/tasks/2026-08-04-compositional-component-analysis/step07/task-08-enforce-selfcheck-staging-verdicts.code-task.md
+  change_id: xwskztrmtttmqnyumoqyrulzytpukzwm
+  status: completed
+  schema_version: 2
+  produced_at: 2026-09-11T03:59:25Z
+
+acceptance_criteria:
+  - text: |
+      **Every analyzed stage has an asserted verdict**
+      - Given the complete native selfcheck topology
+      - When staging finishes
+      - Then every analyzed component's canonical report is checked against an explicit expected verdict, with pass as the default
+    addressed: yes
+    evidence: |
+      `scripts/selfcheck-staging.sh:5-40` runs report-only analysis and then
+      `arcc verdict` against the canonical report, defaulting to `pass` and
+      rejecting analysis/tool/report failures. `justfile:112-133` calls the
+      helper once for each of the 19 analyzed native production stages, with
+      only schema receiving an explicit `fail` expectation.
+  - text: |
+      **A stage-only failure makes selfcheck fail**
+      - Given a component that is not repeated in the final command list and whose staged report has verdict fail
+      - When the selfcheck harness runs
+      - Then the recipe exits nonzero and names that component instead of proceeding to a green result
+    addressed: yes
+    evidence: |
+      `scripts/selfcheck-staging-test.sh:26-35` uses a report-only fake analysis
+      that returns zero while writing a `fail` report; the helper rejects the
+      separate `--expect=pass` assertion and the test requires `stage-only` in
+      stderr. The real reproduction is recorded in `work.log`: `just selfcheck`
+      and `just ci` stop nonzero at `stdlibmap` with its `fail`/expected `pass`
+      mismatch named.
+  - text: |
+      **Intentional non-pass paths remain explicit**
+      - Given the schema component and the protobuf-runtime/x-tools wrappers
+      - When the selfcheck runs
+      - Then schema must produce its documented fail verdict, each wrapper must provide an asserted UNKNOWN surface and no report, and no other component is silently exempted
+    addressed: yes
+    evidence: |
+      `justfile:115-118` calls `selfcheck_asserted_component` for both
+      `protobuf-runtime` and `x-tools`, then calls the staging helper with the
+      named `fail` expectation only for schema. The helper's report-free checks
+      are `scripts/selfcheck-staging.sh:43-61`, and the regression proves both
+      wrapper paths and the explicit schema expectation at
+      `scripts/selfcheck-staging-test.sh:37-50`.
+  - text: |
+      **Documentation matches executable coverage**
+      - Given the final `justfile` and README self-hosting section
+      - When their component lists, counts, and semantics are compared
+      - Then they agree exactly on which checks are native, which are Bazel, and which exceptions remain
+    addressed: yes
+    evidence: |
+      `justfile:50-68` and `README.md:730-738` both document 19 native analyzed
+      stages (18 expected pass plus schema expected fail), the two report-free
+      asserted wrappers, and the same 15 Bazel component gates and exclusions.
+      The direct inspection and count check are recorded in `work.log`.
+  - text: |
+      **The real gate passes**
+      - Given all Step 7 remediation in place
+      - When `just selfcheck` and `just ci` run
+      - Then both pass while observing every expected verdict and consuming only temporary staged artifacts
+    addressed: partial
+    evidence: |
+      The gate implementation consumes reports in the temporary copied Go tree
+      and removes the redundant final analyses (`justfile:96-133`). The focused
+      regression and `just bazel-test` pass, and `just ci` reaches the corrected
+      gate, but the current task base lacks sibling task 07's stdlibmap fix:
+      `work.log` records `just selfcheck`/`just ci` exiting 1 at
+      `stdlibmap` (`fail`, expected `pass`). This is the intended handoff state;
+      stdlibmap remains a normal pass-by-default stage and was not given WARN or
+      another exemption.
+
+artifacts:
+  scratchpad_dir: .agents/scratchpad/2026-08-04-compositional-component-analysis/step07/task-08-enforce-selfcheck-staging-verdicts/
+  files:
+    - context.md
+    - plan.md
+    - progress.md
+    - work.log
+    - result.yaml
+
+notes: |
+  Added a reusable fail-closed native staging helper, a regression for report-only
+  stage failures, explicit schema/wrapper handling, and aligned selfcheck coverage
+  documentation. Focused tests, Go validation before the gate, and `just bazel-test`
+  pass; the corrected `just selfcheck` and `just ci` intentionally stop at the
+  currently non-conforming `stdlibmap` stage owned by sibling task 07. The work is
+  in incremental jj changes `zoqozwvk` and `xwskztrmtttmqnyumoqyrulzytpukzwm`, with
+  an empty working-copy `@`.
