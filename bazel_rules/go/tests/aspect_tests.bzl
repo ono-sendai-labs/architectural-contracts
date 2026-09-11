@@ -138,13 +138,17 @@ def _closure_is_the_whole_graph_minus_stdlib_impl(env, target):
     # Five packages, not six: the embedded library folds into its embedder.
     # "strings", imported by //lowlevel, is absent — arcc handles stdlib
     # authority itself, so the closure never carries it.
-    env.expect.that_collection(_merged(target).keys()).contains_exactly([
+    merged = _merged(target)
+    env.expect.that_collection(merged.keys()).contains_exactly([
         "example.com/aspect/api",
         "example.com/aspect/core",
         "example.com/aspect/extradep",
         "example.com/aspect/lowlevel",
         "example.com/aspect/shared",
     ])
+    env.expect.that_collection(_basenames(merged["example.com/aspect/api"])).contains_exactly(
+        ["api.go"],
+    )
 
 def _export_files_are_collected_test(name):
     analysis_test(
@@ -225,9 +229,9 @@ def _embed_only_dependency_is_reached_impl(env, target):
     # propagating over `embed`, its sources would be missing from the layout
     # and the check would fail to type-check //core.
     packages = target[ArccPackageInfo].packages.to_list()
-    env.expect.that_collection(
-        [pkg.importpath for pkg in packages],
-    ).contains("example.com/aspect/extradep")
+    extradep = [pkg for pkg in packages if pkg.importpath == "example.com/aspect/extradep"]
+    env.expect.that_int(len(extradep)).equals(1)
+    env.expect.that_collection(_basenames(extradep[0])).contains_exactly(["extradep.go"])
 
 def _embedded_export_conflict_fails_test(name):
     probe = name + "_probe"
