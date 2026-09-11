@@ -186,14 +186,14 @@ def _hostile_verdict_golden_stays_data_test(name):
 def _hostile_verdict_golden_stays_data_impl(env, target):
     content = _launcher(env, target)
     env.expect.that_str(content).contains("--expect-file=")
-    env.expect.that_str(content).contains("hostile.verdict.golden")
+    env.expect.that_str(content).contains("hostile_verdict_input.txt")
     _assert_absent(env, content, "$(touch SHOULD_NOT_RUN)")
     _assert_absent(env, content, "diff -u")
     env.expect.that_collection(_runfile_basenames(target)).contains_exactly([
         "api_component.report.json",
         "hostile_verdict_golden_launcher_probe_test.sh",
         "arcc",
-        "hostile.verdict.golden",
+        "hostile_verdict_input.txt",
     ])
 
 def _verdict_golden_rejects_asserted_provider_test(name):

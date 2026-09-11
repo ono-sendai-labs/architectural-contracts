@@ -202,7 +202,7 @@ arcc_check_verdict_golden_test(
     name = "hostile_verdict_golden_launcher_probe_test",
     size = "small",
     component = "//bazel_rules/go/tests/testdata/api:api_component",
-    golden = "goldens/hostile.verdict.golden",
+    golden = "hostile_verdict_input.txt",
     tags = ["manual"],
 )
 
