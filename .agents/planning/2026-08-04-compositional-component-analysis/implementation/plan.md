@@ -50,7 +50,7 @@ None of them is tagged, released, or imported; the series is consumed at its end
 - [x] **Step 8** — Export-data type loading and member-only inputs
 - [x] **Step 9** — Golden restructure: verdicts vs layout shape
 - [x] **Step 10** — `UnusedAuthority`
-- [ ] **Step 11** — `authority: UNKNOWN`
+- [x] **Step 11** — `authority: UNKNOWN`
 - [ ] **Step 12** — Host adapter hooks
 - [ ] **Step 13** — Cross-cutting acceptance: scaling, hermeticity, determinism
 
