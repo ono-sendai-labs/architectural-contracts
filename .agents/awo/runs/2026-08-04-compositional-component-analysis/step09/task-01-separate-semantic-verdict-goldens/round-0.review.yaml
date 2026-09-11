@@ -1,0 +1,117 @@
+review:
+  task_file: .agents/tasks/2026-08-04-compositional-component-analysis/step09/task-01-separate-semantic-verdict-goldens.code-task.md
+  change_id: xqoykkvppnuvtzvrlskuznuvqwklsswx
+  reviewed_at: 2026-09-11T16:49:10Z
+  verdict: approved
+  schema_version: 2
+  lsp_coverage: unavailable
+
+merge_request:
+  title: "test(goldens): separate semantic verdict assertions [Compositional Analysis: Step 09/Task 01]"
+  body: |
+    Reviews the complete ordered task series. The initial change added the
+    persisted-report verdict-golden CLI and Bazel rule, migrated semantic
+    goldens, and added pass/fail, asserted-provider, shell-safety, topology,
+    and prefix-rewrite coverage. The follow-up moved the hostile invalid input
+    out of the canonical golden inventory, and the final change clarified the
+    distinction between semantic verdict and persisted-report shape goldens.
+
+summary: |
+  The complete ordered change series satisfies all seven acceptance criteria:
+  verdict goldens consume the canonical provider report, remain host-independent,
+  and preserve the existing producer and fail-closed analysis topology. Focused
+  Go/Bazel tests and a fresh `just ci` run pass, with no test weakening or security
+  issues found. LSP diagnostics were unavailable in the review harness.
+
+acceptance_criteria:
+  - text: |
+      **Passing and failing verdicts are pinned**
+        - Given one conforming checked component and one violating checked component
+        - When their verdict-golden tests run
+        - Then they compare equal to stable `pass` and `fail` expectations derived from the producer reports.
+    status: pass
+    evidence: |
+      `bazel_rules/go/tests/BUILD.bazel:447-466` declares pass, fail, and
+      report-boundary verdict-golden targets with one-line pass/fail inputs.
+      `bazel_rules/go/tests/report_assertion_tests.bzl:152-174` verifies the
+      failing target's report, golden, and `--expect-file` topology, while
+      `go/cmd/arcc/app/verdict_test.go:132-162` covers both matching values and
+      mismatches. The focused targets and `just ci` passed.
+  - text: |
+      **Verdict goldens are host-independent**
+        - Given all files designated as verdict goldens
+        - When their contents are inspected
+        - Then none contains an absolute path, package closure, SDK/build metadata, diagnostic metrics, source location, or host-specific import prefix.
+    status: pass
+    evidence: |
+      `bazel_rules/go/tests/goldens/api_component.verdict.golden:1`,
+      `bazel_rules/go/tests/goldens/reportboundary_consumer.verdict.golden:1`,
+      and `bazel_rules/go/tests/goldens/undeclared_dep_component.verdict.golden:1`
+      contain only `pass` or `fail` plus one newline. The hostile invalid input is
+      intentionally outside that canonical `*.verdict.golden` inventory at
+      `bazel_rules/go/tests/hostile_verdict_input.txt:1`.
+  - text: |
+      **Prefix rewrites do not churn verdicts**
+        - Given an idempotent simulated host rewrite of an import-path prefix
+        - When the same semantic component verdict is asserted under the rewritten namespace
+        - Then the generated verdict representation is byte-identical and the same golden passes.
+    status: pass
+    evidence: |
+      `go/cmd/arcc/app/verdict_test.go:222-290` applies an idempotent import-prefix
+      rewrite to equivalent report inputs, compares the canonical verdict bytes,
+      and asserts both reports successfully against the same verdict golden. The
+      focused regression test passed.
+  - text: |
+      **The producer remains authoritative**
+        - Given a verdict-golden target
+        - When its analysis action and runfiles are inspected
+        - Then it consumes only the checked component's existing report plus assertion tooling/golden data and never invokes a second `arcc check`.
+    status: pass
+    evidence: |
+      `bazel_rules/go/private/check.bzl:529-554` constructs the target from
+      `ArccComponentInfo.report` and stages only the report, golden, launcher,
+      and arcc runfiles. `bazel_rules/go/private/command.bzl:78-86` builds
+      `arcc verdict --expect-file` rather than a check command, and
+      `bazel_rules/go/tests/report_assertion_tests.bzl:135-150` asserts the exact
+      minimal runfile set and absence of full-report diff/check inputs.
+  - text: |
+      **Asserted components fail closed**
+        - Given a component whose provider carries an asserted surface and no report
+        - When a verdict-golden target is declared for it
+        - Then Bazel analysis fails with a diagnostic naming the assertion target and component and explaining that there is no checked verdict.
+    status: pass
+    evidence: |
+      `bazel_rules/go/private/check.bzl:80-95` applies the shared
+      `_require_checked_component` guard, which names the rule, target, and
+      component and explains the missing checked verdict. The analysis test at
+      `bazel_rules/go/tests/report_assertion_tests.bzl:199-216` checks the failure
+      text, and the focused Bazel test passed.
+  - text: |
+      **Mismatches are actionable and shell-safe**
+        - Given a golden with the wrong verdict or hostile text supplied as golden data
+        - When the assertion runs
+        - Then it fails without executing the data and reports the expected and actual verdicts.
+    status: pass
+    evidence: |
+      `go/cmd/arcc/app/verdict_test.go:132-220` covers matching pass/fail files,
+      a mismatch containing `expected fail, got pass`, hostile command
+      substitution data, and non-canonical input. `go/internal/artifactio/report.go:378-416`
+      bounds and validates the golden representation, while
+      `bazel_rules/go/tests/report_assertion_tests.bzl:176-197` verifies hostile
+      contents are not embedded in generated shell source. These tests passed.
+  - text: |
+      **Repository checks pass**
+        - Given the completed migration
+        - When `just ci` runs
+        - Then all Go, Bazel, self-check, manifest-parity, and generated-file checks pass.
+    status: pass
+    evidence: |
+      A fresh `just ci` completed successfully during review. Its output covers
+      generated-file cleanliness, Go build/unit/integration tests, stdlib-map pin
+      validation, self-check staging, Bazel build/tests, manifest parity, and
+      shell validation; the corresponding run is also recorded in
+      `work.log:237-492`.
+
+findings: []
+
+ecosystem_reviews: []

@@ -1,0 +1,108 @@
+result:
+  task_file: .agents/tasks/2026-08-04-compositional-component-analysis/step09/task-01-separate-semantic-verdict-goldens.code-task.md
+  change_id: xqoykkvppnuvtzvrlskuznuvqwklsswx
+  status: completed
+  schema_version: 2
+  produced_at: 2026-09-11T16:42:49Z
+
+acceptance_criteria:
+  - text: |
+      **Passing and failing verdicts are pinned**
+        - Given one conforming checked component and one violating checked component
+        - When their verdict-golden tests run
+        - Then they compare equal to stable `pass` and `fail` expectations derived from the producer reports.
+    addressed: yes
+    evidence: |
+      `bazel_rules/go/tests/BUILD.bazel:447-466` declares pass, fail, and report-boundary
+      verdict-golden targets using `api_component.verdict.golden`,
+      `undeclared_dep_component.verdict.golden`, and the report-boundary pass golden.
+      The focused targets passed as recorded in work.log; `check.bzl:501-575` consumes
+      the provider report through the shared verdict command.
+  - text: |
+      **Verdict goldens are host-independent**
+        - Given all files designated as verdict goldens
+        - When their contents are inspected
+        - Then none contains an absolute path, package closure, SDK/build metadata, diagnostic metrics, source location, or host-specific import prefix.
+    addressed: yes
+    evidence: |
+      `bazel_rules/go/tests/goldens/api_component.verdict.golden:1`,
+      `reportboundary_consumer.verdict.golden:1`, and
+      `undeclared_dep_component.verdict.golden:1` contain only `pass` or `fail`
+      followed by one newline; the canonical-content inspection is recorded in work.log.
+      The hostile invalid input is intentionally outside the canonical `goldens/*.verdict.golden`
+      inventory at `bazel_rules/go/tests/hostile_verdict_input.txt:1`.
+  - text: |
+      **Prefix rewrites do not churn verdicts**
+        - Given an idempotent simulated host rewrite of an import-path prefix
+        - When the same semantic component verdict is asserted under the rewritten namespace
+        - Then the generated verdict representation is byte-identical and the same golden passes.
+    addressed: yes
+    evidence: |
+      `go/cmd/arcc/app/verdict_test.go:222-307` rewrites upstream import prefixes in
+      report comparison inputs, verifies rewrite idempotence, compares canonical verdict
+      bytes, and runs both reports against the same verdict golden with equal successful
+      results. The focused test passed, as recorded in work.log.
+  - text: |
+      **The producer remains authoritative**
+        - Given a verdict-golden target
+        - When its analysis action and runfiles are inspected
+        - Then it consumes only the checked component's existing report plus assertion tooling/golden data and never invokes a second `arcc check`.
+    addressed: yes
+    evidence: |
+      `bazel_rules/go/private/check.bzl:526-551` constructs the rule from
+      `ArccComponentInfo.report` and stages only that report, the golden, and arcc;
+      `command.bzl:78-86` uses `arcc verdict --expect-file` and never builds check argv.
+      `report_assertion_tests.bzl:135-150` and the passing report-assertion suite recorded
+      in work.log verify the minimal runfiles and absence of `diff`/`check` inputs.
+  - text: |
+      **Asserted components fail closed**
+        - Given a component whose provider carries an asserted surface and no report
+        - When a verdict-golden target is declared for it
+        - Then Bazel analysis fails with a diagnostic naming the assertion target and component and explaining that there is no checked verdict.
+    addressed: yes
+    evidence: |
+      `check.bzl:80-95` applies the shared `_require_checked_component` guard, and
+      `report_assertion_tests.bzl:199-216` checks the asserted verdict-golden analysis
+      failure for the component/target and `no checked verdict` wording. The focused
+      Bazel analysis test passed.
+  - text: |
+      **Mismatches are actionable and shell-safe**
+        - Given a golden with the wrong verdict or hostile text supplied as golden data
+        - When the assertion runs
+        - Then it fails without executing the data and reports the expected and actual verdicts.
+    addressed: yes
+    evidence: |
+      `go/cmd/arcc/app/verdict_test.go:132-220` covers file-backed pass/fail matches,
+      a mismatch diagnostic containing `expected fail, got pass`, hostile command
+      substitution data, and non-canonical input. `artifactio/report.go:378-416`
+      bounds and validates the one-line representation, while
+      `report_assertion_tests.bzl:176-197` proves hostile contents are absent from the
+      generated launcher. These tests passed.
+  - text: |
+      **Repository checks pass**
+        - Given the completed migration
+        - When `just ci` runs
+        - Then all Go, Bazel, self-check, manifest-parity, and generated-file checks pass.
+    addressed: yes
+    evidence: |
+      `just ci` completed successfully after the final changes, including generation
+      cleanliness, Go build/tests and integration tests, stdlib-map pin validation,
+      self-check, Bazel build/test, manifest parity, and shell validation; the command
+      output is recorded in work.log.
+
+artifacts:
+  scratchpad_dir: .agents/scratchpad/2026-08-04-compositional-component-analysis/step09/task-01-separate-semantic-verdict-goldens/
+  files:
+    - context.md
+    - plan.md
+    - progress.md
+    - work.log
+    - result.yaml
+
+notes: |
+  Added a dedicated verdict-golden Bazel assertion that reads the canonical
+  ArccComponentInfo.report through the shared report-verdict decoder and compares it
+  with exact one-line pass/fail data. Migrated semantic API and report-boundary coverage,
+  added failing, asserted-provider, shell-safety, and rewritten-prefix tests, and removed
+  duplicate full-report semantic goldens. Three described jj commits were produced; the
+  final task tip is the stable change ID above and the working copy is empty.
