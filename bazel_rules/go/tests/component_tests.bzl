@@ -617,9 +617,10 @@ def _checked_action_inputs_impl(env, target):
     argv = raw.argv
 
     # Transitional Step 8 inputs: manifest, layout, today's source and
-    # runfile closure, ordinary export artifacts, target-configured stdlib
-    # metadata/export trees, SDK sources, stdlib map, and the direct
-    # dependency's report/surface artifacts — the producer edge R8 needs.
+    # runfile closure, the exact ordinary-import graph descriptor, ordinary
+    # export artifacts, target-configured stdlib metadata/export trees, SDK
+    # sources, stdlib map, and the direct dependency's report/surface artifacts
+    # — the producer edge R8 needs.
     inputs = [f.basename for f in raw.inputs.to_list()]
     env.expect.that_collection(inputs).contains("api_component.component.textproto")
     env.expect.that_collection(inputs).contains("api_component.package-layout.json")
@@ -636,6 +637,7 @@ def _checked_action_inputs_impl(env, target):
     env.expect.that_collection(inputs).contains("shared_component.surface.json")
     env.expect.that_collection(inputs).contains("shared.x")
     env.expect.that_collection(inputs).contains("stdlib.pkg.json")
+    env.expect.that_collection(inputs).contains("api_component.package-imports.json")
     env.expect.that_collection(inputs).contains("gocache")
     env.expect.that_collection(inputs).contains("pkg")
 
@@ -644,6 +646,7 @@ def _checked_action_inputs_impl(env, target):
     )
     wrapper.content().contains("rules_go+")
     wrapper.content().contains("shared.x")
+    wrapper.content().contains("api_component.package-imports.json")
 
     # Outputs: exactly the two structural artifacts (task req 1).
     env.expect.that_collection([f.basename for f in raw.outputs.to_list()]).contains_exactly([
@@ -676,6 +679,7 @@ def _checked_action_inputs_impl(env, target):
     expected_basenames["stdlib.pkg.json"] = True
     expected_basenames["gocache"] = True
     expected_basenames["pkg"] = True
+    expected_basenames["api_component.package-imports.json"] = True
     for manifest in info.transitive_manifests.to_list():
         if manifest == info.manifest:
             continue
@@ -733,6 +737,8 @@ def _export_layout_shape_impl(env, target):
     env.expect.that_str(content).contains('"ExportFile":')
     env.expect.that_str(content).contains('"Imports": {}')
     env.expect.that_str(content).contains('"stdlib_export_data":')
+    env.expect.that_str(content).contains('"ordinary_import_data":')
+    env.expect.that_str(content).contains('"metadata": "__ARCC_ORDINARY_IMPORT_DATA__"')
     env.expect.that_str(content).contains('"metadata": "rules_go+/stdlib_/stdlib.pkg.json"')
     env.expect.that_str(content).contains('"toolchain_version": "go1.26.4"')
     package_sections = content.split('"ID":')

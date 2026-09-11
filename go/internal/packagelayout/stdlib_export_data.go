@@ -6,10 +6,12 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path"
 	"path/filepath"
 	"slices"
 	"sort"
 	"strings"
+	"unicode"
 
 	"golang.org/x/tools/go/packages"
 )
@@ -242,6 +244,9 @@ func readStdlibExportPackages(metadataPath string, exportRoots []StdlibExportRoo
 		if record.PkgPath == "" {
 			return nil, fmt.Errorf("standard-library package %q has empty import path", record.ID)
 		}
+		if err := validateStdlibPackagePath(record.PkgPath); err != nil {
+			return nil, fmt.Errorf("standard-library package %q has %w %q", record.ID, err, record.PkgPath)
+		}
 		if record.Name == "" {
 			return nil, fmt.Errorf("standard-library package %q has empty name", record.PkgPath)
 		}
@@ -267,6 +272,22 @@ func readStdlibExportPackages(metadataPath string, exportRoots []StdlibExportRoo
 		return nil, errors.New("standard-library export metadata contains no package records")
 	}
 	return records, nil
+}
+
+func validateStdlibPackagePath(value string) error {
+	if strings.IndexFunc(value, unicode.IsControl) >= 0 || strings.Contains(value, "\\") ||
+		path.IsAbs(value) || filepath.VolumeName(value) != "" || hasWindowsVolumePrefix(value) {
+		return errors.New("invalid standard-library package import path")
+	}
+	if value == "." || value == ".." || path.Clean(value) != value {
+		return errors.New("invalid standard-library package import path")
+	}
+	for _, segment := range strings.Split(value, "/") {
+		if segment == "" || segment == "." || segment == ".." {
+			return errors.New("invalid standard-library package import path")
+		}
+	}
+	return nil
 }
 
 func normalizeStdlibExportPath(value string, exportRoots []StdlibExportRoot) (string, error) {

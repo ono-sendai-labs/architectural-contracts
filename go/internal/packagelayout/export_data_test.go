@@ -312,6 +312,149 @@ func TestValidateAndResolveForMemberOnlyMergesStdlibExportMetadata(t *testing.T)
 	}
 }
 
+func TestValidateAndResolveForMemberOnlyMergesOrdinaryImportDataWithoutSource(t *testing.T) {
+	layout, workspace := stdlibExportLayoutFixture(t, false)
+	if err := os.WriteFile(filepath.Join(workspace, "member.go"), []byte("package member\nimport (\n _ \"fmt\"\n _ \"example.com/dep\"\n)\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(workspace, "bazel-out", "exports", "dep.a"), []byte("dep export data"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(workspace, "bazel-out", "exports", "strings.a"), []byte("strings export data"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	layout.Packages = append(layout.Packages, &packages.Package{
+		ID: "dep-id", Name: "dep", PkgPath: "example.com/dep",
+		ExportFile: "bazel-out/exports/dep.a",
+	})
+	if err := os.WriteFile(filepath.Join(workspace, "stdlib.pkg.json"), []byte(`{"ID":"stdlib/fmt","Name":"fmt","PkgPath":"fmt","ExportFile":"__BAZEL_EXECROOT__/bazel-out/exports/fmt.a","Imports":{"io":"stdlib/io"},"Standard":true}
+{"ID":"stdlib/io","Name":"io","PkgPath":"io","ExportFile":"__BAZEL_EXECROOT__/bazel-out/exports/io.a","Imports":{},"Standard":true}
+{"ID":"stdlib/strings","Name":"strings","PkgPath":"strings","ExportFile":"__BAZEL_EXECROOT__/bazel-out/exports/strings.a","Imports":{},"Standard":true}
+{"ID":"stdlib/unsafe","Name":"unsafe","PkgPath":"unsafe","ExportFile":"","Imports":{},"Standard":true}
+`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	layout.OrdinaryImportData = &OrdinaryImportData{Metadata: "ordinary.pkg.json"}
+	graph := ImportGraph{
+		FormatVersion: ordinaryImportDataFormatVersion,
+		Platform:      layout.Platform,
+		Packages: []ImportGraphPackage{
+			{ID: "member-id", PkgPath: "example.com/member", Imports: []string{"example.com/dep", "fmt"}},
+			{ID: "dep-id", PkgPath: "example.com/dep", Imports: []string{"strings"}},
+		},
+	}
+	graphBytes, err := json.Marshal(graph)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(workspace, "ordinary.pkg.json"), graphBytes, 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := ValidateAndResolveForMemberOnly(layout, workspace); err != nil {
+		t.Fatalf("ValidateAndResolveForMemberOnly() error = %v", err)
+	}
+	dep := packageByPath(layout, "example.com/dep")
+	if got := dep.Imports["strings"].ID; got != "strings" {
+		t.Fatalf("ordinary dep strings edge ID = %q, want strings", got)
+	}
+	stringsPackage := packageByPath(layout, "strings")
+	if !layout.IsStdlibPackage(stringsPackage) {
+		t.Fatal("strings was not marked as stdlib from descriptor provenance")
+	}
+	if stringsPackage.ExportFile != filepath.Join(workspace, "bazel-out", "exports", "strings.a") {
+		t.Fatalf("strings ExportFile = %q, want resolved export path", stringsPackage.ExportFile)
+	}
+}
+
+func TestValidateAndResolveRejectsMaliciousStdlibPackagePath(t *testing.T) {
+	layout, workspace := stdlibExportLayoutFixture(t, true)
+	if err := os.WriteFile(filepath.Join(workspace, "member.go"), []byte("package member\nimport _ \"../../outside\"\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(workspace, "stdlib.pkg.json"), []byte(`{"ID":"stdlib/outside","Name":"outside","PkgPath":"../../outside","ExportFile":"__BAZEL_EXECROOT__/bazel-out/exports/outside.a","Imports":{},"Standard":true}
+`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	layout.Component = "member_component"
+	err := ValidateAndResolveForMemberOnly(layout, workspace)
+	if err == nil {
+		t.Fatal("ValidateAndResolveForMemberOnly() error = nil, want malicious package path rejection")
+	}
+	for _, want := range []string{"member_component", "../../outside", "invalid standard-library package import path"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error = %q, want substring %q", err, want)
+		}
+	}
+}
+
+func TestWriteImportGraphPreservesDirectStdlibImports(t *testing.T) {
+	workspace := t.TempDir()
+	depFile := filepath.Join(workspace, "dep.go")
+	if err := os.WriteFile(depFile, []byte("package dep\nimport \"strings\"\nfunc Normalize(s string) string { return strings.TrimSpace(s) }\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	memberFile := filepath.Join(workspace, "member.go")
+	if err := os.WriteFile(memberFile, []byte("package member\nimport \"example.com/dep\"\nvar _ = dep.Normalize\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	version := "go1.26.4"
+	config := ImportGraphRequest{
+		Platform: &Platform{GOOS: "linux", GOARCH: "amd64", CgoEnabled: false, ToolchainVersion: &version},
+		Packages: []ImportGraphPackageInput{
+			{ID: "dep-id", PkgPath: "example.com/dep", Files: []string{depFile}},
+			{ID: "member-id", PkgPath: "example.com/member", Files: []string{memberFile}},
+		},
+	}
+	configBytes, err := json.Marshal(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	configPath := filepath.Join(workspace, "request.json")
+	outputPath := filepath.Join(workspace, "imports.json")
+	if err := os.WriteFile(configPath, configBytes, 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := WriteImportGraph(configPath, outputPath); err != nil {
+		t.Fatalf("WriteImportGraph() error = %v", err)
+	}
+	outputBytes, err := os.ReadFile(outputPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var graph ImportGraph
+	if err := json.Unmarshal(outputBytes, &graph); err != nil {
+		t.Fatal(err)
+	}
+	if got := graph.Packages[0].PkgPath; got != "example.com/dep" {
+		t.Fatalf("first graph package = %q, want example.com/dep", got)
+	}
+	if got := graph.Packages[0].Imports; !reflect.DeepEqual(got, []string{"strings"}) {
+		t.Fatalf("dep direct imports = %v, want [strings]", got)
+	}
+	if got := graph.Packages[1].Imports; !reflect.DeepEqual(got, []string{"example.com/dep"}) {
+		t.Fatalf("member direct imports = %v, want [example.com/dep]", got)
+	}
+}
+
+func TestAttachLayoutPathContextDerivesComponentAndImportGraphSibling(t *testing.T) {
+	workspace := t.TempDir()
+	layout := &Layout{
+		OrdinaryImportData: &OrdinaryImportData{Metadata: ordinaryImportDataLogicalPath},
+		StdlibExportData:   &StdlibExportData{Metadata: "stdlib.pkg.json"},
+	}
+	layoutPath := filepath.Join(workspace, "bazel-out", "bin", "api_component.package-layout.json")
+	if err := attachLayoutPathContext(layout, layoutPath, workspace); err != nil {
+		t.Fatalf("attachLayoutPathContext() error = %v", err)
+	}
+	if got, want := layout.Component, "api_component"; got != want {
+		t.Errorf("Component = %q, want %q", got, want)
+	}
+	if got, want := layout.OrdinaryImportData.Metadata, "bazel-out/bin/api_component.package-imports.json"; got != want {
+		t.Errorf("ordinary import metadata = %q, want %q", got, want)
+	}
+}
+
 func TestValidateAndResolveForMemberOnlyRejectsMalformedStdlibExportMetadata(t *testing.T) {
 	tests := []struct {
 		name       string
@@ -390,6 +533,9 @@ func TestValidateAndResolveForMemberOnlyRejectsMalformedStdlibExportMetadata(t *
 					t.Errorf("error = %q, want substring %q", err, want)
 				}
 			}
+			if !strings.Contains(err.Error(), "member_component") {
+				t.Errorf("error = %q, want component identity", err)
+			}
 		})
 	}
 }
@@ -405,6 +551,7 @@ func TestStdlibExportMetadataMergeIsDeterministic(t *testing.T) {
 	}
 
 	second := &Layout{
+		Component: "member_component",
 		GoSDKRoot: first.GoSDKRoot,
 		Platform:  first.Platform,
 		Roots:     append([]string(nil), first.Roots...),
@@ -506,6 +653,7 @@ func stdlibExportLayoutFixture(t *testing.T, rewriteMetadata bool) (*Layout, str
 	}
 	version := "go1.26.4"
 	return &Layout{
+		Component: "member_component",
 		GoSDKRoot: filepath.Join(workspace, "sdk", "src"),
 		Platform: &Platform{
 			GOOS: "linux", GOARCH: "amd64", ToolchainVersion: &version,

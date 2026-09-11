@@ -152,7 +152,7 @@ bazel-test:
 	@# arcc output group of the malformed fixture must fail the build, while the
 	@# wildcard default build above stayed green (the fixture is tagged manual).
 	@# The log lands in a per-run mktemp path, so concurrent legs never share a file.
-	out="$(mktemp "${TMPDIR:-/tmp}/broken_go_component.XXXXXX.out")" && { if bazel build --output_groups=+arcc //bazel_rules/go/tests/testdata/malformed:broken_go_component >"$out" 2>&1; then echo "FAIL: expected the malformed component's ArccCheck action to fail" >&2; rm -f "$out"; exit 1; fi; grep -Eq "failed to load package facts|package-layout loading failed" "$out"; rc=$?; rm -f "$out"; exit $rc; }
+	out="$(mktemp "${TMPDIR:-/tmp}/broken_go_component.XXXXXX.out")" && { if bazel build --output_groups=+arcc //bazel_rules/go/tests/testdata/malformed:broken_go_component >"$out" 2>&1; then echo "FAIL: expected the malformed component's import-graph or ArccCheck action to fail" >&2; rm -f "$out"; exit 1; fi; grep -Eq "failed to load package facts|package-layout loading failed|Projecting imports for component" "$out"; rc=$?; rm -f "$out"; exit $rc; }
 
 # Go-only leg: everything except selfcheck and bazel-test. Mirrors the
 # ci.yml "Go" job so the three CI jobs can run in parallel on separate

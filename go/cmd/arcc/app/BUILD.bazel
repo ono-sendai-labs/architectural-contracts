@@ -5,6 +5,7 @@ go_library(
     srcs = [
         "app.go",
         "check.go",
+        "package_imports.go",
         "stdlibmap.go",
         "verdict.go",
     ],
@@ -18,6 +19,7 @@ go_library(
         "//go/internal/goanalysis",
         "//go/internal/hostpolicy",
         "//go/internal/manifest",
+        "//go/internal/packagelayout",
         "//go/internal/report",
         "//go/internal/schema/gen",
         "//go/internal/stdlibauthority",

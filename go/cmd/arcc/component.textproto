@@ -31,6 +31,10 @@ component_dependencies {
   manifest: "../../internal/manifest/component.textproto"
 }
 component_dependencies {
+  name: "packagelayout"
+  manifest: "../../internal/packagelayout/component.textproto"
+}
+component_dependencies {
   name: "report"
   manifest: "../../internal/report/component.textproto"
 }

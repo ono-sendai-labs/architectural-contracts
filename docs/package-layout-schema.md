@@ -5,6 +5,9 @@
 the Go package graph comes from the layout file, which the build system emits.
 `bazel_rules/` is one emitter (`go_component` writes
 `<name>.package-layout.json`); a monorepo with its own Go rules writes its own.
+Pre-load layout diagnostics identify the owning component from the generated
+layout artifact basename (`<name>.package-layout.json`), so the semantic layout
+bytes remain independent of the component target name.
 
 This document is aimed at whoever writes that emitter. Two of its rules —
 `is_stdlib` and the platform block — are places where the *natural*
@@ -23,6 +26,9 @@ left to be inferred from the field names.
     "cgo_enabled": false
   },
   "roots": ["example.com/svc", "example.com/svc/impl"],
+  "ordinary_import_data": {
+    "metadata": "_main/components/svc/svc_component.package-imports.json"
+  },
   "stdlib_export_data": {
     "metadata": "rules_go+/stdlib_/stdlib.pkg.json",
     "export_roots": [
@@ -84,6 +90,7 @@ left to be inferred from the field names.
 | `stdlib_export_data` | The target-configured host-adapter descriptor. `metadata` is a newline-delimited rules_go package graph; `export_roots` maps its generated execroot paths to runfiles paths; `target` is checked against `platform` before records are merged. Its compiled export trees are declared action inputs, not embedded in the package records. |
 | `dependency_artifact_bindings` | Sorted direct dependency artifact bindings. Each names the manifest dependency and its runfiles-frame surface, optional report, edge origin, and structural producer provenance (§6). |
 | `packages` | Every package in the closure, in `go/packages`' own driver "flat" encoding, plus the layout-only `is_stdlib` bit (§4). Member roots carry source fields; effective non-members carry `ExportFile` for member-only loading. |
+| `ordinary_import_data` | Stable logical token for the deterministic, target-configured graph descriptor generated from the ordinary package sources. The driver resolves it to the sibling declared output using the layout artifact path; it supplies exact direct imports, including implicit standard-library edges that rules_go's archive dependency provider does not expose. |
 
 Per-package fields are exactly `packages.Package`'s JSON, so `ID`, `Name`,
 `PkgPath`, `GoFiles`, `CompiledGoFiles`, `ExportFile` and `Imports` mean what
@@ -185,14 +192,17 @@ For member-only validation:
   fields and stages the closure sources because the active loader still uses
   `NeedDeps`. Those fields are compatibility inputs only; Task 5's driver
   response selects source for roots and `ExportFile` for non-roots. The
-  emitted ordinary non-member records already carry their export artifact and
-  aspect-projected direct graph, while the stdlib descriptor supplies the
-  target-configured SDK graph.
+  emitted ordinary non-member records already carry their export artifact; the
+  build-time ordinary-import descriptor supplies the exact direct graph, while
+  the stdlib descriptor supplies the target-configured SDK graph.
 - **The graph is not an API-surface projection.** Packages and edges are kept
   even when an imported package does not appear to be referenced by the
   exporting package's public API. The validator walks sorted roots and sorted
   import paths and rejects a dangling package ID before `go/packages` sees the
-  layout. It never infers a non-member graph from non-member source files.
+  layout. It never infers a non-member graph from non-member source files at
+  load time: the emitter's separate `ArccImportGraph` metadata action computes
+  that graph before the check action and the check consumes only its declared
+  descriptor.
 - **`unsafe`** is the one reachable non-root builtin that has no compiler
   export artifact. It remains a graph node when the emitter declares the edge.
 
@@ -202,7 +212,19 @@ and validates them through the ordinary source-backed `ValidateAndResolve`
 path. That generation layout may have no `ExportFile` values and must not be
 passed through the member-only export validator.
 
-### 3b. The Bazel stdlib export-data handoff
+### 3b. The Bazel ordinary-import and stdlib export-data handoff
+
+The ordinary-package graph has a parallel handoff. rules_go's
+`GoArchive.direct` provider represents declared archive dependencies and does
+not include implicit SDK imports such as `strings`. The component emitter runs
+a small `ArccImportGraph` action with arcc's lexical source scanner and the
+declared target build context. Its output is the `ordinary_import_data.metadata`
+file; the checked action declares that file and recreates its runfiles frame.
+This is metadata projection, not component analysis, and it executes no
+toolchain binary. The runtime resolver validates the descriptor's target
+identity, maps each direct import path to the effective layout package ID, and
+applies it to non-member packages before any source-backed transition or
+`packages.Load`.
 
 The Bazel emitter obtains member-only standard-library material through its host
 adapter. The adapter returns a host-neutral descriptor with four values:

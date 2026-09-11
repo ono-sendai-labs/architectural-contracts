@@ -4,9 +4,9 @@
 #
 # broken.component.textproto is a manifest no parser accepts, exercised
 # directly by malformed_manifest_tool_error_test. broken_go_component wraps a
-# Go library whose source does not parse: its ArccCheck action is expected to
-# FAIL at execution when the arcc output group is requested (the just
-# bazel-test gate asserts exactly that). The component stays on the checked
+# Go library whose source does not parse: its import-graph projection or
+# ArccCheck action is expected to FAIL at execution when the arcc output group
+# is requested (the just bazel-test gate asserts exactly that). The component stays on the checked
 # path; its generated `.check` (which would fail for the same reason) is kept
 # out of `bazel test //...` with `check_tags = ["manual"]`, and the unparseable
 # library stays out of the wildcard default build with the `manual` tag. An

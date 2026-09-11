@@ -136,7 +136,7 @@ def _manifest_content(ctx, interface_files, component_deps, auto_attached_deps, 
 
     return "\n".join(lines) + "\n"
 
-def _layout_content(ctx, merged, roots, go_sdk_root, platform, target, dependency_bindings, stdlib_export_data = None):
+def _layout_content(ctx, merged, roots, go_sdk_root, platform, target, dependency_bindings, ordinary_import_data = None, stdlib_export_data = None):
     root_set = {root: True for root in roots}
     packages = []
     for importpath in sorted(merged.keys()):
@@ -165,11 +165,11 @@ def _layout_content(ctx, merged, roots, go_sdk_root, platform, target, dependenc
             if pkg.export_file == None:
                 fail("package %s has no export file for non-member package %s" % (ctx.label.name, importpath))
             package["ExportFile"] = runfiles_path(ctx, pkg.export_file)
-            # The aspect's generic dependency projection contains the
-            # non-stdlib direct edges. Standard-library edges are completed by
-            # the target-configured descriptor during the transitional
-            # source-backed validation path; the map is explicit even for a
-            # leaf so the later member-only validator can fail closed.
+            # Keep the aspect's declared archive projection for the transitional
+            # source-backed loader. The exact source import set, including
+            # implicit standard-library edges, is emitted by
+            # ordinary_import_data and replaces this compatibility map before
+            # member-only validation.
             package["Imports"] = {
                 dep: dep
                 for dep in sorted(pkg.deps)
@@ -187,6 +187,14 @@ def _layout_content(ctx, merged, roots, go_sdk_root, platform, target, dependenc
         # canonical name order; the artifact paths remain ordinary runfiles
         # frame data, never semantic trust claims.
         layout_data["dependency_artifact_bindings"] = dependency_bindings
+    if ordinary_import_data != None:
+        layout_data["ordinary_import_data"] = {
+            # The output basename is target-specific, while equivalent
+            # components must still emit byte-identical layout JSON. The
+            # runtime replaces this stable logical token with the sibling
+            # declared output at the pre-load boundary.
+            "metadata": "__ARCC_ORDINARY_IMPORT_DATA__",
+        }
     if stdlib_export_data != None:
         if stdlib_export_data.target == None:
             fail("component %s: standard-library export descriptor has no target identity" % ctx.label.name)
@@ -236,6 +244,69 @@ def _layout_content(ctx, merged, roots, go_sdk_root, platform, target, dependenc
         layout_data,
         indent = "  ",
     ) + "\n"
+
+def _ordinary_import_graph_action(ctx, merged, platform, target):
+    """Projects exact source imports into a checked-action graph descriptor.
+
+    rules_go's GoArchive direct list contains declared archive dependencies and
+    intentionally omits implicit SDK imports. The compiler already reads the
+    selected source files, but that source-level import list is not exposed in
+    its providers. This small arcc-owned action performs the same lexical
+    projection with the declared target context; it is metadata generation, not
+    component analysis, and executes no toolchain binary.
+    """
+    request = ctx.actions.declare_file(ctx.label.name + ".package-imports.request.json")
+    metadata = ctx.actions.declare_file(ctx.label.name + ".package-imports.json")
+
+    request_platform = {
+        "goos": platform.goos,
+        "goarch": platform.goarch,
+        "build_tags": sorted(platform.tags),
+        "cgo_enabled": platform.cgo_enabled,
+    }
+    if target.toolchain_version:
+        request_platform["toolchain_version"] = target.toolchain_version
+    if target.goexperiment:
+        request_platform["goexperiment"] = target.goexperiment
+
+    source_files = []
+    package_inputs = []
+    for importpath in sorted(merged.keys()):
+        files = [
+            src.path
+            for src in merged[importpath].srcs
+            if src.extension == "go"
+        ]
+        source_files += merged[importpath].srcs
+        package_inputs.append({
+            "id": importpath,
+            "pkg_path": importpath,
+            "files": sorted(files),
+        })
+
+    ctx.actions.write(
+        output = request,
+        content = json.encode_indent({
+            "platform": request_platform,
+            "packages": package_inputs,
+        }, indent = "  ") + "\n",
+    )
+    ctx.actions.run(
+        executable = ctx.executable._arcc,
+        arguments = [
+            "package-imports",
+            "--config=" + request.path,
+            "--output=" + metadata.path,
+        ],
+        inputs = depset(direct = [request] + source_files),
+        tools = [ctx.executable._arcc],
+        outputs = [metadata],
+        use_default_shell_env = False,
+        execution_requirements = {"block-network": "1"},
+        mnemonic = "ArccImportGraph",
+        progress_message = "Projecting imports for component %s" % ctx.label,
+    )
+    return struct(metadata = metadata)
 
 def _dependency_binding_record(ctx, info, auto_attached):
     """Validates one provider and projects it into layout metadata plus files."""
@@ -541,7 +612,7 @@ def _frame_symlink_commands(files, workspace_name, preferred_files = []):
         ))
     return commands
 
-def _checked_analysis_action(ctx, manifest, layout, closure_srcs, export_files, stdlib_export_data, transitive_manifests, transitive_layouts, dep_artifacts, dep_runfiles, sdk_root_file):
+def _checked_analysis_action(ctx, manifest, layout, closure_srcs, export_files, ordinary_import_data, stdlib_export_data, transitive_manifests, transitive_layouts, dep_artifacts, dep_runfiles, sdk_root_file):
     """The checked-component analysis action (design R8, task reqs 1/3/5/6).
 
     One ordinary action running `command.bzl`'s analysis argv — the exact
@@ -563,12 +634,12 @@ def _checked_analysis_action(ctx, manifest, layout, closure_srcs, export_files, 
     existing layout-driver working-directory contract.
 
     Inputs retain the Step 7 source-backed transition set and add the Step 8
-    export closure: ordinary non-member archive exports, plus the
-    target-configured stdlib metadata and generated export trees. The SDK and
-    closure sources remain deliberately staged until Task 5 cuts the loader
-    over to member-only type loading. The descriptor's `inputs` is the complete
-    host-neutral stdlib input set, so the action does not need to know any
-    rules_go provider details.
+    export closure: ordinary non-member archive exports, the exact
+    ordinary-import graph descriptor, plus the target-configured stdlib metadata
+    and generated export trees. The SDK and closure sources remain deliberately
+    staged until Task 5 cuts the loader over to member-only type loading. The
+    descriptor's `inputs` is the complete host-neutral stdlib input set, so the
+    action does not need to know any rules_go provider details.
 
     No environment at all: the argv and the frame symlinks fully determine
     the action; network access is blocked.
@@ -593,13 +664,14 @@ def _checked_analysis_action(ctx, manifest, layout, closure_srcs, export_files, 
     # independent of transitive dependency runfiles, which may contain the
     # files today only as an incidental consequence of provider wiring.
     sdk_source_files = go_sdk_srcs(ctx).to_list()
-    frame_files = list(closure_srcs) + list(export_files) + list(dep_artifacts) + [sdk_root_file]
+    ordinary_import_inputs = [ordinary_import_data.metadata] if ordinary_import_data != None else []
+    frame_files = list(closure_srcs) + list(export_files) + ordinary_import_inputs + list(dep_artifacts) + [sdk_root_file]
     frame_files += sdk_source_files
     stdlib_export_inputs = stdlib_export_data.inputs.to_list()
     frame_files += stdlib_export_inputs
     frame_files += transitive_manifests.to_list() + transitive_layouts.to_list()
     frame_files += dep_runfiles.to_list()
-    preferred_frame_files = list(closure_srcs) + list(export_files) + list(dep_artifacts) + [sdk_root_file]
+    preferred_frame_files = list(closure_srcs) + list(export_files) + ordinary_import_inputs + list(dep_artifacts) + [sdk_root_file]
     preferred_frame_files += sdk_source_files
     preferred_frame_files += stdlib_export_inputs
     preferred_frame_files += transitive_manifests.to_list() + transitive_layouts.to_list()
@@ -617,7 +689,7 @@ def _checked_analysis_action(ctx, manifest, layout, closure_srcs, export_files, 
         executable = wrapper,
         arguments = argv,
         inputs = depset(
-            direct = [manifest, layout, map_file] + list(closure_srcs) + list(export_files) + list(dep_artifacts),
+            direct = [manifest, layout, map_file] + list(closure_srcs) + list(export_files) + ordinary_import_inputs + list(dep_artifacts),
             transitive = [go_sdk_srcs(ctx), stdlib_export_data.inputs, transitive_manifests, transitive_layouts, dep_runfiles],
         ),
         tools = [ctx.executable._arcc],
@@ -735,6 +807,7 @@ def go_component_impl(ctx, attachment_fn = go_attached_infra):
 
     map_info = ctx.attr._stdlib_map
     stdlib_export_data = None
+    ordinary_import_data = None
     if roots and "manual" not in ctx.attr.tags:
         stdlib_export_data = go_stdlib_export_data(
             ctx,
@@ -751,6 +824,13 @@ def go_component_impl(ctx, attachment_fn = go_attached_infra):
         layout_roots = sorted(list(members))
         platform = go_build_platform(roots[0])
         target_mode = go_target_mode(ctx)
+        if "manual" not in ctx.attr.tags:
+            ordinary_import_data = _ordinary_import_graph_action(
+                ctx,
+                merged = merged,
+                platform = platform,
+                target = target_mode,
+            )
         ctx.actions.write(
             output = layout,
             content = _layout_content(
@@ -761,6 +841,7 @@ def go_component_impl(ctx, attachment_fn = go_attached_infra):
                 platform = platform,
                 target = target_mode,
                 dependency_bindings = dependency_bindings,
+                ordinary_import_data = ordinary_import_data,
                 stdlib_export_data = stdlib_export_data,
             ),
         )
@@ -875,6 +956,7 @@ def go_component_impl(ctx, attachment_fn = go_attached_infra):
             layout = layout,
             closure_srcs = closure_srcs,
             export_files = export_files,
+            ordinary_import_data = ordinary_import_data,
             stdlib_export_data = stdlib_export_data,
             transitive_manifests = transitive_manifests,
             transitive_layouts = transitive_layouts,
@@ -887,7 +969,7 @@ def go_component_impl(ctx, attachment_fn = go_attached_infra):
     analysis_export_inputs = depset()
     if provenance == "checked":
         analysis_export_inputs = depset(
-            direct = export_files,
+            direct = export_files + ([ordinary_import_data.metadata] if ordinary_import_data != None else []),
             transitive = [stdlib_export_data.inputs] if stdlib_export_data != None else [],
         )
 

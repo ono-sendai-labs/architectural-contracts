@@ -74,6 +74,10 @@ func (r *Runner) run(args []string, stdout, stderr io.Writer) int {
 		return r.runVerdict(args[1:], stdout, stderr)
 	}
 
+	if args[0] == "package-imports" {
+		return r.runPackageImports(args[1:], stdout, stderr)
+	}
+
 	if args[0] != "check" {
 		fmt.Fprintf(stderr, "unknown command: %s\n", args[0])
 		printUsage(stderr)
@@ -133,6 +137,7 @@ func printUsage(w io.Writer) {
 	fmt.Fprintln(w, "        [--report-out=<path>] [--surface-out=<path>] [--stdlib-map=<artifact>]")
 	fmt.Fprintln(w, "        [--report-verdict-only]")
 	fmt.Fprintln(w, "  arcc verdict <report> --expect=pass|fail")
+	fmt.Fprintln(w, "  arcc package-imports --config=<request.json> --output=<imports.json>")
 	fmt.Fprintln(w, "  arcc stdlibmap generate --output=<path> [--toolchain=<version>] [--goos=<os>] [--goarch=<arch>] [--cgo] [--tags=<t1,t2>] [--goexperiment=<exp>]")
 	fmt.Fprintln(w, "  arcc stdlibmap generate --output=<path> --package-list=<file> --config-file=<file> --sdk-root=<dir>  (explicit-input mode)")
 	fmt.Fprintln(w, "  arcc stdlibmap inspect <artifact> [--expect-key=<field=value,...>] [summary | symbol <id> | init <pkg>]...")

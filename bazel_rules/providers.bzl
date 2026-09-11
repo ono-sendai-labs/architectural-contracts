@@ -18,7 +18,7 @@ ArccComponentInfo = provider(
         "transitive_manifests": "depset[File], own + all component deps' manifests",
         "transitive_layouts": "depset[File], own + all component deps' layouts",
         "transitive_artifacts": "depset[File], published surface/report artifacts for this component and all transitive component dependencies; execution-test runfiles only",
-        "analysis_export_inputs": "depset[File], this checked component's ordinary export artifacts and target-configured stdlib metadata/export trees; used only by the execution test that replays its ArccCheck action",
+        "analysis_export_inputs": "depset[File], this checked component's ordinary export artifacts, exact ordinary-import graph descriptor, and target-configured stdlib metadata/export trees; used only by the execution test that replays its ArccCheck action",
         "closure": "depset[struct], this component's member packages, " +
                    "which dependents subtract from their own closure (design §5.3)",
         "contracts": "depset[File], contract docs (Bazel-only metadata)",
