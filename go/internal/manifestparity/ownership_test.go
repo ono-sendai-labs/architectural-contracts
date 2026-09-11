@@ -374,6 +374,25 @@ func TestProtobufRuntimeNativeSurfaceIsAsserted(t *testing.T) {
 	if got.Namespace != "upstream" || got.SDKKey.ToolchainVersion != "go1.26.4" || got.SDKKey.GOOS != "linux" || got.SDKKey.GOARCH != "amd64" || got.SDKKey.ClassifierHash == "" || got.SDKKey.MapFormatVersion != 1 || got.ProducerVersion == "" {
 		t.Fatalf("native protobuf surface target identity = %+v", got)
 	}
+	mapData, err := os.ReadFile(filepath.Join("..", "teststdlibmap", "testdata", "linux_amd64.stdlib-map.json"))
+	if err != nil {
+		t.Fatalf("read pinned stdlib map: %v", err)
+	}
+	var pinned struct {
+		Key struct {
+			ToolchainVersion string `json:"toolchainVersion"`
+			GOOS             string `json:"goos"`
+			GOARCH           string `json:"goarch"`
+			ClassifierHash   string `json:"classifierHash"`
+			MapFormatVersion int    `json:"mapFormatVersion"`
+		} `json:"key"`
+	}
+	if err := json.Unmarshal(mapData, &pinned); err != nil {
+		t.Fatalf("decode pinned stdlib map: %v", err)
+	}
+	if got.SDKKey.ToolchainVersion != pinned.Key.ToolchainVersion || got.SDKKey.GOOS != pinned.Key.GOOS || got.SDKKey.GOARCH != pinned.Key.GOARCH || got.SDKKey.ClassifierHash != pinned.Key.ClassifierHash || got.SDKKey.MapFormatVersion != pinned.Key.MapFormatVersion {
+		t.Fatalf("native protobuf surface SDK key = %+v, want pinned map key %+v", got.SDKKey, pinned.Key)
+	}
 }
 
 func hasDuplicate(values []string) bool {
