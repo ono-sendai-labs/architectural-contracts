@@ -269,6 +269,9 @@ func TestExportDataLayoutJSONIsDeterministicAndPreservesBindings(t *testing.T) {
 	if got := packageByPath(parsed, "example.com/other").ExportFile; got != "exports/other.a" {
 		t.Fatalf("parsed export binding = %q, want exports/other.a", got)
 	}
+	if got := packageByPath(parsed, "example.com/other").Imports; got == nil || len(got) != 0 {
+		t.Fatalf("parsed explicit empty Imports = %#v, want a non-nil empty map", got)
+	}
 }
 
 func TestValidateAndResolveForMemberOnlyMergesStdlibExportMetadata(t *testing.T) {
@@ -459,6 +462,19 @@ func TestStdlibExportMetadataMapsExecrootArtifactsToRunfilesFrame(t *testing.T) 
 		if pkg.ExportFile != want {
 			t.Errorf("%s ExportFile = %q, want runfiles path %q", importPath, pkg.ExportFile, want)
 		}
+	}
+}
+
+func TestStdlibExportMetadataRejectsConflictingExportRoots(t *testing.T) {
+	layout, workspace := stdlibExportLayoutFixture(t, false)
+	layout.StdlibExportData.ExportRoots = []StdlibExportRoot{
+		{RunfilesPath: "rules_go+/stdlib_/gocache", ExecPath: "bazel-out/exports"},
+		{RunfilesPath: "rules_go+/stdlib_/pkg", ExecPath: "bazel-out/exports"},
+	}
+
+	err := ValidateAndResolveForMemberOnly(layout, workspace)
+	if err == nil || !strings.Contains(err.Error(), "conflicting standard-library export root") {
+		t.Fatalf("ValidateAndResolveForMemberOnly() error = %v, want conflicting-root error", err)
 	}
 }
 

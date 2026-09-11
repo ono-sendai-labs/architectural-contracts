@@ -80,10 +80,20 @@ func cloneStdlibExportData(data *StdlibExportData) (*StdlibExportData, error) {
 		}
 		return strings.Compare(a.RunfilesPath, b.RunfilesPath)
 	})
-	for i := 1; i < len(clone.ExportRoots); i++ {
-		if clone.ExportRoots[i-1] == clone.ExportRoots[i] {
-			return nil, fmt.Errorf("duplicate standard-library export root %q", clone.ExportRoots[i].ExecPath)
+	seenExecPaths := make(map[string]string, len(clone.ExportRoots))
+	seenRunfilesPaths := make(map[string]string, len(clone.ExportRoots))
+	for _, root := range clone.ExportRoots {
+		if previous, exists := seenExecPaths[root.ExecPath]; exists {
+			if previous != root.RunfilesPath {
+				return nil, fmt.Errorf("conflicting standard-library export root %q maps to %q and %q", root.ExecPath, previous, root.RunfilesPath)
+			}
+			return nil, fmt.Errorf("duplicate standard-library export root %q", root.ExecPath)
 		}
+		if previous, exists := seenRunfilesPaths[root.RunfilesPath]; exists {
+			return nil, fmt.Errorf("conflicting standard-library export root runfiles path %q maps to %q and %q", root.RunfilesPath, previous, root.ExecPath)
+		}
+		seenExecPaths[root.ExecPath] = root.RunfilesPath
+		seenRunfilesPaths[root.RunfilesPath] = root.ExecPath
 	}
 	if data.Target != nil {
 		clone.Target = &StdlibExportTarget{
@@ -262,16 +272,27 @@ func readStdlibExportPackages(metadataPath string, exportRoots []StdlibExportRoo
 func normalizeStdlibExportPath(value string, exportRoots []StdlibExportRoot) (string, error) {
 	if strings.HasPrefix(value, bazelExecrootPlaceholder) {
 		value = strings.TrimPrefix(value, bazelExecrootPlaceholder)
+		bestLength := -1
+		bestExecPath := ""
+		bestRunfilesPath := ""
 		for _, root := range exportRoots {
 			if value == root.ExecPath {
-				value = root.RunfilesPath
-				break
+				if len(root.ExecPath) > bestLength {
+					bestLength = len(root.ExecPath)
+					bestExecPath = root.ExecPath
+					bestRunfilesPath = root.RunfilesPath
+				}
+				continue
 			}
 			prefix := root.ExecPath + "/"
-			if strings.HasPrefix(value, prefix) {
-				value = root.RunfilesPath + strings.TrimPrefix(value, root.ExecPath)
-				break
+			if strings.HasPrefix(value, prefix) && len(root.ExecPath) > bestLength {
+				bestLength = len(root.ExecPath)
+				bestExecPath = root.ExecPath
+				bestRunfilesPath = root.RunfilesPath
 			}
+		}
+		if bestLength >= 0 {
+			value = bestRunfilesPath + strings.TrimPrefix(value, bestExecPath)
 		}
 	} else if strings.Contains(value, "__BAZEL_EXECROOT__") {
 		return "", errors.New("execroot placeholder is not at the beginning of the path")
