@@ -4,6 +4,7 @@ go_library(
     name = "app",
     srcs = [
         "app.go",
+        "artifactshape.go",
         "check.go",
         "package_imports.go",
         "stdlibmap.go",
@@ -34,6 +35,7 @@ go_test(
     size = "small",
     srcs = [
         "app_test.go",
+        "artifactshape_test.go",
         "check_internal_test.go",
         "check_test.go",
         "stdlibmap_test.go",

@@ -24,6 +24,26 @@ const (
 	ShapeMap     ShapeKind = "stdlib-map"
 )
 
+// ShapeMismatchError identifies a valid artifact/golden pair whose snapshots
+// differ. Callers can map this assertion result to a test failure while still
+// treating decoder, filesystem, and canonicality errors as tool errors.
+type ShapeMismatchError struct {
+	Detail string
+}
+
+func (e *ShapeMismatchError) Error() string {
+	return "artifact shape mismatch: " + e.Detail
+}
+
+// IsShapeMismatch reports whether err is the assertion result from
+// CompareShape. Keeping the result classification inside artifactio lets CLI
+// hosts depend on this small semantic port without importing another
+// standard-library error traversal edge into their component boundary.
+func IsShapeMismatch(err error) bool {
+	_, ok := err.(*ShapeMismatchError)
+	return ok
+}
+
 const (
 	shapeSourcePath                = "<SOURCE_PATH>"
 	shapeExportArtifactCount       = "<EXPORT_ARTIFACT_COUNT>"
@@ -89,7 +109,7 @@ func CompareShape(kind ShapeKind, artifact io.Reader, golden io.Reader) error {
 	if bytes.Equal(actual, want) {
 		return nil
 	}
-	return fmt.Errorf("%s shape snapshot differs: %s", kind, shapeDiff(want, actual))
+	return &ShapeMismatchError{Detail: fmt.Sprintf("%s shape snapshot differs: %s", kind, shapeDiff(want, actual))}
 }
 
 func readCanonicalReport(r io.Reader) (PersistedReport, error) {
