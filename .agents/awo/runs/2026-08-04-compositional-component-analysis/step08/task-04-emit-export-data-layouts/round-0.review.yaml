@@ -1,0 +1,173 @@
+review:
+  task_file: .agents/tasks/2026-08-04-compositional-component-analysis/step08/task-04-emit-export-data-layouts.code-task.md
+  change_id: nyonozuptvrtlskkwztoxptxvuqporyv
+  reviewed_at: 2026-09-11T09:28:07Z
+  verdict: changes_requested
+  schema_version: 2
+  lsp_coverage: unavailable
+
+merge_request:
+  title: "feat(packagelayout): emit export-backed component layouts [Compositional Analysis: Step 08/Task 04]"
+  body: |
+    Reviews the initial export-backed layout implementation in
+    qnnlrttvzuyvktzxqlokxmvpmukpnwrp and the follow-up normalization and
+    conflicting-root coverage in nyonozuptvrtlskkwztoxptxvuqporyv. The series
+    wires ordinary exports, target-configured stdlib metadata, action inputs,
+    runfiles framing, runtime validation, tests, and documentation.
+
+summary: |
+  The change series successfully wires ordinary and stdlib export artifacts into the Bazel layout/action path, with focused Go and Bazel tests passing and the recorded `just ci` run green. However, emitted non-member ordinary package records omit direct standard-library edges, so the member-only graph is not transitively complete for the existing lowlevel fixture. Runtime metadata failures also omit the component identity, and descriptor package paths are not contained before being joined beneath the SDK root.
+
+acceptance_criteria:
+  - text: |
+      **Every non-member has export data**
+        - Given a Bazel component with ordinary and stdlib packages in its transitive closure
+        - When its package layout is resolved in the check sandbox
+        - Then every reachable non-member other than `unsafe` has a real `ExportFile` and an explicit import map.
+    status: pass
+    evidence: |
+      Ordinary non-members receive `ExportFile` and an explicit `Imports` map in
+      `bazel_rules/go/private/component.bzl:164-177`. The stdlib descriptor is
+      parsed and merged in `go/internal/packagelayout/stdlib_export_data.go:164-170,
+      306-355`, and reachable export artifacts are checked at `:415-473`.
+      `go/internal/packagelayout/export_data_test.go:277-313` and
+      `bazel_rules/go/tests/component_tests.bzl:725-743` exercise the emitted
+      shape.
+  - text: |
+      **Members retain source ownership**
+        - Given the same component
+        - When the effective layout is inspected
+        - Then component roots retain their member Go files and are not replaced by their own archives.
+    status: pass
+    evidence: |
+      `_layout_content` always emits source fields and adds `ExportFile` only
+      outside `root_set` at `bazel_rules/go/private/component.bzl:152-167`.
+      `go/internal/packagelayout/export_data_test.go:306-312` verifies the
+      member role, and `bazel_rules/go/tests/component_tests.bzl:730-743`
+      checks the generated Bazel layout shape.
+  - text: |
+      **Full graph is preserved**
+        - Given a deep dependency whose exported API does not mention one of its own imports
+        - When the layout is emitted and validated
+        - Then that import and its transitive node remain in the graph with export data.
+    status: partial
+    evidence: |
+      Ordinary edges are emitted only from `pkg.deps` in
+      `bazel_rules/go/private/component.bzl:168-176`. The generated
+      `member_component` golden gives non-member `example.com/aspect/lowlevel`
+      an export file but an empty `Imports` map at
+      `bazel_rules/go/tests/goldens/member_component.package-layout.json:53-64`,
+      even though `bazel_rules/go/tests/testdata/lowlevel/lowlevel.go:3`
+      imports `strings`. The stdlib merger at
+      `go/internal/packagelayout/stdlib_export_data.go:320-355` supplies
+      stdlib-to-stdlib edges but cannot add the missing ordinary-to-stdlib edge;
+      the member-only validator deliberately does not scan non-member source.
+  - text: |
+      **All staged paths resolve hermetically**
+        - Given external-repository ordinary archives and target stdlib exports
+        - When the checked action enters its runfiles frame
+        - Then every layout export path resolves to a declared input without an absolute or parent-escaping path.
+    status: pass
+    evidence: |
+      The action declares ordinary export files and the complete stdlib
+      metadata/tree input set at `bazel_rules/go/private/component.bzl:591-623`.
+      The wrapper's external/generated frame handling is implemented at
+      `bazel_rules/go/private/component.bzl:402-542`; the action-input and
+      wrapper assertions are at `bazel_rules/go/tests/component_tests.bzl:637-646`.
+      Runtime export paths are lexically validated and checked for existence at
+      `go/internal/packagelayout/packagelayout.go:2108-2155`.
+  - text: |
+      **Invalid metadata fails before load**
+        - Given a missing export file, incomplete graph, conflicting package record, or configuration mismatch
+        - When the component check starts
+        - Then it exits as a tool error naming the component and offending package before `packages.Load` executes.
+    status: partial
+    evidence: |
+      Metadata identity, graph, target, and artifact failures are validated
+      before the driver response in
+      `go/internal/packagelayout/stdlib_export_data.go:134-169,306-379,415-473`,
+      with cases in `go/internal/packagelayout/export_data_test.go:315-395`.
+      But `RunDriver` only wraps these as generic layout validation errors at
+      `go/internal/packagelayout/packagelayout.go:2346-2353`, and the CLI reports
+      `package-layout loading failed` at `go/cmd/arcc/app/app.go:114-120`; the
+      runtime diagnostic names the package/metadata but not the component.
+  - text: |
+      **Transitional load remains green**
+        - Given export layouts are now emitted but `NeedDeps` has not yet been removed
+        - When `just ci` runs
+        - Then existing checks continue to pass using the temporarily retained closure sources.
+    status: pass
+    evidence: |
+      `_checked_analysis_action` retains closure and SDK sources while adding
+      export inputs at `bazel_rules/go/private/component.bzl:565-570,595-623`.
+      The final recorded `just ci` run passed at
+      `.agents/scratchpad/2026-08-04-compositional-component-analysis/step08/task-04-emit-export-data-layouts/work.log:387-638`,
+      including Go, integration, self-check, Bazel, and shell validations.
+
+findings:
+  - severity: critical
+    category: acceptance_criteria
+    file: bazel_rules/go/private/component.bzl
+    line: 173
+    title: Non-member ordinary Imports omit stdlib edges
+    details: |
+      The emitter materializes non-member `Imports` exclusively from the
+      aspect's `pkg.deps` at `bazel_rules/go/private/component.bzl:168-176`.
+      The current rules_go projection excludes standard-library dependencies,
+      so the emitted member-only layout records
+      `example.com/aspect/lowlevel` with `ExportFile` and `Imports: {}` at
+      `bazel_rules/go/tests/goldens/member_component.package-layout.json:53-64`,
+      although `bazel_rules/go/tests/testdata/lowlevel/lowlevel.go:3` imports
+      `strings`. The stdlib descriptor only merges edges between descriptor
+      packages; `ValidateAndResolveForMemberOnly` does not read non-member
+      source. Once Task 5 removes `NeedDeps` and closure-source staging, the
+      export reader receives an incomplete graph and can hit the panic path
+      described in the export-data spike.
+    suggested_action: |
+      Emit the exact ordinary-to-stdlib direct edges in the package metadata
+      consumed by `_layout_content` (or add an equivalent host-neutral complete
+      graph projection), and add a member-only driver test where a non-member
+      package imports `strings` with its source unavailable. The test should
+      assert the edge and transitive stdlib node are present before loading.
+    source: built-in
+  - severity: important
+    category: acceptance_criteria
+    file: go/internal/packagelayout/stdlib_export_data.go
+    line: 150
+    title: Metadata errors omit component identity
+    details: |
+      Acceptance Criterion 5 requires a pre-load tool error naming both the
+      component and offending package. The new resolver reports package and
+      metadata paths (for example at `stdlib_export_data.go:150` and
+      `:430-456`), but the layout has no component identity and the callers only
+      add generic `validating layout` / `package-layout loading failed` context
+      (`packagelayout.go:2351-2353`, `app.go:114-120`). The new malformed-metadata
+      tests assert package substrings but do not verify a component name.
+    suggested_action: |
+      Carry or derive the component identity at the pre-load boundary and wrap
+      metadata, graph, artifact, and target-mismatch errors with it. Add an
+      end-to-end malformed-layout check that asserts both the component and
+      package names appear before the loader is invoked.
+    source: built-in
+  - severity: important
+    category: security
+    file: go/internal/packagelayout/stdlib_export_data.go
+    line: 242
+    title: Stdlib package path can escape the SDK root
+    details: |
+      Descriptor parsing checks only that `record.PkgPath` is non-empty at
+      `stdlib_export_data.go:239-247`. The merged record is marked as stdlib and
+      the transitional source-backed validator later constructs source paths as
+      `filepath.Join(sdkRoot, p.PkgPath, filepath.Base(f))` at
+      `packagelayout.go:2063-2066`, without checking containment. A corrupt or
+      hostile declared descriptor with `PkgPath: "../../outside"` can therefore
+      make validation read a source file outside the declared SDK tree. This is
+      a newly reachable input path introduced by merging the descriptor.
+    suggested_action: |
+      Validate descriptor package paths as canonical Go import paths with no
+      leading separator, backslash, volume, or parent segment, and/or enforce
+      that every resolved stdlib source path remains beneath `sdkRoot` before
+      `os.Stat`. Add a malicious package-path regression test.
+    source: built-in
+
+ecosystem_reviews: []

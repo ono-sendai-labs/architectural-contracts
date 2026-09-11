@@ -1,0 +1,107 @@
+result:
+  task_file: .agents/tasks/2026-08-04-compositional-component-analysis/step08/task-04-emit-export-data-layouts.code-task.md
+  change_id: uqzmkoslqtlozpyzkosykkwvtznrpsmw
+  status: completed
+  schema_version: 2
+  produced_at: 2026-09-11T10:55:14Z
+
+acceptance_criteria:
+  - text: |
+      **Every non-member has export data**
+        - Given a Bazel component with ordinary and stdlib packages in its transitive closure
+        - When its package layout is resolved in the check sandbox
+        - Then every reachable non-member other than `unsafe` has a real `ExportFile` and an explicit import map.
+    addressed: yes
+    evidence: |
+      `_ordinary_import_graph_action` emits a deterministic source-import
+      descriptor, and `ResolveOrdinaryImportData` applies its explicit IDs after
+      stdlib materialization (`bazel_rules/go/private/component.bzl:245-306`,
+      `go/internal/packagelayout/ordinary_import_data.go:139-217`). Existing
+      export validation remains in `validateReachableExportClosure` at
+      `go/internal/packagelayout/stdlib_export_data.go:436-499`; the source-
+      unavailable regression is `TestValidateAndResolveForMemberOnlyMergesOrdinaryImportDataWithoutSource`.
+  - text: |
+      **Members retain source ownership**
+        - Given the same component
+        - When the effective layout is inspected
+        - Then component roots retain their member Go files and are not replaced by their own archives.
+    addressed: yes
+    evidence: |
+      `_layout_content` retains `GoFiles`/`CompiledGoFiles` for every package
+      and assigns `ExportFile` only outside `root_set`
+      (`bazel_rules/go/private/component.bzl:152-177`). The existing Go shape
+      test at `go/internal/packagelayout/export_data_test.go:277-313` and the
+      Bazel `export_layout_shape_test` continue to verify the member role.
+  - text: |
+      **Full graph is preserved**
+        - Given a deep dependency whose exported API does not mention one of its own imports
+        - When the layout is emitted and validated
+        - Then that import and its transitive node remain in the graph with export data.
+    addressed: yes
+    evidence: |
+      The arcc-owned graph projection scans all target-selected ordinary source
+      files and records exact direct imports, including `strings` from the
+      non-member lowlevel package (`go/internal/packagelayout/ordinary_import_data.go:358-386`).
+      `TestWriteImportGraphPreservesDirectStdlibImports` and
+      `TestValidateAndResolveForMemberOnlyMergesOrdinaryImportDataWithoutSource`
+      (`go/internal/packagelayout/export_data_test.go:315-368,391-438`) assert
+      the ordinary-to-stdlib edge and reachable stdlib export node.
+  - text: |
+      **All staged paths resolve hermetically**
+        - Given external-repository ordinary archives and target stdlib exports
+        - When the checked action enters its runfiles frame
+        - Then every layout export path resolves to a declared input without an absolute or parent-escaping path.
+    addressed: yes
+    evidence: |
+      `ArccCheck` declares the ordinary graph descriptor alongside ordinary
+      exports and the stdlib descriptor inputs, and includes it in both frame
+      lists (`bazel_rules/go/private/component.bzl:663-692`).
+      `checked_action_inputs_test` covers the graph descriptor, ordinary export,
+      stdlib metadata/tree, and wrapper frame; export paths remain guarded by
+      `resolveAndCheckExportFile` at `go/internal/packagelayout/packagelayout.go:2170-2217`.
+  - text: |
+      **Invalid metadata fails before load**
+        - Given a missing export file, incomplete graph, conflicting package record, or configuration mismatch
+        - When the component check starts
+        - Then it exits as a tool error naming the component and offending package before `packages.Load` executes.
+    addressed: yes
+    evidence: |
+      Both validation entry points wrap failures with runtime component context
+      (`go/internal/packagelayout/packagelayout.go:1392-1404,1719-1731`),
+      derived from the layout artifact at `ordinary_import_data.go:91-135`.
+      `TestValidateAndResolveForMemberOnlyRejectsMalformedStdlibExportMetadata`
+      (`go/internal/packagelayout/export_data_test.go:446-539`) covers metadata,
+      graph, export, and target failures, while
+      `TestValidateAndResolveRejectsMaliciousStdlibPackagePath` covers the
+      hostile descriptor path and component name.
+  - text: |
+      **Transitional load remains green**
+        - Given export layouts are now emitted but `NeedDeps` has not yet been removed
+        - When `just ci` runs
+        - Then existing checks continue to pass using the temporarily retained closure sources.
+    addressed: yes
+    evidence: |
+      `_checked_analysis_action` continues to stage `closure_srcs` and SDK
+      sources while adding the ordinary graph/export inputs
+      (`bazel_rules/go/private/component.bzl:633-692`). The final recorded
+      `just ci` run in `work.log` passed Go vet/format/build, unit and
+      integration tests, selfcheck staging, `bazel build //...`, and all 140
+      Bazel tests.
+
+artifacts:
+  scratchpad_dir: .agents/scratchpad/2026-08-04-compositional-component-analysis/step08/task-04-emit-export-data-layouts/
+  files:
+    - context.md
+    - plan.md
+    - progress.md
+    - work.log
+    - result.yaml
+
+notes: |
+  Review round 1 replaces the incomplete rules_go `pkg.deps`-only graph with a
+  declared arcc-owned exact ordinary-import descriptor, so non-member edges to
+  standard-library packages survive without non-member source at load time. It
+  also adds component-aware pre-load diagnostics and rejects unsafe stdlib
+  package paths before SDK source resolution. The fresh child change is
+  uqzmkoslqtlozpyzkosykkwvtznrpsmw; the working copy is empty and all validation
+  gates pass across the two fresh rework child commits.

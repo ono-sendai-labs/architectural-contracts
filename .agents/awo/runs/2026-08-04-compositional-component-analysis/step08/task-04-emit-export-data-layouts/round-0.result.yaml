@@ -1,0 +1,96 @@
+result:
+  task_file: .agents/tasks/2026-08-04-compositional-component-analysis/step08/task-04-emit-export-data-layouts.code-task.md
+  change_id: nyonozuptvrtlskkwztoxptxvuqporyv
+  status: completed
+  schema_version: 2
+  produced_at: 2026-09-11T09:09:32Z
+
+acceptance_criteria:
+  - text: |
+      **Every non-member has export data**
+        - Given a Bazel component with ordinary and stdlib packages in its transitive closure
+        - When its package layout is resolved in the check sandbox
+        - Then every reachable non-member other than `unsafe` has a real `ExportFile` and an explicit import map.
+    addressed: yes
+    evidence: |
+      `_layout_content` at `bazel_rules/go/private/component.bzl:164-176` emits
+      ordinary non-member `ExportFile` and explicit `Imports`; the stdlib
+      descriptor is merged by `ResolveStdlibExportData` at
+      `go/internal/packagelayout/stdlib_export_data.go:77-128`, and reachable
+      artifacts are checked at `:329-389`. `TestValidateAndResolveForMemberOnlyMergesStdlibExportMetadata`
+      and `export_files_are_collected_test` cover the resulting shape.
+  - text: |
+      **Members retain source ownership**
+        - Given the same component
+        - When the effective layout is inspected
+        - Then component roots retain their member Go files and are not replaced by their own archives.
+    addressed: yes
+    evidence: |
+      `_layout_content` always writes root `GoFiles`/`CompiledGoFiles` and
+      only adds `ExportFile` outside `root_set` (`bazel_rules/go/private/component.bzl:139-177`).
+      `TestValidateAndResolveForMemberOnlyMergesStdlibExportMetadata` asserts
+      the member source role and no member export role; `export_layout_shape_test`
+      asserts the emitted Bazel layout shape.
+  - text: |
+      **Full graph is preserved**
+        - Given a deep dependency whose exported API does not mention one of its own imports
+        - When the layout is emitted and validated
+        - Then that import and its transitive node remain in the graph with export data.
+    addressed: yes
+    evidence: |
+      The runtime merger converts every descriptor import ID into an explicit
+      layout edge and traverses it deterministically (`go/internal/packagelayout/stdlib_export_data.go:235-326,329-389`).
+      `TestValidateAndResolveForMemberOnlyMergesStdlibExportMetadata` checks the
+      fmt→io edge and leaf, while Task 1's deep closure coverage remains green.
+  - text: |
+      **All staged paths resolve hermetically**
+        - Given external-repository ordinary archives and target stdlib exports
+        - When the checked action enters its runfiles frame
+        - Then every layout export path resolves to a declared input without an absolute or parent-escaping path.
+    addressed: yes
+    evidence: |
+      The action declares ordinary exports plus the stdlib descriptor's exact
+      metadata/tree input set at `bazel_rules/go/private/component.bzl:591-623`.
+      The deterministic root/overlay frame builder is at `:402-542`, and
+      `TestStdlibExportMetadataMapsExecrootArtifactsToRunfilesFrame` covers
+      both path frames. `checked_action_inputs_test` verifies `shared.x`,
+      `stdlib.pkg.json`, `gocache`, and `pkg` are action inputs.
+  - text: |
+      **Invalid metadata fails before load**
+        - Given a missing export file, incomplete graph, conflicting package record, or configuration mismatch
+        - When the component check starts
+        - Then it exits as a tool error naming the component and offending package before `packages.Load` executes.
+    addressed: yes
+    evidence: |
+      `ResolveStdlibExportData` validates descriptor identity and metadata before
+      `ValidateAndResolve` (`go/internal/packagelayout/stdlib_export_data.go:82-128`),
+      while `validateReachableExportClosure` rejects missing/unsafe exports,
+      absent IDs, and bad edges before a driver response (`:329-389`).
+      `TestValidateAndResolveForMemberOnlyRejectsMalformedStdlibExportMetadata`
+      covers missing metadata, duplicate identity, incomplete graph, unsafe
+      export path, missing export, and target mismatch; ordinary conflicts are
+      rejected by `merge_by_importpath`.
+  - text: |
+      **Transitional load remains green**
+        - Given export layouts are now emitted but `NeedDeps` has not yet been removed
+        - When `just ci` runs
+        - Then existing checks continue to pass using the temporarily retained closure sources.
+    addressed: yes
+    evidence: |
+      `_checked_analysis_action` retains `closure_srcs` and `go_sdk_srcs(ctx)`
+      while adding export inputs (`bazel_rules/go/private/component.bzl:565-623`);
+      production load modes remain unchanged. The final `just ci` run in
+      `work.log` passed Go, integration, self-check, Bazel build/test, and shell
+      validations.
+
+artifacts:
+  scratchpad_dir: .agents/scratchpad/2026-08-04-compositional-component-analysis/step08/task-04-emit-export-data-layouts/
+  files:
+    - context.md
+    - plan.md
+    - progress.md
+    - work.log
+    - result.yaml
+
+notes: |
+  Connected ordinary archive exports and target-configured rules_go standard-library metadata to the emitted package layout and checked action. The runtime now materializes deterministic stdlib graph records, validates export artifacts and target identity before loading, and supports both execroot and runfiles frames; the transitional source-backed loader remains active for Task 5. Focused Go/Bazel coverage and the final `just ci` gate pass across two fresh unbookmarked jj changes.

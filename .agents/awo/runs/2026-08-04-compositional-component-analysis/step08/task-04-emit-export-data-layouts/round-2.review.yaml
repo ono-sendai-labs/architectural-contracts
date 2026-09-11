@@ -1,0 +1,112 @@
+review:
+  task_file: .agents/tasks/2026-08-04-compositional-component-analysis/step08/task-04-emit-export-data-layouts.code-task.md
+  change_id: kuyumxnxsmxwxyymtqksqysyluvqymlt
+  reviewed_at: 2026-09-11T11:27:16Z
+  verdict: approved
+  schema_version: 2
+  lsp_coverage: unavailable
+
+merge_request:
+  title: "feat(packagelayout): emit export-backed component layouts [Compositional Analysis: Step 08/Task 04]"
+  body: |
+    Reviews the export-backed layout implementation qnnlrttvzuyvktzxqlokxmvpmukpnwrp,
+    export-frame rework nyonozuptvrtlskkwztoxptxvuqporyv, ordinary graph and
+    diagnostic hardening tqmqzunoszqvrvzlsuruktnosppxnnzx, final layout assembly
+    uqzmkoslqtlozpyzkosykkwvtznrpsmw, and final topology/determinism coverage
+    kuyumxnxsmxwxyymtqksqysyluvqymlt. The corrected specification is based on
+    xsswztkmrnrkzmumxosypwuqrqmnuquy.
+
+summary: |
+  The corrected specification explicitly permits the declared-input-only ArccImportGraph and ArccLayout auxiliary actions, while the component still has exactly one ArccCheck action. All prior review findings are resolved: ordinary-to-stdlib edges are emitted and validated, component-aware diagnostics and SDK-root containment are covered, and final-layout determinism now has execution coverage. Focused Go tests, full Go/integration tests, Bazel's 142 tests, and the recorded just ci validation pass.
+
+acceptance_criteria:
+  - text: |
+      **Every non-member has export data**
+        - Given a Bazel component with ordinary and stdlib packages in its transitive closure
+        - When its package layout is resolved in the check sandbox
+        - Then every reachable non-member other than `unsafe` has a real `ExportFile` and an explicit import map.
+    status: pass
+    evidence: |
+      Ordinary non-members receive export files and base import maps at
+      `bazel_rules/go/private/component.bzl:164-175`; `ArccLayout` applies the
+      exact maps at `bazel_rules/go/private/component.bzl:313-330` and
+      `go/internal/packagelayout/ordinary_import_data.go:304-408`.
+      Stdlib records and reachable exports are merged and validated at
+      `go/internal/packagelayout/stdlib_export_data.go:330-497`.
+      Runtime and Bazel coverage appears at
+      `go/internal/packagelayout/export_data_test.go:315-368` and
+      `bazel_rules/go/tests/component_tests.bzl:731-751`.
+  - text: |
+      **Members retain source ownership**
+        - Given the same component
+        - When the effective layout is inspected
+        - Then component roots retain their member Go files and are not replaced by their own archives.
+    status: pass
+    evidence: |
+      `_layout_content` emits source fields for every package and adds
+      `ExportFile` only outside `root_set` at
+      `bazel_rules/go/private/component.bzl:152-167`. The member-root assertion
+      is at `go/internal/packagelayout/export_data_test.go:306-312`, with the
+      corresponding Bazel shape checks at
+      `bazel_rules/go/tests/component_tests.bzl:741-755`.
+  - text: |
+      **Full graph is preserved**
+        - Given a deep dependency whose exported API does not mention one of its own imports
+        - When the layout is emitted and validated
+        - Then that import and its transitive node remain in the graph with export data.
+    status: pass
+    evidence: |
+      The prior review's partial status is resolved by the source-import
+      projection at `bazel_rules/go/private/component.bzl:247-310` and final
+      layout assembly at `:313-330,848-873`. The final golden retains
+      `example.com/aspect/lowlevel` -> `strings` at
+      `bazel_rules/go/tests/goldens/member_component.package-layout.json:64-78`.
+      The source-unavailable member-only case is covered at
+      `go/internal/packagelayout/export_data_test.go:315-368`.
+  - text: |
+      **All staged paths resolve hermetically**
+        - Given external-repository ordinary archives and target stdlib exports
+        - When the checked action enters its runfiles frame
+        - Then every layout export path resolves to a declared input without an absolute or parent-escaping path.
+    status: pass
+    evidence: |
+      The checked action declares ordinary exports, the ordinary graph
+      descriptor, stdlib metadata/trees, and transitional sources at
+      `bazel_rules/go/private/component.bzl:683-715`; the frame builder is at
+      `:494-634`. The action-input test verifies the declared artifacts and
+      wrapper entries at `bazel_rules/go/tests/component_tests.bzl:626-651`,
+      and runtime export-path validation is at
+      `go/internal/packagelayout/packagelayout.go:2166-2221`.
+  - text: |
+      **Invalid metadata fails before load**
+        - Given a missing export file, incomplete graph, conflicting package record, or configuration mismatch
+        - When the component check starts
+        - Then it exits as a tool error naming the component and offending package before `packages.Load` executes.
+    status: pass
+    evidence: |
+      The prior review's partial status is resolved by layout-path component
+      context at `go/internal/packagelayout/ordinary_import_data.go:82-114`
+      and validation wrapping at `go/internal/packagelayout/packagelayout.go:1390-1402,1717-1729`.
+      Ordinary and stdlib metadata, graph, identity, target, and artifact checks
+      run before the driver response at
+      `go/internal/packagelayout/ordinary_import_data.go:174-277` and
+      `go/internal/packagelayout/stdlib_export_data.go:134-177,330-497`.
+      `TestRunDriverNamesDerivedComponentOnMetadataError` verifies the derived
+      component diagnostic at `go/internal/packagelayout/export_data_test.go:508-547`.
+  - text: |
+      **Transitional load remains green**
+        - Given export layouts are now emitted but `NeedDeps` has not yet been removed
+        - When `just ci` runs
+        - Then existing checks continue to pass using the temporarily retained closure sources.
+    status: pass
+    evidence: |
+      Closure and SDK sources remain staged alongside export and graph inputs
+      at `bazel_rules/go/private/component.bzl:657-715`. The final recorded
+      `just ci` run passed all gates at
+      `.agents/scratchpad/2026-08-04-compositional-component-analysis/step08/task-04-emit-export-data-layouts/work.log:408-416`,
+      and the independent re-review run passed Go unit/integration tests and
+      all 142 Bazel tests.
+
+findings: []
+
+ecosystem_reviews: []

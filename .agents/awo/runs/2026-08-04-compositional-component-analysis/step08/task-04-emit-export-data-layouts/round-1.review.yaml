@@ -1,0 +1,176 @@
+review:
+  task_file: .agents/tasks/2026-08-04-compositional-component-analysis/step08/task-04-emit-export-data-layouts.code-task.md
+  change_id: uqzmkoslqtlozpyzkosykkwvtznrpsmw
+  reviewed_at: 2026-09-11T11:01:55Z
+  verdict: escalated
+  schema_version: 2
+  lsp_coverage: unavailable
+
+merge_request:
+  title: "feat(packagelayout): emit export-backed component layouts [Compositional Analysis: Step 08/Task 04]"
+  body: |
+    Reviews the initial implementation qnnlrttvzuyvktzxqlokxmvpmukpnwrp,
+    export-frame rework nyonozuptvrtlskkwztoxptxvuqporyv, complete ordinary
+    graph rework tqmqzunoszqvrvzlsuruktnosppxnnzx, and final emitted-layout
+    assembly uqzmkoslqtlozpyzkosykkwvtznrpsmw. The series adds ordinary and
+    stdlib export metadata, graph projection, runtime validation, action/frame
+    inputs, tests, and documentation.
+
+summary: |
+  All three prior review findings are addressed: the final layout preserves the lowlevel-to-strings edge, runtime validation carries derived component context, and standard-library package paths are checked for SDK containment. Focused Go/Bazel tests and the recorded full CI run pass. The rework achieves the missing graph by adding source-scanning `ArccImportGraph` and `ArccLayout` actions, which conflicts with the task's explicit prohibition on an extra analysis action under the pinned rules_go provider contract. The determinism analysis test was also narrowed to compare base layouts rather than the final assembled layouts.
+
+acceptance_criteria:
+  - text: |
+      **Every non-member has export data**
+        - Given a Bazel component with ordinary and stdlib packages in its transitive closure
+        - When its package layout is resolved in the check sandbox
+        - Then every reachable non-member other than `unsafe` has a real `ExportFile` and an explicit import map.
+    status: pass
+    evidence: |
+      Ordinary non-members receive export files in the base layout at
+      `bazel_rules/go/private/component.bzl:164-175`; the final assembled
+      layout preserves their explicit maps via
+      `go/internal/packagelayout/ordinary_import_data.go:304-408`.
+      Stdlib records and reachable export artifacts are merged and validated at
+      `go/internal/packagelayout/stdlib_export_data.go:330-497`.
+      Coverage includes `go/internal/packagelayout/export_data_test.go:315-368`
+      and the Bazel shape/input tests at
+      `bazel_rules/go/tests/component_tests.bzl:731-751`.
+  - text: |
+      **Members retain source ownership**
+        - Given the same component
+        - When the effective layout is inspected
+        - Then component roots retain their member Go files and are not replaced by their own archives.
+    status: pass
+    evidence: |
+      `_layout_content` emits `GoFiles` and `CompiledGoFiles` for every package
+      and adds `ExportFile` only outside `root_set` at
+      `bazel_rules/go/private/component.bzl:152-167`. The member-only runtime
+      test verifies the root remains source-owned at
+      `go/internal/packagelayout/export_data_test.go:306-312`, and the Bazel
+      shape test checks the corresponding base layout at
+      `bazel_rules/go/tests/component_tests.bzl:741-755`.
+  - text: |
+      **Full graph is preserved**
+        - Given a deep dependency whose exported API does not mention one of its own imports
+        - When the layout is emitted and validated
+        - Then that import and its transitive node remain in the graph with export data.
+    status: pass
+    evidence: |
+      The prior review's partial status is addressed by the new ordinary graph
+      projection and final layout assembly at
+      `bazel_rules/go/private/component.bzl:247-330,848-873`. The final golden
+      now contains `example.com/aspect/lowlevel` -> `strings` at
+      `bazel_rules/go/tests/goldens/member_component.package-layout.json:64-78`,
+      while the source fixture establishes that direct edge at
+      `bazel_rules/go/tests/testdata/lowlevel/lowlevel.go:3`.
+      Source-unavailable member-only resolution is covered at
+      `go/internal/packagelayout/export_data_test.go:315-368`.
+  - text: |
+      **All staged paths resolve hermetically**
+        - Given external-repository ordinary archives and target stdlib exports
+        - When the checked action enters its runfiles frame
+        - Then every layout export path resolves to a declared input without an absolute or parent-escaping path.
+    status: pass
+    evidence: |
+      The checked action declares ordinary exports, the ordinary graph
+      descriptor, stdlib metadata/trees, and retained transitional sources at
+      `bazel_rules/go/private/component.bzl:683-715`. The deterministic frame
+      builder is at `:402-634`, and the action-input test verifies the graph,
+      ordinary export, stdlib metadata, and export-tree inputs plus wrapper
+      entries at `bazel_rules/go/tests/component_tests.bzl:626-651`.
+      Runtime export-path validation remains at
+      `go/internal/packagelayout/packagelayout.go:2166-2221`.
+  - text: |
+      **Invalid metadata fails before load**
+        - Given a missing export file, incomplete graph, conflicting package record, or configuration mismatch
+        - When the component check starts
+        - Then it exits as a tool error naming the component and offending package before `packages.Load` executes.
+    status: pass
+    evidence: |
+      The prior review's partial status is addressed by runtime component
+      derivation and error wrapping in
+      `go/internal/packagelayout/ordinary_import_data.go:82-114` and
+      `go/internal/packagelayout/packagelayout.go:1390-1402,1717-1729`.
+      Pre-load graph, identity, and artifact validation is performed before the
+      driver response at
+      `go/internal/packagelayout/ordinary_import_data.go:174-277` and
+      `go/internal/packagelayout/stdlib_export_data.go:134-177,330-497`.
+      `TestRunDriverNamesDerivedComponentOnMetadataError` verifies the context
+      at `go/internal/packagelayout/export_data_test.go:508-547`.
+  - text: |
+      **Transitional load remains green**
+        - Given export layouts are now emitted but `NeedDeps` has not yet been removed
+        - When `just ci` runs
+        - Then existing checks continue to pass using the temporarily retained closure sources.
+    status: pass
+    evidence: |
+      `_checked_analysis_action` retains closure and SDK sources while adding
+      export and graph inputs at `bazel_rules/go/private/component.bzl:657-715`.
+      The final recorded `just ci` run passed Go, integration, self-check,
+      Bazel, and shell validations at
+      `.agents/scratchpad/2026-08-04-compositional-component-analysis/step08/task-04-emit-export-data-layouts/work.log:436-687`.
+
+findings:
+  - severity: critical
+    category: architecture
+    file: bazel_rules/go/private/component.bzl
+    line: 296
+    title: Exact graph requires actions forbidden by the task
+    details: |
+      The prior critical graph finding is behaviorally fixed, but the selected
+      remedy introduces a source-scanning `ArccImportGraph` action at
+      `bazel_rules/go/private/component.bzl:247-310` and a separate `ArccLayout`
+      assembly action at `:313-330,867-870`. `ArccImportGraph` parses every
+      non-member source file to recover implicit standard-library edges, and
+      `bazel aquery` confirms that building the ordinary member component now
+      registers two actions (`ArccImportGraph` and `ArccLayout`). This conflicts
+      with Technical Requirement 6's explicit prohibition on an extra analysis
+      action and with the one-analysis-action topology. The pinned rules_go
+      `GoArchive.direct` projection does not expose implicit SDK imports, so
+      removing these actions restores the topology only by reintroducing the
+      incomplete graph that the prior review found.
+    suggested_action: |
+      Resolve the specification/design conflict before another implementation
+      round: either explicitly permit a declared metadata projection/assembly
+      action, or provide a permitted upstream complete ordinary-import graph
+      artifact/provider. Once that contract is decided, re-review the resulting
+      implementation against the updated task constraints.
+    source: built-in
+  - severity: important
+    category: tests
+    file: bazel_rules/go/tests/component_tests.bzl
+    line: 404
+    title: Determinism test no longer checks final layouts
+    details: |
+      The pre-rework determinism test compared the final generated
+      `multi_infra_a.package-layout.json` and `multi_infra_b.package-layout.json`.
+      The current change redirects both lookups to
+      `multi_infra_*.package-layout.base.json` at
+      `bazel_rules/go/tests/component_tests.bzl:404-408`, so it no longer covers
+      the `ArccLayout` output or the exact ordinary import maps. The API/member
+      goldens cover two fixed final layouts, but no equivalent final-layout
+      comparison remains for the reordered multi-infra pair. This is a coverage
+      regression introduced while splitting layout generation into actions.
+    suggested_action: |
+      Restore the final-layout comparison for the reordered pair, or add an
+      equivalent assertion over both final assembled outputs while retaining the
+      base-layout assertions needed for analysis-time inspection.
+    source: built-in
+
+ecosystem_reviews: []
+
+escalation:
+  reason: spec_defect
+  details: |
+    The pinned rules_go provider supplies declared archive dependencies through
+    `GoArchive.direct` but omits implicit standard-library imports. The task
+    simultaneously requires exact ordinary-to-stdlib edges in the emitted
+    member-only graph, forbids recovering non-member imports from source at load
+    time, and forbids introducing an extra analysis action. The rework can meet
+    the graph requirement only by adding the `ArccImportGraph` source-scanning
+    and `ArccLayout` assembly actions. Removing those actions makes the existing
+    lowlevel -> strings graph incomplete; retaining them violates the explicit
+    action-topology requirement. This requires a specification/design decision
+    or a new permitted upstream graph contract, so another automatic rework round
+    would not be useful.

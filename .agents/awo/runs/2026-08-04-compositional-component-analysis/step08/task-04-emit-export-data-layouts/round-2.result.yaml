@@ -1,0 +1,96 @@
+result:
+  task_file: .agents/tasks/2026-08-04-compositional-component-analysis/step08/task-04-emit-export-data-layouts.code-task.md
+  change_id: kuyumxnxsmxwxyymtqksqysyluvqymlt
+  status: completed
+  schema_version: 2
+  produced_at: 2026-09-11T11:19:40Z
+
+acceptance_criteria:
+  - text: |
+      **Every non-member has export data**
+        - Given a Bazel component with ordinary and stdlib packages in its transitive closure
+        - When its package layout is resolved in the check sandbox
+        - Then every reachable non-member other than `unsafe` has a real `ExportFile` and an explicit import map.
+    addressed: yes
+    evidence: |
+      Existing emitter and runtime coverage remains green: ordinary export
+      fields and maps are emitted by `bazel_rules/go/private/component.bzl:152-177`
+      and stdlib records are merged by `go/internal/packagelayout/stdlib_export_data.go`.
+      `go/internal/packagelayout/export_data_test.go:277-368` and the Bazel
+      export-layout/action-input tests cover the ordinary and stdlib closure.
+  - text: |
+      **Members retain source ownership**
+        - Given the same component
+        - When the effective layout is inspected
+        - Then component roots retain their member Go files and are not replaced by their own archives.
+    addressed: yes
+    evidence: |
+      `_layout_content` assigns `ExportFile` only outside `root_set` while
+      retaining `GoFiles` and `CompiledGoFiles` at
+      `bazel_rules/go/private/component.bzl:152-177`. The member-root assertions
+      in `go/internal/packagelayout/export_data_test.go:306-312` remain green.
+  - text: |
+      **Full graph is preserved**
+        - Given a deep dependency whose exported API does not mention one of its own imports
+        - When the layout is emitted and validated
+        - Then that import and its transitive node remain in the graph with export data.
+    addressed: yes
+    evidence: |
+      The exact ordinary graph projection and layout merge remain in
+      `bazel_rules/go/private/component.bzl:247-330,849-872`; runtime coverage
+      in `go/internal/packagelayout/export_data_test.go:315-368,391-488`
+      preserves direct ordinary-to-stdlib edges and their reachable export node.
+  - text: |
+      **All staged paths resolve hermetically**
+        - Given external-repository ordinary archives and target stdlib exports
+        - When the checked action enters its runfiles frame
+        - Then every layout export path resolves to a declared input without an absolute or parent-escaping path.
+    addressed: yes
+    evidence: |
+      `_checked_analysis_action` stages ordinary exports, the graph descriptor,
+      stdlib metadata/export trees, and transitional sources in both the action
+      inputs and frame at `bazel_rules/go/private/component.bzl:683-719`.
+      Runtime path validation remains covered by the prior package-layout tests;
+      the focused action-input and frame tests pass.
+  - text: |
+      **Invalid metadata fails before load**
+        - Given a missing export file, incomplete graph, conflicting package record, or configuration mismatch
+        - When the component check starts
+        - Then it exits as a tool error naming the component and offending package before `packages.Load` executes.
+    addressed: yes
+    evidence: |
+      Pre-load metadata, graph, identity, artifact, path, and target validation
+      remains covered by `go/internal/packagelayout/export_data_test.go:370-388,549`
+      and the existing runtime validation in `ordinary_import_data.go` and
+      `stdlib_export_data.go`; component context is preserved in the diagnostics.
+  - text: |
+      **Transitional load remains green**
+        - Given export layouts are now emitted but `NeedDeps` has not yet been removed
+        - When `just ci` runs
+        - Then existing checks continue to pass using the temporarily retained closure sources.
+    addressed: yes
+    evidence: |
+      Closure and SDK sources remain explicitly staged in the checked action at
+      `bazel_rules/go/private/component.bzl:687-715`. The corrected requirement
+      6 topology is covered by `component_tests.bzl:534-611`: exactly one
+      `ArccCheck` remains, `ArccImportGraph` and `ArccLayout` are auxiliary
+      declared-input producers, and their request/base inputs do not leak into
+      the check action. The final `just ci` record is in work.log:408-416.
+
+artifacts:
+  scratchpad_dir: .agents/scratchpad/2026-08-04-compositional-component-analysis/step08/task-04-emit-export-data-layouts/
+  files:
+    - context.md
+    - plan.md
+    - progress.md
+    - work.log
+    - result.yaml
+
+notes: |
+  The important determinism finding is fixed by retaining the analysis-time
+  base-layout comparison and adding a final-output execution comparison for
+  the reordered multi-infra pair. The corrected requirement 6 is satisfied:
+  auxiliary graph/layout actions are declared-input-only, use arcc rather than
+  toolchain binaries, block network access, and leave exactly one ArccCheck
+  action with its own transitional inputs. The fresh child jj change is
+  kuyumxnxsmxwxyymtqksqysyluvqymlt, with an empty working copy.
