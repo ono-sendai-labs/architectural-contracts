@@ -12,7 +12,7 @@ go_library(
 # A component dependency may be rooted inside the consumer's package subtree;
 # directory nesting no longer describes ownership. `check_tags = ["manual"]`
 # keeps this analysis-only fixture's generated check out of the default test
-# suite; the component itself stays on the checked path (Step 5 task 05).
+# suite; the component itself stays on the checked path.
 go_component(
     name = "nested_component",
     component_deps = ["//bazel_rules/go/tests/testdata/nested/child:child_component"],

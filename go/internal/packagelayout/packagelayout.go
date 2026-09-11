@@ -1602,7 +1602,7 @@ func ValidateAndResolve(l *Layout, workspaceDir string) (err error) {
 							p.Imports[impPath] = &packages.Package{ID: target.ID}
 						}
 					} else if l.StdlibExportData != nil && l.IsStdlibPackage(target) {
-						// The transitional emitter can provide ordinary package
+						// The source-backed emitter can provide ordinary package
 						// edges from the aspect while the standard-library descriptor
 						// supplies the SDK graph. Complete this cross-source edge
 						// from the surviving source for the source-backed path; the

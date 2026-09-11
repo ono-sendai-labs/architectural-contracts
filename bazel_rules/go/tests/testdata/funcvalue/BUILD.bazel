@@ -11,7 +11,7 @@ go_library(
 # Exposes FILES authority through an exported function value but declares
 # nothing, so the auto-generated `funcvalue_component.check` would fail.
 # `check_tags = ["manual"]` keeps it out of `bazel test //...` while the
-# component stays checked (Step 5 task 05 fixture migration);
+# component stays checked;
 # //bazel_rules/go/tests drives the negative assertion explicitly with
 # expect_violation = True.
 go_component(

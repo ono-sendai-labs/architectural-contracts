@@ -1,4 +1,4 @@
-"""The arcc-side identity metadata the Bazel rules must mirror (Step 5 task 05, req 5).
+"""The arcc-side identity metadata the Bazel rules must mirror.
 
 An asserted surface is written at analysis time from data already known to the
 rule (design I6), so the identity fields the checked CLI emitter stamps —

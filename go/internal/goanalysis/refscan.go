@@ -276,11 +276,9 @@ func memberSourceSite(p *packages.Package, root string, pos token.Pos) (facts.So
 }
 
 // memberSiteRoot returns the root a member file's component-relative site is
-// computed against: the component root for files under it, or — for the
-// transitional out-of-root members self-hosting retains until the Step 7
-// surface cutover (the duplicated protobuf-runtime closure) — the declaring
-// module's directory, so site paths stay clean, deterministic relative paths
-// without leaking the host's module cache location. A member file under
+// computed against: the component root for files under it, or, for supported
+// out-of-root members, the declaring module's directory, so site paths stay
+// clean and deterministic without leaking the host's module cache location. A member file under
 // neither root is a fail-closed tool error.
 func memberSiteRoot(p *packages.Package, root, file string) (string, error) {
 	if underDir(root, file) {

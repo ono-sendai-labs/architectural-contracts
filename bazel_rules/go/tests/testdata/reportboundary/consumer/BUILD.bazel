@@ -18,7 +18,7 @@ go_library(
 # This report is exercised explicitly below; the consumer's generated check
 # carries scheduling-only `check_tags = ["manual"]` so the fixture does not become an
 # unrelated repository-wide check, while the component itself stays checked
-# (Step 5 task 05 fixture migration).
+# while the dependency remains an explicit checked component edge.
 go_component(
     name = "consumer_component",
     component_deps = [
