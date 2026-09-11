@@ -35,12 +35,10 @@ load(
     "GO_TOOLCHAINS",
     "forward_go_providers",
     "go_attached_infra",
-    "go_build_platform",
+	"go_build_platform",
     "go_importpath",
     "go_library_srcs",
     "go_sdk_root",
-    "go_sdk_srcs",
-    "go_stdlib_toolchain",
     "go_stdlib_export_data",
     "go_target_mode",
 )
@@ -166,10 +164,10 @@ def _layout_content(ctx, merged, roots, go_sdk_root, platform, target, dependenc
                 fail("package %s has no export file for non-member package %s" % (ctx.label.name, importpath))
             package["ExportFile"] = runfiles_path(ctx, pkg.export_file)
             # Keep the aspect's declared archive projection in the base layout
-            # for migration-safe inspection. The member-only driver ignores
-            # these compatibility source fields and uses the exact source
-            # import set from ordinary_import_data, including implicit
-            # standard-library edges.
+            # for inspection. The member-only driver ignores these compatibility
+            # source fields and uses the exact source import set from
+            # ordinary_import_data, including implicit standard-library edges;
+            # the checked action stages only member sources.
             package["Imports"] = {
                 dep: dep
                 for dep in sorted(pkg.deps)
@@ -634,7 +632,7 @@ def _frame_symlink_commands(files, workspace_name, preferred_files = []):
         ))
     return commands
 
-def _checked_analysis_action(ctx, manifest, layout, closure_srcs, export_files, ordinary_import_data, stdlib_export_data, transitive_manifests, transitive_layouts, dep_artifacts, dep_runfiles, sdk_root_file):
+def _checked_analysis_action(ctx, manifest, layout, member_srcs, export_files, ordinary_import_data, stdlib_export_data, dep_artifacts):
     """The checked-component analysis action (design R8, task reqs 1/3/5/6).
 
     One ordinary action running `command.bzl`'s analysis argv — the exact
@@ -655,13 +653,14 @@ def _checked_analysis_action(ctx, manifest, layout, closure_srcs, export_files, 
     so the action stays deterministic and hermetic (I5) while keeping the
     existing layout-driver working-directory contract.
 
-    Inputs retain the migration-safe source set and add the Step 8
-    export closure: ordinary non-member archive exports, the exact
-    ordinary-import graph descriptor, plus the target-configured stdlib metadata
-    and generated export trees. The SDK and closure sources remain deliberately
-    staged until the Step 8 input-pruning task; the member-only loader does not
-    read them. The descriptor's `inputs` is the complete host-neutral stdlib
-    input set, so the action does not need to know any rules_go provider details.
+    Inputs are the final Step 8 allowlist: selected member sources, ordinary
+    non-member archive exports, the exact ordinary-import graph descriptor, the
+    target-configured stdlib metadata/export trees, the component's manifest and
+    layout, the authority map, and direct dependency surfaces/reports. The SDK
+    source tree, dependency source closure, and provider runfiles are deliberately
+    absent: the member-only loader does not read them. The descriptor's `inputs`
+    is the complete host-neutral stdlib input set, so the action does not need to
+    know any rules_go provider details.
 
     No environment at all: the argv and the frame symlinks fully determine
     the action; network access is blocked.
@@ -685,18 +684,14 @@ def _checked_analysis_action(ctx, manifest, layout, closure_srcs, export_files, 
     # inputs. Keeping them in this list makes repository symlink construction
     # independent of transitive dependency runfiles, which may contain the
     # files today only as an incidental consequence of provider wiring.
-    sdk_source_files = go_sdk_srcs(ctx).to_list()
     ordinary_import_inputs = [ordinary_import_data.metadata] if ordinary_import_data != None else []
-    frame_files = list(closure_srcs) + list(export_files) + ordinary_import_inputs + list(dep_artifacts) + [sdk_root_file]
-    frame_files += sdk_source_files
+    frame_files = list(member_srcs) + list(export_files) + ordinary_import_inputs + list(dep_artifacts)
     stdlib_export_inputs = stdlib_export_data.inputs.to_list()
     frame_files += stdlib_export_inputs
-    frame_files += transitive_manifests.to_list() + transitive_layouts.to_list()
-    frame_files += dep_runfiles.to_list()
-    preferred_frame_files = list(closure_srcs) + list(export_files) + ordinary_import_inputs + list(dep_artifacts) + [sdk_root_file]
-    preferred_frame_files += sdk_source_files
+    frame_files += [manifest, layout, map_file]
+    preferred_frame_files = list(member_srcs) + list(export_files) + ordinary_import_inputs + list(dep_artifacts)
     preferred_frame_files += stdlib_export_inputs
-    preferred_frame_files += transitive_manifests.to_list() + transitive_layouts.to_list()
+    preferred_frame_files += [manifest, layout, map_file]
 
     ctx.actions.write(
         output = wrapper,
@@ -711,8 +706,8 @@ def _checked_analysis_action(ctx, manifest, layout, closure_srcs, export_files, 
         executable = wrapper,
         arguments = argv,
         inputs = depset(
-            direct = [manifest, layout, map_file] + list(closure_srcs) + list(export_files) + ordinary_import_inputs + list(dep_artifacts),
-            transitive = [go_sdk_srcs(ctx), stdlib_export_data.inputs, transitive_manifests, transitive_layouts, dep_runfiles],
+            direct = [manifest, layout, map_file] + list(member_srcs) + list(export_files) + ordinary_import_inputs + list(dep_artifacts),
+            transitive = [stdlib_export_data.inputs],
         ),
         tools = [ctx.executable._arcc],
         outputs = [report, surface],
@@ -900,9 +895,14 @@ def go_component_impl(ctx, attachment_fn = go_attached_infra):
         ),
     )
 
-    closure_srcs = []
-    for importpath in merged:
-        closure_srcs.extend(merged[importpath].srcs)
+    member_srcs = []
+    seen_member_sources = {}
+    for importpath in members:
+        for src in merged[importpath].srcs:
+            if src.extension != "go" or src.path in seen_member_sources:
+                continue
+            seen_member_sources[src.path] = True
+            member_srcs.append(src)
 
     member_set = {importpath: True for importpath in members}
     export_files = [
@@ -969,26 +969,15 @@ def go_component_impl(ctx, attachment_fn = go_attached_infra):
     elif layout:
         # The checked producer path (design R8, task 04): one ordinary action
         # running `arcc check` in report-verdict-only mode.
-        dep_runfiles = depset(transitive = [
-            dep[DefaultInfo].default_runfiles.files
-            for dep in ctx.attr.component_deps
-        ] + [
-            target[DefaultInfo].default_runfiles.files
-            for target in auto_attached_targets
-        ])
         report, surface = _checked_analysis_action(
             ctx,
             manifest = manifest,
             layout = layout,
-            closure_srcs = closure_srcs,
+            member_srcs = member_srcs,
             export_files = export_files,
             ordinary_import_data = ordinary_import_data,
             stdlib_export_data = stdlib_export_data,
-            transitive_manifests = transitive_manifests,
-            transitive_layouts = transitive_layouts,
             dep_artifacts = dep_artifacts,
-            dep_runfiles = dep_runfiles,
-            sdk_root_file = go_stdlib_toolchain(ctx).root_file,
         )
         provenance = "checked"
 
@@ -1004,12 +993,8 @@ def go_component_impl(ctx, attachment_fn = go_attached_infra):
         transitive = [dep[ArccComponentInfo].transitive_artifacts for dep in ctx.attr.component_deps] + [info.transitive_artifacts for info in auto_attached_deps],
     )
 
-    base_runfiles = ctx.runfiles(
-        files = closure_srcs,
-        transitive_files = depset(transitive = [transitive_manifests, transitive_layouts]),
-    )
-    dep_runfiles = [dep[DefaultInfo].default_runfiles for dep in ctx.attr.component_deps] + [target[DefaultInfo].default_runfiles for target in auto_attached_targets]
-    runfiles = base_runfiles.merge_all(dep_runfiles)
+    base_runfiles = ctx.runfiles(files = [manifest] + direct_layouts + member_srcs + dep_artifacts)
+    runfiles = base_runfiles
 
     providers = [
         DefaultInfo(

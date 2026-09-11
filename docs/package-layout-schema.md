@@ -188,13 +188,13 @@ For member-only validation:
   Every such package except the builtin `unsafe` must have an export artifact
   and an explicit `Imports` map. A leaf must use `"Imports": {}`; an omitted
   or `null` field is an incomplete graph, not an empty leaf.
-- The emitter may retain non-member source fields and stage closure sources
-  during the Step 8 migration, but the active Task 5 loader ignores them.
-  Its driver response selects source for roots and `ExportFile` for non-roots;
-  the post-load guard fails if dependency syntax, type info, or source lists
-  reappear. The emitted ordinary non-member records already carry their export
-  artifact; the build-time ordinary-import descriptor supplies the exact direct
-  graph, while the stdlib descriptor supplies the target-configured SDK graph.
+- The layout may retain non-member source fields for inspection, but the checked
+  analysis action does not declare or stage them. Its driver response selects
+  source for roots and `ExportFile` for non-roots; the post-load guard fails if
+  dependency syntax, type info, or source lists reappear. The emitted ordinary
+  non-member records already carry their export artifact; the build-time
+  ordinary-import descriptor supplies the exact direct graph, while the stdlib
+  descriptor supplies the target-configured SDK graph.
 - **The graph is not an API-surface projection.** Packages and edges are kept
   even when an imported package does not appear to be referenced by the
   exporting package's public API. The validator walks sorted roots and sorted
@@ -251,12 +251,15 @@ The concrete upstream metadata uses `__BAZEL_EXECROOT__/` as a placeholder in
 each `ExportFile`. Runtime resolution strips only that leading marker, verifies
 the resulting relative path and artifact, and resolves it against the action
 execroot. A marker in any other position, an absolute path, or a parent escape
-is rejected. The checked action declares the transition input set: member and
-closure sources, the manifest/layout, ordinary non-member export files, the
-stdlib metadata file and its generated `gocache`/`pkg` export trees, direct
-dependency surfaces/reports, and the target stdlib map. The closure and SDK
-source inputs remain staged for migration safety until the Step 8 input-pruning
-task; they are not a second analysis action or a source of stdlib provenance.
+is rejected. The checked `ArccCheck` action declares exactly this input set: the
+selected member `.go` files; the manifest and package layout; ordinary
+non-member `ExportFile` artifacts and the ordinary-import graph descriptor; the
+stdlib metadata file and its generated `gocache`/`pkg` export trees; each direct
+dependency's surface and applicable report; and the target stdlib map. It does
+not declare dependency or SDK `.go` source, a Go/toolchain binary, an undeclared
+cache, or a network input. The auxiliary `ArccImportGraph` action may read
+ordinary source to project direct imports, but that source is not an input to
+the component analysis action.
 
 **Native loading.** Without a package layout, `go/packages` uses the host Go
 driver and its `go list -export` results. Native checks may therefore execute

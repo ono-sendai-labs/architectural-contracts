@@ -598,8 +598,8 @@ def _component_action_topology_impl(env, target):
 
     # Only the graph action's declared output crosses into ArccCheck. Its
     # request/source inputs and ArccLayout's base-layout input remain private
-    # to the auxiliary actions; transitional closure sources are retained for
-    # migration safety, but the member-only loader no longer reads them.
+    # to the auxiliary actions; ArccCheck owns only member sources and the
+    # export-backed load contract.
     check_inputs = [file.short_path for file in check_action.inputs.to_list()]
     check_input_basenames = [path.rsplit("/", 1)[-1] for path in check_inputs]
     env.expect.that_collection(check_input_basenames).contains("api_component.package-imports.json")
@@ -697,11 +697,10 @@ def _checked_action_inputs_impl(env, target):
     action, raw = _checked_action(env, target)
     argv = raw.argv
 
-    # Transitional Step 8 inputs: manifest, layout, today's source and
-    # runfile closure, the exact ordinary-import graph descriptor, ordinary
-    # export artifacts, target-configured stdlib metadata/export trees, SDK
-    # sources, stdlib map, and the direct dependency's report/surface artifacts
-    # — the producer edge R8 needs.
+    # Final Step 8 inputs: manifest/layout, member sources, ordinary export
+    # artifacts, the exact ordinary-import graph descriptor, target-configured
+    # stdlib metadata/export trees, stdlib map, and direct dependency
+    # report/surface artifacts. No dependency or SDK Go source may be present.
     inputs = [f.basename for f in raw.inputs.to_list()]
     env.expect.that_collection(inputs).contains("api_component.component.textproto")
     env.expect.that_collection(inputs).contains("api_component.package-layout.json")
@@ -709,11 +708,6 @@ def _checked_action_inputs_impl(env, target):
         for s in src.srcs:
             env.expect.that_collection(inputs).contains(s.basename)
     env.expect.that_collection(inputs).contains(_stdlib_map_path(env, raw).rsplit("/", 1)[-1])
-    dep_info = None
-    for dep_manifest in info.transitive_manifests.to_list():
-        if dep_manifest.basename == "shared_component.component.textproto":
-            dep_info = dep_manifest
-    env.expect.that_str(dep_info != None).equals(True)
     env.expect.that_collection(inputs).contains("shared_component.report.json")
     env.expect.that_collection(inputs).contains("shared_component.surface.json")
     env.expect.that_collection(inputs).contains("shared.x")
@@ -735,13 +729,8 @@ def _checked_action_inputs_impl(env, target):
         "api_component.surface.json",
     ])
 
-    # The transition input set is exact (AC 5), asserted in both directions
-    # from a specification-derived expectation, never from the action under
-    # test: the expected non-SDK set is built from the provider's closure,
-    # the component's own manifest/layout (declared outputs), the dependency
-    # manifest/layout/producer artifacts (named by the manifest convention),
-    # and the default seam's map artifact — then every action input outside
-    # the SDK must be in it, and every expected file must be an input.
+    # The input set is exact, asserted in both directions from a
+    # specification-derived expectation rather than from the action under test.
     sdk_frame_prefix = _sdk_repo_prefix(env, target)
     non_sdk_inputs = [
         f.basename
@@ -757,32 +746,23 @@ def _checked_action_inputs_impl(env, target):
     expected_basenames[info.layout.basename] = True
     expected_basenames["arcc_stdlib_map.stdlib-map.json"] = True
     expected_basenames["shared.x"] = True
+    expected_basenames["shared_component.report.json"] = True
+    expected_basenames["shared_component.surface.json"] = True
     expected_basenames["stdlib.pkg.json"] = True
     expected_basenames["gocache"] = True
     expected_basenames["pkg"] = True
     expected_basenames["api_component.package-imports.json"] = True
-    for manifest in info.transitive_manifests.to_list():
-        if manifest == info.manifest:
-            continue
-        dep_stem = manifest.basename[:-len(".component.textproto")]
-        expected_basenames[manifest.basename] = True
-        expected_basenames[dep_stem + ".package-layout.json"] = True
-        expected_basenames[dep_stem + ".report.json"] = True
-        expected_basenames[dep_stem + ".surface.json"] = True
 
     unexpected = [
         basename
         for basename in non_sdk_inputs
         if not expected_basenames.get(basename)
         # The arcc tool and its runfiles (the argv[1] executable, declared as
-        # a tool), the generated frame wrapper (the action's executable), and
-        # covered dependency sources — today's source/runfile closure, which
-        # The closure source is intentionally retained until Step 8's
-        # input-pruning task; the member-only loader ignores it.
+        # a tool) and the generated frame wrapper (the action's executable)
+        # are Bazel execution machinery, not semantic inputs.
         and basename != argv[1].rsplit("/", 1)[-1]
         and basename != "arcc.runfiles"
         and basename != argv[0].rsplit("/", 1)[-1]
-        and not basename.endswith(".go")
     ]
     env.expect.that_collection(unexpected).contains_exactly([])
     input_set = {basename: True for basename in non_sdk_inputs}
@@ -792,6 +772,18 @@ def _checked_action_inputs_impl(env, target):
         if not input_set.get(basename)
     ]
     env.expect.that_collection(missing).contains_exactly([])
+
+    member_source_basenames = {
+        source.basename: True
+        for member in info.closure.to_list()
+        for source in member.srcs
+        if source.extension == "go"
+    }
+    env.expect.that_collection([
+        basename
+        for basename in non_sdk_inputs
+        if basename.endswith(".go")
+    ]).contains_exactly(sorted(member_source_basenames.keys()))
 
     # Export artifacts and the generated stdlib cache/pkg trees are now
     # intentional declared inputs. Host caches outside the generated tree and

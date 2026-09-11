@@ -274,12 +274,11 @@ def go_sdk_root(ctx):
     return _dirname(runfiles_path(ctx, root_file)) + "/src"
 
 def go_sdk_srcs(ctx):
-    """The Go SDK source files to stage into the `.check` sandbox, as a depset.
+    """The Go SDK source files used only by source-backed map generation.
 
-    The layout names standard-library packages by path and arcc type-checks the
-    closure from their sources, so they must be present at check time. A host
-    whose build already makes the SDK sources available (e.g. via the go_sdk_root
-    location) may return an empty depset.
+    Component `ArccCheck` actions consume target-configured standard-library
+    export data and never stage this depset. The seam remains available to the
+    separate source-backed `StdlibLayout`/map-generation path.
     """
     return ctx.toolchains[GO_TOOLCHAINS[0]].sdk.srcs
 

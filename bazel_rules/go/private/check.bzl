@@ -24,7 +24,7 @@ assertion and the action cannot drift (R7).
 load("//bazel_rules:providers.bzl", "ArccComponentInfo")
 load("//bazel_rules/go:providers.bzl", "ArccStdlibMapInfo")
 load(":command.bzl", "arcc_check_argv", "arcc_verdict_argv")
-load(":go_adapter.bzl", "ARCC_TARGET", "GO_TOOLCHAINS", "go_sdk_srcs")
+load(":go_adapter.bzl", "ARCC_TARGET", "GO_TOOLCHAINS")
 load(":paths.bzl", "runfiles_path")
 load(":stdlib_map.bzl", "stdlib_map_default_attr")
 
@@ -216,13 +216,11 @@ def _arcc_checked_analysis_impl(ctx):
         is_executable = True,
     )
 
-    # The stdlib source the layout names lives in the Go SDK; arcc type-checks
-    # the closure from it, so it must be present in the sandbox. The provider's
-    # report and surface — the exact artifacts the re-executed command must
+    # The provider's report and surface — the exact artifacts the re-executed command must
     # reproduce — bring the analysis action's own outputs, and through its
     # declared inputs the dependency producer chain, into the test's build
     # graph.
-    runfiles = ctx.runfiles(transitive_files = go_sdk_srcs(ctx))
+    runfiles = ctx.runfiles()
     runfiles = runfiles.merge(ctx.attr.component[DefaultInfo].default_runfiles)
     runfiles = runfiles.merge(ctx.runfiles(transitive_files = info.transitive_artifacts))
     analysis_export_inputs = getattr(info, "analysis_export_inputs", depset()) or depset()

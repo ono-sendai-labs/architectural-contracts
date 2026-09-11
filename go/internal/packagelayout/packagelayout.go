@@ -95,8 +95,8 @@ type Layout struct {
 	Packages  []*packages.Package `json:"packages"`
 	// OrdinaryImportData points at the build-time graph projection for ordinary
 	// packages. The descriptor is generated from the selected source files, so
-	// the member-only validator does not need to recover non-member imports from
-	// source when the transitional source inputs are later removed.
+	// the member-only validator never needs to recover non-member imports from
+	// source at check time.
 	OrdinaryImportData *OrdinaryImportData `json:"ordinary_import_data,omitempty"`
 	// StdlibExportData points at the target-configured standard-library package
 	// descriptor emitted by a Bazel host adapter. It is merged into Packages
@@ -1605,8 +1605,8 @@ func ValidateAndResolve(l *Layout, workspaceDir string) (err error) {
 						// The transitional emitter can provide ordinary package
 						// edges from the aspect while the standard-library descriptor
 						// supplies the SDK graph. Complete this cross-source edge
-						// from the surviving source before the member-only cutover;
-						// Task 5 will stop reading non-member sources.
+						// from the surviving source for the source-backed path; the
+						// member-only path consumes the descriptor instead.
 						if _, exists := p.Imports[impPath]; !exists {
 							p.Imports[impPath] = &packages.Package{ID: target.ID}
 						}
