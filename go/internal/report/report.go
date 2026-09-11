@@ -27,6 +27,7 @@ const (
 	AnalysisLimitation     Kind = "ANALYSIS_LIMITATION"
 	AllowedWithWarning     Kind = "ALLOWED_WITH_WARNING"
 	UnusedDependency       Kind = "UNUSED_DEPENDENCY"
+	UnusedAuthority        Kind = "UNUSED_AUTHORITY"
 	InterfaceFileExcluded  Kind = "INTERFACE_FILE_EXCLUDED"
 	DependencyCheckFailed  Kind = "DEPENDENCY_CHECK_FAILED"
 	DependencySurfaceStale Kind = "DEPENDENCY_SURFACE_STALE"

@@ -490,3 +490,28 @@ func TestFinding_JSONSitesClassSDKKeyRoundTrip(t *testing.T) {
 		t.Errorf("round trip = %+v, want %+v", got, f)
 	}
 }
+
+func TestUnusedAuthorityWarningIsPersistedAndNonFatal(t *testing.T) {
+	rep := report.ConformanceReport{
+		Component: "component",
+		Warnings: []report.Finding{{
+			Kind:    report.UnusedAuthority,
+			Message: `declared authority "FILES" is unused`,
+		}},
+	}
+
+	if got := report.VerdictOf(rep); got != report.VerdictPass {
+		t.Fatalf("VerdictOf(unused authority warning) = %q, want %q", got, report.VerdictPass)
+	}
+	textOutput := report.RenderText(rep)
+	if !strings.Contains(textOutput, `[UNUSED_AUTHORITY] declared authority "FILES" is unused`) {
+		t.Fatalf("RenderText() = %q, want the unused-authority warning", textOutput)
+	}
+	data, err := json.Marshal(rep)
+	if err != nil {
+		t.Fatalf("json.Marshal() error = %v", err)
+	}
+	if !strings.Contains(string(data), `"kind":"UNUSED_AUTHORITY"`) {
+		t.Fatalf("JSON = %s, want the persisted unused-authority kind", data)
+	}
+}
