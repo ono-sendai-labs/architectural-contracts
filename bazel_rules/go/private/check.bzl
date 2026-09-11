@@ -8,11 +8,11 @@ one analysis command, and these launchers consume its persisted
 `arcc_check_test` asserts the recorded verdict with `arcc verdict`; the grep
 rule asserts the same verdict and then fixed-string-greps the report; the
 verdict-golden rule compares the recorded verdict with a one-line golden; the
-complete-report golden rule is reserved for intentional persisted-artifact
-shape coverage. Launchers `cd` to the runfiles root — the frame every staged
-path is expressed in — and stage nothing but the report plus the
-assertion-specific arcc or golden inputs: no SDK sources, no manifest/layout,
-no component source closure, so an assertion cannot become a second, drifting
+report/surface/layout shape rules compare only their explicitly named typed
+artifact shapes. Launchers `cd` to the runfiles root — the frame every staged
+path is expressed in — and stage nothing but the provider artifact plus the
+assertion-specific arcc or golden inputs: no SDK sources, no manifest, no
+component source closure, so an assertion cannot become a second, drifting
 analysis path.
 
 `arcc_checked_analysis_test` remains the execution half of the checked-
@@ -559,6 +559,62 @@ arcc_check_surface_golden_test = rule(
     },
     doc = "Compares a checked or asserted surface's typed persisted-artifact shape " +
           "without running a component analysis action.",
+)
+
+def _arcc_check_layout_golden_impl(ctx):
+    info = ctx.attr.component[ArccComponentInfo]
+    if info.layout == None:
+        fail("arcc_check_layout_golden_test %s: component %s publishes no package layout" % (
+            ctx.label,
+            info.component_name,
+        ))
+
+    layout_path = runfiles_path(ctx, info.layout)
+    golden_path = runfiles_path(ctx, ctx.file.golden)
+    argv = arcc_artifact_shape_argv(
+        arcc = runfiles_path(ctx, ctx.executable._arcc),
+        kind = "layout",
+        artifact = layout_path,
+        golden = golden_path,
+    )
+
+    launcher = ctx.actions.declare_file(ctx.label.name + ".sh")
+    ctx.actions.write(
+        output = launcher,
+        content = _launcher_content_with_shape(argv, "arcc_check_layout_golden_test"),
+        is_executable = True,
+    )
+
+    # The final package layout and its typed shape golden are the only
+    # assertion artifacts. The layout is a default producer output, so this
+    # builds the component's layout chain but never reruns ArccCheck.
+    runfiles = ctx.runfiles(files = [info.layout, ctx.file.golden])
+    runfiles = runfiles.merge(ctx.attr._arcc[DefaultInfo].default_runfiles)
+    return [DefaultInfo(executable = launcher, runfiles = runfiles)]
+
+arcc_check_layout_golden_test = rule(
+    implementation = _arcc_check_layout_golden_impl,
+    test = True,
+    attrs = {
+        "component": attr.label(
+            mandatory = True,
+            providers = [ArccComponentInfo],
+            doc = "The component whose final package layout is compared.",
+        ),
+        "golden": attr.label(
+            mandatory = True,
+            allow_single_file = True,
+            doc = "Typed final package-layout shape golden.",
+        ),
+        "_arcc": attr.label(
+            default = ARCC_TARGET,
+            executable = True,
+            cfg = "target",
+            doc = "The arcc binary whose schema-aware layout-shape decoder is used.",
+        ),
+    },
+    doc = "Compares a component's final package-layout shape against a typed " +
+          "shape golden without comparing a generated manifest or rerunning analysis.",
 )
 
 def _launcher_content_with_verdict_golden(verdict_golden_argv):

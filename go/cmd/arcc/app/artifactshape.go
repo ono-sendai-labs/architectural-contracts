@@ -18,7 +18,8 @@ func (r *Runner) runArtifactShape(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "error: artifact-shape requires a kind, artifact path, and --golden=<path>")
 		return 2
 	}
-	kind := artifactio.ShapeKind(args[0])
+	kindName := args[0]
+	kind := artifactio.ShapeKind(kindName)
 	artifactPath := args[1]
 	goldenPath := ""
 	printSnapshot := false
@@ -56,6 +57,9 @@ func (r *Runner) runArtifactShape(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "error: artifact-shape requires --golden=<path>")
 		return 2
 	}
+	if kindName == "layout" {
+		return r.runLayoutArtifactShape(artifactPath, goldenPath, printSnapshot, stdout, stderr)
+	}
 
 	artifact, err := os.Open(artifactPath)
 	if err != nil {
@@ -64,7 +68,7 @@ func (r *Runner) runArtifactShape(args []string, stdout, stderr io.Writer) int {
 	}
 	defer artifact.Close()
 	if printSnapshot {
-		snapshot, err := artifactio.Snapshot(kind, artifact)
+		snapshot, err := snapshotArtifactShape(kind, artifact)
 		if err != nil {
 			fmt.Fprintf(stderr, "error: snapshot %s artifact: %v\n", kind, err)
 			return 2
@@ -83,14 +87,57 @@ func (r *Runner) runArtifactShape(args []string, stdout, stderr io.Writer) int {
 	}
 	defer golden.Close()
 
-	err = artifactio.CompareShape(kind, artifact, golden)
+	err = compareArtifactShape(kind, artifact, golden)
 	if err == nil {
 		return 0
 	}
-	if artifactio.IsShapeMismatch(err) {
+	if artifactio.IsShapeMismatch(err) || isLayoutShapeMismatch(err) {
 		fmt.Fprintf(stderr, "shape mismatch: %v\n", err)
 		return 1
 	}
 	fmt.Fprintf(stderr, "error: %v\n", err)
 	return 2
+}
+
+func (r *Runner) runLayoutArtifactShape(artifactPath, goldenPath string, printSnapshot bool, stdout, stderr io.Writer) int {
+	artifact, err := os.ReadFile(artifactPath)
+	if err != nil {
+		fmt.Fprintf(stderr, "error: opening artifact %s: %v\n", artifactPath, err)
+		return 2
+	}
+	if printSnapshot {
+		snapshot, err := snapshotLayoutShape(artifact)
+		if err != nil {
+			fmt.Fprintf(stderr, "error: snapshot layout artifact: %v\n", err)
+			return 2
+		}
+		if _, err := stdout.Write(snapshot); err != nil {
+			fmt.Fprintf(stderr, "error: writing layout shape snapshot: %v\n", err)
+			return 2
+		}
+		return 0
+	}
+
+	golden, err := os.ReadFile(goldenPath)
+	if err != nil {
+		fmt.Fprintf(stderr, "error: opening shape golden %s: %v\n", goldenPath, err)
+		return 2
+	}
+	if err := compareLayoutShape(artifact, golden); err == nil {
+		return 0
+	} else if isLayoutShapeMismatch(err) {
+		fmt.Fprintf(stderr, "shape mismatch: %v\n", err)
+		return 1
+	} else {
+		fmt.Fprintf(stderr, "error: %v\n", err)
+		return 2
+	}
+}
+
+func snapshotArtifactShape(kind artifactio.ShapeKind, artifact io.Reader) ([]byte, error) {
+	return artifactio.Snapshot(kind, artifact)
+}
+
+func compareArtifactShape(kind artifactio.ShapeKind, artifact, golden io.Reader) error {
+	return artifactio.CompareShape(kind, artifact, golden)
 }

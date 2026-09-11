@@ -27,6 +27,14 @@ component_dependencies {
   manifest: "../../internal/goanalysis/component.textproto"
 }
 component_dependencies {
+  name: "hostpolicy"
+  manifest: "../../internal/hostpolicy/component.textproto"
+}
+component_dependencies {
+  name: "x-tools"
+  manifest: "../../internal/xtools/component.textproto"
+}
+component_dependencies {
   name: "manifest"
   manifest: "../../internal/manifest/component.textproto"
 }

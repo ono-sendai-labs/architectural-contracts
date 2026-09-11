@@ -24,6 +24,7 @@ _HOSTILE_VERDICT_GOLDEN = "//bazel_rules/go/tests:hostile_verdict_golden_launche
 _CONSUMER = "//bazel_rules/go/tests/testdata/infra/consumer:consumer_component"
 _ASSERTED_GREP = "//bazel_rules/go/tests:asserted_component_grep_rejected_test"
 _ASSERTED_VERDICT_GOLDEN = "//bazel_rules/go/tests:asserted_component_verdict_golden_test"
+_VERDICT_PORTABILITY = "//bazel_rules/go/tests:verdict_golden_portability_test"
 
 def _assert_absent(env, content, token):
     """Starlark-truth has no `not_contains` on strings; absence is asserted here."""
@@ -314,6 +315,26 @@ def _hostile_grep_strings_stay_data_impl(env, target):
     # The old diagnostic interpolated the string raw into an echo: gone.
     _assert_absent(env, content, "expected string '")
 
+def _verdict_golden_portability_guard_test(name):
+    # Every file matching the verdict-golden naming convention is scanned by
+    # the runtime guard, including synthetic contamination probes that prove
+    # the diagnostic identifies both the file and forbidden content class.
+    analysis_test(
+        name = name,
+        target = _VERDICT_PORTABILITY,
+        impl = _verdict_golden_portability_guard_impl,
+        attr_values = {"size": "small"},
+    )
+
+def _verdict_golden_portability_guard_impl(env, target):
+    runfiles = _runfile_basenames(target)
+    env.expect.that_collection(runfiles).contains("verdict_golden_portability_test.sh")
+    env.expect.that_collection([name for name in runfiles if name.endswith(".verdict.golden")]).contains_at_least([
+        "api_component.verdict.golden",
+        "reportboundary_consumer.verdict.golden",
+        "undeclared_dep_component.verdict.golden",
+    ])
+
 def report_assertion_test_suite(name):
     test_suite(
         name = name,
@@ -329,5 +350,6 @@ def report_assertion_test_suite(name):
             _asserted_grep_rejected_test,
             _verdict_golden_rejects_asserted_provider_test,
             _hostile_grep_strings_stay_data_test,
+            _verdict_golden_portability_guard_test,
         ],
     )

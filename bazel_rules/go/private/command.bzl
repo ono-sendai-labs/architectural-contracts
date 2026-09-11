@@ -9,8 +9,9 @@ the analysis and its execution coverage cannot drift. `arcc_verdict_argv` and
 `arcc_verdict_golden_argv` are the report-assertion argv builders — `.check`,
 grep, and verdict-golden rules consume the provider's canonical report through
 the shared `arcc verdict` behavior and never re-run the analysis.
-`arcc_artifact_shape_argv` is the typed, bounded persisted-artifact shape
-assertion path; it is used only by explicitly named shape goldens.
+`arcc_artifact_shape_argv` is the typed, bounded persisted-artifact or final
+package-layout shape assertion path; it is used only by explicitly named shape
+goldens.
 """
 
 def arcc_check_argv(
@@ -85,15 +86,17 @@ def arcc_verdict_golden_argv(arcc, report, golden):
     """
     return [arcc, "verdict", report, "--expect-file=" + golden]
 
-_ARCC_SHAPE_KINDS = ("report", "surface", "stdlib-map")
+_ARCC_SHAPE_KINDS = ("report", "surface", "stdlib-map", "layout")
 
 def arcc_artifact_shape_argv(arcc, kind, artifact, golden):
-    """Argv for schema-aware persisted-artifact shape comparison.
+    """Argv for schema-aware persisted-artifact/layout shape comparison.
 
-    The arcc command decodes the artifact through the bounded production
-    decoder, rejects non-canonical bytes, and compares a typed shape snapshot
-    against the golden. Golden contents remain path-valued data; no JSON is
-    interpolated into generated shell source.
+    The arcc command validates the selected artifact through its production
+    schema boundary, rejects non-canonical bytes, and compares a typed shape
+    snapshot against the golden. Golden contents remain path-valued data; no
+    JSON is interpolated into generated shell source. `layout` is the final
+    package-layout shape path; reports/surfaces/maps use artifactio's persisted
+    protobuf boundary.
     """
     if kind not in _ARCC_SHAPE_KINDS:
         fail("artifact shape kind must be one of %s, got %r" % (", ".join(_ARCC_SHAPE_KINDS), kind))

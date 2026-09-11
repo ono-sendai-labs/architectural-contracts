@@ -6,6 +6,7 @@ go_library(
         "app.go",
         "artifactshape.go",
         "check.go",
+        "layoutshape.go",
         "package_imports.go",
         "stdlibmap.go",
         "verdict.go",
@@ -38,6 +39,7 @@ go_test(
         "artifactshape_test.go",
         "check_internal_test.go",
         "check_test.go",
+        "layoutshape_test.go",
         "stdlibmap_test.go",
         "verdict_test.go",
     ],
@@ -52,9 +54,12 @@ go_test(
         "//go/internal/capanalyzer",
         "//go/internal/facts",
         "//go/internal/goanalysis",
+        "//go/internal/hostpolicy",
+        "//go/internal/packagelayout",
         "//go/internal/report",
         "//go/internal/schema/gen",
         "//go/internal/stdlibauthority",
+        "@org_golang_x_tools//go/packages",
     ],
 )
 

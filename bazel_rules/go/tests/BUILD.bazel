@@ -1,10 +1,11 @@
 load("@rules_go//go:def.bzl", "go_test")
 load("@rules_shell//shell:sh_test.bzl", "sh_test")
-load("//bazel_rules/go/private:check.bzl", "arcc_check_grep_test", "arcc_check_report_golden_test", "arcc_check_surface_golden_test", "arcc_check_test", "arcc_check_verdict_golden_test", "arcc_checked_analysis_test")
+load("//bazel_rules/go/private:check.bzl", "arcc_check_grep_test", "arcc_check_layout_golden_test", "arcc_check_report_golden_test", "arcc_check_surface_golden_test", "arcc_check_test", "arcc_check_verdict_golden_test", "arcc_checked_analysis_test")
 load(":aspect_tests.bzl", "arcc_deps_aspect_full_test_suite", "arcc_deps_aspect_test_suite")
 load(":artifact_shape_tests.bzl", "artifact_shape_test_suite")
 load(":asserted_surface_tests.bzl", "asserted_surface_test_suite")
 load(":component_tests.bzl", "go_component_test_suite")
+load(":layout_shape_tests.bzl", "layout_shape_test_suite")
 load(":pattern_match_test.bzl", "pattern_match_test_suite")
 load(":probe.bzl", "checked_analysis_surface", "stdlib_export_data_mismatch_probe", "stdlib_export_data_missing_probe", "stdlib_export_data_probe", "transitioned_checked_map", "transitioned_checked_surface", "transitioned_component_layout")
 load(":report_assertion_tests.bzl", "report_assertion_test_suite")
@@ -187,6 +188,7 @@ go_component_test_suite(name = "go_component_tests")
 
 asserted_surface_test_suite(name = "asserted_surface_tests")
 artifact_shape_test_suite(name = "artifact_shape_tests")
+layout_shape_test_suite(name = "layout_shape_tests")
 
 # AC 5 (task req 7): an explicitly requested `.check` of an asserted
 # component must fail analysis with a clear no-checked-report diagnostic —
@@ -427,25 +429,9 @@ arcc_check_test(
     component = "//bazel_rules/go/tests/testdata/infra/unused_consumer:unused_consumer_component",
 )
 
-sh_test(
-    name = "golden_test",
-    srcs = ["golden_test.sh"],
-    size = "small",
-    args = [
-        "$(rootpaths //bazel_rules/go/tests/testdata/api:api_component)",
-        "$(rootpath goldens/api_component.component.textproto)",
-        "$(rootpath goldens/api_component.package-layout.json)",
-    ],
-    data = [
-        "goldens/api_component.component.textproto",
-        "goldens/api_component.package-layout.json",
-        "//bazel_rules/go/tests/testdata/api:api_component",
-    ],
-)
-
 # Verdict goldens pin only the stable report verdict. Complete report-shape
-# comparisons belong to the persisted-artifact shape task and must not be used
-# as semantic conformance goldens.
+# comparisons and package-layout shape comparisons are separate typed shape
+# contracts below; neither is a semantic verdict golden.
 arcc_check_verdict_golden_test(
     name = "api_component_verdict_golden_test",
     size = "small",
@@ -541,6 +527,38 @@ sh_test(
     ],
 )
 
+# Every semantic verdict golden is guarded by the portability inventory. The
+# glob makes adding a newly designated `*.verdict.golden` file automatically
+# add it to the scan; shape/layout artifacts are intentionally not in this
+# target. The guard also runs synthetic contamination probes so a failure
+# names the forbidden content class instead of silently accepting host data.
+_VERDICT_GOLDENS = glob(["goldens/*.verdict.golden"])
+sh_test(
+    name = "verdict_golden_portability_test",
+    srcs = ["verdict_golden_portability_test.sh"],
+    size = "small",
+    args = ["$(rootpath %s)" % golden for golden in _VERDICT_GOLDENS],
+    data = _VERDICT_GOLDENS,
+)
+
+# Package-layout shape goldens retain only distinct final contracts. The typed
+# shape command validates the final export-data layout before replacing
+# explicitly named host/target path values; it never compares a generated
+# manifest and never accepts raw host output as a verdict golden.
+arcc_check_layout_golden_test(
+    name = "api_component_layout_shape_golden_test",
+    size = "small",
+    component = "//bazel_rules/go/tests/testdata/api:api_component",
+    golden = "goldens/api_component.layout.shape.golden.json",
+)
+
+arcc_check_layout_golden_test(
+    name = "member_component_layout_shape_golden_test",
+    size = "small",
+    component = "//bazel_rules/go/tests/testdata/membercomponent:member_component",
+    golden = "goldens/member_component.layout.shape.golden.json",
+)
+
 arcc_check_grep_test(
     name = "api_component_grep_report_test",
     size = "small",
@@ -550,22 +568,6 @@ arcc_check_grep_test(
         '"component": "api_component"',
         '"dependencies":',
         '"component": "shared_component"',
-    ],
-)
-
-sh_test(
-    name = "member_golden_test",
-    srcs = ["golden_test.sh"],
-    size = "small",
-    args = [
-        "$(rootpaths //bazel_rules/go/tests/testdata/membercomponent:member_component)",
-        "$(rootpath goldens/member_component.component.textproto)",
-        "$(rootpath goldens/member_component.package-layout.json)",
-    ],
-    data = [
-        "goldens/member_component.component.textproto",
-        "goldens/member_component.package-layout.json",
-        "//bazel_rules/go/tests/testdata/membercomponent:member_component",
     ],
 )
 

@@ -35,7 +35,7 @@
 //     (root source plus reachable export data), BuildContextForLayout
 //     (target-derived release and tool tags), FileMatchesBuildConstraints(Context),
 //     SurvivingSourceFiles, discoverStdlibWithContext, StdlibLayout,
-//     IsStdlibPackage, WriteImportGraph, HandleDriverRequest, RunDriver, WithTemporaryLayout,
+//     IsStdlibPackage, ShapeImports, WriteImportGraph, HandleDriverRequest, RunDriver, WithTemporaryLayout,
 //     WithDriverEnv, IsLayoutMode/GetActiveLayout, and CheckMu.
 //   - Ambient Authority: This is a shell component serving package loading.
 //     It holds FILES (reads the layout file, declared SDK source files for

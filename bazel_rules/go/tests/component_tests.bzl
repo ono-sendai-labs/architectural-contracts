@@ -1,9 +1,9 @@
 """Analysis tests for the `_go_component` rule.
 
-The generated files' contents are compared against goldens by
-//bazel_rules/go/tests:golden_test — analysis tests cannot read a file that
-has not been built yet. What they can see is the provider contract and the
-analysis-time errors, which is what is asserted here.
+Generated manifests are checked semantically by the repository's
+`manifestparity` tests. Final package-layout shape is checked by the dedicated
+typed layout-shape golden targets; these analysis tests see only the provider
+contract and analysis-time errors, which is what is asserted here.
 """
 
 load("@rules_testing//lib:analysis_test.bzl", "analysis_test", "test_suite")

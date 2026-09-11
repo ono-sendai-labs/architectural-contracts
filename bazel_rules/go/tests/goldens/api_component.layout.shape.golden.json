@@ -1,0 +1,136 @@
+{
+  "go_sdk_root": "<GO_SDK_ROOT>",
+  "platform": {
+    "goos": "<TARGET_GOOS>",
+    "goarch": "<TARGET_GOARCH>",
+    "build_tags": [],
+    "cgo_enabled": "<TARGET_CGO_ENABLED>",
+    "toolchain_version": "<TARGET_TOOLCHAIN_VERSION>",
+    "goexperiment": ""
+  },
+  "roots": [
+    "example.com/aspect/api",
+    "example.com/aspect/core",
+    "example.com/aspect/extradep",
+    "example.com/aspect/lowlevel"
+  ],
+  "packages": [
+    {
+      "CompiledGoFiles": [
+        "<WORKSPACE_ROOT>/api.go"
+      ],
+      "ExportFile": "",
+      "GoFiles": [
+        "<WORKSPACE_ROOT>/api.go"
+      ],
+      "ID": "example.com/aspect/api",
+      "IgnoredFiles": null,
+      "Imports": null,
+      "Name": "api",
+      "OtherFiles": null,
+      "PkgPath": "example.com/aspect/api",
+      "is_stdlib": false
+    },
+    {
+      "CompiledGoFiles": [
+        "<WORKSPACE_ROOT>/core.go",
+        "<WORKSPACE_ROOT>/core_extra.go",
+        "<WORKSPACE_ROOT>/extra_impl.go"
+      ],
+      "ExportFile": "",
+      "GoFiles": [
+        "<WORKSPACE_ROOT>/core.go",
+        "<WORKSPACE_ROOT>/core_extra.go",
+        "<WORKSPACE_ROOT>/extra_impl.go"
+      ],
+      "ID": "example.com/aspect/core",
+      "IgnoredFiles": null,
+      "Imports": null,
+      "Name": "core",
+      "OtherFiles": null,
+      "PkgPath": "example.com/aspect/core",
+      "is_stdlib": false
+    },
+    {
+      "CompiledGoFiles": [
+        "<WORKSPACE_ROOT>/extradep.go"
+      ],
+      "ExportFile": "",
+      "GoFiles": [
+        "<WORKSPACE_ROOT>/extradep.go"
+      ],
+      "ID": "example.com/aspect/extradep",
+      "IgnoredFiles": null,
+      "Imports": null,
+      "Name": "extradep",
+      "OtherFiles": null,
+      "PkgPath": "example.com/aspect/extradep",
+      "is_stdlib": false
+    },
+    {
+      "CompiledGoFiles": [
+        "<WORKSPACE_ROOT>/lowlevel.go"
+      ],
+      "ExportFile": "",
+      "GoFiles": [
+        "<WORKSPACE_ROOT>/lowlevel.go"
+      ],
+      "ID": "example.com/aspect/lowlevel",
+      "IgnoredFiles": null,
+      "Imports": null,
+      "Name": "lowlevel",
+      "OtherFiles": null,
+      "PkgPath": "example.com/aspect/lowlevel",
+      "is_stdlib": false
+    },
+    {
+      "CompiledGoFiles": [
+        "<WORKSPACE_ROOT>/shared.go"
+      ],
+      "ExportFile": "<EXPORT_ROOT>/shared.x",
+      "GoFiles": [
+        "<WORKSPACE_ROOT>/shared.go"
+      ],
+      "ID": "example.com/aspect/shared",
+      "IgnoredFiles": null,
+      "Imports": {},
+      "Name": "shared",
+      "OtherFiles": null,
+      "PkgPath": "example.com/aspect/shared",
+      "is_stdlib": false
+    }
+  ],
+  "ordinary_import_data": {
+    "metadata": "__ARCC_ORDINARY_IMPORT_DATA__"
+  },
+  "stdlib_export_data": {
+    "metadata": "<STDLIB_METADATA_ROOT>/stdlib.pkg.json",
+    "target": {
+      "goos": "<TARGET_GOOS>",
+      "goarch": "<TARGET_GOARCH>",
+      "build_tags": [],
+      "cgo_enabled": "<TARGET_CGO_ENABLED>",
+      "toolchain_version": "<TARGET_TOOLCHAIN_VERSION>",
+      "goexperiment": ""
+    },
+    "export_roots": [
+      {
+        "runfiles_path": "<STDLIB_RUNFILES_ROOT>/gocache",
+        "exec_path": "<STDLIB_EXEC_ROOT>/gocache"
+      },
+      {
+        "runfiles_path": "<STDLIB_RUNFILES_ROOT>/pkg",
+        "exec_path": "<STDLIB_EXEC_ROOT>/pkg"
+      }
+    ]
+  },
+  "dependency_artifact_bindings": [
+    {
+      "dependency": "shared_component",
+      "surface": "<ARTIFACT_ROOT>/shared_component.surface.json",
+      "report": "<ARTIFACT_ROOT>/shared_component.report.json",
+      "auto_attached": false,
+      "provenance": "checked"
+    }
+  ]
+}

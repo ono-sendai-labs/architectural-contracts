@@ -1,11 +1,12 @@
 {
   "go_sdk_root": "<GO_SDK_ROOT>",
   "platform": {
-    "goos": "linux",
-    "goarch": "amd64",
+    "goos": "<TARGET_GOOS>",
+    "goarch": "<TARGET_GOARCH>",
     "build_tags": [],
-    "cgo_enabled": false,
-    "toolchain_version": "go1.26.4"
+    "cgo_enabled": "<TARGET_CGO_ENABLED>",
+    "toolchain_version": "<TARGET_TOOLCHAIN_VERSION>",
+    "goexperiment": ""
   },
   "roots": [
     "example.com/aspect/api",
@@ -15,103 +16,123 @@
   "packages": [
     {
       "CompiledGoFiles": [
-        "_main/bazel_rules/go/tests/testdata/api/api.go"
+        "<WORKSPACE_ROOT>/api.go"
       ],
+      "ExportFile": "",
       "GoFiles": [
-        "_main/bazel_rules/go/tests/testdata/api/api.go"
+        "<WORKSPACE_ROOT>/api.go"
       ],
       "ID": "example.com/aspect/api",
+      "IgnoredFiles": null,
+      "Imports": null,
       "Name": "api",
+      "OtherFiles": null,
       "PkgPath": "example.com/aspect/api",
       "is_stdlib": false
     },
     {
       "CompiledGoFiles": [
-        "_main/bazel_rules/go/tests/testdata/core/core.go",
-        "_main/bazel_rules/go/tests/testdata/core/core_extra.go",
-        "_main/bazel_rules/go/tests/testdata/core/extra_impl.go"
+        "<WORKSPACE_ROOT>/core.go",
+        "<WORKSPACE_ROOT>/core_extra.go",
+        "<WORKSPACE_ROOT>/extra_impl.go"
       ],
-      "ExportFile": "_main/bazel_rules/go/tests/testdata/core/core.x",
+      "ExportFile": "<EXPORT_ROOT>/core.x",
       "GoFiles": [
-        "_main/bazel_rules/go/tests/testdata/core/core.go",
-        "_main/bazel_rules/go/tests/testdata/core/core_extra.go",
-        "_main/bazel_rules/go/tests/testdata/core/extra_impl.go"
+        "<WORKSPACE_ROOT>/core.go",
+        "<WORKSPACE_ROOT>/core_extra.go",
+        "<WORKSPACE_ROOT>/extra_impl.go"
       ],
       "ID": "example.com/aspect/core",
+      "IgnoredFiles": null,
       "Imports": {
         "example.com/aspect/extradep": "example.com/aspect/extradep",
         "example.com/aspect/lowlevel": "example.com/aspect/lowlevel",
         "example.com/aspect/shared": "example.com/aspect/shared"
       },
       "Name": "core",
+      "OtherFiles": null,
       "PkgPath": "example.com/aspect/core",
       "is_stdlib": false
     },
     {
       "CompiledGoFiles": [
-        "_main/bazel_rules/go/tests/testdata/extradep/extradep.go"
+        "<WORKSPACE_ROOT>/extradep.go"
       ],
-      "ExportFile": "_main/bazel_rules/go/tests/testdata/extradep/extradep.x",
+      "ExportFile": "<EXPORT_ROOT>/extradep.x",
       "GoFiles": [
-        "_main/bazel_rules/go/tests/testdata/extradep/extradep.go"
+        "<WORKSPACE_ROOT>/extradep.go"
       ],
       "ID": "example.com/aspect/extradep",
+      "IgnoredFiles": null,
       "Imports": {},
       "Name": "extradep",
+      "OtherFiles": null,
       "PkgPath": "example.com/aspect/extradep",
       "is_stdlib": false
     },
     {
       "CompiledGoFiles": [
-        "_main/bazel_rules/go/tests/testdata/lowlevel/lowlevel.go"
+        "<WORKSPACE_ROOT>/lowlevel.go"
       ],
-      "ExportFile": "_main/bazel_rules/go/tests/testdata/lowlevel/lowlevel.x",
+      "ExportFile": "<EXPORT_ROOT>/lowlevel.x",
       "GoFiles": [
-        "_main/bazel_rules/go/tests/testdata/lowlevel/lowlevel.go"
+        "<WORKSPACE_ROOT>/lowlevel.go"
       ],
       "ID": "example.com/aspect/lowlevel",
+      "IgnoredFiles": null,
       "Imports": {
         "strings": "strings"
       },
       "Name": "lowlevel",
+      "OtherFiles": null,
       "PkgPath": "example.com/aspect/lowlevel",
       "is_stdlib": false
     },
     {
       "CompiledGoFiles": [
-        "_main/bazel_rules/go/tests/testdata/member/member.go"
+        "<WORKSPACE_ROOT>/member.go"
       ],
+      "ExportFile": "",
       "GoFiles": [
-        "_main/bazel_rules/go/tests/testdata/member/member.go"
+        "<WORKSPACE_ROOT>/member.go"
       ],
       "ID": "example.com/aspect/member",
+      "IgnoredFiles": null,
+      "Imports": null,
       "Name": "member",
+      "OtherFiles": null,
       "PkgPath": "example.com/aspect/member",
       "is_stdlib": false
     },
     {
       "CompiledGoFiles": [
-        "_main/bazel_rules/go/tests/testdata/memberdep/memberdep.go"
+        "<WORKSPACE_ROOT>/memberdep.go"
       ],
+      "ExportFile": "",
       "GoFiles": [
-        "_main/bazel_rules/go/tests/testdata/memberdep/memberdep.go"
+        "<WORKSPACE_ROOT>/memberdep.go"
       ],
       "ID": "example.com/aspect/memberdep",
+      "IgnoredFiles": null,
+      "Imports": null,
       "Name": "memberdep",
+      "OtherFiles": null,
       "PkgPath": "example.com/aspect/memberdep",
       "is_stdlib": false
     },
     {
       "CompiledGoFiles": [
-        "_main/bazel_rules/go/tests/testdata/shared/shared.go"
+        "<WORKSPACE_ROOT>/shared.go"
       ],
-      "ExportFile": "_main/bazel_rules/go/tests/testdata/shared/shared.x",
+      "ExportFile": "<EXPORT_ROOT>/shared.x",
       "GoFiles": [
-        "_main/bazel_rules/go/tests/testdata/shared/shared.go"
+        "<WORKSPACE_ROOT>/shared.go"
       ],
       "ID": "example.com/aspect/shared",
+      "IgnoredFiles": null,
       "Imports": {},
       "Name": "shared",
+      "OtherFiles": null,
       "PkgPath": "example.com/aspect/shared",
       "is_stdlib": false
     }
@@ -120,23 +141,23 @@
     "metadata": "__ARCC_ORDINARY_IMPORT_DATA__"
   },
   "stdlib_export_data": {
-    "metadata": "rules_go+/stdlib_/stdlib.pkg.json",
+    "metadata": "<STDLIB_METADATA_ROOT>/stdlib.pkg.json",
     "target": {
-      "toolchain_version": "go1.26.4",
-      "goos": "linux",
-      "goarch": "amd64",
-      "cgo_enabled": false,
+      "goos": "<TARGET_GOOS>",
+      "goarch": "<TARGET_GOARCH>",
       "build_tags": [],
+      "cgo_enabled": "<TARGET_CGO_ENABLED>",
+      "toolchain_version": "<TARGET_TOOLCHAIN_VERSION>",
       "goexperiment": ""
     },
     "export_roots": [
       {
-        "runfiles_path": "rules_go+/stdlib_/gocache",
-        "exec_path": "<STDLIB_EXPORT_ROOT>"
+        "runfiles_path": "<STDLIB_RUNFILES_ROOT>/gocache",
+        "exec_path": "<STDLIB_EXEC_ROOT>/gocache"
       },
       {
-        "runfiles_path": "rules_go+/stdlib_/pkg",
-        "exec_path": "<STDLIB_EXPORT_ROOT>"
+        "runfiles_path": "<STDLIB_RUNFILES_ROOT>/pkg",
+        "exec_path": "<STDLIB_EXEC_ROOT>/pkg"
       }
     ]
   }

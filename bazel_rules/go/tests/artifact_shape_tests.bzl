@@ -1,9 +1,11 @@
 """Structural tests for the persisted-artifact shape golden rules.
 
-These tests keep the intentionally layout/target-sensitive shape assertions
-separate from verdict goldens. The launchers must invoke the typed
-`artifact-shape` command, stage only the producer artifact, golden, and arcc,
-and accept an asserted surface without introducing an ArccCheck.
+These tests keep the intentionally target-sensitive persisted-artifact shape
+assertions separate from semantic verdict goldens. Package-layout shapes have
+their own `layout_shape_tests.bzl` suite because they consume a final layout,
+not a report or surface. The launchers must invoke the typed `artifact-shape`
+command, stage only the producer artifact, golden, and arcc, and accept an
+asserted surface without introducing an ArccCheck.
 """
 
 load("@rules_testing//lib:analysis_test.bzl", "analysis_test", "test_suite")
