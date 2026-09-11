@@ -1,0 +1,86 @@
+result:
+  task_file: .agents/tasks/2026-08-04-compositional-component-analysis/step07/task-07-restore-stdlibmap-component-conformance.code-task.md
+  change_id: lznwqlzzokrtorltxzylskrntupxwvlq
+  status: completed
+  schema_version: 2
+  produced_at: 2026-09-11T04:40:47Z
+
+acceptance_criteria:
+  - text: |
+      **stdlibmap passes under strict policy**
+        - Given `go/internal/stdlibmap/component.textproto` and the pinned Linux/amd64 stdlib map
+        - When the real native `arcc check` command runs without `--report-verdict-only`
+        - Then it exits zero with no violations and without adding an AnalysisDefeating WARN policy
+    addressed: yes
+    evidence: |
+      The RED command exited 1 and retained the failing report at
+      `/tmp/arcc-stdlibmap-f2-red.EQnweB/stdlibmap.component.report.json`.
+      The same real command without `--report-verdict-only` exited 0 after the
+      fix, with a pass report at
+      `/tmp/arcc-stdlibmap-f2-green.qtQ0ke/stdlibmap.component.report.json`.
+      `go/internal/stdlibmap/component.textproto:1-64` contains no
+      `analysis_defeating_policy: WARN`; `just selfcheck` and `just ci` passed.
+  - text: |
+      **packagelayout has one explicit owner**
+        - Given every production component manifest and `go_component` declaration
+        - When project-package ownership and dependency edges are indexed
+        - Then `go/internal/packagelayout` has exactly one owner, both `goanalysis` and `stdlibmap` reach it through valid component semantics, and the component graph is acyclic
+    addressed: yes
+    evidence: |
+      `go/internal/manifestparity/ownership_test.go:403-475` asserts the sole
+      owner, exact consumer dependency paths, production imports, and an acyclic
+      checked-in component graph. The owner is declared once in
+      `go/internal/packagelayout/component.textproto:1-18` and once in the
+      matching Bazel `go_component` at
+      `go/internal/packagelayout/BUILD.bazel:28-47`; goanalysis and stdlibmap
+      declare the boundary at their component manifest lines 47-54.
+  - text: |
+      **AnalysisDefeating sites are removed without classifier changes**
+        - Given the cache read and missing-file behaviors previously implemented with `io.ReadAll` and `errors.Is`
+        - When focused tests exercise EOF, reader failure, oversize/no-progress where applicable, direct not-found, and wrapped not-found cases
+        - Then behavior is preserved and the strict component report contains neither recorded site, with the pinned classifier hash unchanged
+    addressed: yes
+    evidence: |
+      `go/internal/stdlibmap/cache.go:105-169` implements the bounded reader,
+      and `cache.go:275-321` implements bounded direct/wrapped not-found
+      matching. `go/internal/stdlibmap/cache_test.go:125-181` covers EOF,
+      reader failure, the oversize sentinel, no progress, direct/wrapped/joined
+      not-found, and unrelated errors; the existing oversize cache regression
+      also passes. The pinned classifier hash remains
+      `adc198ed82f2ae81de8f2d00e26a0c90a22a1317a19579476ab0d7e33cc52eed` at
+      `go/internal/teststdlibmap/testdata/linux_amd64.stdlib-map.json:7`, and
+      the final report has `verdict: pass` with no AnalysisDefeating or
+      UNDECLARED_DEPENDENCY findings.
+  - text: |
+      **Native and Bazel declarations remain coherent**
+        - Given every changed component boundary
+        - When manifest parity, ownership tests, native checks, and applicable Bazel checks run
+        - Then they agree on members, interface, dependencies, and singular ownership
+    addressed: yes
+    evidence: |
+      `just ci` exited 0, including generated-file cleanliness, Go vet/build/
+      tests, integration tests, native selfcheck, Bazel build/test, routine map
+      pin validation, and manifest-parity tests. The new boundary is mirrored in
+      `go/internal/packagelayout/BUILD.bazel:28-47`, and its generated/checked-in
+      manifest pair is included by
+      `go/cmd/arcc/app/BUILD.bazel:62-110`. `justfile:51-68,112-127` documents
+      and stages the new topological boundary; the CLI's native two-package
+      surface is represented explicitly in `go/cmd/arcc/component.textproto:2-8`
+      so surface emission remains coherent under the strict gate.
+
+artifacts:
+  scratchpad_dir: .agents/scratchpad/2026-08-04-compositional-component-analysis/step07/task-07-restore-stdlibmap-component-conformance/
+  files:
+    - context.md
+    - plan.md
+    - progress.md
+    - work.log
+    - result.yaml
+
+notes: |
+  Restored strict stdlibmap conformance by replacing the two analysis-defeating
+  cache references with bounded/manual helpers and by introducing one checked
+  package-surface owner for packagelayout. Added ownership, graph, cache, native
+  verdict, and Bazel parity coverage; `just selfcheck` and `just ci` are green.
+  The implementation was committed incrementally; the final task change is
+  `lznwqlzzokrtorltxzylskrntupxwvlq` and the working copy is empty.

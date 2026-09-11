@@ -1,0 +1,66 @@
+{
+  "task_file": ".agents/tasks/2026-08-04-compositional-component-analysis/step07/task-07-restore-stdlibmap-component-conformance.code-task.md",
+  "planning_slug": "2026-08-04-compositional-component-analysis",
+  "step": 7,
+  "task": 7,
+  "remediation_for": "step review F2 (important)",
+  "implementer_session": "awo-impl-2026-08-04-compositional-component-analysis-step07-task07",
+  "reviewer_session": "awo-rev-2026-08-04-compositional-component-analysis-step07-task07",
+  "base": {
+    "change_id": "umtkorptvmqqvpwzxyoyyywnnqqmwovt",
+    "bookmark": "pr/awo-record-2026-08-04-compositional-component-analysis-step07-task-08"
+  },
+  "produced_changes": [
+    "wolppxuuspkopzkznvklmzxlmnnlvwss",
+    "lznwqlzzokrtorltxzylskrntupxwvlq"
+  ],
+  "rounds": [
+    {
+      "round": 0,
+      "role": "implementer",
+      "prompt": "round-0.implementer/prompt.md",
+      "out": "round-0.implementer/",
+      "status": "completed",
+      "elapsed_s": 1956,
+      "tool_calls": 1014,
+      "tokens": {
+        "totalTokens": 372058,
+        "cachedReadTokens": 370432
+      },
+      "context_pct": 46.1,
+      "compaction": false,
+      "note": "orchestrator verified: just ci exit 0, gate green again; no WARN carrier applied to stdlibmap"
+    },
+    {
+      "round": 0,
+      "role": "reviewer",
+      "prompt": "round-0.reviewer/prompt.md",
+      "out": "round-0.reviewer/",
+      "verdict": "approved",
+      "findings": {
+        "critical": 0,
+        "important": 0,
+        "suggestion": 0
+      },
+      "ac": "4/4 pass",
+      "elapsed_s": 350,
+      "tool_calls": 138,
+      "tokens": {
+        "totalTokens": 144671,
+        "cachedReadTokens": 143104
+      },
+      "context_pct": 17.9,
+      "compaction": false
+    }
+  ],
+  "session_restarts": [],
+  "outcome": {
+    "status": "approved",
+    "rounds": 1,
+    "ac": "4/4",
+    "bookmark": "pr/2026-08-04-compositional-component-analysis/step07/task-07-restore-stdlibmap-component-conformance.code-task",
+    "described_change": "wolppxuuspkopzkznvklmzxlmnnlvwss",
+    "tip": "lznwqlzzokrtorltxzylskrntupxwvlq",
+    "gate_state": "green again; orchestrator-verified just ci exit 0"
+  }
+}

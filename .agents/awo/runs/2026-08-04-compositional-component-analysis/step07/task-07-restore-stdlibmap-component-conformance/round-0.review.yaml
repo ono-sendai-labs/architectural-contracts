@@ -1,0 +1,90 @@
+review:
+  task_file: .agents/tasks/2026-08-04-compositional-component-analysis/step07/task-07-restore-stdlibmap-component-conformance.code-task.md
+  change_id: lznwqlzzokrtorltxzylskrntupxwvlq
+  reviewed_at: 2026-09-11T04:48:40Z
+  verdict: approved
+  schema_version: 2
+  lsp_coverage: unavailable
+
+merge_request:
+  title: "fix(components): restore stdlibmap conformance [Compositional Analysis: Step 07/Task 07]"
+  body: |
+    Reviews the ordered task series from wolppxuuspkopzkznvklmzxlmnnlvwss
+    through lznwqlzzokrtorltxzylskrntupxwvlq. The initial change replaces the
+    analysis-defeating cache references with bounded/manual helpers and adds
+    focused behavioral coverage; the follow-up establishes the singular
+    packagelayout package-surface boundary, updates native/Bazel declarations and
+    selfcheck staging, and adds ownership/acyclicity regression coverage.
+
+summary: |
+  All four acceptance criteria are satisfied across the two ordered jj changes.
+  The strict native stdlibmap report is passing with no WARN policy, the cache
+  sites no longer produce AnalysisDefeating findings, and packagelayout has one
+  explicit package-surface owner consumed by both shell components. Focused tests,
+  the selfcheck gate, gofmt/vet, and just ci all pass; no test weakening or
+  security issue was found. LSP diagnostics were unavailable in this harness.
+
+acceptance_criteria:
+  - text: |
+      **stdlibmap passes under strict policy**
+        - Given `go/internal/stdlibmap/component.textproto` and the pinned Linux/amd64 stdlib map
+        - When the real native `arcc check` command runs without `--report-verdict-only`
+        - Then it exits zero with no violations and without adding an AnalysisDefeating WARN policy
+    status: pass
+    evidence: |
+      The real native command and passing output are recorded in the work log at
+      `.agents/scratchpad/2026-08-04-compositional-component-analysis/step07/task-07-restore-stdlibmap-component-conformance/work.log:219-232`.
+      The retained green report has `verdict: "pass"` and null violations at
+      `/tmp/arcc-stdlibmap-f2-green.qtQ0ke/stdlibmap.component.report.json:1-75`.
+      `go/internal/stdlibmap/component.textproto:1-64` contains no
+      `analysis_defeating_policy: WARN`, and `justfile:102-103,128` makes the
+      staged stdlibmap verdict part of the native gate.
+  - text: |
+      **packagelayout has one explicit owner**
+        - Given every production component manifest and `go_component` declaration
+        - When project-package ownership and dependency edges are indexed
+        - Then `go/internal/packagelayout` has exactly one owner, both `goanalysis` and `stdlibmap` reach it through valid component semantics, and the component graph is acyclic
+    status: pass
+    evidence: |
+      `go/internal/manifestparity/ownership_test.go:399-475` asserts the sole
+      owner, package-surface shape, exact consumer edges, production imports, and
+      an acyclic checked-in dependency graph. The owner is declared in
+      `go/internal/packagelayout/component.textproto:1-18` and mirrored by
+      `go/internal/packagelayout/BUILD.bazel:28-47`; the consumers declare the
+      boundary at `go/internal/goanalysis/component.textproto:47-50` and
+      `go/internal/stdlibmap/component.textproto:51-54`. The focused test passed
+      as recorded in work.log:213-218.
+  - text: |
+      **AnalysisDefeating sites are removed without classifier changes**
+        - Given the cache read and missing-file behaviors previously implemented with `io.ReadAll` and `errors.Is`
+        - When focused tests exercise EOF, reader failure, oversize/no-progress where applicable, direct not-found, and wrapped not-found cases
+        - Then behavior is preserved and the strict component report contains neither recorded site, with the pinned classifier hash unchanged
+    status: pass
+    evidence: |
+      `go/internal/stdlibmap/cache.go:123-168` implements the bounded reader and
+      `cache.go:275-320` implements bounded direct/wrapped not-found matching;
+      `go/internal/stdlibmap/cache_test.go:114-181` covers EOF, reader errors,
+      the sentinel bound, no progress, direct/wrapped/joined not-found, and an
+      unrelated error. The focused tests passed at work.log:179-184. The pinned
+      classifier hash is unchanged at
+      `go/internal/teststdlibmap/testdata/linux_amd64.stdlib-map.json:7`, and
+      the green strict report contains neither AnalysisDefeating nor
+      UNDECLARED_DEPENDENCY findings.
+  - text: |
+      **Native and Bazel declarations remain coherent**
+        - Given every changed component boundary
+        - When manifest parity, ownership tests, native checks, and applicable Bazel checks run
+        - Then they agree on members, interface, dependencies, and singular ownership
+    status: pass
+    evidence: |
+      The mirrored package-surface declaration is present in
+      `go/internal/packagelayout/BUILD.bazel:28-47`, is included in the native
+      parity inputs at `go/cmd/arcc/app/BUILD.bazel:57-110`, and is consumed by
+      goanalysis at `go/internal/goanalysis/BUILD.bazel:49-77`. The complete
+      `just ci` run, including generation cleanliness, Go vet/build/tests,
+      native selfcheck, Bazel build/test, and manifest parity, is recorded at
+      work.log:248-490.
+
+findings: []
+
+ecosystem_reviews: []
