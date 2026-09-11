@@ -44,6 +44,9 @@ gen-is-clean: gen
 run *args:
 	cd {{go_dir}} && go run ./cmd/arcc {{args}}
 
+selfcheck-staging-test:
+	bash scripts/selfcheck-staging-test.sh
+
 # Self-check leg relationship:
 # The Bazel `.check` targets run by `bazel test //...` (in //go/internal/...)
 # correspond one-to-one with the pure components checked here:
@@ -168,7 +171,7 @@ bazel-test:
 # Go-only leg: everything except selfcheck and bazel-test. Mirrors the
 # ci.yml "Go" job so the three CI jobs can run in parallel on separate
 # runners; selfcheck and bazel-test run as their own CI jobs.
-ci-go: gen-is-clean lint build test test-integration stdlibmap-pin-check
+ci-go: gen-is-clean lint build test test-integration stdlibmap-pin-check selfcheck-staging-test
 
 ci: ci-go selfcheck bazel-test
 

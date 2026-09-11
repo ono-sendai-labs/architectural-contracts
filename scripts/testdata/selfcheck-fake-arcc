@@ -1,0 +1,46 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+: "${SELFCHECK_FAKE_LOG:?SELFCHECK_FAKE_LOG must name the call log}"
+printf '%s\n' "$*" >>"$SELFCHECK_FAKE_LOG"
+
+command_name=${1:?missing command}
+shift
+case "$command_name" in
+check)
+	manifest=${1:?missing manifest}
+	shift
+	report_out=""
+	surface_out=""
+	for arg in "$@"; do
+		case "$arg" in
+		--report-out=*) report_out=${arg#--report-out=} ;;
+		--surface-out=*) surface_out=${arg#--surface-out=} ;;
+		esac
+	done
+	: "${report_out:?missing report output}"
+	: "${surface_out:?missing surface output}"
+	component=${manifest%/component.textproto}
+	component=${component##*/}
+	case "$component" in
+	stage-only|schema) verdict=fail ;;
+	*) verdict=pass ;;
+	esac
+	printf '{"verdict":"%s"}\n' "$verdict" >"$report_out"
+	printf '{}\n' >"$surface_out"
+	;;
+verdict)
+	report_path=${1:?missing report path}
+	shift
+	expect=${1#--expect=}
+	actual=$(sed -nE 's/.*"verdict"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/p' "$report_path")
+	if [[ "$actual" != "$expect" ]]; then
+		echo "fake verdict mismatch: expected $expect, got $actual" >&2
+		exit 1
+	fi
+	;;
+*)
+	echo "unexpected fake arcc command: $command_name" >&2
+	exit 2
+	;;
+esac
