@@ -34,6 +34,7 @@ go_library(
         "//go/internal/stdlibauthority",
         "//go/internal/surface",
         "//go/internal/symbol",
+        "@org_golang_x_tools//go/gcexportdata:gcexportdata",
         "@org_golang_x_tools//go/packages",
     ],
 )

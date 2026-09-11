@@ -166,9 +166,10 @@ def _layout_content(ctx, merged, roots, go_sdk_root, platform, target, dependenc
                 fail("package %s has no export file for non-member package %s" % (ctx.label.name, importpath))
             package["ExportFile"] = runfiles_path(ctx, pkg.export_file)
             # Keep the aspect's declared archive projection in the base layout
-            # for the transitional source-backed loader. ArccLayout replaces
-            # this compatibility map with the exact source import set from
-            # ordinary_import_data, including implicit standard-library edges.
+            # for migration-safe inspection. The member-only driver ignores
+            # these compatibility source fields and uses the exact source
+            # import set from ordinary_import_data, including implicit
+            # standard-library edges.
             package["Imports"] = {
                 dep: dep
                 for dep in sorted(pkg.deps)
@@ -654,13 +655,13 @@ def _checked_analysis_action(ctx, manifest, layout, closure_srcs, export_files, 
     so the action stays deterministic and hermetic (I5) while keeping the
     existing layout-driver working-directory contract.
 
-    Inputs retain the Step 7 source-backed transition set and add the Step 8
+    Inputs retain the migration-safe source set and add the Step 8
     export closure: ordinary non-member archive exports, the exact
     ordinary-import graph descriptor, plus the target-configured stdlib metadata
     and generated export trees. The SDK and closure sources remain deliberately
-    staged until Task 5 cuts the loader over to member-only type loading. The
-    descriptor's `inputs` is the complete host-neutral stdlib input set, so the
-    action does not need to know any rules_go provider details.
+    staged until the Step 8 input-pruning task; the member-only loader does not
+    read them. The descriptor's `inputs` is the complete host-neutral stdlib
+    input set, so the action does not need to know any rules_go provider details.
 
     No environment at all: the argv and the frame symlinks fully determine
     the action; network access is blocked.

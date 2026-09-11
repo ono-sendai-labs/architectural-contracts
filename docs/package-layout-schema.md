@@ -188,13 +188,13 @@ For member-only validation:
   Every such package except the builtin `unsafe` must have an export artifact
   and an explicit `Imports` map. A leaf must use `"Imports": {}`; an omitted
   or `null` field is an incomplete graph, not an empty leaf.
-- During the Task 4 transition the emitter also retains non-member source
-  fields and stages the closure sources because the active loader still uses
-  `NeedDeps`. Those fields are compatibility inputs only; Task 5's driver
-  response selects source for roots and `ExportFile` for non-roots. The
-  emitted ordinary non-member records already carry their export artifact; the
-  build-time ordinary-import descriptor supplies the exact direct graph, while
-  the stdlib descriptor supplies the target-configured SDK graph.
+- The emitter may retain non-member source fields and stage closure sources
+  during the Step 8 migration, but the active Task 5 loader ignores them.
+  Its driver response selects source for roots and `ExportFile` for non-roots;
+  the post-load guard fails if dependency syntax, type info, or source lists
+  reappear. The emitted ordinary non-member records already carry their export
+  artifact; the build-time ordinary-import descriptor supplies the exact direct
+  graph, while the stdlib descriptor supplies the target-configured SDK graph.
 - **The graph is not an API-surface projection.** Packages and edges are kept
   even when an imported package does not appear to be referenced by the
   exporting package's public API. The validator walks sorted roots and sorted
@@ -255,8 +255,14 @@ is rejected. The checked action declares the transition input set: member and
 closure sources, the manifest/layout, ordinary non-member export files, the
 stdlib metadata file and its generated `gocache`/`pkg` export trees, direct
 dependency surfaces/reports, and the target stdlib map. The closure and SDK
-source inputs remain only until Task 5; they are not a second analysis action
-or a source of stdlib provenance.
+source inputs remain staged for migration safety until the Step 8 input-pruning
+task; they are not a second analysis action or a source of stdlib provenance.
+
+**Native loading.** Without a package layout, `go/packages` uses the host Go
+driver and its `go list -export` results. Native checks may therefore execute
+the host toolchain and read its build cache; an unsupported or mismatched export
+artifact is a tool error naming the package and artifact. Bazel/layout checks
+use arcc's self-exec driver instead and consume only declared export files.
 
 The optional `export_roots` records are the same two spellings the host adapter
 knows for each generated tree: `exec_path` is the relative path beneath the

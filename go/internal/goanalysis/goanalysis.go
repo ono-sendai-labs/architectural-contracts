@@ -26,6 +26,7 @@ import (
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/facts"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/hostpolicy"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/packagelayout"
+	"golang.org/x/tools/go/gcexportdata"
 	"golang.org/x/tools/go/packages"
 )
 
@@ -40,11 +41,12 @@ var (
 
 // componentLoadMode is the narrow type-loading contract for component checks.
 // Roots receive syntax and TypesInfo; reachable non-roots are loaded from their
-// compiler export data. NeedDeps would ask go/packages to source-load the whole
-// closure and would defeat the compositional loader boundary (DR-02).
+// compiler export data. NeedExportFile keeps the artifact path available for the
+// post-load completeness check; NeedDeps would ask go/packages to source-load
+// the whole closure and would defeat the compositional loader boundary (DR-02).
 const componentLoadMode = packages.NeedName | packages.NeedFiles | packages.NeedCompiledGoFiles |
 	packages.NeedImports | packages.NeedSyntax | packages.NeedTypes |
-	packages.NeedTypesInfo | packages.NeedModule
+	packages.NeedTypesInfo | packages.NeedModule | packages.NeedExportFile
 
 // LoadRequest describes the component-scoped package roots to load. Members are
 // canonical literal import paths; the manifest parser rejects glob
@@ -77,7 +79,10 @@ func SerializeChecks(fn func()) {
 
 // LoadPackageFacts loads Go package membership and direct-import facts below the
 // supplied component root using go/packages. Standard-library membership and
-// authority are resolved later through the total StdlibAuthority map.
+// authority are resolved later through the total StdlibAuthority map. In native
+// mode go/packages delegates export discovery to the host Go driver's
+// go list -export path, so this operation may execute the host toolchain; layout
+// mode instead uses the declared self-exec driver and artifacts.
 func LoadPackageFacts(req LoadRequest) (facts.PackageFacts, error) {
 	componentRoot := req.ComponentRoot
 	var dir string
@@ -140,7 +145,7 @@ func LoadPackageFacts(req LoadRequest) (facts.PackageFacts, error) {
 			if isExpectedUnresolvedLayoutImport(err.Msg, unresolvedPaths) {
 				continue
 			}
-			errMsgs = append(errMsgs, err.Msg)
+			errMsgs = append(errMsgs, describePackageLoadError(p, err))
 		}
 	})
 
@@ -172,6 +177,24 @@ func LoadPackageFacts(req LoadRequest) (facts.PackageFacts, error) {
 	} else {
 		for _, p := range pkgs {
 			compPkgPaths[hostpolicy.CanonicalizePath(p.PkgPath)] = true
+		}
+	}
+	strictNonMemberSources := false
+	if packagelayout.IsLayoutMode() {
+		strictNonMemberSources = packagelayout.IsMemberOnlyLayout(packagelayout.GetActiveLayout())
+	}
+	memberOnlyLoad := !packagelayout.IsLayoutMode()
+	if packagelayout.IsLayoutMode() {
+		memberOnlyLoad = packagelayout.IsMemberOnlyLayout(packagelayout.GetActiveLayout())
+	}
+	if memberOnlyLoad {
+		if hasExportBackedNonMembers(pkgs, compPkgPaths) {
+			if err := completeLoadedExportTypes(pkgs, compPkgPaths); err != nil {
+				return facts.PackageFacts{}, err
+			}
+		}
+		if err := validateLoadedPackageGraph(pkgs, compPkgPaths, strictNonMemberSources); err != nil {
+			return facts.PackageFacts{}, err
 		}
 	}
 	isEffectiveMember := func(pkgPath string) bool {
@@ -380,6 +403,13 @@ func isExpectedUnresolvedLayoutImport(message string, unresolvedPaths map[string
 	return false
 }
 
+func describePackageLoadError(pkg *packages.Package, loadErr packages.Error) string {
+	if pkg != nil && pkg.ExportFile != "" {
+		return fmt.Sprintf("package %q (export file %q): %s", pkg.PkgPath, pkg.ExportFile, loadErr.Msg)
+	}
+	return loadErr.Msg
+}
+
 func interfacePackagePatterns(interfaceFiles []string) []string {
 	seen := make(map[string]bool)
 	var patterns []string
@@ -435,6 +465,129 @@ func validateLoaderPackagePaths(pkgs []*packages.Package) error {
 		}
 	})
 	return validationErr
+}
+
+func hasExportBackedNonMembers(pkgs []*packages.Package, memberPaths map[string]bool) bool {
+	found := false
+	packages.Visit(pkgs, nil, func(pkg *packages.Package) {
+		if pkg == nil || memberPaths[hostpolicy.CanonicalizePath(pkg.PkgPath)] || pkg.PkgPath == "unsafe" {
+			return
+		}
+		if pkg.ExportFile != "" {
+			found = true
+		}
+	})
+	return found
+}
+
+// completeLoadedExportTypes fills the incomplete placeholder packages that
+// go/packages creates for transitive export-only nodes when NeedDeps is absent.
+// The first source root's direct imports are loaded by go/packages itself; this
+// pass reads each remaining declared export artifact through the same gc reader
+// and preserves the package pointers already referenced by member TypesInfo.
+func completeLoadedExportTypes(pkgs []*packages.Package, memberPaths map[string]bool) error {
+	var loaded []*packages.Package
+	packages.Visit(pkgs, nil, func(pkg *packages.Package) {
+		if pkg != nil {
+			loaded = append(loaded, pkg)
+		}
+	})
+
+	view := make(map[string]*types.Package, len(loaded))
+	var fset *token.FileSet
+	for _, pkg := range loaded {
+		if pkg.Types != nil {
+			view[pkg.PkgPath] = pkg.Types
+		}
+		if fset == nil && pkg.Fset != nil {
+			fset = pkg.Fset
+		}
+	}
+	if fset == nil {
+		fset = token.NewFileSet()
+	}
+
+	slices.SortFunc(loaded, func(a, b *packages.Package) int {
+		return strings.Compare(a.PkgPath, b.PkgPath)
+	})
+	for _, pkg := range loaded {
+		if memberPaths[hostpolicy.CanonicalizePath(pkg.PkgPath)] || pkg.PkgPath == "unsafe" {
+			continue
+		}
+		if pkg.Types != nil && pkg.Types.Complete() {
+			continue
+		}
+		if pkg.ExportFile == "" {
+			continue
+		}
+		file, err := os.Open(pkg.ExportFile)
+		if err != nil {
+			return fmt.Errorf("reading export data for package %q from %q: %w", pkg.PkgPath, pkg.ExportFile, err)
+		}
+		reader, err := gcexportdata.NewReader(file)
+		if err == nil {
+			var imported *types.Package
+			imported, err = gcexportdata.Read(reader, fset, view, pkg.PkgPath)
+			if err == nil {
+				pkg.Types = imported
+				view[pkg.PkgPath] = imported
+			}
+		}
+		closeErr := file.Close()
+		if err != nil {
+			return fmt.Errorf("reading export data for package %q from %q: %w", pkg.PkgPath, pkg.ExportFile, err)
+		}
+		if closeErr != nil {
+			return fmt.Errorf("closing export data for package %q from %q: %w", pkg.PkgPath, pkg.ExportFile, closeErr)
+		}
+		if pkg.Types == nil || !pkg.Types.Complete() {
+			return fmt.Errorf("export data for package %q from %q is incomplete", pkg.PkgPath, pkg.ExportFile)
+		}
+	}
+	return nil
+}
+
+// validateLoadedPackageGraph enforces the member-only post-load contract. The
+// layout driver strips dependency source metadata before go/packages sees it;
+// strictNonMemberSources therefore turns a source-list regression into a tool
+// error in the hermetic path. Native go list retains source names as metadata
+// even though it does not parse them when NeedDeps is absent, so native callers
+// still enforce the stronger syntax/type-info and complete-types checks.
+func validateLoadedPackageGraph(pkgs []*packages.Package, memberPaths map[string]bool, strictNonMemberSources bool) error {
+	var violations []string
+	packages.Visit(pkgs, nil, func(pkg *packages.Package) {
+		if pkg == nil {
+			return
+		}
+		isMember := memberPaths[hostpolicy.CanonicalizePath(pkg.PkgPath)]
+		if isMember {
+			if pkg.Syntax == nil || pkg.TypesInfo == nil {
+				violations = append(violations, fmt.Sprintf("member package %q lacks full syntax/type-info data", pkg.PkgPath))
+			}
+			return
+		}
+		if pkg.PkgPath == "unsafe" {
+			// go/packages deliberately synthesizes an empty Syntax/TypesInfo
+			// pair for the compiler builtin package; it has no source or
+			// export artifact to validate.
+			return
+		}
+
+		if len(pkg.Syntax) > 0 || pkg.TypesInfo != nil {
+			violations = append(violations, fmt.Sprintf("non-member package %q retains source syntax or type-info data", pkg.PkgPath))
+		}
+		if strictNonMemberSources && (len(pkg.GoFiles) > 0 || len(pkg.CompiledGoFiles) > 0) {
+			violations = append(violations, fmt.Sprintf("non-member package %q retains source file lists", pkg.PkgPath))
+		}
+		if pkg.Types == nil || !pkg.Types.Complete() {
+			violations = append(violations, fmt.Sprintf("non-member package %q has incomplete export-backed types", pkg.PkgPath))
+		}
+	})
+	if len(violations) == 0 {
+		return nil
+	}
+	sort.Strings(violations)
+	return fmt.Errorf("member-only package load invariant failed:\n%s", strings.Join(violations, "\n"))
 }
 
 func packageIsDeclaredMember(pkg *packages.Package, members []string) bool {

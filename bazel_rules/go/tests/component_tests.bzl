@@ -598,8 +598,8 @@ def _component_action_topology_impl(env, target):
 
     # Only the graph action's declared output crosses into ArccCheck. Its
     # request/source inputs and ArccLayout's base-layout input remain private
-    # to the auxiliary actions; transitional closure sources are retained by
-    # the existing NeedDeps load path independently of this boundary.
+    # to the auxiliary actions; transitional closure sources are retained for
+    # migration safety, but the member-only loader no longer reads them.
     check_inputs = [file.short_path for file in check_action.inputs.to_list()]
     check_input_basenames = [path.rsplit("/", 1)[-1] for path in check_inputs]
     env.expect.that_collection(check_input_basenames).contains("api_component.package-imports.json")
@@ -777,8 +777,8 @@ def _checked_action_inputs_impl(env, target):
         # The arcc tool and its runfiles (the argv[1] executable, declared as
         # a tool), the generated frame wrapper (the action's executable), and
         # covered dependency sources — today's source/runfile closure, which
-        # The closure source is intentionally retained until Task 5's
-        # member-only loader cutover.
+        # The closure source is intentionally retained until Step 8's
+        # input-pruning task; the member-only loader ignores it.
         and basename != argv[1].rsplit("/", 1)[-1]
         and basename != "arcc.runfiles"
         and basename != argv[0].rsplit("/", 1)[-1]

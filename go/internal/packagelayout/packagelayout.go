@@ -59,6 +59,7 @@ import (
 	"go/build/constraint"
 	"go/scanner"
 	"go/token"
+	"go/types"
 	"io"
 	"os"
 	"path"
@@ -124,6 +125,25 @@ type Layout struct {
 	// deliberately excluded from the layout JSON schema.
 	UnresolvedImports []UnresolvedImport `json:"-"`
 	importsOmitted    map[string]bool
+}
+
+// IsMemberOnlyLayout reports whether l carries the export-data contract used by
+// component checks. Whole-SDK generation layouts intentionally have only source
+// inputs; an ordinary-import descriptor, a standard-library export descriptor,
+// or any package export artifact marks a component layout as member-only.
+func IsMemberOnlyLayout(l *Layout) bool {
+	if l == nil {
+		return false
+	}
+	if l.OrdinaryImportData != nil || l.StdlibExportData != nil {
+		return true
+	}
+	for _, pkg := range l.Packages {
+		if pkg != nil && pkg.ExportFile != "" {
+			return true
+		}
+	}
+	return false
 }
 
 // DependencyArtifactProvenance identifies how a dependency's artifact pair was
@@ -2230,6 +2250,124 @@ func validateExportFilePath(value string) error {
 	return nil
 }
 
+// cloneDriverModule returns a defensive copy of module metadata, including the
+// recursive replacement chain and error/time pointers exposed by packages.Module.
+func cloneDriverModule(module *packages.Module) *packages.Module {
+	if module == nil {
+		return nil
+	}
+	clone := *module
+	if module.Replace != nil {
+		clone.Replace = cloneDriverModule(module.Replace)
+	}
+	if module.Time != nil {
+		timestamp := *module.Time
+		clone.Time = &timestamp
+	}
+	if module.Error != nil {
+		clone.Error = &packages.ModuleError{Err: module.Error.Err}
+	}
+	return &clone
+}
+
+// cloneDriverPackage copies package metadata without retaining mutable slices,
+// maps, or module pointers from the validated layout. Runtime type/syntax state
+// is never part of a layout driver response and is deliberately cleared.
+func cloneDriverPackage(pkg *packages.Package) *packages.Package {
+	if pkg == nil {
+		return nil
+	}
+	clone := *pkg
+	clone.Errors = append([]packages.Error(nil), pkg.Errors...)
+	clone.TypeErrors = append([]types.Error(nil), pkg.TypeErrors...)
+	clone.GoFiles = slices.Clone(pkg.GoFiles)
+	clone.CompiledGoFiles = slices.Clone(pkg.CompiledGoFiles)
+	clone.OtherFiles = slices.Clone(pkg.OtherFiles)
+	clone.EmbedFiles = slices.Clone(pkg.EmbedFiles)
+	clone.EmbedPatterns = slices.Clone(pkg.EmbedPatterns)
+	clone.IgnoredFiles = slices.Clone(pkg.IgnoredFiles)
+	clone.Module = cloneDriverModule(pkg.Module)
+	clone.Types = nil
+	clone.Fset = nil
+	clone.Syntax = nil
+	clone.TypesInfo = nil
+	clone.TypesSizes = nil
+	clone.Imports = nil
+	return &clone
+}
+
+// projectDriverPackages returns the full graph with source roles scoped to the
+// requested roots. Export-backed non-roots retain identity, export data, and
+// every import edge, but no source-shaped field that could make go/packages
+// consult dependency syntax. The returned graph is independent of l.
+func projectDriverPackages(source []*packages.Package, rootIDs map[string]bool) []*packages.Package {
+	clones := make(map[string]*packages.Package, len(source))
+	for _, pkg := range source {
+		if pkg == nil {
+			continue
+		}
+		clone := cloneDriverPackage(pkg)
+		if rootIDs[pkg.ID] {
+			// A root is loaded from source for this request. Its export artifact,
+			// if a producer happened to attach one, is not its effective role.
+			clone.ExportFile = ""
+		} else {
+			clone.GoFiles = nil
+			clone.CompiledGoFiles = nil
+			clone.OtherFiles = nil
+			clone.EmbedFiles = nil
+			clone.EmbedPatterns = nil
+			clone.IgnoredFiles = nil
+		}
+		clones[pkg.ID] = clone
+	}
+
+	for _, pkg := range source {
+		if pkg == nil {
+			continue
+		}
+		clone := clones[pkg.ID]
+		if pkg.Imports == nil {
+			continue
+		}
+		clone.Imports = make(map[string]*packages.Package, len(pkg.Imports))
+		for importPath, imported := range pkg.Imports {
+			if imported == nil {
+				clone.Imports[importPath] = nil
+				continue
+			}
+			if importedClone, ok := clones[imported.ID]; ok {
+				clone.Imports[importPath] = importedClone
+				continue
+			}
+			// Validation normally makes this impossible. Preserve an isolated
+			// stub for direct callers so response construction itself never
+			// aliases a package object outside the response graph.
+			clone.Imports[importPath] = cloneDriverPackage(imported)
+		}
+	}
+
+	projected := make([]*packages.Package, 0, len(source))
+	for _, pkg := range source {
+		if pkg != nil {
+			projected = append(projected, clones[pkg.ID])
+		}
+	}
+	slices.SortFunc(projected, func(a, b *packages.Package) int {
+		return strings.Compare(a.ID, b.ID)
+	})
+	return projected
+}
+
+// validateForDriver selects the source-backed path used by whole-SDK
+// generation and the export-backed path used by component checks.
+func validateForDriver(l *Layout, workspaceDir string) error {
+	if IsMemberOnlyLayout(l) {
+		return ValidateAndResolveForMemberOnly(l, workspaceDir)
+	}
+	return ValidateAndResolve(l, workspaceDir)
+}
+
 // HandleDriverRequest processes a packages.DriverRequest using a validated Layout
 // and the query patterns, returning a packages.DriverResponse.
 func HandleDriverRequest(l *Layout, req *packages.DriverRequest, patterns []string) (*packages.DriverResponse, error) {
@@ -2281,12 +2419,23 @@ func HandleDriverRequest(l *Layout, req *packages.DriverRequest, patterns []stri
 	// Always sort roots for determinism.
 	sort.Strings(roots)
 
-	// Ensure the response Packages list is also deterministic by sorting by ID.
-	pkgsCopy := make([]*packages.Package, len(l.Packages))
-	copy(pkgsCopy, l.Packages)
-	slices.SortFunc(pkgsCopy, func(a, b *packages.Package) int {
-		return strings.Compare(a.ID, b.ID)
-	})
+	rootIDs := make(map[string]bool, len(roots))
+	for _, id := range roots {
+		rootIDs[id] = true
+	}
+	if !IsMemberOnlyLayout(l) {
+		// Whole-SDK generation is source-backed by design. Treat every
+		// package as a source root so a query for one SDK package does not
+		// accidentally strip the source needed by its transitive graph.
+		for _, pkg := range l.Packages {
+			if pkg != nil {
+				rootIDs[pkg.ID] = true
+			}
+		}
+	}
+
+	// Ensure the response Packages list is deterministic and role-projected.
+	pkgsCopy := projectDriverPackages(l.Packages, rootIDs)
 
 	// The driver response's Arch becomes go/packages' types.Sizes target. A
 	// layout that pins a platform describes that target, not the binary
@@ -2412,7 +2561,7 @@ func RunDriver(layoutPath string, workspaceDir string, patterns []string, stdin 
 		return fmt.Errorf("resolving layout runtime metadata: %w", err)
 	}
 
-	if err := ValidateAndResolve(layout, workspaceDir); err != nil {
+	if err := validateForDriver(layout, workspaceDir); err != nil {
 		return fmt.Errorf("validating layout: %w", err)
 	}
 
@@ -2496,7 +2645,7 @@ func WithTemporaryLayout(layoutPath string, fn func() error) error {
 		return fmt.Errorf("resolving dependency layout runtime metadata: %w", err)
 	}
 
-	if err := ValidateAndResolve(layout, activeWorkspaceDir); err != nil {
+	if err := validateForDriver(layout, activeWorkspaceDir); err != nil {
 		activeMu.Unlock()
 		return fmt.Errorf("validating dependency layout file: %w", err)
 	}
@@ -2551,7 +2700,7 @@ func WithDriverEnv(layoutPath, workspaceDir string, fn func() error) error {
 		return fmt.Errorf("resolving layout runtime metadata: %w", err)
 	}
 
-	if err := ValidateAndResolve(layout, workspaceDir); err != nil {
+	if err := validateForDriver(layout, workspaceDir); err != nil {
 		return fmt.Errorf("validating layout file: %w", err)
 	}
 

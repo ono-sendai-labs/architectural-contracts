@@ -74,10 +74,8 @@ func LoadSurfaceInputs(req LoadRequest) (SurfaceInputs, error) {
 	}
 
 	cfg := &packages.Config{
-		Mode: packages.NeedName | packages.NeedFiles | packages.NeedCompiledGoFiles |
-			packages.NeedImports | packages.NeedDeps | packages.NeedSyntax |
-			packages.NeedTypes | packages.NeedTypesInfo | packages.NeedModule,
-		Dir: dir,
+		Mode: componentLoadMode,
+		Dir:  dir,
 	}
 	pkgs, err := loadPackages(cfg, patterns...)
 	if err != nil {
@@ -125,7 +123,7 @@ func LoadSurfaceInputs(req LoadRequest) (SurfaceInputs, error) {
 			if isExpectedUnresolvedLayoutImport(e.Msg, unresolvedPaths) {
 				continue
 			}
-			errMsgs = append(errMsgs, e.Msg)
+			errMsgs = append(errMsgs, describePackageLoadError(p, e))
 		}
 	})
 	if len(errMsgs) > 0 {
@@ -139,6 +137,28 @@ func LoadSurfaceInputs(req LoadRequest) (SurfaceInputs, error) {
 		}
 		sort.Strings(sorted)
 		return SurfaceInputs{}, fmt.Errorf("package load errors:\n%s", strings.Join(sorted, "\n"))
+	}
+
+	memberPathSet := make(map[string]bool, len(members))
+	for _, member := range members {
+		memberPathSet[hostpolicy.CanonicalizePath(member.PkgPath)] = true
+	}
+	memberOnlyLoad := !packagelayout.IsLayoutMode()
+	strictNonMemberSources := false
+	if packagelayout.IsLayoutMode() {
+		layout := packagelayout.GetActiveLayout()
+		memberOnlyLoad = packagelayout.IsMemberOnlyLayout(layout)
+		strictNonMemberSources = memberOnlyLoad
+	}
+	if memberOnlyLoad {
+		if hasExportBackedNonMembers(pkgs, memberPathSet) {
+			if err := completeLoadedExportTypes(pkgs, memberPathSet); err != nil {
+				return SurfaceInputs{}, err
+			}
+		}
+		if err := validateLoadedPackageGraph(pkgs, memberPathSet, strictNonMemberSources); err != nil {
+			return SurfaceInputs{}, err
+		}
 	}
 
 	memberPaths := make([]string, 0, len(members))
