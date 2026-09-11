@@ -12,6 +12,7 @@ load(":report_assertion_tests.bzl", "report_assertion_test_suite")
 load(":stdlib_map_probe.bzl", "darwin_arm64_stdlib_map", "default_seam_probe", "tagged_stdlib_map")
 load(":stdlib_map_tests.bzl", "stdlib_map_full_test_suite", "stdlib_map_test_suite")
 load(":stdlib_export_data_tests.bzl", "stdlib_export_data_test_suite")
+load(":runtime_injection_tests.bzl", "runtime_injection_test_suite", "runtime_injection_defaults_probe")
 load(":testing.bzl", "testing_infra_attachment_probe")
 
 exports_files([
@@ -33,6 +34,9 @@ config_setting(
 stdlib_map_test_suite(name = "stdlib_map_tests")
 stdlib_map_full_test_suite(name = "stdlib_map_full_tests")
 stdlib_export_data_test_suite(name = "stdlib_export_data_tests")
+
+runtime_injection_defaults_probe(name = "runtime_injection_defaults_probe")
+runtime_injection_test_suite(name = "runtime_injection_tests")
 
 stdlib_export_data_probe(name = "stdlib_export_data_probe")
 stdlib_export_data_missing_probe(

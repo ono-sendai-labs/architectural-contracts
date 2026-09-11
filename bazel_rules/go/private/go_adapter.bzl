@@ -85,6 +85,46 @@ def go_attach_infra(roots, infra):
     """
     return True
 
+def runtime_injection_attrs(deps_aspect):
+    """Returns private rule attrs for host-injected runtime targets.
+
+    The upstream rules_go adapter has no hidden runtime targets, so this
+    contract is deliberately empty. A host adapter may return attributes such
+    as a private label list whose `aspects` contains `deps_aspect`; the caller
+    supplies arcc's package-projecting aspect so the host does not need to
+    reproduce provider traversal in the generic component rule. Returned
+    attributes are merged into `go_component`'s private rule attrs with
+    collision protection and are never part of the public authoring macro.
+
+    Args:
+      deps_aspect: the host-neutral dependency aspect that projects targets to
+        ArccPackageInfo-compatible package records.
+
+    Returns:
+      A dictionary of private (`_`-prefixed) rule attributes, or `{}` upstream.
+    """
+    _ = deps_aspect
+    return {}
+
+def extra_runtime_packages(ctx, root_packages):
+    """Returns host-injected package records for the effective package view.
+
+    The upstream rules_go adapter exposes no injected runtime packages, so the
+    default is `[]`. A host replacement may read its private attributes from
+    `ctx` and project them to records with the same fields as
+    `go_target_info`: `importpath`, `srcs`, `deps`, `cgo`, `export_file`, and
+    `label`. `root_packages` contains the ordinary root projection and is an
+    input snapshot: this function MUST NOT mutate it. Host output must be
+    deterministic, or contain only metadata that `merge_by_importpath` can
+    deterministically merge and validate.
+
+    The component rule concatenates the returned records with the ordinary
+    records and performs one merge before cgo validation, layout construction,
+    infra attachment, membership classification, and export staging.
+    """
+    _ = ctx, root_packages
+    return []
+
 # Infrastructure components are intentionally empty for the upstream ruleset.
 # Hosts replace this registry with entries shaped like the examples below.
 # A concrete component label can be attached when the infrastructure target is
