@@ -1,4 +1,5 @@
-load("@rules_arcc//bazel_rules/go:defs.bzl", "PACKAGE_SURFACE", "go_component")
+load("@rules_arcc//bazel_rules/go:defs.bzl", "DECLARED", "PACKAGE_SURFACE", "UNKNOWN", "go_component")
+load("//bazel_rules/go/tests:testing.bzl", "testing_go_component_direct")
 load("@rules_go//go:def.bzl", "go_library")
 
 go_library(
@@ -8,30 +9,35 @@ go_library(
     visibility = ["//bazel_rules:__subpackages__"],
 )
 
-# The one genuine asserted fixture (Step 5 task 05): this component is not
-# analysed, so consumers that cross this boundary receive an asserted
-# surface (provenance = "asserted", report = None) through the provider.
-# Asserted surfaces are package-level (design I6), so the component is
-# PACKAGE_SURFACE: its complete surface is its member set. The `manual` tag
-# also keeps the target out of wildcard builds.
-#
-# Step 11 replaces the tag-based asserted branch with `authority: UNKNOWN`.
+# The one genuine asserted fixture: this component is not analysed, so consumers
+# that cross this boundary receive an asserted surface (provenance = "asserted",
+# report = None) through the provider. Asserted surfaces are package-level (I6),
+# so the component is PACKAGE_SURFACE: its complete surface is its member set.
 go_component(
     name = "manual_component",
     interface_style = PACKAGE_SURFACE,
     members = [":manual"],
+    authority = UNKNOWN,
+    visibility = ["//bazel_rules:__subpackages__"],
+)
+
+# The test-only direct-rule path bypasses the public macro validation and must
+# still reject unsupported authority values in the private implementation.
+testing_go_component_direct(
+    name = "direct_invalid_authority_component",
+    interface = ":manual",
+    authority = "NOT_AN_AUTHORITY",
     tags = ["manual"],
     visibility = ["//bazel_rules:__subpackages__"],
 )
 
-# Negative fixture (Step 5 task 05 AC 2b): a manual declared-interface
-# component cannot be asserted — analysis must fail naming the target and
-# stating that asserted surfaces are package-level (design I6). The `manual`
-# tag keeps the deliberately failing analysis out of wildcard builds;
-# //bazel_rules/go/tests asserts on the failure directly.
+# Generic scheduling tags do not select a producer. This component is
+# explicitly DECLARED and remains checked even though the component target and
+# generated check carry the conventional Bazel `manual` scheduling tag.
 go_component(
-    name = "declared_manual_component",
+    name = "tagged_declared_component",
     interface = ":manual",
+    authority = DECLARED,
     tags = ["manual"],
     visibility = ["//bazel_rules:__subpackages__"],
 )

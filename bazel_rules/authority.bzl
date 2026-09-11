@@ -3,12 +3,21 @@
 These constants name the capabilities arcc understands; a component's
 `declared_authority` is a subset of them. The taxonomy is language-neutral —
 `go_component` re-exports it for convenience, and a future `rust_component`
-would use it unchanged.
+would use it unchanged. The component-authority selectors below are a separate
+axis: DECLARED means the component is checked, while UNKNOWN means its
+package-level surface is asserted without analysis.
 
 The Go source of truth is `KnownCapabilities` in
 `go/internal/manifest/manifest.go`; `//bazel_rules/tests:authority_sync_test`
 fails if the two sets drift apart.
 """
+
+# Component verification-status selectors. These are intentionally not members
+# of ALL_AUTHORITIES: UNKNOWN is not an ambient capability and DECLARED is not
+# a capability declaration.
+DECLARED = "DECLARED"
+UNKNOWN = "UNKNOWN"
+ALL_COMPONENT_AUTHORITIES = [DECLARED, UNKNOWN]
 
 FILES = "FILES"
 NETWORK = "NETWORK"

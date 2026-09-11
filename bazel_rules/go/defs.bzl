@@ -1,6 +1,6 @@
 """Public Go rules for Architectural Contracts.
 
-    load("@rules_arcc//bazel_rules/go:defs.bzl", "go_component", "FILES")
+load("@rules_arcc//bazel_rules/go:defs.bzl", "go_component", "FILES", "DECLARED", "UNKNOWN")
 
 The authority constants are re-exported here so a Go consumer needs one load
 statement; they are equally available from their language-neutral home,
@@ -17,8 +17,10 @@ load(
 load(
     "//bazel_rules:authority.bzl",
     _ALL_AUTHORITIES = "ALL_AUTHORITIES",
+    _ALL_COMPONENT_AUTHORITIES = "ALL_COMPONENT_AUTHORITIES",
     _ARBITRARY_EXECUTION = "ARBITRARY_EXECUTION",
     _CGO = "CGO",
+    _DECLARED = "DECLARED",
     _EXEC = "EXEC",
     _FILES = "FILES",
     _MODIFY_SYSTEM_STATE = "MODIFY_SYSTEM_STATE",
@@ -30,6 +32,7 @@ load(
     _SYSTEM_CALLS = "SYSTEM_CALLS",
     _UNANALYZED = "UNANALYZED",
     _UNSAFE_POINTER = "UNSAFE_POINTER",
+    _UNKNOWN = "UNKNOWN",
 )
 
 FILES = _FILES
@@ -46,6 +49,9 @@ UNSAFE_POINTER = _UNSAFE_POINTER
 REFLECT = _REFLECT
 UNANALYZED = _UNANALYZED
 ALL_AUTHORITIES = _ALL_AUTHORITIES
+DECLARED = _DECLARED
+UNKNOWN = _UNKNOWN
+ALL_COMPONENT_AUTHORITIES = _ALL_COMPONENT_AUTHORITIES
 
 # Exported for the test helper in bazel_rules/go/tests/testing.bzl.
 def validate_component_shape(name, kwargs):
@@ -105,7 +111,37 @@ def _has_wildcards(s):
             return True
     return False
 
+def _validate_component_authority(name, kwargs):
+    authority = kwargs.get("authority")
+    if authority == None:
+        authority = DECLARED
+    if authority not in ALL_COMPONENT_AUTHORITIES:
+        fail("component %s: unknown authority %r; accepted values are %s." % (
+            name,
+            authority,
+            ", ".join(ALL_COMPONENT_AUTHORITIES),
+        ))
+
+    if authority != UNKNOWN:
+        return authority
+
+    if kwargs.get("declared_authority"):
+        fail(("component %s: authority UNKNOWN requires declared_authority to be empty; " +
+              "remove the declared capabilities or use authority = DECLARED.") % name)
+    if kwargs.get("interface") != None:
+        fail(("component %s: authority UNKNOWN cannot use a declared interface; " +
+              "UNKNOWN asserted surfaces are package-level and require interface_style = " +
+              "PACKAGE_SURFACE.") % name)
+    if kwargs.get("interface_style") != PACKAGE_SURFACE:
+        fail(("component %s: authority UNKNOWN requires interface_style = %s for its " +
+              "package-level asserted surface.") % (name, PACKAGE_SURFACE))
+    if not kwargs.get("members"):
+        fail(("component %s: authority UNKNOWN requires non-empty members for its " +
+              "package-level asserted surface.") % name)
+    return authority
+
 def _validate_component_shape(name, kwargs):
+    _validate_component_authority(name, kwargs)
     style = kwargs.get("interface_style")
     interface = kwargs.get("interface")
     members = kwargs.get("members") or []
@@ -156,17 +192,11 @@ def _go_component_impl(name, visibility, **kwargs):
     set_kwargs = {key: value for key, value in kwargs.items() if value != None}
 
     # `check_tags` is the macro's own attribute: tags for the generated
-    # `.check` test only. A component tagged `manual` is an asserted
-    # component (design I6) and has no `.check` at all — there is no checked
-    # verdict to assert, and an asserted surface must never masquerade as a
-    # passing check (task req 7). Every other component keeps the hermetic
-    # `.check`; its tags are the component's own tags plus `check_tags`, so a
-    # fixture whose check deliberately fails stays out of `bazel test //...`
-    # with `check_tags = ["manual"]` while the component itself remains a
-    # checked component (Step 5 task 05's migration of the fixture-only
-    # `manual` uses).
+    # `.check` test only. Generic component tags remain scheduling metadata;
+    # only the explicit authority selector chooses whether a checked verdict
+    # exists.
     check_tags = list(set_kwargs.pop("check_tags", []))
-    component_is_asserted = "manual" in (set_kwargs.get("tags") or [])
+    component_is_asserted = set_kwargs.get("authority", DECLARED) == UNKNOWN
 
     raw_members = set_kwargs.get("members", [])
     target_members = []
@@ -240,6 +270,11 @@ go_component = macro(
             doc = "The ambient authority this component declares, as constants from this file " +
                  "(FILES, NETWORK, ...). Empty means the component claims to be authority-free.",
         ),
+        "authority": attr.string(
+            default = DECLARED,
+            configurable = False,
+            doc = "Verification status: DECLARED (the default, checked) or UNKNOWN (explicit package-level asserted surface).",
+        ),
         "analysis_defeating_policy": attr.string(
             default = ANALYSIS_DEFEATING_POLICY_STRICT,
             configurable = False,
@@ -269,17 +304,16 @@ Expands to:
   * `name` — generates `name.component.textproto` and
     `name.package-layout.json` (the layout's platform block pins
     `toolchain_version` and `goexperiment` for the target SDK identity).
-    The target also owns the component's surface producer. A component
-    tagged `manual` is an ASSERTED component (design I6): it is not
-    analysed, and its `name.surface.json` is written at analysis time from
-    data already known to the rule — member packages, namespace, SDK key,
-    format and producer versions, with no symbols and the empty digest.
-    It publishes `provenance = "asserted"` with `report = None`, has no
-    analysis action, and generates no `.check` (there is no checked verdict
-    to assert; an asserted surface must never masquerade as a passing
-    check). A manual component must be `PACKAGE_SURFACE`; a declared
-    interface cannot be asserted, and the target fails analysis saying so.
-    Step 11 replaces this tag-based branch with `authority: UNKNOWN`.
+    The target also owns the component's surface producer. `authority =
+    UNKNOWN` selects an ASSERTED component (design I6): it is not analysed,
+    and its `name.surface.json` is written at analysis time from data already
+    known to the rule — member packages, namespace, SDK key, format and
+    producer versions, with no symbols and the empty digest. It publishes
+    `provenance = "asserted"` with `report = None`, has no analysis action,
+    and generates no `.check` (there is no checked verdict to assert; an
+    asserted surface must never masquerade as a passing check). UNKNOWN
+    requires `PACKAGE_SURFACE` and rejects declared interfaces and non-empty
+    `declared_authority` at analysis time.
     Any other component is a CHECKED component: one ordinary action
     running `arcc check` in report-verdict-only mode — violations are data
     in the report, tool errors fail the action — producing

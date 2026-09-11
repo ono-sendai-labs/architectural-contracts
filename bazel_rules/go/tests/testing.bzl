@@ -15,7 +15,7 @@ load(
 load("//bazel_rules/go/private:paths.bzl", "match_path")
 load("//bazel_rules:providers.bzl", "ArccComponentInfo")
 load("//bazel_rules/go:providers.bzl", "ArccPackageInfo")
-load("//bazel_rules/go:defs.bzl", "validate_component_shape")
+load("//bazel_rules/go:defs.bzl", "DECLARED", "UNKNOWN", "validate_component_shape")
 
 def _test_attach_predicate(roots, entry):
     """Implements attachment modes for fixtures without modifying the host seam."""
@@ -105,11 +105,11 @@ def testing_go_component(name, visibility = None, **kwargs):
 
     set_kwargs["members"] = target_members
 
-    # Mirror the production macro (defs.bzl): a manual-tagged component is
-    # asserted (design I6) and has no `.check`; `check_tags` are tags for the
+    # Mirror the production macro (defs.bzl): only the explicit authority
+    # selector suppresses the generated `.check`; `check_tags` are tags for the
     # generated `.check` only, for fixtures whose check deliberately fails.
     check_tags = list(set_kwargs.pop("check_tags", []))
-    component_is_asserted = "manual" in (set_kwargs.get("tags") or [])
+    component_is_asserted = set_kwargs.get("authority", DECLARED) == UNKNOWN
 
     testing_go_component_rule(
         name = name,
@@ -128,3 +128,13 @@ def testing_go_component(name, visibility = None, **kwargs):
             visibility = visibility,
             **check_kwargs
         )
+
+# Test-only escape hatch for exercising the private rule implementation without
+# the public macro's shape/authority validation. Production callers must use
+# `go_component`; this helper pins the direct-rule fail-closed seam.
+def testing_go_component_direct(name, visibility = None, **kwargs):
+    testing_go_component_rule(
+        name = name,
+        visibility = visibility,
+        **kwargs
+    )

@@ -1,4 +1,4 @@
-"""Analysis tests for the asserted manual-component producer path (Step 5 task 05).
+"""Analysis tests for the explicit UNKNOWN asserted-component producer path.
 
 The asserted surface is written at analysis time (design I6), so its full
 content is visible to analysis tests through the write action's `content` —
@@ -12,27 +12,43 @@ load("@rules_testing//lib:truth.bzl", "matching")
 load("//bazel_rules:providers.bzl", "ArccComponentInfo")
 
 _ASSERTED_COMPONENT = "//bazel_rules/go/tests/testdata/reportboundary/manual:manual_component"
-_DECLARED_MANUAL_COMPONENT = "//bazel_rules/go/tests/testdata/reportboundary/manual:declared_manual_component"
+_TAGGED_DECLARED_COMPONENT = "//bazel_rules/go/tests/testdata/reportboundary/manual:tagged_declared_component"
+_DIRECT_INVALID_AUTHORITY_COMPONENT = "//bazel_rules/go/tests/testdata/reportboundary/manual:direct_invalid_authority_component"
 
-def _declared_interface_cannot_be_asserted_test(name):
-    # AC 2b (design I6): a manual declared-interface component fails
-    # analysis naming the target and the reason, rather than emitting a
-    # partial or symbol-less declared-interface surface.
+def _invalid_direct_authority_fails_test(name):
     analysis_test(
         name = name,
-        target = _DECLARED_MANUAL_COMPONENT,
+        target = _DIRECT_INVALID_AUTHORITY_COMPONENT,
         expect_failure = True,
-        impl = _declared_interface_cannot_be_asserted_impl,
+        impl = _invalid_direct_authority_fails_impl,
         attr_values = {"size": "small"},
     )
 
-def _declared_interface_cannot_be_asserted_impl(env, target):
+def _invalid_direct_authority_fails_impl(env, target):
     env.expect.that_target(target).failures().contains_predicate(
-        matching.contains("declared_manual_component"),
+        matching.contains("direct_invalid_authority_component"),
     )
     env.expect.that_target(target).failures().contains_predicate(
-        matching.contains("package-level"),
+        matching.contains("unknown authority"),
     )
+
+def _manual_tagged_declared_stays_checked_test(name):
+    analysis_test(
+        name = name,
+        target = _TAGGED_DECLARED_COMPONENT,
+        impl = _manual_tagged_declared_stays_checked_impl,
+        attr_values = {"size": "small"},
+    )
+
+def _manual_tagged_declared_stays_checked_impl(env, target):
+    info = target[ArccComponentInfo]
+    env.expect.that_str(info.provenance).equals("checked")
+    if info.report == None or info.surface == None:
+        env.fail("manual-tagged DECLARED component must publish report and surface")
+    env.expect.that_int(len([action for action in target.actions if action.mnemonic == "ArccCheck"])).equals(1)
+    manifest = env.expect.that_target(target).action_generating(info.manifest.short_path).actual.content
+    if "authority: UNKNOWN" in manifest:
+        env.fail("manual tag must not synthesize UNKNOWN authority")
 
 def _explicit_check_of_asserted_component_fails_test(name):
     # AC 5 (task req 7): an explicitly requested `.check` of an asserted
@@ -199,7 +215,8 @@ def asserted_surface_test_suite(name):
             _surface_content_is_package_level_test,
             _surface_schema_has_no_provenance_bit_test,
             _default_outputs_unchanged_test,
-            _declared_interface_cannot_be_asserted_test,
+            _manual_tagged_declared_stays_checked_test,
+            _invalid_direct_authority_fails_test,
             _explicit_check_of_asserted_component_fails_test,
         ],
     )

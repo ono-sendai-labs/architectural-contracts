@@ -1,4 +1,5 @@
 load("@rules_arcc//bazel_rules/go:defs.bzl", "go_component")
+load("@rules_arcc//bazel_rules/go/private:check.bzl", "arcc_check_grep_test")
 load("//bazel_rules/go/tests:testing.bzl", "testing_go_component")
 load("//bazel_rules/go/tests:probe.bzl", "fake_component_info")
 load("@rules_go//go:def.bzl", "go_library")
@@ -15,7 +16,7 @@ go_library(
 )
 
 # This report is exercised explicitly below; the consumer's generated check
-# carries `check_tags = ["manual"]` so the fixture does not become an
+# carries scheduling-only `check_tags = ["manual"]` so the fixture does not become an
 # unrelated repository-wide check, while the component itself stays checked
 # (Step 5 task 05 fixture migration).
 go_component(
@@ -29,9 +30,24 @@ go_component(
     visibility = ["//bazel_rules:__subpackages__"],
 )
 
+# End-to-end status assertion for the explicit UNKNOWN boundary. The consumer
+# remains checked and passing, while its persisted report retains structural
+# ASSERTED provenance and UNKNOWN authority; the report-shape golden below
+# covers the absence of any certified/declared rendering for this edge.
+arcc_check_grep_test(
+    name = "consumer_unknown_boundary_status_test",
+    component = ":consumer_component",
+    expect_status = 0,
+    expected_strings = [
+        '"provenance": "ASSERTED"',
+        '"authority": "UNKNOWN"',
+    ],
+    visibility = ["//bazel_rules:__subpackages__"],
+)
+
 # Binding-shape fixture: authored checked and asserted dependencies plus an
 # auto-attached checked infrastructure dependency. Its generated check is
-# analysis-test material, so the check assertion itself stays manual.
+# analysis-test material, so the check assertion itself stays scheduling-only.
 testing_go_component(
     name = "bindings_component",
     component_deps = [

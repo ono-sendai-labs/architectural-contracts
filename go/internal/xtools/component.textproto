@@ -1,8 +1,9 @@
 name: "x-tools"
 # The x/tools closure is an adopted package-level boundary for the analysis and
-# map-generator shells. It is staged as an asserted surface in Bazel/native
-# integration; no consumer owns these foreign packages as source members. The
-# list includes the SSA/VTA packages retained solely by Capslock map generation.
+# map-generator shells. It is staged as an asserted UNKNOWN surface in
+# Bazel/native integration; no consumer owns these foreign packages as source
+# members. The list includes the SSA/VTA packages retained solely by Capslock
+# map generation.
 interface_style: INTERFACE_STYLE_PACKAGE_SURFACE
 members: "golang.org/x/mod/semver"
 members: "golang.org/x/sync/errgroup"

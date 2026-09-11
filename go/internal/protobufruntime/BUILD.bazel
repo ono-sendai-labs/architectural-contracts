@@ -1,12 +1,13 @@
-load("@rules_arcc//bazel_rules/go:defs.bzl", "go_component")
+load("@rules_arcc//bazel_rules/go:defs.bzl", "PACKAGE_SURFACE", "UNKNOWN", "go_component")
 
 # The protobuf runtime has no in-tree implementation package. It is a single
 # package-level asserted boundary so consumers do not duplicate the foreign
-# runtime closure as their own members. The manual tag selects the analysis-time
-# asserted producer: no protobuf source is loaded to manufacture this surface.
+# runtime closure as their own members. Explicit UNKNOWN selects the
+# analysis-time asserted producer: no protobuf source is loaded to manufacture
+# this surface.
 go_component(
     name = "protobuf-runtime",
-    interface_style = "PACKAGE_SURFACE",
+    interface_style = PACKAGE_SURFACE,
     members = [
         "@org_golang_google_protobuf//encoding/protojson:protojson",
         "@org_golang_google_protobuf//encoding/prototext:prototext",
@@ -38,7 +39,7 @@ go_component(
         "@org_golang_google_protobuf//runtime/protoiface:protoiface",
         "@org_golang_google_protobuf//runtime/protoimpl:protoimpl",
     ],
-    tags = ["manual"],
+    authority = UNKNOWN,
     visibility = ["//go:__subpackages__"],
 )
 

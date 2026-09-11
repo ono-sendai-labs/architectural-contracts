@@ -1,11 +1,11 @@
-load("@rules_arcc//bazel_rules/go:defs.bzl", "go_component")
+load("@rules_arcc//bazel_rules/go:defs.bzl", "PACKAGE_SURFACE", "UNKNOWN", "go_component")
 
 # One package-level asserted boundary owns the foreign x/tools closure used by
-# arcc's shell components. The manual tag prevents an analysis action from
+# arcc's shell components. Explicit UNKNOWN prevents an analysis action from
 # loading the foreign source merely to derive an assertion about it.
 go_component(
     name = "x-tools",
-    interface_style = "PACKAGE_SURFACE",
+    interface_style = PACKAGE_SURFACE,
     members = [
         "@org_golang_x_mod//semver:semver",
         "@org_golang_x_sync//errgroup:errgroup",
@@ -39,7 +39,7 @@ go_component(
         "@org_golang_x_tools//internal/typesinternal:typesinternal",
         "@org_golang_x_tools//internal/versions:versions",
     ],
-    tags = ["manual"],
+    authority = UNKNOWN,
     visibility = ["//go:__subpackages__"],
 )
 

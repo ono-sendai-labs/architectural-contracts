@@ -3,7 +3,9 @@
 # into `declared_authority`, and as arcc's own `KnownCapabilities` set, which
 # rejects anything it does not recognise at manifest-parse time. A capability
 # added to one and not the other turns into a confusing parse error at check
-# time, so the two sets are compared here instead.
+# time, so the two sets are compared here instead. Component verification
+# selectors (`DECLARED` and `UNKNOWN`) share the language-neutral file but are
+# intentionally outside this capability taxonomy.
 #
 # Args: <authority.bzl> <capabilities.go>
 set -euo pipefail
@@ -11,18 +13,11 @@ set -euo pipefail
 authority_bzl="$1"
 capabilities_go="$2"
 
-# `FILES = "FILES"` — the name and the value have to agree, or a consumer
-# writing `declared_authority = [FILES]` silently emits something else.
+# The ALL_AUTHORITIES list is the source of the capability constant names. It
+# excludes the separate DECLARED/UNKNOWN verification-status selectors.
 constants="$(
-  grep -oE '^[A-Z][A-Z_]* = "[A-Z_]+"' "${authority_bzl}" |
-    while read -r name _ value; do
-      value="${value//\"/}"
-      if [[ "${name}" != "${value}" ]]; then
-        echo "FAIL: authority.bzl constant ${name} has value \"${value}\"" >&2
-        exit 1
-      fi
-      echo "${name}"
-    done | sort
+  sed -n '/^ALL_AUTHORITIES = \[/,/^\]/p' "${authority_bzl}" |
+    grep -oE '^    [A-Z][A-Z_]*,' | tr -d ' ,' | sort
 )"
 
 # The ALL_AUTHORITIES list, which tooling iterates and the rule validates against.
@@ -34,7 +29,7 @@ all_authorities="$(
 # `"FILES": true,` entries in arcc's schema.KnownCapabilities map.
 known_capabilities="$(
   sed -n '/^var KnownCapabilities = map\[string\]bool{/,/^}/p' "${capabilities_go}" |
-    grep -oE '"[A-Z_]+":' | tr -d '":' | sort
+    grep -oE '"[A-Z_]+":' | tr -d '"' | tr -d ':' | sort
 )"
 
 status=0

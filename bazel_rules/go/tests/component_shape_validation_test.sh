@@ -11,6 +11,9 @@ mkdir -p "${invalid_root}/surface_interface"
 mkdir -p "${invalid_root}/surface_members"
 mkdir -p "${invalid_root}/surface_empty"
 mkdir -p "${invalid_root}/unknown_style"
+mkdir -p "${invalid_root}/unknown_interface"
+mkdir -p "${invalid_root}/unknown_declaration"
+mkdir -p "${invalid_root}/invalid_authority"
 
 cat > "${invalid_root}/declared_missing/BUILD.bazel" <<'EOF'
 load("@rules_arcc//bazel_rules/go:defs.bzl", "go_component")
@@ -70,6 +73,40 @@ go_component(
 )
 EOF
 
+cat > "${invalid_root}/unknown_interface/BUILD.bazel" <<'EOF'
+load("@rules_arcc//bazel_rules/go:defs.bzl", "UNKNOWN", "go_component")
+
+go_component(
+    name = "unknown_interface",
+    authority = UNKNOWN,
+    interface = "//bazel_rules/go/tests/testdata/api:api",
+)
+EOF
+
+cat > "${invalid_root}/unknown_declaration/BUILD.bazel" <<'EOF'
+load("@rules_arcc//bazel_rules/go:defs.bzl", "FILES", "PACKAGE_SURFACE", "UNKNOWN", "go_component")
+
+go_component(
+    name = "unknown_declaration",
+    authority = UNKNOWN,
+    interface_style = PACKAGE_SURFACE,
+    members = ["//bazel_rules/go/tests/testdata/member"],
+    declared_authority = [FILES],
+)
+EOF
+
+cat > "${invalid_root}/invalid_authority/BUILD.bazel" <<'EOF'
+load("@rules_arcc//bazel_rules/go:defs.bzl", "PACKAGE_SURFACE", "go_component")
+
+go_component(
+    name = "invalid_authority",
+    authority = "NOT_AN_AUTHORITY",
+    interface_style = PACKAGE_SURFACE,
+    members = ["//bazel_rules/go/tests/testdata/member"],
+)
+EOF
+
+
 main_workspace="${TEST_SRCDIR}/_main"
 if [[ ! -f "${main_workspace}/MODULE.bazel" ]]; then
   main_workspace="${TEST_SRCDIR}"
@@ -104,5 +141,10 @@ run_failure surface_empty "${invalid_root}/surface_empty.txt" \
   "component surface_empty" "non-empty members"
 run_failure unknown_style "${invalid_root}/unknown_style.txt" \
   "component unknown_style" "PACKAGE_SURFACE" "declared"
-
+run_failure unknown_interface "${invalid_root}/unknown_interface.txt" \
+  "component unknown_interface" "authority UNKNOWN" "declared interface" "PACKAGE_SURFACE"
+run_failure unknown_declaration "${invalid_root}/unknown_declaration.txt" \
+  "component unknown_declaration" "authority UNKNOWN" "declared_authority" "empty"
+run_failure invalid_authority "${invalid_root}/invalid_authority.txt" \
+  "component invalid_authority" "unknown authority" "DECLARED, UNKNOWN"
 echo "OK: component shape failures name components and conflicting attributes"

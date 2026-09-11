@@ -8,12 +8,11 @@ report-verdict-only mode — publishing
 `<name>.report.json` and `<name>.surface.json` through `OutputGroupInfo(arcc)`
 — never as default outputs, so `bazel build //...` runs no component analysis
 unless asked. The `.check` assertion rules (check.bzl) consume the action's
-persisted report; this action is the one analysis command. A manual-tagged
-component takes the asserted producer instead
-(design I6): its package-level asserted surface is written at analysis time,
-with no symbols and the empty digest, `report = None` and
-`provenance = "asserted"`; Step 11 replaces the tag-based selection with
-`authority: UNKNOWN`. Direct provider edges are also written into the layout as
+persisted report; this action is the one analysis command. An explicit
+`authority = UNKNOWN` component takes the asserted producer instead (design
+I6): its package-level asserted surface is written at analysis time, with no
+symbols and the empty digest, `report = None` and `provenance = "asserted"`.
+Direct provider edges are also written into the layout as
 sorted, structural dependency artifact bindings; Task 2 consumes those bindings
 later. The rule classifies the union of the interface and
 declared member package closures into component-dep-covered and member
@@ -21,7 +20,13 @@ packages (design §3.1, §4.8), and forwards the interface library's Go
 providers so the component target is usable as a `deps` entry.
 """
 
-load("//bazel_rules:authority.bzl", "ALL_AUTHORITIES")
+load(
+    "//bazel_rules:authority.bzl",
+    "ALL_AUTHORITIES",
+    "ALL_COMPONENT_AUTHORITIES",
+    "DECLARED",
+    "UNKNOWN",
+)
 load("//bazel_rules:providers.bzl", "ArccComponentInfo")
 load("//bazel_rules/go:providers.bzl", "ArccPackageInfo", "ArccStdlibMapInfo")
 load(":arcc_metadata.bzl", "ARCC_PRODUCER_VERSION", "DEFAULT_NAMESPACE", "SURFACE_FORMAT_VERSION", "arcc_sdk_key_fields")
@@ -91,7 +96,7 @@ def _manifest_content(ctx, interface_files, component_deps, auto_attached_deps, 
         lines.append("interface_style: INTERFACE_STYLE_PACKAGE_SURFACE")
 
     if authority_unknown:
-        # The manual producer is an asserted UNKNOWN component. Keep its
+        # The UNKNOWN producer is an asserted component. Keep its
         # generated manifest aligned with the checked-in declaration so
         # manifestparity cannot mistake the provider's structural authority
         # for the default DECLARED{} value (design I6/R10).
@@ -769,6 +774,28 @@ def go_component_impl(ctx, attachment_fn = go_attached_infra):
     The default is the production adapter seam. A test-only rule may inject a
     fixture registry without adding test attributes to the production rule.
     """
+    if ctx.attr.authority not in ALL_COMPONENT_AUTHORITIES:
+        fail("component %s: unknown authority %r; accepted values are %s" % (
+            ctx.label.name,
+            ctx.attr.authority,
+            ", ".join(ALL_COMPONENT_AUTHORITIES),
+        ))
+
+    if ctx.attr.authority == UNKNOWN:
+        if ctx.attr.declared_authority:
+            fail(("component %s: authority UNKNOWN requires declared_authority to be empty; " +
+                  "remove the declared capabilities or use authority = DECLARED") % ctx.label.name)
+        if ctx.attr.interface != None:
+            fail(("component %s: authority UNKNOWN cannot use a declared interface; " +
+                  "UNKNOWN asserted surfaces are package-level and require " +
+                  "interface_style = PACKAGE_SURFACE") % ctx.label.name)
+        if ctx.attr.interface_style != "PACKAGE_SURFACE":
+            fail(("component %s: authority UNKNOWN requires interface_style = PACKAGE_SURFACE " +
+                  "for its package-level asserted surface") % ctx.label.name)
+        if not ctx.attr.members:
+            fail(("component %s: authority UNKNOWN requires non-empty members for its " +
+                  "package-level asserted surface") % ctx.label.name)
+
     for authority in ctx.attr.declared_authority:
         if authority not in ALL_AUTHORITIES:
             fail("component %s: unknown declared_authority %r; known: %s" % (
@@ -870,7 +897,7 @@ def go_component_impl(ctx, attachment_fn = go_attached_infra):
     map_info = ctx.attr._stdlib_map
     stdlib_export_data = None
     ordinary_import_data = None
-    if roots and "manual" not in ctx.attr.tags:
+    if roots and ctx.attr.authority == DECLARED:
         stdlib_export_data = go_stdlib_export_data(
             ctx,
             expected_mode = arcc_sdk_key_fields(map_info[ArccStdlibMapInfo]),
@@ -886,7 +913,7 @@ def go_component_impl(ctx, attachment_fn = go_attached_infra):
         layout_roots = sorted(list(members))
         platform = go_build_platform(roots[0])
         target_mode = go_target_mode(ctx)
-        if "manual" not in ctx.attr.tags:
+        if ctx.attr.authority == DECLARED:
             ordinary_import_data = _ordinary_import_graph_action(
                 ctx,
                 merged = merged,
@@ -935,7 +962,7 @@ def go_component_impl(ctx, attachment_fn = go_attached_infra):
             manifest_dir = _dirname(runfiles_path(ctx, manifest)),
             interface_style = ctx.attr.interface_style,
             members = manifest_members,
-            authority_unknown = "manual" in ctx.attr.tags,
+            authority_unknown = ctx.attr.authority == UNKNOWN,
             analysis_defeating_policy = ctx.attr.analysis_defeating_policy,
         ),
     )
@@ -982,24 +1009,23 @@ def go_component_impl(ctx, attachment_fn = go_attached_infra):
     report = None
     surface = None
     provenance = None
-    if "manual" in ctx.attr.tags:
-        # The asserted producer path (design I6, Step 5 task 05): a manual
-        # component is not analysed. Its surface is asserted ABOUT it —
+    if ctx.attr.authority == UNKNOWN:
+        # The asserted producer path (design I6): an UNKNOWN component is not
+        # analysed. Its surface is asserted ABOUT it —
         # package-level, no symbols, empty digest — written here at analysis
-        # time from data already known to the rule. Step 11 replaces this
-        # tag-based selection with the `authority: UNKNOWN` attribute.
+        # time from data already known to the rule.
         if interface:
-            fail(("component %s: a manual (asserted) component cannot have a declared interface. " +
+            fail(("component %s: an UNKNOWN (asserted) component cannot have a declared interface. " +
                   "Asserted surfaces are package-level (design I6): Bazel analysis has no type " +
                   "information, so an asserted surface carries no symbols and a declared-interface " +
-                  "component cannot be asserted. Check the component (remove the manual tag), or " +
+                  "component cannot be asserted. Check the component (use authority = DECLARED), or " +
                   "migrate it to interface_style = PACKAGE_SURFACE.") % ctx.label.name)
         if ctx.attr.declared_authority:
-            fail(("component %s: a manual (asserted) component is not analysed, so its authority is " +
+            fail(("component %s: an UNKNOWN (asserted) component is not analysed, so its authority is " +
                   "UNKNOWN (design R10); declared_authority must be empty. Declared authority is " +
                   "only ever established by a checked analysis.") % ctx.label.name)
         if not layout:
-            fail(("component %s: a manual (asserted) component must be PACKAGE_SURFACE with at " +
+            fail(("component %s: an UNKNOWN (asserted) component must be PACKAGE_SURFACE with at " +
                   "least one member, so its layout exists and its packages are known.") % ctx.label.name)
         surface = ctx.actions.declare_file(ctx.label.name + ".surface.json")
         ctx.actions.write(
@@ -1121,6 +1147,10 @@ GO_COMPONENT_ATTRS = {
     "declared_authority": attr.string_list(
         doc = "Ambient authority the component declares, from //bazel_rules:authority.bzl.",
     ),
+    "authority": attr.string(
+        default = DECLARED,
+        doc = "Verification status: DECLARED (checked) or UNKNOWN (package-level asserted surface).",
+    ),
     "analysis_defeating_policy": attr.string(
         default = "strict",
         doc = "Policy for analysis-defeating findings: strict (default) or warn. Only warn is emitted into the manifest.",
@@ -1147,6 +1177,6 @@ go_component_rule = rule(
     provides = [ArccComponentInfo],
     doc = "Generates an arcc manifest and package layout for a Go component, " +
           "and produces its surface through the checked analysis action — or, " +
-          "for manual-tagged components, the asserted package-level write " +
+          "for authority = UNKNOWN components, the asserted package-level write " +
           "(design I6) — with the artifacts riding in the `arcc` output group.",
 )

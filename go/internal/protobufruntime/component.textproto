@@ -1,8 +1,8 @@
 name: "protobuf-runtime"
 # The generated protobuf runtime is an adopted package-level boundary. Its
 # source is not an architectural member of each consumer; the native staging
-# harness supplies the sibling surface, while Bazel's manual-tagged component
-# emits the equivalent asserted surface without an analysis action.
+# harness supplies the sibling surface, while Bazel's authority: UNKNOWN
+# component emits the equivalent asserted surface without an analysis action.
 interface_style: INTERFACE_STYLE_PACKAGE_SURFACE
 members: "google.golang.org/protobuf/encoding/protojson"
 members: "google.golang.org/protobuf/encoding/prototext"
