@@ -1,0 +1,104 @@
+result:
+  task_file: .agents/tasks/2026-08-04-compositional-component-analysis/step08/task-05-cut-over-member-only-type-loading.code-task.md
+  change_id: oorpuyuykuuzkqmmsrkqptvrklplwsmo
+  status: completed
+  schema_version: 2
+  produced_at: 2026-09-11T12:35:32Z
+
+acceptance_criteria:
+  - text: |
+      **Only members have syntax**
+      - Given a member package with a deep ordinary/stdlib closure
+      - When `LoadPackageFacts` completes
+      - Then members have syntax and `TypesInfo`, every non-member has neither, and all required non-member types are complete from export data.
+    addressed: yes
+    evidence: |
+      `go/internal/goanalysis/goanalysis.go:42-49` defines the member-only mode;
+      `go/internal/goanalysis/goanalysis.go:483-547` completes export-backed types
+      and `:550-590` enforces the graph invariant. The integration test
+      `TestLoadPackageFacts_DeepExportClosureWithoutDependencySources` loads a
+      three-package closure after deleting dependency sources.
+  - text: |
+      **Typed references remain exact**
+      - Given the reference-kind fixture using functions, interface methods, fields, constants, aliases, promoted members, generic instantiations, and pointer/value selections
+      - When dependency sources are absent and the member is loaded
+      - Then `Uses`/`Selections` and emitted `SymbolID`s match the pinned Step 6 outcomes.
+    addressed: yes
+    evidence: |
+      `TestFixture5_ReferenceKindMatrix` and the surrounding Step 6 scanner tests
+      pin the declaring-object `SymbolID` matrix; the export-backed integration
+      test `TestLoadPackageFacts_DeepExportClosureWithoutDependencySources` also
+      observes dep and deep declaring packages with dependency source removed.
+  - text: |
+      **Import facts remain complete**
+      - Given member source containing ordinary and blank imports
+      - When it is loaded through export data
+      - Then every member import edge is retained and classified from the same written path as before the cutover.
+    addressed: yes
+    evidence: |
+      `TestLoadPackageFacts_RefscanMatrixWithDependencySourcesAbsent` in
+      `go/internal/goanalysis/member_only_integration_test.go` asserts the
+      ordinary and blank `image/png` import paths, sites, and aggregate-init
+      FILES classification after the export-backed load.
+  - text: |
+      **Incomplete data cannot panic**
+      - Given a layout missing one transitive node or one reachable package export file
+      - When loading is requested
+      - Then validation returns a package-specific tool error before `packages.Load`, and the process does not panic or fall back to source.
+    addressed: yes
+    evidence: |
+      `go/internal/goanalysis/member_only_load_test.go:144-188`
+      (`TestMemberOnlyLayoutRejectsMissingExportBeforeLoading`) proves the loader
+      seam is not called; `go/internal/packagelayout/export_data_test.go` covers
+      missing nodes and artifacts through `ValidateAndResolveForMemberOnly`.
+  - text: |
+      **Version skew is a tool error**
+      - Given an export artifact incompatible with the loader's supported Go versions
+      - When the load runs
+      - Then the command exits 2 with a diagnostic naming the affected package/export artifact rather than emitting partial facts.
+    addressed: yes
+    evidence: |
+      `TestCheck_IncompatibleExportDataIsToolErrorWithoutArtifacts` in
+      `go/cmd/arcc/app/check_integration_test.go` mutates a real gc archive's
+      producer version, asserts exit 2 and package/artifact diagnostics, and
+      asserts report/surface absence. The producer guard is in
+      `go/internal/goanalysis/goanalysis.go`.
+  - text: |
+      **Native mode uses the toolchain export path**
+      - Given a native component check with no package layout
+      - When `go/packages` invokes the host Go driver
+      - Then the closure types are read from `go list -export` results, only member source is parsed, and the native-mode EXEC behavior is documented.
+    addressed: yes
+    evidence: |
+      `TestNativeMemberOnlyLoadUsesExportDataForDependency` directly invokes the
+      native no-layout mode and asserts member syntax/type info versus dependency
+      export-only state. The native `go list -export` contract is documented in
+      `go/internal/goanalysis/goanalysis.go` and
+      `docs/package-layout-schema.md:261-265`.
+  - text: |
+      **End-to-end checks stay correct**
+      - Given csvtool and arcc self-components
+      - When checks run in native and Bazel modes
+      - Then verdicts, surfaces, dependency boundaries, and typed findings remain correct and `just ci` passes.
+    addressed: yes
+    evidence: |
+      `just ci` completed successfully after remediation, including Go
+      unit/integration tests, selfcheck staging, Bazel build/test (142 tests),
+      and shell validation. The fresh rework change is
+      `oorpuyuykuuzkqmmsrkqptvrklplwsmo`.
+
+artifacts:
+  scratchpad_dir: .agents/scratchpad/2026-08-04-compositional-component-analysis/step08/task-05-cut-over-member-only-type-loading/
+  files:
+    - context.md
+    - plan.md
+    - progress.md
+    - work.log
+    - result.yaml
+
+notes: |
+  Review round 1 added the complete Step 6 reference/import matrix through an
+  export-backed layout, direct native-driver coverage, syntax/TypesInfo guard
+  regressions, and a real gc producer-version mismatch command test. The new
+  package-layout driver test is now included in its Bazel target. The fresh
+  child jj change passed `just ci` and leaves an empty working copy.

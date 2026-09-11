@@ -1,0 +1,236 @@
+review:
+  task_file: .agents/tasks/2026-08-04-compositional-component-analysis/step08/task-05-cut-over-member-only-type-loading.code-task.md
+  change_id: mtkxyqoxvusnnklvvtznksoszoztozwp
+  reviewed_at: 2026-09-11T12:17:23Z
+  verdict: changes_requested
+  schema_version: 2
+  lsp_coverage: unavailable
+
+merge_request:
+  title: "feat(goanalysis): cut over member-only type loading [Compositional Analysis: Step 08/Task 05]"
+  body: |
+    Reviews the ordered task series: the initial change removes NeedDeps from
+    component loading and updates the native linkname fixture; the follow-up
+    change projects member-only driver roles, adds export-closure validation,
+    post-load checks, export completion, integration coverage, Bazel metadata,
+    and native/toolchain documentation.
+
+summary: |
+  The two-change series implements the member-only load mode, defensive driver
+  projection, pre-load export validation, post-load invariants, and export-backed
+  type completion; `just ci` passed in this review. The acceptance-critical
+  reference/import matrix, native behavior, and version-skew exit contract are
+  not directly covered by the new tests, and the dependency syntax/type-info
+  guards lack a regression test. The new package-layout driver test is also not
+  listed in its Bazel test target.
+
+acceptance_criteria:
+  - text: |
+      **Only members have syntax**
+      - Given a member package with a deep ordinary/stdlib closure
+      - When `LoadPackageFacts` completes
+      - Then members have syntax and `TypesInfo`, every non-member has neither, and all required non-member types are complete from export data.
+    status: partial
+    evidence: |
+      The implementation provides `componentLoadMode` at
+      `go/internal/goanalysis/goanalysis.go:42-49`, export completion at
+      `go/internal/goanalysis/goanalysis.go:483-547`, and the invariant check at
+      `go/internal/goanalysis/goanalysis.go:550-590`. The deep source-absent load
+      is exercised by `go/internal/goanalysis/member_only_integration_test.go:76-230`,
+      but the tests do not inject a non-member with non-empty `Syntax` or a
+      non-nil `TypesInfo`; the unit test at
+      `go/internal/goanalysis/member_only_load_test.go:118-142` covers only source
+      lists.
+  - text: |
+      **Typed references remain exact**
+      - Given the reference-kind fixture using functions, interface methods, fields, constants, aliases, promoted members, generic instantiations, and pointer/value selections
+      - When dependency sources are absent and the member is loaded
+      - Then `Uses`/`Selections` and emitted `SymbolID`s match the pinned Step 6 outcomes.
+    status: partial
+    evidence: |
+      `go/internal/goanalysis/member_only_integration_test.go:87-103` creates
+      only a simple dep/deep value-and-field fixture, and
+      `:220-230` checks only that references reach the two dependency packages.
+      The full pinned matrix remains in
+      `go/internal/goanalysis/refscan_test.go:107-122` and
+      `go/internal/goanalysis/fixture_test.go:187-247`, whose setup at
+      `go/internal/goanalysis/fixture_test.go:22-53` still loads with `NeedDeps`.
+  - text: |
+      **Import facts remain complete**
+      - Given member source containing ordinary and blank imports
+      - When it is loaded through export data
+      - Then every member import edge is retained and classified from the same written path as before the cutover.
+    status: partial
+    evidence: |
+      The new hermetic fixture has one ordinary import at
+      `go/internal/goanalysis/member_only_integration_test.go:87-93` and checks
+      only that edge at `:217-218`. The existing blank-import classification test
+      at `go/internal/goanalysis/fixture_test.go:494-518` uses the older
+      source-backed fixture loader, so the required ordinary-plus-blank behavior
+      is not verified through the export-backed cutover.
+  - text: |
+      **Incomplete data cannot panic**
+      - Given a layout missing one transitive node or one reachable package export file
+      - When loading is requested
+      - Then validation returns a package-specific tool error before `packages.Load`, and the process does not panic or fall back to source.
+    status: pass
+    evidence: |
+      The loader-seam ordering test at
+      `go/internal/goanalysis/member_only_load_test.go:145-180` proves a missing
+      export is rejected without calling `loadPackages`. The missing-node case is
+      covered by `go/internal/packagelayout/export_data_test.go:62-79`, and the
+      production closure traversal is `go/internal/packagelayout/stdlib_export_data.go:439-497`,
+      called from `ValidateAndResolveForMemberOnly` at
+      `go/internal/packagelayout/packagelayout.go:1892-1894` before the driver
+      response is served.
+  - text: |
+      **Version skew is a tool error**
+      - Given an export artifact incompatible with the loader's supported Go versions
+      - When the load runs
+      - Then the command exits 2 with a diagnostic naming the affected package/export artifact rather than emitting partial facts.
+    status: partial
+    evidence: |
+      `go/internal/goanalysis/member_only_integration_test.go:21-73` checks that
+      a malformed archive-like artifact produces an error naming the package and
+      artifact, and `describePackageLoadError` adds that context at
+      `go/internal/goanalysis/goanalysis.go:406-410`. The test does not use an
+      actually version-skewed compiler artifact, invoke the command/runner, assert
+      exit code 2, or assert that no partial report is emitted; the existing
+      command mapping is only inspected at `go/cmd/arcc/app/check.go:218-227`.
+  - text: |
+      **Native mode uses the toolchain export path**
+      - Given a native component check with no package layout
+      - When `go/packages` invokes the host Go driver
+      - Then the closure types are read from `go list -export` results, only member source is parsed, and the native-mode EXEC behavior is documented.
+    status: partial
+    evidence: |
+      The no-`NeedDeps` mode and native documentation are present at
+      `go/internal/goanalysis/goanalysis.go:42-49` and `:80-85`, with the
+      host-toolchain note also at `docs/package-layout-schema.md:261-265`.
+      The native integration leg in `go/cmd/arcc/app/check_integration_test.go:652-686`
+      checks a successful command and artifacts, but does not assert the host
+      driver's export path or that a native non-member has nil `Syntax` and
+      `TypesInfo`; the mode unit test uses a mocked loader.
+  - text: |
+      **End-to-end checks stay correct**
+      - Given csvtool and arcc self-components
+      - When checks run in native and Bazel modes
+      - Then verdicts, surfaces, dependency boundaries, and typed findings remain correct and `just ci` passes.
+    status: pass
+    evidence: |
+      `just ci` completed successfully during review, including Go vet, formatting,
+      unit and integration tests, self-check staging, Bazel build/test (142 tests),
+      and shell validation. The native and Bazel component checks therefore
+      completed with the expected existing verdicts and artifacts.
+
+findings:
+  - severity: important
+    category: acceptance_criteria
+    file: go/internal/goanalysis/member_only_integration_test.go
+    line: 76
+    title: Member-only reference matrix is not exercised
+    details: |
+      AC2 requires the Step 6 reference-kind fixture to run with dependency
+      sources absent and to compare `Uses`/`Selections` and emitted `SymbolID`s.
+      The new fixture at `member_only_integration_test.go:76-230` contains only a
+      simple dep-to-deep value and field reference, then checks only package names
+      at `:220-230`. The full interface, alias, promoted, generic, pointer/value,
+      and function-value matrix remains on the `NeedDeps` setup in
+      `fixture_test.go:22-53`, so a cutover-specific identity regression can pass
+      the current tests.
+    suggested_action: |
+      Run the existing reference-kind fixture through the member-only layout and
+      export-data path with its dependency source files removed, and assert the
+      complete pinned edge set and declaring-object `SymbolID`s (including
+      `Selections` and duplicate-site behavior).
+    source: built-in
+  - severity: important
+    category: tests
+    file: go/internal/goanalysis/member_only_integration_test.go
+    line: 87
+    title: Blank-import behavior is not tested after cutover
+    details: |
+      AC3 requires both ordinary and blank member imports to survive the
+      export-backed load and retain their written-path classification. The new
+      source at `member_only_integration_test.go:87-93` has only an ordinary
+      import, and the assertion at `:217-218` checks only that one path exists.
+      `fixture_test.go:494-518` tests blank-import classification, but its helper
+      still loads the fixture with the old source-backed `NeedDeps` mode.
+    suggested_action: |
+      Add a blank import to the member-only hermetic fixture (or run Fixture 2
+      through the projected driver), then assert the blank import edge's written
+      path, site, and aggregate-init classification alongside an ordinary edge.
+    source: built-in
+  - severity: important
+    category: acceptance_criteria
+    file: go/internal/goanalysis/member_only_integration_test.go
+    line: 21
+    title: Version-skew test does not verify the command contract
+    details: |
+      AC5 specifies an incompatible compiler export artifact, exit code 2, an
+      actionable package/artifact diagnostic, and no partial facts. The test at
+      `member_only_integration_test.go:21-73` supplies a hand-written archive-like
+      file with no supported gc stream (it explicitly says this is a substitute
+      at `:29-31`), calls `LoadPackageFacts` directly, and checks only error
+      substrings. It neither exercises a real producer/consumer version mismatch
+      nor asserts the command's exit code or no-output behavior.
+    suggested_action: |
+      Use a known incompatible export artifact or a controlled incompatible
+      producer fixture, invoke the check runner/CLI, and assert exit code 2,
+      package and artifact names in stderr, and absence of partial report/surface
+      outputs.
+    source: built-in
+  - severity: important
+    category: tests
+    file: go/internal/goanalysis/member_only_load_test.go
+    line: 118
+    title: Syntax and type-info guards lack regression coverage
+    details: |
+      The load-bearing post-load checks at `goanalysis.go:576-577` reject a
+      non-member with `Syntax` or `TypesInfo`, but no changed test supplies either
+      violation. `member_only_load_test.go:118-142` tests only non-member source
+      lists, while `:64-115` reaches the incomplete-types error instead. The
+      source-absent integration test strips the fields before loading, so it does
+      not catch removal of the syntax/type-info guard itself.
+    suggested_action: |
+      Add table-driven guard tests with a complete non-member `types.Package` and
+      separately non-empty `Syntax` and non-nil `TypesInfo`, asserting the
+      package-specific invariant error for each case.
+    source: built-in
+  - severity: important
+    category: acceptance_criteria
+    file: go/internal/goanalysis/member_only_load_test.go
+    line: 17
+    title: Native export-only behavior lacks direct coverage
+    details: |
+      AC6's behavior is implemented by `componentLoadMode`, but the new mode test
+      at `member_only_load_test.go:17-61` replaces the loader with a seam and only
+      inspects bits. The native integration check at
+      `go/cmd/arcc/app/check_integration_test.go:652-686` verifies successful
+      artifacts, not that the host driver's `go list -export` path supplied
+      dependency types or that dependency syntax/type info stayed absent. The
+      work log also has no RED/GREEN entry for the native requirement.
+    suggested_action: |
+      Add an integration test that invokes `LoadPackageFacts` without a layout on
+      a small module with a dependency, then asserts typed references succeed
+      while the reachable dependency has no `Syntax` or `TypesInfo` (and records
+      the native driver/export path contract).
+    source: built-in
+  - severity: important
+    category: tests
+    file: go/internal/packagelayout/BUILD.bazel
+    line: 20
+    title: New driver test is omitted from the Bazel test target
+    details: |
+      The series adds `go/internal/packagelayout/member_only_driver_test.go`, but
+      `go/internal/packagelayout/BUILD.bazel:17-20` keeps the explicit test source
+      list at `dependency_artifacts_test.go`, `export_data_test.go`, and
+      `packagelayout_test.go`. Consequently Bazel's `packagelayout_test` does not
+      compile or run the new driver projection and validation tests; the passing
+      Bazel count does not cover them.
+    suggested_action: |
+      Add `member_only_driver_test.go` to the `packagelayout_test` `srcs` list and
+      rerun the Bazel test target.
+    source: built-in
+
+ecosystem_reviews: []
