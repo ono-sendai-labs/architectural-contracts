@@ -1,0 +1,92 @@
+result:
+  task_file: .agents/tasks/2026-08-04-compositional-component-analysis/step07/task-09-make-foreign-ownership-audits-repository-wide.code-task.md
+  change_id: pktunvtqmvouttqoklvokotzurptxozs
+  status: completed
+  schema_version: 2
+  produced_at: 2026-09-11T05:20:11Z
+
+acceptance_criteria:
+  - text: |
+      **All production manifests are inventoried**
+      - Given checked-in manifests under internal packages, commands, examples, and a nested production directory
+      - When the ownership inventory runs
+      - Then every production manifest is parsed exactly once and documented testdata fixtures are excluded
+    addressed: yes
+    evidence: |
+      `go/internal/manifestparity/ownership_inventory.go:22-30,67-108`
+      defines the explicit internal/cmd/examples roots, recursively walks them,
+      skips the named `testdata` directory at any depth, and parses each
+      component.textproto once. `ownership_inventory_test.go:12-46` covers all
+      roots, deeper nesting, and an invalid excluded fixture; the live sentinel
+      coverage is at lines 187-233.
+  - text: |
+      **Duplicate identities fail closed**
+      - Given two production manifests with the same component name
+      - When inventory is built
+      - Then the audit fails and names both paths rather than overwriting either entry
+    addressed: yes
+    evidence: |
+      `ownership_inventory.go:55-64,81-100` returns
+      `DuplicateComponentNameError` before producing an inventory and includes
+      both sorted manifest paths. `ownership_inventory_test.go:48-68` creates
+      duplicate names at two nested production paths and asserts the component
+      name plus both paths appear in the diagnostic.
+  - text: |
+      **Foreign package ownership remains singular**
+      - Given all production manifests and `go_component` declarations
+      - When protobuf and retained x/tools/x-mod/x-sync members are indexed
+      - Then only `protobuf-runtime` and `x-tools` respectively own those package sets, with no duplicate owner in examples or nested components
+    addressed: yes
+    evidence: |
+      `ownership_inventory.go:231-328` applies the canonical prefix-to-wrapper
+      rules to every recursive manifest and Bazel component inventory, including
+      interface roots, and fails on non-wrapper or multiple owners. The wrapper
+      tests at `ownership_test.go:288-319` and `x_tools_ownership_test.go:54-84`
+      compare the complete Bazel member inventories with the exact sorted
+      checked-in owner sets. Nested manifest and non-wrapper Bazel negative
+      coverage is at `ownership_inventory_test.go:70-135`; no live duplicate was
+      found.
+  - text: |
+      **Out-of-scope compile dependencies are not misclassified**
+      - Given ordinary `go_library` dependencies on protobuf or x/tools packages
+      - When the ownership audit runs
+      - Then they are not treated as component membership unless they appear in a `go_component` members declaration
+    addressed: yes
+    evidence: |
+      `ownership_inventory.go:138-142,285-310` inventories and audits only
+      go_component member/interface roots; go_library importpaths are used only
+      to resolve a referenced member label, and go_library deps are ignored.
+      `ownership_inventory_test.go:137-160` proves protobuf/x-tools deps on a
+      clean go_library do not create a foreign ownership finding.
+  - text: |
+      **Live parity and CI pass**
+      - Given the expanded manifest and Bazel inventories
+      - When ownership tests, manifest parity, and `just ci` run
+      - Then the current singular wrapper ownership passes in both native and Bazel representations
+    addressed: yes
+    evidence: |
+      `go/internal/manifestparity/BUILD.bazel:4-8` includes the inventory in the
+      test-support library; the protobuf and x-tools parity tests consume the
+      recursive native and Bazel inventories. The final `just ci` completed with
+      exit status 0, including Go tests, native selfcheck, Bazel build/test,
+      manifest parity, and validation scripts; the captured result is at
+      `work.log:645-652`.
+
+artifacts:
+  scratchpad_dir: .agents/scratchpad/2026-08-04-compositional-component-analysis/step07/task-09-make-foreign-ownership-audits-repository-wide/
+  files:
+    - context.md
+    - plan.md
+    - progress.md
+    - work.log
+    - result.yaml
+
+notes: |
+  Added recursive, deterministic manifest and production go_component inventories
+  with an explicit testdata boundary, duplicate-name failure, literal Bazel label
+  resolution, and repository-wide foreign ownership audits. Protobuf-runtime and
+  x-tools owner sets remain unchanged; nested example-like duplicate fixtures and
+  compile-dependency exclusions now exercise the guard. The work is in fresh jj
+  changes `nxpomuvlsumyqyxoqrysywvzwzutxuuu` and
+  `pktunvtqmvouttqoklvokotzurptxozs`, with an empty working-copy `@` and `just ci`
+  passing.
