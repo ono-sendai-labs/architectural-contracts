@@ -1,0 +1,86 @@
+result:
+  task_file: .agents/tasks/2026-08-04-compositional-component-analysis/step08/task-08-reconcile-auxiliary-projection-design-claims.code-task.md
+  change_id: wslkmzsmzxonpnqwopssnvvkvlxzltvr
+  status: completed
+  schema_version: 2
+  produced_at: 2026-09-11T14:22:51Z
+
+acceptance_criteria:
+  - text: |
+      **Topology decision is described consistently**
+      - Given the repaired build-topology bullet and the current auxiliary actions
+      - When the detailed design is read end to end
+      - Then every source-independence statement distinguishes `ArccCheck` from `ArccImportGraph` and no passage contradicts the permitted non-member lexical projection.
+    addressed: yes
+    evidence: |
+      detailed-design.md:44–61 distinguishes the `ArccCheck` action from the
+      `ArccImportGraph`/`ArccLayout` producer chain and names the accepted residual
+      projection; detailed-design.md:290–302 retains the Step 8 Task 04 escalation
+      reference dated 2026-09-11. The corresponding action boundary is explicit in
+      docs/package-layout-schema.md:215–234, 259–270 and
+      step08-input-pruning.md:27–34.
+  - text: |
+      **Residual closure work is explicit**
+      - Given an ordinary dependency closure
+      - When the overview, composition, and type-loading sections describe its cost
+      - Then they identify the cached lexical import projection as residual closure-shaped work alongside export-data inputs.
+    addressed: yes
+    evidence: |
+      detailed-design.md:54–61 names export-data reads and cached ordinary-source
+      projection work; detailed-design.md:342–351 repeats the two-part residual cost
+      in Type loading; and detailed-design.md:421–431 carries it into Composition.
+      docs/package-layout-schema.md:225–230 and
+      step08-input-pruning.md:27–34, 53–55 document the same cached lexical cost.
+  - text: |
+      **Performance acceptance covers the producer chain**
+      - Given the deferred Step 13 depth/width benchmark
+      - When its design requirements are followed
+      - Then it records import-projection action count, source input size, and elapsed contribution in addition to loader/export metrics.
+    addressed: yes
+    evidence: |
+      detailed-design.md:877 requires `ArccImportGraph` action count, ordinary
+      non-member source input count/bytes, projection and `ArccLayout` elapsed
+      contribution, plus export artifact and `ArccCheck` loader metrics.
+      step08-input-pruning.md:57–71 enumerates the same Step 13 measurements.
+  - text: |
+      **The action asymmetry remains unambiguous**
+      - Given the updated N1/N2 and topology text
+      - When a future implementer derives action inputs from it
+      - Then ordinary non-member source is permitted only on the metadata producer and forbidden from `ArccCheck` itself.
+    addressed: yes
+    evidence: |
+      detailed-design.md:140–160 scopes N1/N2 to `ArccCheck`, permits ordinary
+      source only for the lexical `ArccImportGraph` producer, and gives `ArccLayout`
+      only the base layout and descriptor. detailed-design.md:290–302 and
+      docs/package-layout-schema.md:259–270 repeat that `ArccCheck` receives only
+      the final allowlist; step08-input-pruning.md:69–71 states the same boundary.
+  - text: |
+      **Documentation checks pass**
+      - Given the completed remediation
+      - When repository documentation checks and a search for the superseded absolute claims run
+      - Then all checks pass and the remaining statements agree with the approved topology.
+    addressed: yes
+    evidence: |
+      Relative Markdown-link resolution, diff trailing-whitespace, conflict-marker,
+      and targeted superseded-absolute-claim searches all passed, as recorded in
+      the scratchpad work.log. `just ci` exited 0 before the second documentation
+      commit, including Go generation/vet/format/build/unit/integration checks,
+      self-check staging, Bazel build/test (145 tests), and malformed-component
+      failure-path checks.
+
+artifacts:
+  scratchpad_dir: .agents/scratchpad/2026-08-04-compositional-component-analysis/step08/task-08-reconcile-auxiliary-projection-design-claims/
+  files:
+    - context.md
+    - plan.md
+    - progress.md
+    - work.log
+    - result.yaml
+
+notes: |
+  Reconciled the detailed design, package-layout schema, and Step 8 research note
+  with the approved one-`ArccCheck` topology and its cached lexical ordinary-import
+  projection. Added explicit producer-chain residual-cost and Step 13 measurement
+  requirements while preserving the 2026-09-11 Task 04 repair audit trail. The final
+  task change is the fresh jj child `wslkmzsmzxonpnqwopssnvvkvlxzltvr`, with an empty
+  working copy left at `@`.

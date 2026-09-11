@@ -1,0 +1,102 @@
+review:
+  task_file: .agents/tasks/2026-08-04-compositional-component-analysis/step08/task-08-reconcile-auxiliary-projection-design-claims.code-task.md
+  change_id: wslkmzsmzxonpnqwopssnvvkvlxzltvr
+  reviewed_at: "2026-09-11T14:29:24Z"
+  verdict: approved
+  schema_version: 2
+  lsp_coverage: unavailable
+
+merge_request:
+  title: "docs: reconcile auxiliary projection claims [Component Analysis: Step 08/Task 08]"
+  body: |
+    Reviews the complete ordered task series. The initial change updates the
+    detailed design's overview, N1/N2, topology, type-loading, composition,
+    performance acceptance, and historical wording. The follow-up change aligns
+    the package-layout schema and Step 8 research note with the same cached
+    ArccImportGraph projection and producer-chain measurements.
+
+summary: |
+  Both ordered documentation changes accurately distinguish the member-only
+  ArccCheck action from the cached ArccImportGraph and ArccLayout producer chain,
+  including the accepted 2026-09-11 specification-repair tradeoff. All five
+  non-behavioral acceptance criteria pass: the residual lexical source projection,
+  action asymmetry, and complete Step 13 measurements are stated consistently, and
+  targeted link/claim checks plus `just ci` pass. No tests were touched, and no
+  style or security findings were identified; no LSP tool was available for these
+  Markdown files.
+
+acceptance_criteria:
+  - text: |
+      **Topology decision is described consistently**
+      - Given the repaired build-topology bullet and the current auxiliary actions
+      - When the detailed design is read end to end
+      - Then every source-independence statement distinguishes `ArccCheck` from `ArccImportGraph` and no passage contradicts the permitted non-member lexical projection.
+    status: pass
+    evidence: |
+      The detailed design scopes the action boundary and accepted projection in
+      detailed-design.md:44-61, N1/N2 in detailed-design.md:140-160, and the
+      topology rule in detailed-design.md:293-302. Composition repeats the same
+      distinction at detailed-design.md:421-431. The actual producer inputs and
+      ArccCheck allowlist match this wording at component.bzl:257-340 and
+      component.bzl:646-729; the aligned schema and research note are at
+      docs/package-layout-schema.md:217-230 and step08-input-pruning.md:27-34.
+  - text: |
+      **Residual closure work is explicit**
+      - Given an ordinary dependency closure
+      - When the overview, composition, and type-loading sections describe its cost
+      - Then they identify the cached lexical import projection as residual closure-shaped work alongside export-data inputs.
+    status: pass
+    evidence: |
+      The overview names both export-data and cached ordinary-source scan costs in
+      detailed-design.md:54-61; Type loading repeats them at
+      detailed-design.md:344-353; and Composition carries the residual projection
+      into the chain at detailed-design.md:421-431. The schema and research note
+      state the cached source-shaped cost at docs/package-layout-schema.md:225-230
+      and step08-input-pruning.md:53-55.
+  - text: |
+      **Performance acceptance covers the producer chain**
+      - Given the deferred Step 13 depth/width benchmark
+      - When its design requirements are followed
+      - Then it records import-projection action count, source input size, and elapsed contribution in addition to loader/export metrics.
+    status: pass
+    evidence: |
+      The detailed-design Performance row records ArccImportGraph action count,
+      ordinary non-member source input count/bytes, import-projection and
+      ArccLayout elapsed contribution, and export/ArccCheck loader metrics at
+      detailed-design.md:877. The research note enumerates the complete producer
+      chain measurements at step08-input-pruning.md:57-71.
+  - text: |
+      **The action asymmetry remains unambiguous**
+      - Given the updated N1/N2 and topology text
+      - When a future implementer derives action inputs from it
+      - Then ordinary non-member source is permitted only on the metadata producer and forbidden from `ArccCheck` itself.
+    status: pass
+    evidence: |
+      N1/N2 explicitly permit ordinary non-member source only on the lexical
+      ArccImportGraph producer and exclude it from ArccCheck at
+      detailed-design.md:140-160; the topology prose repeats that boundary at
+      detailed-design.md:293-302. The schema's enforced-asymmetry statement is at
+      docs/package-layout-schema.md:259-270, and the research note states the same
+      final allowlist at step08-input-pruning.md:69-71. The build-graph implementation
+      confirms ArccImportGraph receives source at
+      bazel_rules/go/private/component.bzl:281-318, ArccLayout receives only base
+      layout plus descriptor at bazel_rules/go/private/component.bzl:323-340,
+      and ArccCheck excludes the request/base-layout/source inputs at
+      bazel_rules/go/tests/component_tests.bzl:549-612.
+  - text: |
+      **Documentation checks pass**
+      - Given the completed remediation
+      - When repository documentation checks and a search for the superseded absolute claims run
+      - Then all checks pass and the remaining statements agree with the approved topology.
+    status: pass
+    evidence: |
+      The targeted relative-Markdown-link, trailing-whitespace,
+      conflict-marker, and superseded-absolute-claim checks passed, as recorded
+      in work.log. A fresh `just ci` run passed Go generation cleanliness, vet,
+      formatting, builds, unit/integration tests, self-check staging, and the
+      Bazel build/test and failure-path checks; `jj status` remained clean after
+      validation.
+
+findings: []
+
+ecosystem_reviews: []
