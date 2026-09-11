@@ -45,6 +45,9 @@ func IsShapeMismatch(err error) bool {
 }
 
 const (
+	// Report shape policy: diagnostic counters, finding prose/evidence, SDK
+	// identity strings, and source-path values vary with the host or inputs;
+	// report kinds, axes, lines, symbols, and collection null/empty shape stay.
 	shapeSourcePath                = "<SOURCE_PATH>"
 	shapeExportArtifactCount       = "<EXPORT_ARTIFACT_COUNT>"
 	shapeExportBytes               = "<EXPORT_BYTES>"
@@ -59,6 +62,12 @@ const (
 	shapeContentDigest             = "<CONTENT_DIGEST>"
 )
 
+// Surface and map shape policy: package/symbol identities, enum values,
+// authority/provenance records, collection order, and format versions stay
+// exact. Target SDK scalar values use named placeholders, and a non-empty
+// surface digest uses a named content placeholder; asserted empty values stay
+// explicit so UNKNOWN cannot look like derived purity.
+
 // Snapshot validates one bounded persisted artifact with its production
 // decoder, rejects bytes that are not the production canonical encoding, and
 // returns a deterministic schema-aware shape snapshot. A caller must not
@@ -71,7 +80,7 @@ func Snapshot(kind ShapeKind, r io.Reader) ([]byte, error) {
 		if err != nil {
 			return nil, err
 		}
-		return marshalShape(reportShape(persisted)), nil
+		return marshalShape(reportShape(persisted))
 	case ShapeSurface:
 		surface, err := readCanonicalSurface(r)
 		if err != nil {
@@ -356,7 +365,7 @@ func marshalSurfaceShape(surface *gen.SurfaceManifest) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	return marshalShape(shape), nil
+	return marshalShape(shape)
 }
 
 func surfaceShape(surface *gen.SurfaceManifest) (surfaceShapeSnapshot, error) {
@@ -467,7 +476,7 @@ func marshalMapShape(stdlibMap *gen.StdlibMap) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	return marshalShape(shape), nil
+	return marshalShape(shape)
 }
 
 func mapShape(stdlibMap *gen.StdlibMap) (mapShapeSnapshot, error) {
@@ -534,18 +543,16 @@ func nonNilStrings(values []string) []string {
 	return slices.Clone(values)
 }
 
-func marshalShape(value any) []byte {
+func marshalShape(value any) ([]byte, error) {
 	var buffer bytes.Buffer
 	encoder := json.NewEncoder(&buffer)
 	encoder.SetEscapeHTML(false)
 	encoder.SetIndent("", "  ")
 	err := encoder.Encode(value)
 	if err != nil {
-		// All snapshot values are concrete strings, bools, numbers, and slices;
-		// this is unreachable unless a new shape field adds an unsupported type.
-		panic(fmt.Sprintf("marshal artifact shape: %v", err))
+		return nil, fmt.Errorf("marshal artifact shape: %w", err)
 	}
-	return buffer.Bytes()
+	return buffer.Bytes(), nil
 }
 
 func canonicalShapeJSON(data []byte) ([]byte, error) {
