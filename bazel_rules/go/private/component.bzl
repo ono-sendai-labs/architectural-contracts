@@ -486,16 +486,50 @@ def _asserted_surface_content(component_name, packages, key):
     pinned against the checked emitter's key by asserted_surface_sdk_key_test
     (task req 5) — never duplicated here.
     """
-    return json.encode_indent({
-        "formatVersion": SURFACE_FORMAT_VERSION,
-        "component": component_name,
-        "interfaceStyle": "INTERFACE_STYLE_PACKAGE_SURFACE",
-        "authority": {"authority": "UNKNOWN"},
-        "packages": list(packages),
-        "namespace": DEFAULT_NAMESPACE,
-        "sdkKey": _asserted_surface_sdk_key(key),
-        "producerVersion": ARCC_PRODUCER_VERSION,
-    }, indent = "  ") + "\n"
+    # Starlark's JSON encoder orders dictionary keys lexicographically, while
+    # protojson's canonical artifact contract orders fields by protobuf field
+    # number. Assemble the small analysis-time artifact in that field order so
+    # asserted surfaces pass the same canonical-byte boundary as checked ones.
+    lines = [
+        "{",
+        "  \"formatVersion\": %s," % json.encode(SURFACE_FORMAT_VERSION),
+        "  \"component\": %s," % json.encode(component_name),
+        "  \"interfaceStyle\": \"INTERFACE_STYLE_PACKAGE_SURFACE\",",
+        "  \"authority\": {",
+        "    \"authority\": \"UNKNOWN\"",
+        "  },",
+        "  \"packages\": [",
+    ]
+    for i, package in enumerate(packages):
+        comma = "," if i + 1 < len(packages) else ""
+        lines.append("    %s%s" % (json.encode(package), comma))
+    lines += [
+        "  ],",
+        "  \"namespace\": %s," % json.encode(DEFAULT_NAMESPACE),
+        "  \"sdkKey\": {",
+        "    \"toolchainVersion\": %s," % json.encode(key.toolchain_version),
+        "    \"goos\": %s," % json.encode(key.goos),
+        "    \"goarch\": %s," % json.encode(key.goarch),
+    ]
+    if key.cgo_enabled:
+        lines.append("    \"cgoEnabled\": true,")
+    if key.build_tags:
+        lines.append("    \"buildTags\": [")
+        for i, tag in enumerate(key.build_tags):
+            comma = "," if i + 1 < len(key.build_tags) else ""
+            lines.append("      %s%s" % (json.encode(tag), comma))
+        lines.append("    ],")
+    if key.goexperiment:
+        lines.append("    \"goexperiment\": %s," % json.encode(key.goexperiment))
+    lines += [
+        "    \"classifierHash\": %s," % json.encode(key.classifier_hash),
+        "    \"mapFormatVersion\": %s" % json.encode(key.map_format_version),
+        "  },",
+        "  \"producerVersion\": %s" % json.encode(ARCC_PRODUCER_VERSION),
+        "}",
+        "",
+    ]
+    return "\n".join(lines)
 
 def _shell_quote(arg):
     """Shell-quote one argv element for the generated frame wrapper (see check.bzl)."""

@@ -1,0 +1,84 @@
+{
+  "formatVersion": 1,
+  "key": {
+    "toolchainVersion": "<SDK_TOOLCHAIN_VERSION>",
+    "goos": "<SDK_GOOS>",
+    "goarch": "<SDK_GOARCH>",
+    "cgoEnabled": false,
+    "buildTags": [],
+    "goexperiment": "",
+    "classifierHash": "<SDK_CLASSIFIER_HASH>",
+    "mapFormatVersion": 1
+  },
+  "packages": [
+    {
+      "path": "internal/shape",
+      "importable": false
+    },
+    {
+      "path": "os",
+      "importable": true
+    },
+    {
+      "path": "zlib",
+      "importable": true
+    }
+  ],
+  "symbols": [
+    {
+      "package": "os",
+      "id": "os.Exit",
+      "classification": "SAFE",
+      "capabilities": [],
+      "provenance": "capslock-curated"
+    },
+    {
+      "package": "os",
+      "id": "os.ReadFile",
+      "classification": "CAPABILITIES",
+      "capabilities": [
+        "FILES"
+      ],
+      "provenance": ""
+    },
+    {
+      "package": "zlib",
+      "id": "zlib.Reader",
+      "classification": "UNANALYZED",
+      "capabilities": [],
+      "provenance": ""
+    }
+  ],
+  "inits": [
+    {
+      "package": "os",
+      "classification": "SAFE",
+      "capabilities": [],
+      "provenance": ""
+    },
+    {
+      "package": "zlib",
+      "classification": "SAFE",
+      "capabilities": [],
+      "provenance": ""
+    }
+  ],
+  "evidence": [
+    {
+      "symbolId": "os.ReadFile",
+      "capability": "FILES",
+      "frames": [
+        {
+          "function": "os.ReadFile",
+          "file": "<SOURCE_PATH>",
+          "line": 1
+        },
+        {
+          "function": "os.Open",
+          "file": "<SOURCE_PATH>",
+          "line": 2
+        }
+      ]
+    }
+  ]
+}

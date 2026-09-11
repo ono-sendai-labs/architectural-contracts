@@ -21,6 +21,7 @@ func (r *Runner) runArtifactShape(args []string, stdout, stderr io.Writer) int {
 	kind := artifactio.ShapeKind(args[0])
 	artifactPath := args[1]
 	goldenPath := ""
+	printSnapshot := false
 	for _, arg := range args[2:] {
 		switch {
 		case strings.HasPrefix(arg, "--golden="):
@@ -33,6 +34,12 @@ func (r *Runner) runArtifactShape(args []string, stdout, stderr io.Writer) int {
 				fmt.Fprintln(stderr, "error: empty artifact-shape golden value")
 				return 2
 			}
+		case arg == "--print":
+			if printSnapshot {
+				fmt.Fprintln(stderr, "error: duplicate option: --print")
+				return 2
+			}
+			printSnapshot = true
 		case strings.HasPrefix(arg, "-"):
 			fmt.Fprintf(stderr, "error: unknown artifact-shape option: %s\n", arg)
 			return 2
@@ -41,7 +48,11 @@ func (r *Runner) runArtifactShape(args []string, stdout, stderr io.Writer) int {
 			return 2
 		}
 	}
-	if goldenPath == "" {
+	if goldenPath != "" && printSnapshot {
+		fmt.Fprintln(stderr, "error: artifact-shape cannot combine --print and --golden")
+		return 2
+	}
+	if goldenPath == "" && !printSnapshot {
 		fmt.Fprintln(stderr, "error: artifact-shape requires --golden=<path>")
 		return 2
 	}
@@ -52,6 +63,19 @@ func (r *Runner) runArtifactShape(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 	defer artifact.Close()
+	if printSnapshot {
+		snapshot, err := artifactio.Snapshot(kind, artifact)
+		if err != nil {
+			fmt.Fprintf(stderr, "error: snapshot %s artifact: %v\n", kind, err)
+			return 2
+		}
+		_, err = stdout.Write(snapshot)
+		if err != nil {
+			fmt.Fprintf(stderr, "error: writing artifact shape snapshot: %v\n", err)
+			return 2
+		}
+		return 0
+	}
 	golden, err := os.Open(goldenPath)
 	if err != nil {
 		fmt.Fprintf(stderr, "error: opening shape golden %s: %v\n", goldenPath, err)

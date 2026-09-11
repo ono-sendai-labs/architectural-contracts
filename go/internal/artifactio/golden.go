@@ -323,32 +323,32 @@ func shapeSDKKeyValue(key string) string {
 }
 
 type surfaceShapeSnapshot struct {
-	FormatVersion   int              `json:"format_version"`
+	FormatVersion   int              `json:"formatVersion"`
 	Component       string           `json:"component"`
-	InterfaceStyle  string           `json:"interface_style"`
+	InterfaceStyle  string           `json:"interfaceStyle"`
 	Authority       surfaceAuthority `json:"authority"`
 	Packages        []string         `json:"packages"`
 	Symbols         []string         `json:"symbols"`
 	Namespace       string           `json:"namespace"`
-	SDKKey          sdkKeyShape      `json:"sdk_key"`
-	ProducerVersion string           `json:"producer_version"`
+	SDKKey          sdkKeyShape      `json:"sdkKey"`
+	ProducerVersion string           `json:"producerVersion"`
 	Digest          string           `json:"digest"`
 }
 
 type surfaceAuthority struct {
 	Authority         string   `json:"authority"`
-	DeclaredAuthority []string `json:"declared_authority"`
+	DeclaredAuthority []string `json:"declaredAuthority"`
 }
 
 type sdkKeyShape struct {
-	ToolchainVersion string   `json:"toolchain_version"`
+	ToolchainVersion string   `json:"toolchainVersion"`
 	GOOS             string   `json:"goos"`
 	GOARCH           string   `json:"goarch"`
-	CgoEnabled       bool     `json:"cgo_enabled"`
-	BuildTags        []string `json:"build_tags"`
+	CgoEnabled       bool     `json:"cgoEnabled"`
+	BuildTags        []string `json:"buildTags"`
 	GOExperiment     string   `json:"goexperiment"`
-	ClassifierHash   string   `json:"classifier_hash"`
-	MapFormatVersion int32    `json:"map_format_version"`
+	ClassifierHash   string   `json:"classifierHash"`
+	MapFormatVersion int32    `json:"mapFormatVersion"`
 }
 
 func marshalSurfaceShape(surface *gen.SurfaceManifest) ([]byte, error) {
@@ -422,7 +422,7 @@ func sdkKeyShapeOf(key *gen.SDKKey) (sdkKeyShape, error) {
 }
 
 type mapShapeSnapshot struct {
-	FormatVersion int                `json:"format_version"`
+	FormatVersion int                `json:"formatVersion"`
 	Key           sdkKeyShape        `json:"key"`
 	Packages      []mapPackageShape  `json:"packages"`
 	Symbols       []mapSymbolShape   `json:"symbols"`
@@ -451,7 +451,7 @@ type mapInitShape struct {
 }
 
 type mapEvidenceShape struct {
-	SymbolID   string          `json:"symbol_id"`
+	SymbolID   string          `json:"symbolId"`
 	Capability string          `json:"capability"`
 	Frames     []mapFrameShape `json:"frames"`
 }

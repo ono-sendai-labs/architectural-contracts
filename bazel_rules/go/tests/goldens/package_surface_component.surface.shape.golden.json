@@ -1,0 +1,27 @@
+{
+  "formatVersion": 1,
+  "component": "package_surface_component",
+  "interfaceStyle": "INTERFACE_STYLE_PACKAGE_SURFACE",
+  "authority": {
+    "authority": "DECLARED",
+    "declaredAuthority": []
+  },
+  "packages": [
+    "example.com/aspect/member",
+    "example.com/aspect/memberdep"
+  ],
+  "symbols": [],
+  "namespace": "upstream",
+  "sdkKey": {
+    "toolchainVersion": "<SDK_TOOLCHAIN_VERSION>",
+    "goos": "<SDK_GOOS>",
+    "goarch": "<SDK_GOARCH>",
+    "cgoEnabled": false,
+    "buildTags": [],
+    "goexperiment": "",
+    "classifierHash": "<SDK_CLASSIFIER_HASH>",
+    "mapFormatVersion": 1
+  },
+  "producerVersion": "arcc 0.0.0-dev",
+  "digest": "<CONTENT_DIGEST>"
+}

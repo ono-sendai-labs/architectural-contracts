@@ -39,6 +39,16 @@ func TestArtifactShapeCommandComparesValidatedSnapshot(t *testing.T) {
 	if stdout.Len() != 0 || stderr.Len() != 0 {
 		t.Errorf("successful artifact-shape wrote stdout=%q stderr=%q", stdout.String(), stderr.String())
 	}
+	stdout.Reset()
+	stderr.Reset()
+	if code := (&Runner{}).Run([]string{
+		"artifact-shape", "report", artifactPath, "--print",
+	}, &stdout, &stderr); code != 0 {
+		t.Fatalf("artifact-shape --print exit code = %d, stderr = %s", code, stderr.String())
+	}
+	if stdout.String() != string(golden) {
+		t.Errorf("printed artifact shape = %q, want %q", stdout.String(), string(golden))
+	}
 
 	changed := strings.Replace(string(golden), `"component": "shape"`, `"component": "changed"`, 1)
 	if err := os.WriteFile(goldenPath, []byte(changed), 0o644); err != nil {

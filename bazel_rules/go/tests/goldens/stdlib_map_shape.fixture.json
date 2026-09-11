@@ -1,0 +1,72 @@
+{
+  "formatVersion": 1,
+  "key": {
+    "toolchainVersion": "go1.26.4",
+    "goos": "linux",
+    "goarch": "amd64",
+    "classifierHash": "shape-fixture-classifier",
+    "mapFormatVersion": 1
+  },
+  "packages": [
+    {
+      "path": "internal/shape"
+    },
+    {
+      "path": "os",
+      "importable": true
+    },
+    {
+      "path": "zlib",
+      "importable": true
+    }
+  ],
+  "symbols": [
+    {
+      "package": "os",
+      "id": "os.Exit",
+      "classification": "SAFE",
+      "provenance": "capslock-curated"
+    },
+    {
+      "package": "os",
+      "id": "os.ReadFile",
+      "classification": "CAPABILITIES",
+      "capabilities": [
+        "FILES"
+      ]
+    },
+    {
+      "package": "zlib",
+      "id": "zlib.Reader",
+      "classification": "UNANALYZED"
+    }
+  ],
+  "inits": [
+    {
+      "package": "os",
+      "classification": "SAFE"
+    },
+    {
+      "package": "zlib",
+      "classification": "SAFE"
+    }
+  ],
+  "evidence": [
+    {
+      "symbolId": "os.ReadFile",
+      "capability": "FILES",
+      "frames": [
+        {
+          "function": "os.ReadFile",
+          "file": "file.go",
+          "line": 1
+        },
+        {
+          "function": "os.Open",
+          "file": "file.go",
+          "line": 2
+        }
+      ]
+    }
+  ]
+}

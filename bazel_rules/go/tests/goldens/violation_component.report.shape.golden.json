@@ -1,0 +1,35 @@
+{
+  "format_version": 1,
+  "verdict": "fail",
+  "report": {
+    "component": "violation_component",
+    "dependencies": null,
+    "diagnostics": {
+      "non_member_export_artifact_count": "<EXPORT_ARTIFACT_COUNT>",
+      "non_member_export_bytes": "<EXPORT_BYTES>"
+    },
+    "violations": [
+      {
+        "kind": "UNDECLARED_AUTHORITY",
+        "message": "<FINDING_MESSAGE>",
+        "location": {
+          "file": "",
+          "line": 0
+        },
+        "evidence": [
+          "<EVIDENCE>"
+        ],
+        "class": "TrueAuthority",
+        "sdk_key": "<SDK_KEY>",
+        "sites": [
+          {
+            "file": "<SOURCE_PATH>",
+            "line": 10,
+            "symbol": "os.Open"
+          }
+        ]
+      }
+    ],
+    "warnings": null
+  }
+}

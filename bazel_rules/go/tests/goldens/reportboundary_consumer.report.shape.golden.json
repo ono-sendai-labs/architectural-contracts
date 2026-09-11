@@ -1,0 +1,29 @@
+{
+  "format_version": 1,
+  "verdict": "pass",
+  "report": {
+    "component": "consumer_component",
+    "dependencies": [
+      {
+        "component": "manual_component",
+        "provenance": "ASSERTED",
+        "freshness": "BUILD_GRAPH",
+        "authority": "UNKNOWN",
+        "declared_authority": []
+      },
+      {
+        "component": "shared_component",
+        "provenance": "CHECKED_PASS",
+        "freshness": "BUILD_GRAPH",
+        "authority": "DECLARED",
+        "declared_authority": []
+      }
+    ],
+    "diagnostics": {
+      "non_member_export_artifact_count": "<EXPORT_ARTIFACT_COUNT>",
+      "non_member_export_bytes": "<EXPORT_BYTES>"
+    },
+    "violations": null,
+    "warnings": null
+  }
+}
