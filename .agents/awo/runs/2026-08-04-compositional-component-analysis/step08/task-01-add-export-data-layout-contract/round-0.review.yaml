@@ -1,0 +1,115 @@
+review:
+  task_file: .agents/tasks/2026-08-04-compositional-component-analysis/step08/task-01-add-export-data-layout-contract.code-task.md
+  change_id: vxlzwxslsqprmomlmtvlvvlwwktqmovy
+  reviewed_at: 2026-09-11T06:26:57Z
+  verdict: approved
+  schema_version: 2
+  lsp_coverage: unavailable
+
+merge_request:
+  title: "feat(packagelayout): add export-data layout contract [Compositional Analysis: Step 08/Task 01]"
+  body: |
+    Reviews the complete task series from pwknumourqowmqounqpunvnqzlovvwsw
+    through vxlzwxslsqprmomlmtvlvvlwwktqmovy. The single implementation change
+    adds the opt-in member-only validator, workspace-frame export resolution,
+    deterministic graph checks, focused tests, and package-layout documentation;
+    no rework changes were produced.
+
+summary: |
+  The implementation satisfies all seven acceptance criteria with an additive
+  member-only validation path that keeps member roots source-backed and validates
+  reachable non-members through compiler export artifacts without reading their
+  source. Tests cover deep closures, graph and artifact failures, unsafe, import-map
+  shape, source-backed generation compatibility, and deterministic JSON; the recorded
+  just ci run and a fresh focused test/vet/gofmt check pass. No ecosystem-specific
+  reviewer or LSP diagnostic tool was available in this environment.
+
+acceptance_criteria:
+  - text: |
+      **Valid export-backed closure is accepted**
+        - Given a layout with one source-backed member and a multi-level non-member import closure
+        - When export-data validation and resolution run
+        - Then every non-member export file is resolved, every graph node remains present, and validation succeeds without reading non-member Go source.
+    status: pass
+    evidence: |
+      `go/internal/packagelayout/export_data_test.go:16-44` validates a two-level
+      closure plus `unsafe`, checks both resolved export paths and the preserved
+      transitive edge, and uses intentionally absent non-member source paths.
+      `go/internal/packagelayout/packagelayout.go:1612-1811` resolves source only
+      for sorted roots and walks reachable export-backed packages.
+  - text: |
+      **Incomplete graph fails before loading**
+        - Given a reachable package whose import points to an absent package ID
+        - When the layout is validated for member-only loading
+        - Then validation returns a tool error naming the importing package, import path, and absent target before `packages.Load` is called.
+    status: pass
+    evidence: |
+      `go/internal/packagelayout/export_data_test.go:62-80` asserts the importer,
+      import path, and absent ID in the validator error. The opt-in validator at
+      `go/internal/packagelayout/packagelayout.go:1758-1801` validates each edge
+      during its pre-load traversal and does not call `packages.Load`.
+  - text: |
+      **Missing export data fails closed**
+        - Given a reachable non-root package other than `unsafe` with an empty, missing, or invalid export file
+        - When the layout is validated
+        - Then validation returns an actionable package-specific error and never falls back to dependency source.
+    status: pass
+    evidence: |
+      `go/internal/packagelayout/export_data_test.go:82-172` covers empty paths,
+      missing and empty files, directories, absolute/parent-escaping and
+      non-normalized paths, and unreadable artifacts. The resolver at
+      `go/internal/packagelayout/packagelayout.go:2074-2124` reports package and
+      artifact path, while the member-only path never resolves non-root source
+      fields (`packagelayout.go:1666-1678`).
+  - text: |
+      **Explicit non-member graph shape is enforced**
+        - Given an export-backed non-member package with an omitted `Imports` field
+        - When validation runs
+        - Then it is rejected as an incomplete graph, while an explicit empty import map is accepted for a leaf.
+    status: pass
+    evidence: |
+      `go/internal/packagelayout/export_data_test.go:174-182` rejects a nil
+      `Imports` map and `:38-43` accepts the leaf's non-nil empty map. The
+      corresponding check is at `go/internal/packagelayout/packagelayout.go:1771-1774`.
+  - text: |
+      **Generation layout remains supported**
+        - Given a whole-stdlib source layout used by the map generator
+        - When its existing validation path runs
+        - Then it remains valid without export files and existing stdlib-map tests stay green.
+    status: pass
+    evidence: |
+      `go/internal/packagelayout/export_data_test.go:184-211` verifies that the
+      existing source-backed validator accepts a layout without `ExportFile`.
+      `StdlibLayout` continues to call `ValidateAndResolve` at
+      `go/internal/packagelayout/packagelayout.go:2224-2289`, and the recorded
+      `just ci` run in `work.log` reports the complete stdlib-map and repository
+      test suites passing.
+  - text: |
+      **Serialization is deterministic**
+        - Given logically identical export-backed layouts whose collections were supplied in different orders
+        - When they are marshaled and parsed
+        - Then they produce byte-identical canonical JSON and preserve every export-file binding.
+    status: pass
+    evidence: |
+      `go/internal/packagelayout/export_data_test.go:213-272` compares reversed
+      roots and package order, checks caller-owned collections remain unchanged,
+      compares canonical bytes, parses the result, and verifies the `ExportFile`
+      binding. `MarshalJSON` sorts cloned roots/packages and marshals the upstream
+      package fields at `go/internal/packagelayout/packagelayout.go:1111-1181`.
+  - text: |
+      **Repository checks pass**
+        - Given the completed change
+        - When `just ci` runs
+        - Then all lint, unit, integration, Bazel, self-check, and generated-file checks pass.
+    status: pass
+    evidence: |
+      The `Repository validation before commit` section of
+      `.agents/scratchpad/2026-08-04-compositional-component-analysis/step08/task-01-add-export-data-layout-contract/work.log`
+      records a successful `just ci` run covering generated-file cleanliness,
+      vet/format, builds, unit and integration tests, self-check, and Bazel
+      build/test. The review also reran `go test ./internal/packagelayout`,
+      `go vet ./internal/packagelayout`, and the focused gofmt check successfully.
+
+findings: []
+
+ecosystem_reviews: []

@@ -1,0 +1,76 @@
+result:
+  task_file: .agents/tasks/2026-08-04-compositional-component-analysis/step08/task-01-add-export-data-layout-contract.code-task.md
+  change_id: vxlzwxslsqprmomlmtvlvvlwwktqmovy
+  status: completed
+  schema_version: 2
+  produced_at: 2026-09-11T06:19:18Z
+
+acceptance_criteria:
+  - text: |
+      **Valid export-backed closure is accepted**
+        - Given a layout with one source-backed member and a multi-level non-member import closure
+        - When export-data validation and resolution run
+        - Then every non-member export file is resolved, every graph node remains present, and validation succeeds without reading non-member Go source.
+    addressed: yes
+    evidence: |
+      `go/internal/packagelayout/export_data_test.go:16-44` exercises a two-level closure plus unsafe and asserts resolved export paths and preserved edges. `ValidateAndResolveForMemberOnly` at `go/internal/packagelayout/packagelayout.go:1612-1810` resolves only roots' source files and traverses export-backed nodes; the fixture's non-member source paths are intentionally absent.
+  - text: |
+      **Incomplete graph fails before loading**
+        - Given a reachable package whose import points to an absent package ID
+        - When the layout is validated for member-only loading
+        - Then validation returns a tool error naming the importing package, import path, and absent target before `packages.Load` is called.
+    addressed: yes
+    evidence: |
+      `TestValidateAndResolveForMemberOnlyRejectsIncompleteGraph` at `go/internal/packagelayout/export_data_test.go:62-80` asserts the importer, import path, and missing ID in the validator error. The member-only API performs this traversal before returning and does not invoke `packages.Load`.
+  - text: |
+      **Missing export data fails closed**
+        - Given a reachable non-root package other than `unsafe` with an empty, missing, or invalid export file
+        - When the layout is validated
+        - Then validation returns an actionable package-specific error and never falls back to dependency source.
+    addressed: yes
+    evidence: |
+      `TestValidateAndResolveForMemberOnlyRejectsInvalidExportArtifacts` at `go/internal/packagelayout/export_data_test.go:82-172` covers empty paths/files, missing files, directories, unsafe/non-normalized paths, and unreadable artifacts. `resolveAndCheckExportFile` at `go/internal/packagelayout/packagelayout.go:2074-2146` reports the package/path and the member-only validator never resolves non-member GoFiles.
+  - text: |
+      **Explicit non-member graph shape is enforced**
+        - Given an export-backed non-member package with an omitted `Imports` field
+        - When validation runs
+        - Then it is rejected as an incomplete graph, while an explicit empty import map is accepted for a leaf.
+    addressed: yes
+    evidence: |
+      `TestValidateAndResolveForMemberOnlyRequiresExplicitExportImports` at `go/internal/packagelayout/export_data_test.go:174-182` rejects nil Imports, while the valid-closure test at lines 38-43 accepts the leaf's non-nil empty map. The validator's explicit-map check is at `packagelayout.go:1771-1774`.
+  - text: |
+      **Generation layout remains supported**
+        - Given a whole-stdlib source layout used by the map generator
+        - When its existing validation path runs
+        - Then it remains valid without export files and existing stdlib-map tests stay green.
+    addressed: yes
+    evidence: |
+      `TestValidateAndResolveSourceBackedDoesNotRequireExportFiles` at `go/internal/packagelayout/export_data_test.go:184-211` verifies the legacy source-backed path accepts packages without ExportFile. Existing `StdlibLayout` integration coverage remains on `ValidateAndResolve`, and `just ci` passed all Go, integration, self-check, and Bazel checks (recorded in `work.log`).
+  - text: |
+      **Serialization is deterministic**
+        - Given logically identical export-backed layouts whose collections were supplied in different orders
+        - When they are marshaled and parsed
+        - Then they produce byte-identical canonical JSON and preserve every export-file binding.
+    addressed: yes
+    evidence: |
+      `TestExportDataLayoutJSONIsDeterministicAndPreservesBindings` at `go/internal/packagelayout/export_data_test.go:213-272` compares reversed collection order, verifies caller-owned order is unchanged, and round-trips ExportFile. Existing `MarshalJSON` canonical sorting is at `packagelayout.go:1111-1181`.
+  - text: |
+      **Repository checks pass**
+        - Given the completed change
+        - When `just ci` runs
+        - Then all lint, unit, integration, Bazel, self-check, and generated-file checks pass.
+    addressed: yes
+    evidence: |
+      The logged `just ci` run in `work.log` completed with exit code 0; it ran generation cleanliness, vet/format, build, unit and integration tests, self-check, Bazel build/test, and the shell checks. The resulting working copy is empty after the fresh jj commit.
+
+artifacts:
+  scratchpad_dir: .agents/scratchpad/2026-08-04-compositional-component-analysis/step08/task-01-add-export-data-layout-contract/
+  files:
+    - context.md
+    - plan.md
+    - progress.md
+    - work.log
+    - result.yaml
+
+notes: |
+  Added the opt-in member-only layout validator, workspace-frame export artifact resolution, shared package identity indexing, deterministic closure traversal, and explicit import-map enforcement. The existing source-backed validation path remains responsible for whole-stdlib generation, and the schema/Component Contract documentation now distinguishes source and export path frames. Focused tests and the full `just ci` gate pass; the implementation is in jj change vxlzwxslsqprmomlmtvlvvlwwktqmovy.

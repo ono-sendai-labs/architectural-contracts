@@ -1,0 +1,58 @@
+{
+  "task_file": ".agents/tasks/2026-08-04-compositional-component-analysis/step08/task-01-add-export-data-layout-contract.code-task.md",
+  "planning_slug": "2026-08-04-compositional-component-analysis",
+  "step": 8,
+  "task": 1,
+  "implementer_session": "awo-impl-2026-08-04-compositional-component-analysis-step08-task01",
+  "reviewer_session": "awo-rev-2026-08-04-compositional-component-analysis-step08-task01",
+  "base": {
+    "change_id": "pwknumourqowmqounqpunvnqzlovvwsw",
+    "bookmark": "pr/awo-generate-task-2026-08-04-compositional-component-analysis-step-8"
+  },
+  "produced_changes": [
+    "vxlzwxslsqprmomlmtvlvvlwwktqmovy"
+  ],
+  "rounds": [
+    {
+      "round": 0,
+      "role": "implementer",
+      "prompt": ".agents/runs-acpx/20260910-225541-step08-task-01-add-export-data-layout-contract/round-0.implementer/prompt.md",
+      "out": ".agents/runs-acpx/20260910-225541-step08-task-01-add-export-data-layout-contract/round-0.implementer",
+      "status": "completed",
+      "tokens": {
+        "total": 256017,
+        "input": 2397,
+        "cachedRead": 251648,
+        "output": 1972
+      },
+      "elapsed_s": 1493,
+      "tool_calls": 1085,
+      "compaction": false
+    },
+    {
+      "round": 0,
+      "role": "reviewer",
+      "prompt": ".agents/runs-acpx/20260910-225541-step08-task-01-add-export-data-layout-contract/round-0.reviewer/prompt.md",
+      "out": ".agents/runs-acpx/20260910-225541-step08-task-01-add-export-data-layout-contract/round-0.reviewer",
+      "verdict": "approved",
+      "findings": 0,
+      "tokens": {
+        "total": 183583,
+        "input": 5110,
+        "cachedRead": 177920,
+        "output": 553
+      },
+      "elapsed_s": 408,
+      "tool_calls": 84,
+      "compaction": false
+    }
+  ],
+  "session_restarts": [],
+  "outcome": {
+    "status": "approved",
+    "rounds": 1,
+    "acceptance_criteria": "7/7",
+    "findings": 0,
+    "bookmark": "pr/2026-08-04-compositional-component-analysis/step08/task-01-add-export-data-layout-contract.code-task"
+  }
+}
