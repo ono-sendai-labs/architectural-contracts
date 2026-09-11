@@ -1,8 +1,8 @@
 load("@rules_go//go:def.bzl", "go_library")
 
-# Embedded into :core, and carrying the same import path — the case the
-# closure merge exists for. Its own dependency (//extradep) is reachable only
-# through this edge.
+# The standalone embedded package used by the aspect's fail-closed duplicate
+# fixture. Its own dependency is reachable only through the embed edge of
+# :core_embedded.
 go_library(
     name = "core_extra",
     srcs = ["extra_impl.go"],
@@ -13,6 +13,25 @@ go_library(
 
 go_library(
     name = "core",
+    srcs = [
+        "core.go",
+        "core_extra.go",
+        "extra_impl.go",
+    ],
+    importpath = "example.com/aspect/core",
+    visibility = ["//bazel_rules:__subpackages__"],
+    deps = [
+        "//bazel_rules/go/tests/testdata/extradep",
+        "//bazel_rules/go/tests/testdata/lowlevel",
+        "//bazel_rules/go/tests/testdata/shared",
+    ],
+)
+
+# This preserves a real embed edge for the aspect tests. rules_go 0.61.1
+# gives the embedder and embedded target distinct export artifacts, so the
+# merge must reject the closure rather than choose one by traversal order.
+go_library(
+    name = "core_embedded",
     srcs = [
         "core.go",
         "core_extra.go",

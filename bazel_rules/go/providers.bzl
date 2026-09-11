@@ -3,8 +3,9 @@
 ArccPackageInfo = provider(
     doc = "Go package closure with direct-dependency edges, for arcc layout emission.",
     fields = {
-        "packages": "depset of struct(importpath, srcs, deps, cgo); " +
-                    "srcs is a tuple of File, deps a tuple of direct-dependency importpaths",
+        "packages": "depset of struct(importpath, srcs, deps, cgo, export_file, label); " +
+                    "srcs is a tuple of File, deps a tuple of direct-dependency importpaths, " +
+                    "export_file is the compiler export File and label identifies the contributor",
     },
 )
 

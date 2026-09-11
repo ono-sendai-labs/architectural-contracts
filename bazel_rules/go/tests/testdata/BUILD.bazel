@@ -3,8 +3,11 @@
 #
 #   api ─deps→ core ─deps→ lowlevel   (imports stdlib "strings")
 #    │          │    ─deps→ shared ◄── diamond: also a direct dep of api
-#    │          └embed→ core_extra ─deps→ extradep   (embed-only transitive dep)
+#    │          └deps→ extradep
 #    └─deps→ shared
+#
+# The separate `embedded_core_closure` probe uses core:core_embedded to retain
+# an actual embed-only transitive edge and its duplicate-export failure case.
 #
 # The sources are not part of the `go/` Go module and are never built by
 # `go build ./...`; they exist only as inputs to the analysis tests.
@@ -27,6 +30,12 @@ platform(
 arcc_closure_probe(
     name = "api_closure",
     interface = "//bazel_rules/go/tests/testdata/api",
+    visibility = ["//bazel_rules:__subpackages__"],
+)
+
+arcc_closure_probe(
+    name = "embedded_core_closure",
+    interface = "//bazel_rules/go/tests/testdata/core:core_embedded",
     visibility = ["//bazel_rules:__subpackages__"],
 )
 

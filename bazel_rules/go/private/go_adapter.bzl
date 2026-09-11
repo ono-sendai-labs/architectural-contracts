@@ -2,7 +2,7 @@
 
 Everything arcc's rules need from the host's Go rules is funneled through this
 one file: the providers it keys on, how to read a target's import path, its
-compiled sources, its direct-dependency import paths and cgo flag, how to
+compiled sources, its direct-dependency import paths, export artifact and cgo flag, how to
 forward a library's Go providers so a component target can stand in for its
 interface library, and how to locate the Go SDK root. `aspect.bzl`,
 `component.bzl`, and the rest of the rules import ONLY this adapter and never
@@ -188,7 +188,7 @@ def go_library_srcs(target):
 def go_target_info(target):
     """Projects a Go library target onto a closure node, or None if it is not one.
 
-    Returns a struct(importpath, srcs, deps, cgo). Host implementations MUST
+    Returns a struct(importpath, srcs, deps, cgo, export_file, label). Host implementations MUST
     honor this contract:
 
       importpath  string; "" is impossible here (None is returned instead), so
@@ -207,6 +207,13 @@ def go_target_info(target):
                   and the target's own import path excluded (an embedded library
                   shares its embedder's import path).
       cgo         bool — whether the package is built with cgo.
+      export_file File — the compiler export artifact for this package. With the
+                        pinned upstream rules_go 0.61.1 provider this is exactly
+                        `GoArchive.data.export_file`; hosts adapt their provider
+                        shape here rather than in the aspect or component rule.
+      label       string — the generic target label used for deterministic
+                          fail-closed diagnostics when duplicate package metadata
+                          is merged.
     """
     go_info = target[GoInfo]
     importpath = go_info.importpath
@@ -225,6 +232,11 @@ def go_target_info(target):
         if archive.data.importpath != importpath
     ]))
 
+    # rules_go 0.61.1 publishes the archive consumed by dependents as this
+    # provider field. Keep this ruleset-specific access in the adapter: upper
+    # layers receive only the generic File contract above.
+    export_file = target[GoArchive].data.export_file
+
     return struct(
         importpath = importpath,
         srcs = srcs,
@@ -233,6 +245,8 @@ def go_target_info(target):
         # derivable at analysis time; the component rule refuses them rather
         # than emitting a layout that names the wrong files.
         cgo = getattr(go_info, "cgo", False),
+        export_file = export_file,
+        label = str(target.label),
     )
 
 def forward_go_providers(target):

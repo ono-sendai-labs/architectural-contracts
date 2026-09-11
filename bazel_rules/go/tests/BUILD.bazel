@@ -10,6 +10,11 @@ load(":report_assertion_tests.bzl", "report_assertion_test_suite")
 load(":stdlib_map_probe.bzl", "darwin_arm64_stdlib_map", "default_seam_probe", "tagged_stdlib_map")
 load(":stdlib_map_tests.bzl", "stdlib_map_full_test_suite", "stdlib_map_test_suite")
 
+exports_files([
+    "test_export_a.data",
+    "test_export_b.data",
+])
+
 config_setting(
     name = "stdlibmap_full",
     define_values = {"stdlibmap_full": "true"},

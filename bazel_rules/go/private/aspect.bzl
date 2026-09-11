@@ -1,9 +1,11 @@
 """The `_arcc_deps` aspect: the Go package closure, with edges.
 
-`GoArchiveData` exposes no public importpath-keyed edge data (its only edge
-data is the private, label-based `_dep_labels`), but the package-layout JSON
-arcc consumes is keyed by import path. So this aspect walks the graph itself
-and projects each node's direct archives onto their import paths.
+The underlying Go archive provider exposes no public importpath-keyed edge data
+(its only edge data is a private, label-based field), but the package-layout
+JSON arcc consumes is keyed by import path. So this aspect walks the graph
+itself and projects each node's direct archives onto their import paths. The
+adapter also supplies each archive's generic export `File`; this file
+deliberately does not load or name ruleset-specific providers.
 
 Reference implementation and the reasoning behind every non-obvious line:
 `.agents/planning/2026-07-16-bazel-arcc-rules/research/spike-aspect-findings.md`.
@@ -56,20 +58,30 @@ def merge_by_importpath(nodes):
     unioned rather than overwritten: a keyed dict with last-write-wins is
     order-dependent, and depset iteration order is not something to rely on.
     The union is safe because rules_go makes the embedder's srcs and direct
-    archives a superset of the embedded library's.
+    archives a superset of the embedded library's. Export metadata is stricter:
+    every contributor must carry exactly one artifact, and all contributors for
+    one effective package must name the same file. Selecting a first or last
+    archive would make the layout depend on traversal order.
 
     Args:
       nodes: closure nodes, as emitted by `arcc_deps_aspect`.
 
     Returns:
-      dict of importpath -> struct(importpath, srcs, deps, cgo), where srcs is
-      a list of File sorted by path and deps a sorted list of importpaths.
+      dict of importpath -> struct(importpath, srcs, deps, cgo, export_file),
+      where srcs is a list of File sorted by path, deps is a sorted list of
+      importpaths, and export_file is the one validated compiler artifact.
     """
     by_importpath = {}
     for node in nodes:
         entry = by_importpath.get(node.importpath)
         if entry == None:
-            entry = struct(srcs = {}, deps = {}, cgo = [node.cgo])
+            entry = struct(
+                srcs = {},
+                deps = {},
+                cgo = [],
+                export_files = {},
+                contributors = [],
+            )
             by_importpath[node.importpath] = entry
         for src in node.srcs:
             entry.srcs[src.path] = src
@@ -77,14 +89,38 @@ def merge_by_importpath(nodes):
             if dep != node.importpath:
                 entry.deps[dep] = True
         entry.cgo.append(node.cgo)
+        export_file = getattr(node, "export_file", None)
+        label = str(getattr(node, "label", "<unknown>"))
+        if export_file == None:
+            entry.contributors.append((label, "<missing>"))
+        else:
+            entry.export_files[export_file.path] = export_file
+            entry.contributors.append((label, export_file.short_path))
 
     merged = {}
     for importpath in sorted(by_importpath.keys()):
         entry = by_importpath[importpath]
+        if len(entry.export_files) != 1 or any([artifact == "<missing>" for _, artifact in entry.contributors]):
+            contributors = [
+                "%s (%s)" % (label, artifact)
+                for label, artifact in sorted(entry.contributors)
+            ]
+            if any([artifact == "<missing>" for _, artifact in entry.contributors]):
+                reason = "missing export_file"
+            else:
+                reason = "conflicting export_file artifacts"
+            fail("package %s has %s from %s" % (
+                importpath,
+                reason,
+                ", ".join(contributors),
+            ))
+
+        export_path = sorted(entry.export_files.keys())[0]
         merged[importpath] = struct(
             importpath = importpath,
             srcs = [entry.srcs[path] for path in sorted(entry.srcs.keys())],
             deps = sorted(entry.deps.keys()),
             cgo = True in entry.cgo,
+            export_file = entry.export_files[export_path],
         )
     return merged

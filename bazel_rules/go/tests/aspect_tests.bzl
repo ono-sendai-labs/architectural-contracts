@@ -6,13 +6,119 @@ diamonds, and the standard library.
 """
 
 load("@rules_testing//lib:analysis_test.bzl", "analysis_test")
+load("@rules_testing//lib:truth.bzl", "matching")
 load("@rules_testing//lib/private:util.bzl", "get_test_name_from_function")
 load("//bazel_rules/go:providers.bzl", "ArccPackageInfo")
 load("//bazel_rules/go/private:aspect.bzl", "merge_by_importpath")
 load("//bazel_rules/go/tests:probe.bzl", "ArccGoPlatformInfo")
 
 _PROBE = "//bazel_rules/go/tests/testdata:api_closure"
+_EMBED_PROBE = "//bazel_rules/go/tests/testdata:embedded_core_closure"
 _PLATFORM_PROBE = "//bazel_rules/go/tests/testdata:go_platform_probe"
+
+_TestPackageNodeInfo = provider(fields = ["node"])
+_TestMergedPackageInfo = provider(fields = ["packages"])
+
+def _test_package_node_impl(ctx):
+    return [
+        DefaultInfo(),
+        _TestPackageNodeInfo(node = struct(
+            importpath = ctx.attr.importpath,
+            srcs = tuple(),
+            deps = tuple(),
+            cgo = False,
+            export_file = ctx.file.export_file,
+            label = str(ctx.label),
+        )),
+    ]
+
+_test_package_node = rule(
+    implementation = _test_package_node_impl,
+    attrs = {
+        "importpath": attr.string(mandatory = True),
+        "export_file": attr.label(allow_single_file = True),
+    },
+    provides = [_TestPackageNodeInfo],
+)
+
+def _test_merge_probe_impl(ctx):
+    merged = merge_by_importpath([
+        node[_TestPackageNodeInfo].node
+        for node in ctx.attr.nodes
+    ])
+    return [
+        DefaultInfo(),
+        _TestMergedPackageInfo(packages = merged),
+    ]
+
+_test_merge_probe = rule(
+    implementation = _test_merge_probe_impl,
+    attrs = {
+        "nodes": attr.label_list(
+            mandatory = True,
+            providers = [_TestPackageNodeInfo],
+        ),
+    },
+    provides = [_TestMergedPackageInfo],
+)
+
+def _test_merge_closure_probe_impl(ctx):
+    merged = merge_by_importpath(ctx.attr.target[ArccPackageInfo].packages.to_list())
+    return [
+        DefaultInfo(),
+        _TestMergedPackageInfo(packages = merged),
+    ]
+
+_test_merge_closure_probe = rule(
+    implementation = _test_merge_closure_probe_impl,
+    attrs = {
+        "target": attr.label(
+            mandatory = True,
+            providers = [ArccPackageInfo],
+        ),
+    },
+    provides = [_TestMergedPackageInfo],
+)
+
+def _test_merge_order_probe_impl(ctx):
+    forward = merge_by_importpath([
+        node[_TestPackageNodeInfo].node
+        for node in ctx.attr.forward
+    ])
+    reverse = merge_by_importpath([
+        node[_TestPackageNodeInfo].node
+        for node in ctx.attr.reverse
+    ])
+    forward_pkg = forward[ctx.attr.importpath]
+    reverse_pkg = reverse[ctx.attr.importpath]
+    if (
+        forward_pkg.export_file.path != reverse_pkg.export_file.path or
+        forward_pkg.importpath != reverse_pkg.importpath or
+        forward_pkg.srcs != reverse_pkg.srcs or
+        forward_pkg.deps != reverse_pkg.deps or
+        forward_pkg.cgo != reverse_pkg.cgo
+    ):
+        fail("merge order changed package metadata for %s" % ctx.attr.importpath)
+    return [
+        DefaultInfo(),
+        _TestMergedPackageInfo(packages = forward),
+    ]
+
+_test_merge_order_probe = rule(
+    implementation = _test_merge_order_probe_impl,
+    attrs = {
+        "importpath": attr.string(mandatory = True),
+        "forward": attr.label_list(
+            mandatory = True,
+            providers = [_TestPackageNodeInfo],
+        ),
+        "reverse": attr.label_list(
+            mandatory = True,
+            providers = [_TestPackageNodeInfo],
+        ),
+    },
+    provides = [_TestMergedPackageInfo],
+)
 
 def _merged(target):
     return merge_by_importpath(target[ArccPackageInfo].packages.to_list())
@@ -39,6 +145,22 @@ def _closure_is_the_whole_graph_minus_stdlib_impl(env, target):
         "example.com/aspect/lowlevel",
         "example.com/aspect/shared",
     ])
+
+def _export_files_are_collected_test(name):
+    analysis_test(
+        name = name,
+        target = _PROBE,
+        impl = _export_files_are_collected_impl,
+        attr_values = {"size": "small"},
+    )
+
+def _export_files_are_collected_impl(env, target):
+    merged = _merged(target)
+    env.expect.that_collection(
+        [importpath for importpath, pkg in merged.items() if pkg.export_file != None],
+    ).contains_exactly(sorted(merged.keys()))
+    for pkg in merged.values():
+        env.expect.that_bool(pkg.export_file.path != "").equals(True)
 
 def _edges_are_direct_importpaths_test(name):
     analysis_test(
@@ -68,32 +190,32 @@ def _edges_are_direct_importpaths_impl(env, target):
     env.expect.that_collection(merged["example.com/aspect/lowlevel"].deps).contains_exactly([])
     env.expect.that_collection(merged["example.com/aspect/shared"].deps).contains_exactly([])
 
-def _embedded_srcs_merge_into_the_embedder_test(name):
+def _embedded_srcs_are_projected_test(name):
     analysis_test(
         name = name,
-        target = _PROBE,
-        impl = _embedded_srcs_merge_into_the_embedder_impl,
+        target = _EMBED_PROBE,
+        impl = _embedded_srcs_are_projected_impl,
         attr_values = {"size": "small"},
     )
 
-def _embedded_srcs_merge_into_the_embedder_impl(env, target):
-    merged = _merged(target)
+def _embedded_srcs_are_projected_impl(env, target):
+    packages = target[ArccPackageInfo].packages.to_list()
+    embedder = [pkg for pkg in packages if len(pkg.srcs) == 3]
+    env.expect.that_int(len(embedder)).equals(1)
 
-    # extra_impl.go belongs to the embedded library, and appears exactly once.
-    env.expect.that_collection(_basenames(merged["example.com/aspect/core"])).contains_exactly([
+    # GoInfo.srcs is already embed-merged by rules_go. The adapter projects
+    # that complete source set while retaining the embedded target's own node
+    # so its transitive dependencies remain traversable.
+    env.expect.that_collection(_basenames(embedder[0])).contains_exactly([
         "core.go",
         "core_extra.go",
         "extra_impl.go",
-    ]).in_order()
-
-    env.expect.that_collection(_basenames(merged["example.com/aspect/api"])).contains_exactly(
-        ["api.go"],
-    )
+    ])
 
 def _embed_only_dependency_is_reached_test(name):
     analysis_test(
         name = name,
-        target = _PROBE,
+        target = _EMBED_PROBE,
         impl = _embed_only_dependency_is_reached_impl,
         attr_values = {"size": "small"},
     )
@@ -102,9 +224,32 @@ def _embed_only_dependency_is_reached_impl(env, target):
     # //extradep hangs off the embedded library alone. If the aspect stopped
     # propagating over `embed`, its sources would be missing from the layout
     # and the check would fail to type-check //core.
-    merged = _merged(target)
-    env.expect.that_collection(_basenames(merged["example.com/aspect/extradep"])).contains_exactly(
-        ["extradep.go"],
+    packages = target[ArccPackageInfo].packages.to_list()
+    env.expect.that_collection(
+        [pkg.importpath for pkg in packages],
+    ).contains("example.com/aspect/extradep")
+
+def _embedded_export_conflict_fails_test(name):
+    probe = name + "_probe"
+    _test_merge_closure_probe(
+        name = probe,
+        target = _EMBED_PROBE,
+        tags = ["manual"],
+    )
+    analysis_test(
+        name = name,
+        target = ":" + probe,
+        impl = _embedded_export_conflict_fails_impl,
+        attr_values = {"size": "small"},
+        expect_failure = True,
+    )
+
+def _embedded_export_conflict_fails_impl(env, target):
+    env.expect.that_target(target).failures().contains_predicate(
+        matching.str_matches("*example.com/aspect/core*conflicting export_file*"),
+    )
+    env.expect.that_target(target).failures().contains_predicate(
+        matching.str_matches("*core:core*core_extra*"),
     )
 
 def _no_cgo_in_a_pure_go_closure_test(name):
@@ -165,16 +310,125 @@ def _non_go_target_provides_empty_provider_impl(env, target):
     env.expect.that_bool(ArccPackageInfo in target).equals(True)
     env.expect.that_collection(target[ArccPackageInfo].packages.to_list()).contains_exactly([])
 
+def _embedded_export_files_merge_test(name):
+    first = name + "_first"
+    second = name + "_second"
+    probe = name + "_probe"
+    _test_package_node(
+        name = first,
+        importpath = "example.com/export/embedded",
+        export_file = "//bazel_rules/go/tests:test_export_a.data",
+        tags = ["manual"],
+    )
+    _test_package_node(
+        name = second,
+        importpath = "example.com/export/embedded",
+        export_file = "//bazel_rules/go/tests:test_export_a.data",
+        tags = ["manual"],
+    )
+    _test_merge_order_probe(
+        name = probe,
+        importpath = "example.com/export/embedded",
+        forward = [":" + first, ":" + second],
+        reverse = [":" + second, ":" + first],
+        tags = ["manual"],
+    )
+    analysis_test(
+        name = name,
+        target = ":" + probe,
+        impl = _embedded_export_files_merge_impl,
+        attr_values = {"size": "small"},
+    )
+
+def _embedded_export_files_merge_impl(env, target):
+    pkg = target[_TestMergedPackageInfo].packages["example.com/export/embedded"]
+    env.expect.that_str(pkg.export_file.short_path).equals(
+        "bazel_rules/go/tests/test_export_a.data",
+    )
+    env.expect.that_collection(pkg.srcs).contains_exactly([])
+    env.expect.that_collection(pkg.deps).contains_exactly([])
+    env.expect.that_bool(pkg.cgo).equals(False)
+
+def _export_merge_failure_test_impl(env, target):
+    env.expect.that_target(target).failures().contains_predicate(
+        matching.str_matches("*example.com/export/*"),
+    )
+    env.expect.that_target(target).failures().contains_predicate(
+        matching.str_matches("*export_file*"),
+    )
+
+def _missing_export_file_fails_test(name):
+    missing = name + "_missing"
+    present = name + "_present"
+    probe = name + "_probe"
+    _test_package_node(
+        name = missing,
+        importpath = "example.com/export/missing",
+        tags = ["manual"],
+    )
+    _test_package_node(
+        name = present,
+        importpath = "example.com/export/missing",
+        export_file = "//bazel_rules/go/tests:test_export_a.data",
+        tags = ["manual"],
+    )
+    _test_merge_probe(
+        name = probe,
+        nodes = [":" + missing, ":" + present],
+        tags = ["manual"],
+    )
+    analysis_test(
+        name = name,
+        target = ":" + probe,
+        impl = _export_merge_failure_test_impl,
+        attr_values = {"size": "small"},
+        expect_failure = True,
+    )
+
+def _conflicting_export_files_fail_test(name):
+    first = name + "_first"
+    second = name + "_second"
+    probe = name + "_probe"
+    _test_package_node(
+        name = first,
+        importpath = "example.com/export/conflict",
+        export_file = "//bazel_rules/go/tests:test_export_a.data",
+        tags = ["manual"],
+    )
+    _test_package_node(
+        name = second,
+        importpath = "example.com/export/conflict",
+        export_file = "//bazel_rules/go/tests:test_export_b.data",
+        tags = ["manual"],
+    )
+    _test_merge_probe(
+        name = probe,
+        nodes = [":" + first, ":" + second],
+        tags = ["manual"],
+    )
+    analysis_test(
+        name = name,
+        target = ":" + probe,
+        impl = _export_merge_failure_test_impl,
+        attr_values = {"size": "small"},
+        expect_failure = True,
+    )
+
 def arcc_deps_aspect_test_suite(name):
     _aspect_test_suite(
         name,
         [
             _closure_is_the_whole_graph_minus_stdlib_test,
+            _export_files_are_collected_test,
             _edges_are_direct_importpaths_test,
-            _embedded_srcs_merge_into_the_embedder_test,
+            _embedded_srcs_are_projected_test,
             _embed_only_dependency_is_reached_test,
+            _embedded_export_conflict_fails_test,
             _no_cgo_in_a_pure_go_closure_test,
             _non_go_target_provides_empty_provider_test,
+            _embedded_export_files_merge_test,
+            _missing_export_file_fails_test,
+            _conflicting_export_files_fail_test,
         ],
     )
 
