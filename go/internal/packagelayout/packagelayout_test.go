@@ -2383,14 +2383,38 @@ func TestFileMatchesBuildConstraints(t *testing.T) {
 	}
 }
 
+func TestFileMatchesBuildConstraints_ExperimentTag(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "jsonv2.go")
+	if err := os.WriteFile(path, []byte("//go:build goexperiment.jsonv2\n\npackage p\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ctx, err := BuildContextForLayout(&Layout{Platform: &Platform{
+		GOOS:             "linux",
+		GOARCH:           "amd64",
+		ToolchainVersion: strPtr("go1.26.4"),
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("target context tool tags: %v", ctx.ToolTags)
+	if FileMatchesBuildConstraintsWithContext(path, ctx) {
+		t.Fatalf("experiment-gated source matched without goexperiment.jsonv2: %#v", ctx.ToolTags)
+	}
+	sdkFile := filepath.Join(build.Default.GOROOT, "src", "encoding", "json", "internal", "internal.go")
+	if _, err := os.Stat(sdkFile); err == nil && FileMatchesBuildConstraintsWithContext(sdkFile, ctx) {
+		t.Fatalf("real SDK experiment-gated source matched without goexperiment.jsonv2: %s", sdkFile)
+	}
+}
+
 func TestBuildContextForLayout(t *testing.T) {
 	t.Run("absent platform copies defaults", func(t *testing.T) {
 		got, err := BuildContextForLayout(&Layout{})
 		if err != nil {
 			t.Fatalf("BuildContextForLayout() error = %v", err)
 		}
-		if got.GOOS != build.Default.GOOS || got.GOARCH != build.Default.GOARCH || got.CgoEnabled != build.Default.CgoEnabled {
-			t.Fatalf("default context = %#v, want GOOS=%q GOARCH=%q CgoEnabled=%v", got, build.Default.GOOS, build.Default.GOARCH, build.Default.CgoEnabled)
+		if got.GOOS != runtime.GOOS || got.GOARCH != runtime.GOARCH || got.CgoEnabled != nativeCgoEnabled {
+			t.Fatalf("default context = %#v, want GOOS=%q GOARCH=%q CgoEnabled=%v", got, runtime.GOOS, runtime.GOARCH, nativeCgoEnabled)
 		}
 		got.BuildTags = append(got.BuildTags, "mutated")
 		if slicesEqual(got.BuildTags, build.Default.BuildTags) {

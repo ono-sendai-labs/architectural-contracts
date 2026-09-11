@@ -1,6 +1,8 @@
 name: "stdlibmap"
 # Generation shell component: the SDK enumeration oracle, the go/types
 # inventory, the Capslock-backed generator, and the native SDK-keyed cache.
+# Its retained x/tools, x/mod, and x/sync closure is owned by the explicit
+# x-tools package-surface boundary below rather than duplicated as members.
 # Declared-interface style: its exported API produces and reads the total
 # standard-library authority map consumed by the CLI. It is deliberately not declared as a go_component
 # under Bazel — like capslockadapter, its closure (golang.org/x/tools/go/

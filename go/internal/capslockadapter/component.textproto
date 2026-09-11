@@ -1,5 +1,8 @@
 name: "capslockadapter"
 interface_files: "generation.go"
+# Capslock's retained x/tools and protobuf runtime closures are explicit
+# package-surface dependencies; only the generator shell and its other adopted
+# foreign members remain owned here.
 members: "github.com/ono-sendai-labs/architectural-contracts/go/internal/capslockadapter"
 members: "github.com/google/capslock/analyzer"
 members: "github.com/google/capslock/interesting"

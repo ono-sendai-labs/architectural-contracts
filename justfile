@@ -67,18 +67,18 @@ run *args:
 # Step 7 gives the foreign protobuf and x/tools closures one package-surface
 # boundary each, so the real component manifests can be staged without
 # dependency overlap. The remaining non-gating cases are the generated schema
-# surface, goanalysis/capslockadapter's native-only analysis limits, and the
-# csvtool parser's residual UNANALYZED result.
+# dependency artifact, capslockadapter's native-only residual, and the csvtool
+# parser's residual UNANALYZED result.
 # Their report verdicts are computed for dependency consumption and deliberately
 # discarded with this temporary tree; they are not claimed to be persisted or
-# promoted to the gate. `schema` is not one of those five and has no standalone
-# selfcheck gate: its generated protobuf code currently produces an expected
-# UNANALYZED verdict while it is consumed as a dependency artifact. That
-# expected non-gating verdict is checked explicitly below and then discarded.
-# The adopted `protobuf-runtime` is different: its checked-in native surface is
-# the pinned empty-digest UNKNOWN assertion, so staging it performs no analysis
-# and creates no report. Bazel uses the component-level `tags = ["manual"]`
-# asserted producer for the same boundary.
+# promoted to the gate. `schema` has no standalone selfcheck gate: its generated
+# protobuf code currently produces an expected UNANALYZED verdict while it is
+# consumed as a dependency artifact. That expected non-gating verdict is checked
+# explicitly below and then discarded. The adopted `protobuf-runtime` and
+# `x-tools` wrappers are different: their checked-in native surfaces are pinned
+# empty-digest UNKNOWN assertions, so staging them performs no analysis and
+# creates no reports. Bazel uses the component-level `tags = ["manual"]` asserted
+# producers for the same boundaries.
 selfcheck:
 	@echo "=== Validating pinned selfcheck toolchain ==="
 	@test "$(cd {{go_dir}} && go env GOVERSION)" = "go1.26.4"
@@ -94,7 +94,8 @@ selfcheck:
 	# The order is the component-dependency topological order. Every analyzed
 	# staging component produces its report/surface beside its manifest, so native
 	# convention lookup never reads a developer cache or an uncontrolled host path.
-	# The asserted protobuf wrapper supplies its checked-in surface and no report.
+	# The asserted protobuf and x-tools wrappers supply their checked-in surfaces
+	# and no reports; native staging never loads either foreign source tree.
 	# Staging verdicts are consumed in this temporary tree and discarded on exit;
 	# only the final real selfcheck commands below are gate assertions.
 	@selfcheck_stage="$(mktemp -d "${TMPDIR:-/tmp}/arcc-selfcheck.XXXXXX")"; \
@@ -118,7 +119,7 @@ selfcheck:
 	stage_component internal/hostpolicy/component.textproto; \
 	stage_component internal/symbol/component.textproto; \
 	stage_asserted_component internal/protobufruntime/component.textproto; \
-	stage_component internal/xtools/component.textproto; \
+	stage_asserted_component internal/xtools/component.textproto; \
 	stage_component internal/schema/component.textproto; \
 	schema_verdict="$(sed -n 's/.*\"verdict\": \"\([^\"]*\)\".*/\1/p' internal/schema/component.report.json | head -n 1)"; \
 	if [ "${schema_verdict}" != "fail" ]; then echo "schema staging verdict changed: got ${schema_verdict}, want the expected generated-protobuf UNANALYZED fail" >&2; exit 1; fi; \
@@ -143,6 +144,7 @@ selfcheck:
 	echo "=== Running self-hosting checks (remaining real manifests) ==="; \
 	"$arcc_bin" check internal/manifest/component.textproto --stdlib-map="$map_path" >/dev/null; \
 	"$arcc_bin" check internal/artifactio/component.textproto --stdlib-map="$map_path" >/dev/null; \
+	"$arcc_bin" check internal/goanalysis/component.textproto --stdlib-map="$map_path" >/dev/null; \
 	"$arcc_bin" check cmd/arcc/component.textproto --stdlib-map="$map_path" >/dev/null; \
 	"$arcc_bin" check examples/csvtool/app/component.textproto --stdlib-map="$map_path" >/dev/null
 

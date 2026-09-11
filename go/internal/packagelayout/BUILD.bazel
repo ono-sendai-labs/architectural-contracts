@@ -2,7 +2,7 @@ load("@rules_go//go:def.bzl", "go_library", "go_test")
 
 go_library(
     name = "packagelayout",
-    srcs = ["packagelayout.go"],
+    srcs = ["cgo_disabled.go", "cgo_enabled.go", "packagelayout.go"],
     importpath = "github.com/ono-sendai-labs/architectural-contracts/go/internal/packagelayout",
     visibility = [
         "//bazel_rules:__subpackages__",

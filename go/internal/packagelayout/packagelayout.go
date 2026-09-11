@@ -38,11 +38,13 @@
 package packagelayout
 
 import (
+	"bufio"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"go/build"
-	"go/parser"
+	"go/build/constraint"
+	"go/scanner"
 	"go/token"
 	"io"
 	"os"
@@ -180,7 +182,7 @@ func discoverStdlib(sdkRoot string) ([]*packages.Package, error) {
 		return nil, nil
 	}
 
-	bctx := build.Default
+	bctx := nativeBuildContext()
 	bctx.GOROOT = filepath.Dir(sdkRoot)
 	return discoverStdlibWithContext(sdkRoot, bctx)
 }
@@ -239,14 +241,16 @@ func supportedGoTarget(goos, goarch string) bool {
 	return false
 }
 
-// BuildContextForLayout returns the build context declared by l. It always
-// starts with a copy of build.Default, so deriving a context never changes the
-// process-wide defaults or shares the layout's build-tags slice with them.
+// BuildContextForLayout returns the build context declared by l. Its native
+// baseline is assembled from the running toolchain identity rather than the
+// mutable build.Default value: the latter is itself an unanalyzable source
+// boundary, while this package needs its own target-context operations to be
+// visible to the component checker.
 func BuildContextForLayout(l *Layout) (build.Context, error) {
-	bctx := build.Default
-	bctx.BuildTags = append([]string(nil), build.Default.BuildTags...)
-	bctx.ToolTags = append([]string(nil), build.Default.ToolTags...)
-	bctx.ReleaseTags = append([]string(nil), build.Default.ReleaseTags...)
+	bctx := nativeBuildContext()
+	bctx.BuildTags = slices.Clone(bctx.BuildTags)
+	bctx.ToolTags = slices.Clone(bctx.ToolTags)
+	bctx.ReleaseTags = slices.Clone(bctx.ReleaseTags)
 	if l == nil || l.Platform == nil {
 		return bctx, nil
 	}
@@ -297,6 +301,26 @@ func BuildContextForLayout(l *Layout) (build.Context, error) {
 	return bctx, nil
 }
 
+// nativeBuildContext reconstructs the fields of build.Default that the layout
+// code consumes. The target-specific release and experiment helpers below are
+// also used for pinned layouts, so native and explicit-input modes share one
+// deterministic context shape without reading build.Default.
+func nativeBuildContext() build.Context {
+	releaseTags, _ := releaseTagsForVersion(runtime.Version())
+	toolTags := baselineExperimentTags(runtime.GOOS, runtime.GOARCH)
+	toolTags = append(toolTags, defaultArchToolTags(runtime.GOARCH)...)
+	return build.Context{
+		GOOS:        runtime.GOOS,
+		GOARCH:      runtime.GOARCH,
+		GOROOT:      runtime.GOROOT(),
+		GOPATH:      os.Getenv("GOPATH"),
+		CgoEnabled:  nativeCgoEnabled,
+		Compiler:    runtime.Compiler,
+		ToolTags:    toolTags,
+		ReleaseTags: releaseTags,
+	}
+}
+
 // baselineExperimentTags mirrors internal/buildcfg's baseline experiment
 // configuration for this module's Go toolchain version (the experiments
 // enabled by default for a target configuration, before any GOEXPERIMENT
@@ -315,7 +339,7 @@ func baselineExperimentTags(goos, goarch string) []string {
 	default:
 		tags = append(tags, "goexperiment.dwarf5")
 	}
-	tags = append(tags, "goexperiment.randomizedheapbase64", "goexperiment.greenteagc")
+	tags = append(tags, "goexperiment.greenteagc", "goexperiment.randomizedheapbase64")
 	return tags
 }
 
@@ -500,17 +524,16 @@ func discoverStdlibTree(sdkRoot string, bctx build.Context) ([]*packages.Package
 	discovered := make([]discoveredPackage, 0, len(packageDirs)+1)
 
 	for _, path := range packageDirs {
-		bpkg, err := bctx.ImportDir(path, 0)
+		name, goFiles, imports, err := scanSDKPackageDir(path, bctx)
 		if err != nil {
-			var noGoErr *build.NoGoError
-			if errors.As(err, &noGoErr) {
+			if _, ok := err.(*noGoPackageError); ok {
 				noGoDirs = append(noGoDirs, path)
 				continue
 			}
 			return nil, nil, fmt.Errorf("inspecting standard-library package at %q: %w", path, err)
 		}
 
-		if bpkg.Name == "main" {
+		if name == "main" {
 			continue
 		}
 
@@ -519,16 +542,10 @@ func discoverStdlibTree(sdkRoot string, bctx build.Context) ([]*packages.Package
 			return nil, nil, fmt.Errorf("failed to compute relative path of %s from SDK root: %w", path, err)
 		}
 		importPath := filepath.ToSlash(rel)
-		goFiles := append([]string{}, bpkg.GoFiles...)
-		goFiles = append(goFiles, bpkg.CgoFiles...)
-		sort.Strings(goFiles)
-
-		imports := append([]string{}, bpkg.Imports...)
-		sort.Strings(imports)
 		discovered = append(discovered, discoveredPackage{
 			pkg: &packages.Package{
 				ID:              importPath,
-				Name:            bpkg.Name,
+				Name:            name,
 				PkgPath:         importPath,
 				GoFiles:         goFiles,
 				CompiledGoFiles: append([]string{}, goFiles...),
@@ -610,6 +627,159 @@ func hasToolScratchSegment(importPath string) bool {
 	return false
 }
 
+// noGoPackageError identifies a directory whose Go sources are all excluded
+// by the target context. It replaces go/build.NoGoError so package discovery
+// does not need to call go/build's source-loading methods.
+type noGoPackageError struct {
+	dir string
+}
+
+func (e *noGoPackageError) Error() string {
+	return fmt.Sprintf("no Go files for target in %q", e.dir)
+}
+
+// scanSDKPackageDir selects one SDK package's source files and extracts the
+// package clause/import paths needed to construct the layout graph. The SDK
+// walk does not need a typed AST: go/scanner is sufficient for the compiler's
+// file-selection metadata and avoids making package discovery itself an
+// analysis-defeating parser edge.
+func scanSDKPackageDir(dir string, bctx build.Context) (string, []string, []string, error) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return "", nil, nil, err
+	}
+
+	var packageName string
+	var goFiles []string
+	imports := make(map[string]bool)
+	for _, entry := range entries {
+		name := entry.Name()
+		if entry.IsDir() || filepath.Ext(name) != ".go" || strings.HasSuffix(name, "_test.go") {
+			continue
+		}
+		path := filepath.Join(dir, name)
+		if !FileMatchesBuildConstraintsWithContext(path, bctx) {
+			continue
+		}
+		source, err := os.ReadFile(path)
+		if err != nil {
+			return "", nil, nil, fmt.Errorf("reading source file %q: %w", path, err)
+		}
+		name, fileImports, usesCgo, err := scanGoSource(path, source)
+		if err != nil {
+			return "", nil, nil, err
+		}
+		if usesCgo && !bctx.CgoEnabled {
+			continue
+		}
+		if packageName == "" {
+			packageName = name
+		} else if packageName != name {
+			return "", nil, nil, fmt.Errorf("package directory %q contains package names %q and %q", dir, packageName, name)
+		}
+		goFiles = append(goFiles, entry.Name())
+		for _, importPath := range fileImports {
+			imports[importPath] = true
+		}
+	}
+	if len(goFiles) == 0 {
+		return "", nil, nil, &noGoPackageError{dir: dir}
+	}
+
+	sort.Strings(goFiles)
+	sortedImports := make([]string, 0, len(imports))
+	for importPath := range imports {
+		sortedImports = append(sortedImports, importPath)
+	}
+	sort.Strings(sortedImports)
+	return packageName, goFiles, sortedImports, nil
+}
+
+// scanGoSource extracts the package clause and imports from valid Go source
+// using the standard lexical scanner. It is deliberately conservative about
+// lexical errors and malformed string literals; callers fail closed rather
+// than publishing a partial package graph.
+func scanGoSource(path string, source []byte) (string, []string, bool, error) {
+	fset := token.NewFileSet()
+	tokenFile := fset.AddFile(path, -1, len(source))
+	var scanErr error
+	var sourceScanner scanner.Scanner
+	sourceScanner.Init(tokenFile, source, func(pos token.Position, message string) {
+		if scanErr == nil {
+			scanErr = fmt.Errorf("%s: %s", pos, message)
+		}
+	}, scanner.ScanComments)
+
+	packageName := ""
+	expectingPackageName := false
+	inImport := false
+	importDepth := 0
+	imports := make(map[string]bool)
+	usesCgo := false
+	for {
+		_, tok, literal := sourceScanner.Scan()
+		if tok == token.EOF {
+			break
+		}
+		if tok == token.PACKAGE {
+			expectingPackageName = true
+			continue
+		}
+		if tok == token.IDENT && expectingPackageName {
+			packageName = literal
+			expectingPackageName = false
+			continue
+		}
+		switch tok {
+		case token.IMPORT:
+			inImport = true
+		case token.LPAREN:
+			if inImport {
+				importDepth++
+			}
+		case token.RPAREN:
+			if inImport && importDepth > 0 {
+				importDepth--
+				if importDepth == 0 {
+					inImport = false
+				}
+			}
+		case token.SEMICOLON:
+			if inImport && importDepth == 0 {
+				inImport = false
+			}
+		case token.STRING:
+			if inImport {
+				importPath, err := strconv.Unquote(literal)
+				if err != nil {
+					return "", nil, false, fmt.Errorf("parsing import path in source file %q: %w", path, err)
+				}
+				if importPath == "C" {
+					usesCgo = true
+				} else {
+					imports[importPath] = true
+				}
+			}
+		}
+	}
+	if scanErr != nil || sourceScanner.ErrorCount > 0 {
+		if scanErr == nil {
+			scanErr = fmt.Errorf("scanner reported %d source error(s)", sourceScanner.ErrorCount)
+		}
+		return "", nil, false, fmt.Errorf("parsing source file %q: %w", path, scanErr)
+	}
+	if expectingPackageName || packageName == "" {
+		return "", nil, false, fmt.Errorf("parsing source file %q: no package clause", path)
+	}
+
+	sortedImports := make([]string, 0, len(imports))
+	for importPath := range imports {
+		sortedImports = append(sortedImports, importPath)
+	}
+	sort.Strings(sortedImports)
+	return packageName, sortedImports, usesCgo, nil
+}
+
 // noGoPackageName reports the package name a source-less standard-library
 // directory declares: the package clause of its first parseable .go file,
 // reading the files the way `go list` does when it names a package whose
@@ -625,11 +795,15 @@ func noGoPackageName(dir string) (string, bool) {
 		if entry.IsDir() || !strings.HasSuffix(name, ".go") {
 			continue
 		}
-		f, err := parser.ParseFile(token.NewFileSet(), filepath.Join(dir, name), nil, parser.PackageClauseOnly)
-		if err != nil || f == nil || f.Name == nil {
+		source, err := os.ReadFile(filepath.Join(dir, name))
+		if err != nil {
 			continue
 		}
-		return f.Name.Name, true
+		packageName, _, _, err := scanGoSource(filepath.Join(dir, name), source)
+		if err != nil {
+			continue
+		}
+		return packageName, true
 	}
 	return "", false
 }
@@ -638,7 +812,7 @@ func noGoPackageName(dir string) (string, bool) {
 // `go list std` omits a package whose every non-test file the target's
 // constraints exclude, but it still names a test-only package (one whose
 // every .go file is a _test.go file), so only the latter becomes a node.
-func hasNonTestGoSource(dir string) bool {
+func hasNonTestGoSource(dir string, bctx build.Context) bool {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return false
@@ -648,7 +822,45 @@ func hasNonTestGoSource(dir string) bool {
 		if entry.IsDir() || !strings.HasSuffix(name, ".go") {
 			continue
 		}
-		if !strings.HasSuffix(name, "_test.go") {
+		if strings.HasSuffix(name, "_test.go") {
+			continue
+		}
+		source, err := os.ReadFile(filepath.Join(dir, name))
+		if err != nil {
+			return true
+		}
+		_, _, usesCgo, err := scanGoSource(filepath.Join(dir, name), source)
+		if err != nil || !usesCgo || bctx.CgoEnabled {
+			return true
+		}
+	}
+	// A cgo-only non-test package with cgo disabled is represented by the Go
+	// tool as a source-less package only when its directory also contains test
+	// files. A regular package whose non-test files are merely build-tagged out
+	// is not part of `go list std`.
+	return false
+}
+
+func hasBuildableTestSource(dir string, bctx build.Context) bool {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return false
+	}
+	for _, entry := range entries {
+		name := entry.Name()
+		if entry.IsDir() || !strings.HasSuffix(name, "_test.go") {
+			continue
+		}
+		path := filepath.Join(dir, name)
+		if !FileMatchesBuildConstraintsWithContext(path, bctx) {
+			continue
+		}
+		source, err := os.ReadFile(path)
+		if err != nil {
+			continue
+		}
+		_, _, usesCgo, err := scanGoSource(path, source)
+		if err == nil && (!usesCgo || bctx.CgoEnabled) {
 			return true
 		}
 	}
@@ -664,7 +876,7 @@ func Parse(r io.Reader) (*Layout, error) {
 	}
 	if t, err := dec.Token(); err == nil {
 		return nil, fmt.Errorf("trailing garbage after layout JSON: %v", t)
-	} else if !errors.Is(err, io.EOF) {
+	} else if err != io.EOF {
 		return nil, fmt.Errorf("trailing garbage after layout JSON: %w", err)
 	}
 	return &l, nil
@@ -1069,28 +1281,20 @@ func ValidateAndResolve(l *Layout, workspaceDir string) error {
 	var unresolvedImports []UnresolvedImport
 	for _, p := range l.Packages {
 		if !l.IsStdlibPackage(p) {
-			fset := token.NewFileSet()
 			sortedFiles := SurvivingSourceFiles(p)
 
 			importSources := make(map[string][]string)
 			for _, file := range sortedFiles {
-				f, err := parser.ParseFile(fset, file, nil, parser.ImportsOnly)
+				source, err := os.ReadFile(file)
 				if err != nil {
 					return fmt.Errorf("parsing source file %q of package %q: %w", file, p.ID, err)
 				}
-				for _, impSpec := range f.Imports {
-					if impSpec.Path == nil {
-						continue
-					}
-					impPath, err := strconv.Unquote(impSpec.Path.Value)
-					if err != nil {
-						return fmt.Errorf("invalid import literal %s in source file %q of package %q: %w", impSpec.Path.Value, file, p.ID, err)
-					}
-					if impPath == "C" {
-						// C is cgo's pseudo-package, not a graph node.
-						continue
-					}
-					importSources[impPath] = append(importSources[impPath], file)
+				_, imports, _, err := scanGoSource(file, source)
+				if err != nil {
+					return fmt.Errorf("parsing source file %q of package %q: %w", file, p.ID, err)
+				}
+				for _, importPath := range imports {
+					importSources[importPath] = append(importSources[importPath], file)
 				}
 			}
 
@@ -1239,7 +1443,7 @@ func ValidateAndResolve(l *Layout, workspaceDir string) error {
 // existence) is kept rather than dropped, so this never removes a file it failed
 // to read. Non-.go entries are passed through unchanged.
 func filterByBuildConstraints(files []string) []string {
-	return filterByBuildConstraintsWithContext(files, build.Default)
+	return filterByBuildConstraintsWithContext(files, nativeBuildContext())
 }
 
 func filterByBuildConstraintsWithContext(files []string, bctx build.Context) []string {
@@ -1259,7 +1463,119 @@ func filterByBuildConstraintsWithContext(files []string, bctx build.Context) []s
 // constraints cannot be evaluated (e.g. unreadable), are reported as matching,
 // so this never reports a file as excluded merely because it failed to read it.
 func FileMatchesBuildConstraints(path string) bool {
-	return FileMatchesBuildConstraintsWithContext(path, build.Default)
+	return FileMatchesBuildConstraintsWithContext(path, nativeBuildContext())
+}
+
+func leadingBuildConstraint(path string) (string, constraint.Expr, bool) {
+	file, err := os.Open(path)
+	if err != nil {
+		return "", nil, false
+	}
+	defer file.Close()
+
+	var legacy string
+	var legacyExpr constraint.Expr
+	var goBuild string
+	var goBuildExpr constraint.Expr
+	sourceScanner := bufio.NewScanner(file)
+	for sourceScanner.Scan() {
+		line := strings.TrimSpace(sourceScanner.Text())
+		if line == "" {
+			continue
+		}
+		if !strings.HasPrefix(line, "//") {
+			break
+		}
+		if constraint.IsGoBuild(line) {
+			if expression, err := constraint.Parse(line); err == nil && goBuild == "" {
+				goBuild = strings.Join(strings.Fields(line), " ")
+				goBuildExpr = expression
+			}
+		}
+		if constraint.IsPlusBuild(line) && legacy == "" {
+			if expression, err := constraint.Parse(line); err == nil {
+				legacy = strings.Join(strings.Fields(line), " ")
+				legacyExpr = expression
+			}
+		}
+	}
+	if sourceScanner.Err() != nil {
+		return "", nil, false
+	}
+	if goBuildExpr != nil {
+		return goBuild, goBuildExpr, true
+	}
+	if legacyExpr != nil {
+		return legacy, legacyExpr, true
+	}
+	return "", nil, false
+}
+
+func filenameMatchesBuildContext(name string, bctx build.Context) bool {
+	if !strings.HasSuffix(name, ".go") {
+		return true
+	}
+	base := strings.TrimSuffix(name, ".go")
+	base = strings.TrimSuffix(base, "_test")
+	parts := strings.Split(base, "_")
+	if len(parts) < 2 {
+		return true
+	}
+	last := parts[len(parts)-1]
+	if len(parts) >= 3 && isFilenameGOOS(parts[len(parts)-2]) && isFilenameGOARCH(last) {
+		return buildContextHasTag(bctx, parts[len(parts)-2]) && buildContextHasTag(bctx, last)
+	}
+	if isFilenameGOOS(last) || isFilenameGOARCH(last) {
+		return buildContextHasTag(bctx, last)
+	}
+	return true
+}
+
+func isFilenameGOOS(value string) bool {
+	switch value {
+	case "aix", "android", "darwin", "dragonfly", "freebsd", "hurd", "illumos", "ios", "js", "linux", "nacl", "netbsd", "openbsd", "plan9", "solaris", "wasip1", "windows", "zos":
+		return true
+	default:
+		return false
+	}
+}
+
+func isFilenameGOARCH(value string) bool {
+	switch value {
+	case "386", "amd64", "amd64p32", "arm", "arm64", "arm64be", "armbe", "loong64", "mips", "mips64", "mips64le", "mips64p32", "mips64p32le", "mipsle", "ppc", "ppc64", "ppc64le", "riscv", "riscv64", "s390", "s390x", "sparc", "sparc64", "wasm":
+		return true
+	default:
+		return false
+	}
+}
+
+func buildContextHasTag(bctx build.Context, tag string) bool {
+	if tag == "cgo" {
+		return bctx.CgoEnabled
+	}
+	if tag == bctx.GOOS || tag == bctx.GOARCH || tag == bctx.Compiler {
+		return true
+	}
+	if (bctx.GOOS == "android" && tag == "linux") ||
+		(bctx.GOOS == "illumos" && tag == "solaris") ||
+		(bctx.GOOS == "ios" && tag == "darwin") {
+		return true
+	}
+	if tag == "unix" {
+		switch bctx.GOOS {
+		case "aix", "android", "darwin", "dragonfly", "freebsd", "illumos", "ios", "linux", "netbsd", "openbsd", "solaris":
+			return true
+		}
+	}
+	if tag == "boringcrypto" {
+		tag = "goexperiment.boringcrypto"
+	}
+	for _, candidate := range append(append(append([]string{}, bctx.BuildTags...), bctx.ToolTags...), bctx.ReleaseTags...) {
+		if candidate == tag {
+			return true
+		}
+	}
+	return false
 }
 
 // FileMatchesBuildConstraintsWithContext is FileMatchesBuildConstraints for an
@@ -1269,11 +1585,15 @@ func FileMatchesBuildConstraintsWithContext(path string, bctx build.Context) boo
 	if !strings.HasSuffix(path, ".go") {
 		return true
 	}
-	match, err := bctx.MatchFile(filepath.Dir(path), filepath.Base(path))
-	if err != nil {
-		return true
+	if !filenameMatchesBuildContext(filepath.Base(path), bctx) {
+		return false
 	}
-	return match
+	if _, expression, ok := leadingBuildConstraint(path); ok {
+		return expression.Eval(func(tag string) bool {
+			return buildContextHasTag(bctx, tag)
+		})
+	}
+	return true
 }
 
 func hasGoSources(files []string) bool {
@@ -1455,7 +1775,7 @@ func StdlibLayout(sdkRoot string, platform *Platform) (*Layout, error) {
 	// off, arena without its experiment), so the driver must be able to serve
 	// its pattern — with no files, exactly as go list reports it.
 	for _, dir := range noGoDirs {
-		if hasNonTestGoSource(dir) {
+		if hasNonTestGoSource(dir, bctx) || !hasBuildableTestSource(dir, bctx) {
 			// A non-test directory whose every file the target's constraints
 			// exclude is not listed by `go list std`; no node.
 			continue
@@ -1511,7 +1831,7 @@ func RunDriver(layoutPath string, workspaceDir string, patterns []string, stdin 
 	// Read and parse DriverRequest.
 	var req packages.DriverRequest
 	if err := json.NewDecoder(stdin).Decode(&req); err != nil {
-		if !errors.Is(err, io.EOF) {
+		if err != io.EOF {
 			return fmt.Errorf("parsing DriverRequest: %w", err)
 		}
 	}

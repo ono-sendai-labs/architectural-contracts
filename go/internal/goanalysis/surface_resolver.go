@@ -492,7 +492,7 @@ func validateDecodedSurface(req DependencySurfaceRequest, m *gen.SurfaceManifest
 		}
 		symbols = append(symbols, facts.SymbolID(id))
 	}
-	if !sort.SliceIsSorted(m.Symbols, func(i, j int) bool { return m.Symbols[i] < m.Symbols[j] }) {
+	if !slices.IsSorted(m.Symbols) {
 		return validatedDependencySurface{}, fmt.Errorf("dependency %q surface symbols are not in canonical order", req.Dependency.Name)
 	}
 
@@ -612,7 +612,7 @@ func readDependencyReport(req DependencySurfaceRequest, path string, readFile De
 }
 
 func isNotExist(err error) bool {
-	return errors.Is(err, fs.ErrNotExist) || os.IsNotExist(err)
+	return os.IsNotExist(err) || err == fs.ErrNotExist
 }
 
 func deriveStatuses(req DependencySurfaceRequest, decoded validatedDependencySurface, verdict string, reportPresent bool) (facts.DependencyProvenance, facts.DependencyFreshness, error) {

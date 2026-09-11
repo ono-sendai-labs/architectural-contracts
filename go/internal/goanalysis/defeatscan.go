@@ -3,7 +3,7 @@ package goanalysis
 import (
 	"fmt"
 	"go/ast"
-	"go/parser"
+	"go/scanner"
 	"go/token"
 	"os"
 	"path/filepath"
@@ -80,11 +80,10 @@ func scanBypassPackage(
 		}
 		syntax := syntaxForFile(p, file)
 		if syntax.file == nil {
-			var err error
-			syntax, err = parseDeclaredFile(file)
-			if err != nil {
+			if err := scanBypassSourceFile(p, root, file, obs); err != nil {
 				return err
 			}
+			continue
 		}
 		fset := p.Fset
 		if syntax.fset != nil {
@@ -164,25 +163,115 @@ func syntaxForFile(p *packages.Package, file string) parsedFile {
 	return parsedFile{}
 }
 
-// parseDeclaredFile reads and parses one declared member file not covered by
-// the load's syntax, preserving comments so directives are visible. The parse
-// is fail-closed: a read or parse error — even one accompanied by a partial
-// AST — aborts the scan, because a directive outside the recoverable portion
-// of a malformed file must never be silently missed.
-func parseDeclaredFile(file string) (parsedFile, error) {
+// scanBypassSourceFile lexes one declared member file not covered by the load's
+// syntax. Ignored files need only two constructs for this scan — directives
+// and import "C" — so a comment-preserving lexical pass avoids a second Go
+// parser dependency while still failing closed on scanner errors or unbalanced
+// delimiters. Selected files continue through the typed AST path above.
+func scanBypassSourceFile(
+	p *packages.Package,
+	root string,
+	file string,
+	obs map[facts.BypassKey]struct{},
+) error {
 	src, err := os.ReadFile(file)
 	if err != nil {
-		return parsedFile{}, fmt.Errorf("scan analysis defeats: read member file %q: %w", file, err)
+		return fmt.Errorf("scan analysis defeats: read member file %q: %w", file, err)
 	}
 	fset := token.NewFileSet()
-	f, parseErr := parser.ParseFile(fset, file, src, parser.ParseComments)
-	if parseErr != nil {
-		return parsedFile{}, fmt.Errorf("scan analysis defeats: member file %q does not parse as Go source: %w", file, parseErr)
+	tokenFile := fset.AddFile(file, -1, len(src))
+
+	var scanErr error
+	var sourceScanner scanner.Scanner
+	sourceScanner.Init(tokenFile, src, func(pos token.Position, message string) {
+		if scanErr == nil {
+			scanErr = fmt.Errorf("%s: %s", pos, message)
+		}
+	}, scanner.ScanComments)
+
+	var delimiters []token.Token
+	importDepth := 0
+	inImport := false
+	sawPackage := false
+	expectingPackageName := false
+	for {
+		pos, tok, literal := sourceScanner.Scan()
+		if tok == token.EOF {
+			break
+		}
+		if scanErr != nil {
+			return fmt.Errorf("scan analysis defeats: member file %q does not lex as Go source: %w", file, scanErr)
+		}
+
+		switch tok {
+		case token.COMMENT:
+			if isLinknameDirective(literal) {
+				if err := addBypassSite(p, root, file, fset.Position(pos).Line, facts.BypassLinkname, obs); err != nil {
+					return err
+				}
+			}
+		case token.PACKAGE:
+			expectingPackageName = true
+		case token.IDENT:
+			if expectingPackageName {
+				sawPackage = true
+				expectingPackageName = false
+			}
+		case token.IMPORT:
+			inImport = true
+		case token.STRING:
+			if inImport && literal == `"C"` {
+				if err := addBypassSite(p, root, file, fset.Position(pos).Line, facts.BypassCgo, obs); err != nil {
+					return err
+				}
+			}
+		case token.LPAREN:
+			delimiters = append(delimiters, tok)
+			if inImport {
+				importDepth++
+			}
+		case token.LBRACE, token.LBRACK:
+			delimiters = append(delimiters, tok)
+		case token.RPAREN, token.RBRACE, token.RBRACK:
+			if len(delimiters) == 0 || !matchingDelimiter(delimiters[len(delimiters)-1], tok) {
+				return fmt.Errorf("scan analysis defeats: member file %q has an unmatched delimiter at line %d", file, fset.Position(pos).Line)
+			}
+			delimiters = delimiters[:len(delimiters)-1]
+			if tok == token.RPAREN && inImport && importDepth > 0 {
+				importDepth--
+				if importDepth == 0 {
+					inImport = false
+				}
+			}
+		case token.SEMICOLON:
+			if inImport && importDepth == 0 {
+				inImport = false
+			}
+		}
 	}
-	if f == nil {
-		return parsedFile{}, fmt.Errorf("scan analysis defeats: member file %q does not parse as Go source", file)
+	if scanErr != nil {
+		return fmt.Errorf("scan analysis defeats: member file %q does not lex as Go source: %w", file, scanErr)
 	}
-	return parsedFile{file: f, fset: fset}, nil
+	if expectingPackageName || !sawPackage {
+		return fmt.Errorf("scan analysis defeats: member file %q has no valid package declaration", file)
+	}
+	if len(delimiters) > 0 {
+		return fmt.Errorf("scan analysis defeats: member file %q has an unclosed delimiter", file)
+	}
+	return nil
+}
+
+func matchingDelimiter(open, close token.Token) bool {
+	switch close {
+	case token.RPAREN:
+		return open == token.LPAREN
+	case token.RBRACE:
+		return open == token.LBRACE
+	case token.RBRACK:
+		return open == token.LBRACK
+	default:
+		return false
+	}
 }
 
 // scanBypassSyntax records the analysis-defeating constructs of one parsed

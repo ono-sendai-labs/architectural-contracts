@@ -711,7 +711,7 @@ just selfcheck
 This compiles the local `arcc` binary and runs it against each of its own eight components' manifests. The two groups prove different things, which is why the recipe separates them:
 
 - **The authority-free core** — `checker`, `facts`, `report`, `capanalyzer` — declares *no* ambient authority at all. Their checks confirm the pure checking core genuinely remains ambient-authority-free.
-- **The remaining components** — `manifest`, `goanalysis`, `capslockadapter`, `cli` — legitimately declare authority (`goanalysis` declares seven kinds, `capslockadapter` eight). Their checks confirm something weaker and equally important: that each *does not exceed* what it declares.
+- **The remaining components** — `manifest`, `goanalysis`, `capslockadapter`, `cli` — legitimately declare authority (`goanalysis` declares nine kinds, `capslockadapter` eight). Their checks confirm something weaker and equally important: that each *does not exceed* what it declares.
 
 Conflating the two would overclaim. A conforming component is not an authority-free one; it is one that stayed inside its declaration.
 
