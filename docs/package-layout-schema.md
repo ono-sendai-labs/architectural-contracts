@@ -40,6 +40,14 @@ left to be inferred from the field names.
       "GoFiles": ["_main/svc/api.go"],
       "CompiledGoFiles": ["_main/svc/api.go"],
       "is_stdlib": false
+    },
+    {
+      "ID": "example.com/dep",
+      "Name": "dep",
+      "PkgPath": "example.com/dep",
+      "ExportFile": "external/dep/pkg.a",
+      "Imports": {},
+      "is_stdlib": false
     }
   ]
 }
@@ -51,20 +59,24 @@ left to be inferred from the field names.
 | `platform` | The target the analysis is for (§3). Optional; absent means `build.Default`. |
 | `roots` | The component's member packages. Must equal the manifest's `members`, or the load fails (§2). |
 | `dependency_artifact_bindings` | Sorted direct dependency artifact bindings. Each names the manifest dependency and its runfiles-frame surface, optional report, edge origin, and structural producer provenance (§6). |
-| `packages` | Every package in the closure, in `go/packages`' own driver "flat" encoding, plus the layout-only `is_stdlib` bit (§4). |
+| `packages` | Every package in the closure, in `go/packages`' own driver "flat" encoding, plus the layout-only `is_stdlib` bit (§4). Member roots carry source fields; effective non-members carry `ExportFile` for member-only loading. |
 
 Per-package fields are exactly `packages.Package`'s JSON, so `ID`, `Name`,
-`PkgPath`, `GoFiles`, `CompiledGoFiles` and `Imports` mean what that type means.
-Package IDs are import paths — fold the closure by import path so they are
-unique.
+`PkgPath`, `GoFiles`, `CompiledGoFiles`, `ExportFile` and `Imports` mean what
+that type means. The driver JSON field is spelled `ExportFile` (not
+`export_file`). Package IDs are import paths — fold the closure by import path
+so they are unique.
 
-**Path frame.** All source paths are resolved against arcc's working directory
-(stdlib paths against `go_sdk_root`), so the manifest need not sit next to the
-sources. Which directory that is, is the emitter's contract with its own check
-runner; the Bazel rules use the runfiles root, the one frame in which both
-main-repo and external-repo sources have `..`-free names. A path containing `..`
-is rejected. Dependency surface and report paths use this same frame and are
-validated as relative, normalized slash paths before the driver runs.
+**Path frames.** Emitter source paths and export artifacts use arcc's
+workspace/runfiles working-directory frame. Standard-library *source* paths in
+a source-backed SDK layout are the exception: they resolve below
+`go_sdk_root`. Export artifacts are build outputs, never SDK-source paths, so
+`ExportFile` is always resolved in the workspace/runfiles frame independently
+of `go_sdk_root`. Export paths must be non-empty, relative, slash-separated,
+normalized, and free of parent escapes; the validator also checks that the
+resolved artifact is a non-empty readable regular file. Dependency surface and
+report paths use the same workspace frame and are validated as relative,
+normalized slash paths before the driver runs.
 
 ## 2. `roots` and members
 
@@ -124,6 +136,40 @@ Two details worth knowing before you debug an error from this:
 
 A package left with **no** Go sources after filtering is a load error, not an
 empty package.
+
+## 3a. Source and export-data package roles
+
+The package graph has two intentional layouts. A component/member-only layout
+has source ownership only at its roots and carries compiler export artifacts for
+the complete reachable non-root closure. A source-backed whole-SDK layout used
+by `arcc stdlibmap generate` has source fields for every SDK package and does
+not require export artifacts.
+
+For member-only validation:
+
+- **Member roots** retain their selected `GoFiles` and `CompiledGoFiles`,
+  resolved in the workspace frame. If `Imports` is omitted, arcc may recover
+  the root's edges from those member sources; once present, the map is checked
+  against the surviving source imports.
+- **Reachable non-members** retain their package identity and every direct
+  `Imports` edge, but their effective type-loading input is `ExportFile`. The
+  path is a workspace-frame build output, not a path under `go_sdk_root`.
+  Every such package except the builtin `unsafe` must have an export artifact
+  and an explicit `Imports` map. A leaf must use `"Imports": {}`; an omitted
+  or `null` field is an incomplete graph, not an empty leaf.
+- **The graph is not an API-surface projection.** Packages and edges are kept
+  even when an imported package does not appear to be referenced by the
+  exporting package's public API. The validator walks sorted roots and sorted
+  import paths and rejects a dangling package ID before `go/packages` sees the
+  layout. It never infers a non-member graph from non-member source files.
+- **`unsafe`** is the one reachable non-root builtin that has no compiler
+  export artifact. It remains a graph node when the emitter declares the edge.
+
+`StdlibLayout` is deliberately a different contract. It discovers the target
+SDK's whole standard-library source tree, marks those packages as SDK-provided,
+and validates them through the ordinary source-backed `ValidateAndResolve`
+path. That generation layout may have no `ExportFile` values and must not be
+passed through the member-only export validator.
 
 **Pinning the toolchain.** The platform block may carry two optional
 identity fields, `toolchain_version` (`go1.N.M`) and `goexperiment`. When

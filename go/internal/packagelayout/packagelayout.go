@@ -9,29 +9,34 @@
 //     platform block with goos/goarch/build_tags/cgo_enabled and the pinned
 //     toolchain_version/goexperiment), validates and resolves it (build
 //     constraints for the declared target, source existence, transitively
-//     complete import graph, GOROOT vendor resolution), discovers the
-//     standard library from an SDK root exactly as `go list std` does
+//     complete import graph, and the separate member-source/export-artifact
+//     contract), and discovers the standard library from an SDK root exactly
+//     as `go list std` does
 //     (discoverStdlib tree walk, no-Go source-less nodes), computes a
 //     validated whole-stdlib layout for a pinned target (StdlibLayout), and
 //     serves validated layouts through the GOPACKAGESDRIVER self-exec
 //     protocol (HandleDriverRequest/RunDriver, with the target GOARCH as the
 //     response Arch).
 //   - What it requires: A validated layout file (or SDK root plus platform
-//     for StdlibLayout), a workspace directory for emitter-listed sources,
-//     and the ARCC_PACKAGE_LAYOUT/ARCC_DRIVER_MODE environment markers set
-//     by WithDriverEnv/WithTemporaryLayout when invoked as the driver
-//     subprocess.
+//     for StdlibLayout), a workspace/runfiles directory for emitter-listed
+//     source and export paths, and the ARCC_PACKAGE_LAYOUT/ARCC_DRIVER_MODE
+//     environment markers set by WithDriverEnv/WithTemporaryLayout when
+//     invoked as the driver subprocess. Source-backed validation resolves SDK
+//     files below go_sdk_root; member-only validation resolves export files in
+//     the workspace frame and does not read non-member source.
 //   - What it provides: Layout/Platform and direct dependency artifact bindings,
 //     Parse, MarshalJSON/UnmarshalJSON,
-//     ValidateAndResolve, BuildContextForLayout (target-derived release and
-//     tool tags), FileMatchesBuildConstraints(Context), SurvivingSourceFiles,
-//     discoverStdlibWithContext, StdlibLayout, IsStdlibPackage,
-//     HandleDriverRequest, RunDriver, WithTemporaryLayout, WithDriverEnv,
-//     IsLayoutMode/GetActiveLayout, and CheckMu.
+//     ValidateAndResolve (source-backed), ValidateAndResolveForMemberOnly
+//     (root source plus reachable export data), BuildContextForLayout
+//     (target-derived release and tool tags), FileMatchesBuildConstraints(Context),
+//     SurvivingSourceFiles, discoverStdlibWithContext, StdlibLayout,
+//     IsStdlibPackage, HandleDriverRequest, RunDriver, WithTemporaryLayout,
+//     WithDriverEnv, IsLayoutMode/GetActiveLayout, and CheckMu.
 //   - Ambient Authority: This is a shell component serving package loading.
-//     It holds FILES (reads the layout file and every declared SDK source
-//     file — the layout builder reads only the SDK root), EXEC (the driver
-//     subprocess re-executes arcc's own binary; no toolchain binary), READ_
+//     It holds FILES (reads the layout file, declared SDK source files for
+//     source-backed generation, member source files, and declared compiler
+//     export artifacts), EXEC (the driver subprocess re-executes arcc's own
+//     binary; no toolchain binary), READ_
 //     SYSTEM_STATE (walking the SDK tree and reading build constraint
 //     headers), OPERATING_SYSTEM and MODIFY_SYSTEM_STATE/ENV (WithDriverEnv/
 //     WithTemporaryLayout set and restore process environment variables), and
@@ -66,6 +71,10 @@ import (
 
 // osStat is a seam for mocking file existence in unit tests.
 var osStat = os.Stat
+
+// osOpen is a seam for proving that an export artifact is readable without
+// coupling path-validation tests to the permissions of the test runner.
+var osOpen = os.Open
 
 // Layout is the package layout schema representing a Bazel-produced package graph.
 type Layout struct {
@@ -1226,6 +1235,83 @@ func (l *Layout) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+// layoutPackageIndex is the identity index shared by source-backed and
+// member-only validation. Package IDs are the graph references; import paths
+// are the semantic keys used by import maps and root declarations.
+type layoutPackageIndex struct {
+	byID   map[string]*packages.Package
+	byPath map[string]*packages.Package
+}
+
+func indexLayoutPackages(l *Layout) (layoutPackageIndex, error) {
+	index := layoutPackageIndex{
+		byID:   make(map[string]*packages.Package, len(l.Packages)),
+		byPath: make(map[string]*packages.Package, len(l.Packages)),
+	}
+	if l.importsOmitted == nil {
+		l.importsOmitted = make(map[string]bool)
+	}
+
+	for _, p := range l.Packages {
+		if p.ID == "" {
+			return layoutPackageIndex{}, errors.New("package has empty ID")
+		}
+		if p.PkgPath == "" {
+			return layoutPackageIndex{}, fmt.Errorf("package %q has empty import path", p.ID)
+		}
+		if p.Name == "" {
+			return layoutPackageIndex{}, fmt.Errorf("package %q has empty name", p.ID)
+		}
+		if _, ok := index.byID[p.ID]; ok {
+			return layoutPackageIndex{}, fmt.Errorf("duplicate package ID: %s", p.ID)
+		}
+		if _, ok := index.byPath[p.PkgPath]; ok {
+			return layoutPackageIndex{}, fmt.Errorf("duplicate package import path: %s", p.PkgPath)
+		}
+
+		index.byID[p.ID] = p
+		index.byPath[p.PkgPath] = p
+		if _, recorded := l.importsOmitted[p.ID]; !recorded {
+			l.importsOmitted[p.ID] = p.Imports == nil
+		}
+	}
+	return index, nil
+}
+
+// layoutRootPackages resolves root declarations once and returns the unique
+// package roles in deterministic ID order. A root may be named by either its
+// package ID or import path, matching the existing layout contract.
+func layoutRootPackages(roots []string, index layoutPackageIndex) ([]*packages.Package, map[string]bool, error) {
+	if len(roots) == 0 {
+		return nil, nil, errors.New("roots list cannot be empty")
+	}
+
+	rootByID := make(map[string]*packages.Package, len(roots))
+	for _, root := range roots {
+		pkg, ok := index.byID[root]
+		if !ok {
+			pkg, ok = index.byPath[root]
+		}
+		if !ok {
+			return nil, nil, fmt.Errorf("unknown root: %s", root)
+		}
+		rootByID[pkg.ID] = pkg
+	}
+
+	rootPackages := make([]*packages.Package, 0, len(rootByID))
+	for _, pkg := range rootByID {
+		rootPackages = append(rootPackages, pkg)
+	}
+	slices.SortFunc(rootPackages, func(a, b *packages.Package) int {
+		return strings.Compare(a.ID, b.ID)
+	})
+	rootIDs := make(map[string]bool, len(rootPackages))
+	for _, pkg := range rootPackages {
+		rootIDs[pkg.ID] = true
+	}
+	return rootPackages, rootIDs, nil
+}
+
 // ValidateAndResolve validates the layout's structural consistency and resolves
 // all workspace-relative and SDK-relative source paths, checking that each file exists.
 func ValidateAndResolve(l *Layout, workspaceDir string) error {
@@ -1307,44 +1393,14 @@ func ValidateAndResolve(l *Layout, workspaceDir string) error {
 	}
 
 	// Index packages by ID and PkgPath to detect duplicates and enable graph traversal.
-	byID := make(map[string]*packages.Package, len(l.Packages))
-	byPath := make(map[string]*packages.Package, len(l.Packages))
-	if l.importsOmitted == nil {
-		l.importsOmitted = make(map[string]bool)
+	index, err := indexLayoutPackages(l)
+	if err != nil {
+		return err
 	}
-
-	for _, p := range l.Packages {
-		if p.ID == "" {
-			return errors.New("package has empty ID")
-		}
-		if p.PkgPath == "" {
-			return fmt.Errorf("package %q has empty import path", p.ID)
-		}
-		if p.Name == "" {
-			return fmt.Errorf("package %q has empty name", p.ID)
-		}
-
-		if _, ok := byID[p.ID]; ok {
-			return fmt.Errorf("duplicate package ID: %s", p.ID)
-		}
-		if _, ok := byPath[p.PkgPath]; ok {
-			return fmt.Errorf("duplicate package import path: %s", p.PkgPath)
-		}
-
-		byID[p.ID] = p
-		byPath[p.PkgPath] = p
-		if _, recorded := l.importsOmitted[p.ID]; !recorded {
-			l.importsOmitted[p.ID] = p.Imports == nil
-		}
-	}
-
-	// Validate roots.
-	for _, root := range l.Roots {
-		if _, ok := byID[root]; !ok {
-			if _, okPath := byPath[root]; !okPath {
-				return fmt.Errorf("unknown root: %s", root)
-			}
-		}
+	byID, byPath := index.byID, index.byPath
+	rootPackages, _, err := layoutRootPackages(l.Roots, index)
+	if err != nil {
+		return err
 	}
 
 	// Phase 1: Resolve GoFiles and CompiledGoFiles for all packages.
@@ -1538,19 +1594,241 @@ func ValidateAndResolve(l *Layout, workspaceDir string) error {
 	// without any source left after normalization and constraint filtering
 	// cannot be analyzed, so reject it while leaving bodiless transitive
 	// packages available for later reporting.
-	rootNames := append([]string{}, l.Roots...)
-	sort.Strings(rootNames)
-	for _, root := range rootNames {
-		rootPkg, ok := byID[root]
-		if !ok {
-			rootPkg = byPath[root]
-		}
+	for _, rootPkg := range rootPackages {
 		if len(SurvivingSourceFiles(rootPkg)) == 0 {
 			return fmt.Errorf("package %q has no source files", rootPkg.PkgPath)
 		}
 	}
 
 	return nil
+}
+
+// ValidateAndResolveForMemberOnly validates the layout shape used by a
+// component load that keeps only member roots on source. It deliberately does
+// not discover or read SDK source packages: the effective graph, including
+// standard-library nodes, must already be present with export artifacts from
+// the emitter. The source-backed ValidateAndResolve path remains the one used
+// by whole-stdlib generation.
+func ValidateAndResolveForMemberOnly(l *Layout, workspaceDir string) error {
+	if l == nil {
+		return errors.New("member-only package layout is required")
+	}
+	if bindingCloned, err := cloneDependencyArtifactBindings(l.DependencyArtifactBindings); err != nil {
+		return fmt.Errorf("invalid dependency artifact bindings: %w", err)
+	} else {
+		l.DependencyArtifactBindings = bindingCloned
+	}
+
+	bctx, err := BuildContextForLayout(l)
+	if err != nil {
+		return err
+	}
+	l.UnresolvedImports = nil
+	for idx, p := range l.Packages {
+		if p == nil {
+			return fmt.Errorf("package entry at index %d is null", idx)
+		}
+	}
+	if l.stdlibByID == nil {
+		l.stdlibByID = make(map[string]bool, len(l.Packages))
+	}
+	if l.stdlibByPath == nil {
+		l.stdlibByPath = make(map[string]bool, len(l.Packages))
+	}
+	if l.emittedPackageID == nil {
+		l.emittedPackageID = make(map[string]bool, len(l.Packages))
+		for _, p := range l.Packages {
+			l.emittedPackageID[p.ID] = true
+		}
+	}
+	for _, p := range l.Packages {
+		if l.emittedPackageID[p.ID] {
+			l.stdlibByPath[p.PkgPath] = l.stdlibByID[p.ID]
+		}
+	}
+	if l.GoSDKRoot == "" {
+		for _, p := range l.Packages {
+			if l.IsStdlibPackage(p) {
+				return errors.New("go_sdk_root is required when standard library packages are present in layout")
+			}
+		}
+	}
+
+	index, err := indexLayoutPackages(l)
+	if err != nil {
+		return err
+	}
+	rootPackages, rootIDs, err := layoutRootPackages(l.Roots, index)
+	if err != nil {
+		return err
+	}
+
+	// Only member roots are source-resolved. In particular, a stale or absent
+	// GoFiles entry on a non-member cannot become a source-loading fallback.
+	for _, p := range rootPackages {
+		resolvedGoFiles, err := l.resolveAndCheckFiles(p, p.GoFiles, l.GoSDKRoot, workspaceDir)
+		if err != nil {
+			return err
+		}
+		p.GoFiles = resolvedGoFiles
+		resolvedCompiledFiles, err := l.resolveAndCheckFiles(p, p.CompiledGoFiles, l.GoSDKRoot, workspaceDir)
+		if err != nil {
+			return err
+		}
+		p.CompiledGoFiles = resolvedCompiledFiles
+
+		if !l.IsStdlibPackage(p) {
+			hadGoSources := hasGoSources(p.GoFiles) || hasGoSources(p.CompiledGoFiles)
+			p.GoFiles = filterByBuildConstraintsWithContext(p.GoFiles, bctx)
+			p.CompiledGoFiles = filterByBuildConstraintsWithContext(p.CompiledGoFiles, bctx)
+			if hadGoSources && !hasGoSources(p.GoFiles) && !hasGoSources(p.CompiledGoFiles) {
+				return fmt.Errorf("package %q has no Go sources after the declared platform excluded every Go source", p.PkgPath)
+			}
+		}
+		if len(SurvivingSourceFiles(p)) == 0 {
+			return fmt.Errorf("package %q has no source files", p.PkgPath)
+		}
+	}
+
+	resolveImport := func(importPath string) (*packages.Package, bool) {
+		if target, ok := index.byPath[importPath]; ok {
+			return target, true
+		}
+		if target, ok := index.byPath["vendor/"+importPath]; ok && l.IsStdlibPackage(target) {
+			return target, true
+		}
+		return nil, false
+	}
+
+	// Root source is allowed to recover an omitted import map. Once a map is
+	// present, compare it with surviving source so a member cannot silently
+	// hide an edge that the export-data traversal would otherwise miss. No
+	// non-member source participates in either operation.
+	for _, p := range rootPackages {
+		sourceImports, err := sourceImportsForPackage(p)
+		if err != nil {
+			return err
+		}
+		if p.Imports == nil {
+			p.Imports = make(map[string]*packages.Package)
+			var paths []string
+			for importPath := range sourceImports {
+				paths = append(paths, importPath)
+			}
+			sort.Strings(paths)
+			for _, importPath := range paths {
+				target, ok := resolveImport(importPath)
+				if !ok {
+					return fmt.Errorf("package %q source import path %q has no declared package node", p.PkgPath, importPath)
+				}
+				p.Imports[importPath] = &packages.Package{ID: target.ID}
+			}
+			continue
+		}
+
+		var missing []string
+		for importPath := range sourceImports {
+			if _, ok := resolveImport(importPath); !ok {
+				missing = append(missing, importPath)
+				continue
+			}
+			if _, ok := p.Imports[importPath]; !ok {
+				missing = append(missing, importPath)
+			}
+		}
+		if len(missing) > 0 {
+			sort.Strings(missing)
+			return fmt.Errorf("package %q has source imports absent from declared Imports: %s", p.PkgPath, strings.Join(missing, ", "))
+		}
+		var extra []string
+		for importPath := range p.Imports {
+			if importPath == "C" {
+				continue
+			}
+			if _, ok := resolveImport(importPath); ok && !sourceImports[importPath] {
+				extra = append(extra, importPath)
+			}
+		}
+		if len(extra) > 0 {
+			sort.Strings(extra)
+			return fmt.Errorf("package %q declares source imports not contributed by surviving sources: %s", p.PkgPath, strings.Join(extra, ", "))
+		}
+	}
+
+	visited := make(map[string]bool, len(l.Packages))
+	var visit func(*packages.Package) error
+	visit = func(p *packages.Package) error {
+		if visited[p.ID] {
+			return nil
+		}
+		visited[p.ID] = true
+
+		if !rootIDs[p.ID] {
+			if p.PkgPath != "unsafe" || p.ExportFile != "" {
+				resolved, err := l.resolveAndCheckExportFile(p, p.ExportFile, workspaceDir)
+				if err != nil {
+					return err
+				}
+				if p.Imports == nil {
+					return fmt.Errorf("export-backed package %q (import path %q) has omitted Imports map; provide an explicit empty map for a leaf", p.ID, p.PkgPath)
+				}
+				p.ExportFile = resolved
+			}
+		}
+
+		var importPaths []string
+		for importPath := range p.Imports {
+			importPaths = append(importPaths, importPath)
+		}
+		sort.Strings(importPaths)
+		for _, importPath := range importPaths {
+			if importPath == "C" {
+				continue
+			}
+			reference := p.Imports[importPath]
+			if reference == nil {
+				return fmt.Errorf("package %q (import path %q) imports path %q with a nil package reference", p.ID, p.PkgPath, importPath)
+			}
+			target, ok := index.byID[reference.ID]
+			if !ok {
+				return fmt.Errorf("package %q (import path %q) imports path %q but package ID %q is absent from the layout", p.ID, p.PkgPath, importPath, reference.ID)
+			}
+			if target.PkgPath != importPath && (target.PkgPath != "vendor/"+importPath || !l.IsStdlibPackage(target)) {
+				return fmt.Errorf("package %q (import path %q) imports path %q with ID %q, but target package import path is %q", p.ID, p.PkgPath, importPath, target.ID, target.PkgPath)
+			}
+			if err := visit(target); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+
+	for _, root := range rootPackages {
+		if err := visit(root); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func sourceImportsForPackage(p *packages.Package) (map[string]bool, error) {
+	imports := make(map[string]bool)
+	for _, file := range SurvivingSourceFiles(p) {
+		source, err := os.ReadFile(file)
+		if err != nil {
+			return nil, fmt.Errorf("parsing source file %q of package %q: %w", file, p.ID, err)
+		}
+		_, paths, _, err := scanGoSource(file, source)
+		if err != nil {
+			return nil, fmt.Errorf("parsing source file %q of package %q: %w", file, p.ID, err)
+		}
+		for _, importPath := range paths {
+			if importPath != "C" {
+				imports[importPath] = true
+			}
+		}
+	}
+	return imports, nil
 }
 
 // filterByBuildConstraints keeps only the .go sources compiled for the current
@@ -1791,6 +2069,73 @@ func (l *Layout) resolveAndCheckFiles(p *packages.Package, files []string, sdkRo
 		resolved[i] = path
 	}
 	return resolved, nil
+}
+
+// resolveAndCheckExportFile resolves one compiler export artifact in the
+// emitter/workspace frame. Unlike source files, export artifacts never live
+// beneath go_sdk_root: they are build outputs staged alongside the layout.
+func (l *Layout) resolveAndCheckExportFile(p *packages.Package, exportFile, workspaceDir string) (string, error) {
+	if exportFile == "" {
+		return "", fmt.Errorf("package %q (import path %q) has empty export file path %q", p.ID, p.PkgPath, exportFile)
+	}
+	if err := validateExportFilePath(exportFile); err != nil {
+		return "", fmt.Errorf("package %q (import path %q) has %w %q", p.ID, p.PkgPath, err, exportFile)
+	}
+
+	resolved := filepath.FromSlash(exportFile)
+	if workspaceDir != "" {
+		resolved = filepath.Join(workspaceDir, resolved)
+		rel, err := filepath.Rel(workspaceDir, resolved)
+		if err != nil {
+			return "", fmt.Errorf("package %q (import path %q) failed to resolve export file %q: %w", p.ID, p.PkgPath, exportFile, err)
+		}
+		if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			return "", fmt.Errorf("package %q (import path %q) has export file path escaping workspace %q", p.ID, p.PkgPath, exportFile)
+		}
+	}
+
+	info, err := osStat(resolved)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return "", fmt.Errorf("export file %q for package %q does not exist", resolved, p.PkgPath)
+		}
+		return "", fmt.Errorf("error stating export file %q for package %q: %w", resolved, p.PkgPath, err)
+	}
+	if info.IsDir() {
+		return "", fmt.Errorf("export file %q for package %q is a directory", resolved, p.PkgPath)
+	}
+	if !info.Mode().IsRegular() {
+		return "", fmt.Errorf("export file %q for package %q is not a regular file", resolved, p.PkgPath)
+	}
+	if info.Size() == 0 {
+		return "", fmt.Errorf("export file %q for package %q is empty", resolved, p.PkgPath)
+	}
+
+	f, err := osOpen(resolved)
+	if err != nil {
+		return "", fmt.Errorf("export file %q for package %q is unreadable: %w", resolved, p.PkgPath, err)
+	}
+	if f == nil {
+		return "", fmt.Errorf("export file %q for package %q is unreadable: open returned a nil file", resolved, p.PkgPath)
+	}
+	if err := f.Close(); err != nil {
+		return "", fmt.Errorf("export file %q for package %q is unreadable: closing it failed: %w", resolved, p.PkgPath, err)
+	}
+	return resolved, nil
+}
+
+func validateExportFilePath(value string) error {
+	if strings.IndexFunc(value, unicode.IsControl) >= 0 || strings.Contains(value, "\\") || path.IsAbs(value) || filepath.VolumeName(value) != "" || hasWindowsVolumePrefix(value) || value == "." {
+		return errors.New("unsafe export file path")
+	}
+	cleaned := path.Clean(value)
+	if cleaned == ".." || strings.HasPrefix(cleaned, "../") {
+		return errors.New("unsafe export file path")
+	}
+	if cleaned != value {
+		return errors.New("non-normalized export file path")
+	}
+	return nil
 }
 
 // HandleDriverRequest processes a packages.DriverRequest using a validated Layout
