@@ -1,4 +1,4 @@
-load("@rules_arcc//bazel_rules/go:defs.bzl", "go_component")
+load("@rules_arcc//bazel_rules/go:defs.bzl", "ANALYSIS_DEFEATING_POLICY_WARN", "go_component")
 load("@rules_go//go:def.bzl", "go_library")
 
 go_library(
@@ -8,21 +8,14 @@ go_library(
     visibility = ["//go/examples/csvtool:__subpackages__"],
 )
 
-# Shared parser utility component declaration. It has no authority.
-# EXEMPT (Step 6 task 05 AC8b; TODO(Step 7 residual-UNANALYZED decision):
-# parsecsv's single stdlib call, csv.Reader.ReadAll, is honestly UNANALYZED
-# in the authority map (interface-parameter indirection) — 1 AnalysisDefeating
-# site at parsecsv.go:15 — so the checked .check test would fail its pass
-# assertion. check_tags=["manual"] (the Step 5 task 05 seam) keeps the
-# analysis action built by `bazel build //...` while exempting the verdict
-# test; the Step 7 residual-UNANALYZED decision (capability-use indirection
-# curation, or the DR-11 policy carrier) removes the exemption.
+# Shared parser utility component declaration. Its one residual
+# csv.Reader.ReadAll analysis limitation is explicit and remains visible in
+# the report without weakening the stdlib map or hiding the component check.
 go_component(
     name = "parsecsv_component",
     interface = ":parsecsv",
-    check_tags = ["manual"],
+    analysis_defeating_policy = ANALYSIS_DEFEATING_POLICY_WARN,
     visibility = ["//visibility:public"],
 )
 
 exports_files(["component.textproto"])
-

@@ -93,6 +93,8 @@ target and `--@rules_go//go/config:pure`.
 )
 
 PACKAGE_SURFACE = "PACKAGE_SURFACE"
+ANALYSIS_DEFEATING_POLICY_STRICT = "strict"
+ANALYSIS_DEFEATING_POLICY_WARN = "warn"
 
 def _is_label(s):
     return s.startswith("//") or s.startswith(":") or s.startswith("@")
@@ -236,7 +238,12 @@ go_component = macro(
         "declared_authority": attr.string_list(
             configurable = False,
             doc = "The ambient authority this component declares, as constants from this file " +
-                  "(FILES, NETWORK, ...). Empty means the component claims to be authority-free.",
+                 "(FILES, NETWORK, ...). Empty means the component claims to be authority-free.",
+        ),
+        "analysis_defeating_policy": attr.string(
+            default = ANALYSIS_DEFEATING_POLICY_STRICT,
+            configurable = False,
+            doc = "Policy for analysis-defeating findings: strict (default) or warn. The explicit warn value is carried as WARN in the manifest.",
         ),
         "check_tags": attr.string_list(
             configurable = False,

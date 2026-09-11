@@ -100,6 +100,29 @@ func TestCompareManifests_AuthorityDeclarationCompared(t *testing.T) {
 	})
 }
 
+func TestCompareManifests_AnalysisDefeatingPolicyCompared(t *testing.T) {
+	gen := manifest.Manifest{
+		Name:                    "warned_component",
+		InterfaceFiles:          []string{"api.go"},
+		AnalysisDefeatingPolicy: manifest.AnalysisDefeatingPolicyWarn,
+	}
+	chk := gen
+	chk.Name = "warned"
+	matching := &spyTB{TB: t}
+	manifestparity.CompareManifests(matching, "warned", gen, chk)
+	if len(matching.errors) != 0 {
+		t.Fatalf("matching WARN policy produced parity errors: %v", matching.errors)
+	}
+
+	mismatched := chk
+	mismatched.AnalysisDefeatingPolicy = manifest.AnalysisDefeatingPolicyStrict
+	spy := &spyTB{TB: t}
+	manifestparity.CompareManifests(spy, "warned", gen, mismatched)
+	if len(spy.errors) == 0 || !strings.Contains(strings.Join(spy.errors, "\n"), "analysis-defeating policy") {
+		t.Fatalf("policy mismatch produced errors %v, want policy diagnostic", spy.errors)
+	}
+}
+
 func TestRun_MissingGeneratedCounterpart(t *testing.T) {
 	tmpDir := t.TempDir()
 	compDir := filepath.Join(tmpDir, "mycomp")

@@ -66,19 +66,13 @@ run *args:
 # membership checking the same components cross-checks the whole membership model.
 # Step 7 gives the foreign protobuf and x/tools closures one package-surface
 # boundary each, so the real component manifests can be staged without
-# dependency overlap. The remaining non-gating cases are the generated schema
-# dependency artifact, capslockadapter's native-only residual, and the csvtool
-# parser's residual UNANALYZED result.
-# Their report verdicts are computed for dependency consumption and deliberately
-# discarded with this temporary tree; they are not claimed to be persisted or
-# promoted to the gate. `schema` has no standalone selfcheck gate: its generated
-# protobuf code currently produces an expected UNANALYZED verdict while it is
-# consumed as a dependency artifact. That expected non-gating verdict is checked
-# explicitly below and then discarded. The adopted `protobuf-runtime` and
-# `x-tools` wrappers are different: their checked-in native surfaces are pinned
-# empty-digest UNKNOWN assertions, so staging them performs no analysis and
-# creates no reports. Bazel uses the component-level `tags = ["manual"]` asserted
-# producers for the same boundaries.
+# dependency overlap. The schema artifact remains a deliberately non-gating
+# dependency check because generated protobuf code is outside this task's two
+# residual owners. The parsecsv and capslockadapter residuals are different:
+# their explicit manifest WARN policy keeps every AnalysisDefeating site visible
+# while their ordinary native checks now gate this recipe.
+# The adopted `protobuf-runtime` and `x-tools` wrappers are package-level UNKNOWN
+# assertions, so staging them performs no analysis and creates no reports.
 selfcheck:
 	@echo "=== Validating pinned selfcheck toolchain ==="
 	@test "$(cd {{go_dir}} && go env GOVERSION)" = "go1.26.4"
@@ -145,6 +139,8 @@ selfcheck:
 	"$arcc_bin" check internal/manifest/component.textproto --stdlib-map="$map_path" >/dev/null; \
 	"$arcc_bin" check internal/artifactio/component.textproto --stdlib-map="$map_path" >/dev/null; \
 	"$arcc_bin" check internal/goanalysis/component.textproto --stdlib-map="$map_path" >/dev/null; \
+	"$arcc_bin" check internal/capslockadapter/component.textproto --stdlib-map="$map_path" >/dev/null; \
+	"$arcc_bin" check examples/csvtool/internal/parsecsv/component.textproto --stdlib-map="$map_path" >/dev/null; \
 	"$arcc_bin" check cmd/arcc/component.textproto --stdlib-map="$map_path" >/dev/null; \
 	"$arcc_bin" check examples/csvtool/app/component.textproto --stdlib-map="$map_path" >/dev/null
 

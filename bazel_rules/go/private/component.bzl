@@ -85,7 +85,7 @@ def _package_name(importpath):
 def _textproto_string(value):
     return '"' + value.replace("\\", "\\\\").replace('"', '\\"') + '"'
 
-def _manifest_content(ctx, interface_files, component_deps, auto_attached_deps, declared_authority, manifest_dir, interface_style, members, authority_unknown):
+def _manifest_content(ctx, interface_files, component_deps, auto_attached_deps, declared_authority, manifest_dir, interface_style, members, authority_unknown, analysis_defeating_policy):
     lines = ["name: " + _textproto_string(ctx.label.name)]
 
     if interface_style == "PACKAGE_SURFACE":
@@ -97,6 +97,12 @@ def _manifest_content(ctx, interface_files, component_deps, auto_attached_deps, 
         # manifestparity cannot mistake the provider's structural authority
         # for the default DECLARED{} value (design I6/R10).
         lines.append("authority: UNKNOWN")
+
+    if analysis_defeating_policy == "warn":
+        # The schema's zero value is strict. Emit only the explicit non-default
+        # policy so generated manifests and hand-authored manifests have the
+        # same omission semantics.
+        lines.append("analysis_defeating_policy: WARN")
 
     for path in interface_files:
         lines.append("interface_files: " + _textproto_string(path))
@@ -498,6 +504,12 @@ def go_component_impl(ctx, attachment_fn = go_attached_infra):
                 ", ".join(ALL_AUTHORITIES),
             ))
 
+    if ctx.attr.analysis_defeating_policy not in ["strict", "warn"]:
+        fail("component %s: unknown analysis_defeating_policy %r; accepted values are 'strict' and 'warn'" % (
+            ctx.label.name,
+            ctx.attr.analysis_defeating_policy,
+        ))
+
     roots = ([ctx.attr.interface] if ctx.attr.interface else []) + ctx.attr.members
 
     attached_infra = attachment_fn(ctx, roots, ctx.attr.infra_deps)
@@ -629,6 +641,7 @@ def go_component_impl(ctx, attachment_fn = go_attached_infra):
             interface_style = ctx.attr.interface_style,
             members = manifest_members,
             authority_unknown = "manual" in ctx.attr.tags,
+            analysis_defeating_policy = ctx.attr.analysis_defeating_policy,
         ),
     )
 
@@ -805,6 +818,10 @@ GO_COMPONENT_ATTRS = {
     ),
     "declared_authority": attr.string_list(
         doc = "Ambient authority the component declares, from //bazel_rules:authority.bzl.",
+    ),
+    "analysis_defeating_policy": attr.string(
+        default = "strict",
+        doc = "Policy for analysis-defeating findings: strict (default) or warn. Only warn is emitted into the manifest.",
     ),
 } | GO_CONTEXT_DATA_ATTRS | {
     # The arcc binary the analysis action runs (exec configuration, like the

@@ -31,6 +31,7 @@ _ASSERTED_WITH_REPORT_COMPONENT = "//bazel_rules/go/tests/testdata/reportboundar
 _UNKNOWN_PROVENANCE_COMPONENT = "//bazel_rules/go/tests/testdata/reportboundary/consumer:unknown_provenance_component"
 _DUPLICATE_DEPENDENCY_COMPONENT = "//bazel_rules/go/tests/testdata/reportboundary/consumer:duplicate_dependency_component"
 _CONFLICTING_EDGE_COMPONENT = "//bazel_rules/go/tests/testdata/reportboundary/consumer:conflicting_edge_component"
+_INVALID_ANALYSIS_DEFEATING_POLICY_COMPONENT = "//bazel_rules/go/tests/testdata/conflict:invalid_analysis_defeating_policy_component"
 
 def _membership_classification_test(name):
     analysis_test(
@@ -71,6 +72,9 @@ def _generated_files_impl(env, target):
     # convention, so these two names are load-bearing, not cosmetic.
     env.expect.that_str(info.manifest.basename).equals("api_component.component.textproto")
     env.expect.that_str(info.layout.basename).equals("api_component.package-layout.json")
+
+    manifest_action = env.expect.that_target(target).action_generating(info.manifest.short_path)
+    manifest_action.content().split("\n").not_contains("analysis_defeating_policy: WARN")
 
     env.expect.that_target(target).default_outputs().contains_exactly([
         "bazel_rules/go/tests/testdata/api/api_component.component.textproto",
@@ -204,6 +208,36 @@ def _member_covered_conflict_fails_impl(env, target):
     env.expect.that_target(target).failures().contains_predicate(
         matching.str_matches("*member *//bazel_rules/go/tests/testdata/shared:shared is already covered by component_dep shared_component*"),
     )
+
+def _invalid_analysis_defeating_policy_fails_test(name):
+    analysis_test(
+        name = name,
+        target = _INVALID_ANALYSIS_DEFEATING_POLICY_COMPONENT,
+        impl = _invalid_analysis_defeating_policy_fails_impl,
+        attr_values = {"size": "small"},
+        expect_failure = True,
+    )
+
+def _invalid_analysis_defeating_policy_fails_impl(env, target):
+    env.expect.that_target(target).failures().contains_predicate(
+        matching.str_matches("*component invalid_analysis_defeating_policy_component:*"),
+    )
+    env.expect.that_target(target).failures().contains_predicate(
+        matching.str_matches("*unknown analysis_defeating_policy*"),
+    )
+
+def _analysis_defeating_policy_manifest_test(name):
+    analysis_test(
+        name = name,
+        target = "//bazel_rules/go/tests/testdata/membercomponent:analysis_defeating_policy_component",
+        impl = _analysis_defeating_policy_manifest_impl,
+        attr_values = {"size": "small"},
+    )
+
+def _analysis_defeating_policy_manifest_impl(env, target):
+    info = target[ArccComponentInfo]
+    action = env.expect.that_target(target).action_generating(info.manifest.short_path)
+    action.content().contains("analysis_defeating_policy: WARN")
 
 def _nested_component_root_allowed_test(name):
     analysis_test(
@@ -750,6 +784,8 @@ def go_component_test_suite(name):
             _package_surface_closure_test,
             _transitive_files_test,
             _member_covered_conflict_fails_test,
+            _invalid_analysis_defeating_policy_fails_test,
+            _analysis_defeating_policy_manifest_test,
             _nested_component_root_allowed_test,
             _auto_attached_infra_test,
             _declining_infra_test,

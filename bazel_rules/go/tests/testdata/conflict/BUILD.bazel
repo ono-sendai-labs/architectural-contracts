@@ -14,3 +14,13 @@ go_component(
     tags = ["manual"],
     visibility = ["//bazel_rules:__subpackages__"],
 )
+
+# Invalid policy values are rejected during component analysis rather than
+# being normalized to strict or emitted into an invalid manifest.
+go_component(
+    name = "invalid_analysis_defeating_policy_component",
+    interface = "//bazel_rules/go/tests/testdata/api:api",
+    analysis_defeating_policy = "maybe",
+    tags = ["manual"],
+    visibility = ["//bazel_rules:__subpackages__"],
+)

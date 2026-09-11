@@ -145,6 +145,13 @@ func CompareManifests(t testing.TB, dir string, gen, chk manifest.Manifest) {
 		t.Errorf("%s: authority = %s, want %s", dir, describeAuthority(gen.Authority), describeAuthority(chk.Authority))
 	}
 
+	// The schema's zero value is strict, so compare the typed policy rather
+	// than merely checking that both manifests parse. An explicit WARN is a
+	// user-facing policy declaration and must survive native/Bazel parity.
+	if gen.AnalysisDefeatingPolicy != chk.AnalysisDefeatingPolicy {
+		t.Errorf("%s: analysis-defeating policy = %s, want %s", dir, gen.AnalysisDefeatingPolicy, chk.AnalysisDefeatingPolicy)
+	}
+
 	// Component dependencies: each representation must follow its own manifest
 	// filename convention (checked-in dependencies name the dependency's
 	// component.textproto; generated ones name <dep target>.component.textproto

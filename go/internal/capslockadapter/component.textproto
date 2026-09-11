@@ -1,5 +1,6 @@
 name: "capslockadapter"
 interface_files: "generation.go"
+analysis_defeating_policy: WARN
 # Capslock's retained x/tools and protobuf runtime closures are explicit
 # package-surface dependencies; only the generator shell and its other adopted
 # foreign members remain owned here.

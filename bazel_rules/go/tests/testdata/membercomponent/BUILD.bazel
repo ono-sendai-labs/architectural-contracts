@@ -34,6 +34,17 @@ go_component(
     visibility = ["//bazel_rules:__subpackages__"],
 )
 
+# Valid non-default policy fixture for manifest-emission tests. Its generated
+# check is kept out of the wildcard test suite because the fixture exists only
+# to inspect the emitted declaration.
+go_component(
+    name = "analysis_defeating_policy_component",
+    interface = "//bazel_rules/go/tests/testdata/api:api",
+    analysis_defeating_policy = "warn",
+    check_tags = ["manual"],
+    visibility = ["//bazel_rules:__subpackages__"],
+)
+
 # A package-surface component has no distinguished interface. Its member roots
 # must still be analyzed and its generated check is deferred until Step 7 emits
 # the style and member declarations into the manifest.
