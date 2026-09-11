@@ -1,8 +1,17 @@
 {
   "go_sdk_root": "<GO_SDK_ROOT>",
-  "ordinary_import_data": {
-    "metadata": "__ARCC_ORDINARY_IMPORT_DATA__"
+  "platform": {
+    "goos": "linux",
+    "goarch": "amd64",
+    "build_tags": [],
+    "cgo_enabled": false,
+    "toolchain_version": "go1.26.4"
   },
+  "roots": [
+    "example.com/aspect/api",
+    "example.com/aspect/member",
+    "example.com/aspect/memberdep"
+  ],
   "packages": [
     {
       "CompiledGoFiles": [
@@ -61,7 +70,9 @@
         "_main/bazel_rules/go/tests/testdata/lowlevel/lowlevel.go"
       ],
       "ID": "example.com/aspect/lowlevel",
-      "Imports": {},
+      "Imports": {
+        "strings": "strings"
+      },
       "Name": "lowlevel",
       "PkgPath": "example.com/aspect/lowlevel",
       "is_stdlib": false
@@ -105,37 +116,28 @@
       "is_stdlib": false
     }
   ],
-  "platform": {
-    "build_tags": [],
-    "cgo_enabled": false,
-    "goarch": "amd64",
-    "goos": "linux",
-    "toolchain_version": "go1.26.4"
+  "ordinary_import_data": {
+    "metadata": "__ARCC_ORDINARY_IMPORT_DATA__"
   },
-  "roots": [
-    "example.com/aspect/api",
-    "example.com/aspect/member",
-    "example.com/aspect/memberdep"
-  ],
   "stdlib_export_data": {
-    "export_roots": [
-      {
-        "exec_path": "<STDLIB_EXPORT_ROOT>",
-        "runfiles_path": "rules_go+/stdlib_/gocache"
-      },
-      {
-        "exec_path": "<STDLIB_EXPORT_ROOT>",
-        "runfiles_path": "rules_go+/stdlib_/pkg"
-      }
-    ],
     "metadata": "rules_go+/stdlib_/stdlib.pkg.json",
     "target": {
-      "build_tags": [],
-      "cgo_enabled": false,
-      "goarch": "amd64",
-      "goexperiment": "",
+      "toolchain_version": "go1.26.4",
       "goos": "linux",
-      "toolchain_version": "go1.26.4"
-    }
+      "goarch": "amd64",
+      "cgo_enabled": false,
+      "build_tags": [],
+      "goexperiment": ""
+    },
+    "export_roots": [
+      {
+        "runfiles_path": "rules_go+/stdlib_/gocache",
+        "exec_path": "<STDLIB_EXPORT_ROOT>"
+      },
+      {
+        "runfiles_path": "rules_go+/stdlib_/pkg",
+        "exec_path": "<STDLIB_EXPORT_ROOT>"
+      }
+    ]
   }
 }

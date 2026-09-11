@@ -219,12 +219,14 @@ The ordinary-package graph has a parallel handoff. rules_go's
 not include implicit SDK imports such as `strings`. The component emitter runs
 a small `ArccImportGraph` action with arcc's lexical source scanner and the
 declared target build context. Its output is the `ordinary_import_data.metadata`
-file; the checked action declares that file and recreates its runfiles frame.
+file; `ArccLayout` applies it to the emitted non-member `Imports` maps, and the
+checked action declares the descriptor and recreates its runfiles frame.
 This is metadata projection, not component analysis, and it executes no
 toolchain binary. The runtime resolver validates the descriptor's target
 identity, maps each direct import path to the effective layout package ID, and
 applies it to non-member packages before any source-backed transition or
-`packages.Load`.
+`packages.Load`. The layout artifact therefore visibly retains an edge such as
+`lowlevel -> strings`; the runtime pass also repairs host-specific stdlib IDs.
 
 The Bazel emitter obtains member-only standard-library material through its host
 adapter. The adapter returns a host-neutral descriptor with four values:

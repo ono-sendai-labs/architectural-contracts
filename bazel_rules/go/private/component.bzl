@@ -165,11 +165,10 @@ def _layout_content(ctx, merged, roots, go_sdk_root, platform, target, dependenc
             if pkg.export_file == None:
                 fail("package %s has no export file for non-member package %s" % (ctx.label.name, importpath))
             package["ExportFile"] = runfiles_path(ctx, pkg.export_file)
-            # Keep the aspect's declared archive projection for the transitional
-            # source-backed loader. The exact source import set, including
-            # implicit standard-library edges, is emitted by
-            # ordinary_import_data and replaces this compatibility map before
-            # member-only validation.
+            # Keep the aspect's declared archive projection in the base layout
+            # for the transitional source-backed loader. ArccLayout replaces
+            # this compatibility map with the exact source import set from
+            # ordinary_import_data, including implicit standard-library edges.
             package["Imports"] = {
                 dep: dep
                 for dep in sorted(pkg.deps)
@@ -245,7 +244,7 @@ def _layout_content(ctx, merged, roots, go_sdk_root, platform, target, dependenc
         indent = "  ",
     ) + "\n"
 
-def _ordinary_import_graph_action(ctx, merged, platform, target):
+def _ordinary_import_graph_action(ctx, merged, roots, platform, target):
     """Projects exact source imports into a checked-action graph descriptor.
 
     rules_go's GoArchive direct list contains declared archive dependencies and
@@ -271,7 +270,10 @@ def _ordinary_import_graph_action(ctx, merged, platform, target):
 
     source_files = []
     package_inputs = []
+    root_set = {root: True for root in roots}
     for importpath in sorted(merged.keys()):
+        if importpath in root_set:
+            continue
         files = [
             src.path
             for src in merged[importpath].srcs
@@ -307,6 +309,25 @@ def _ordinary_import_graph_action(ctx, merged, platform, target):
         progress_message = "Projecting imports for component %s" % ctx.label,
     )
     return struct(metadata = metadata)
+
+def _merge_ordinary_import_graph_action(ctx, base_layout, ordinary_import_data, layout):
+    """Emits the package layout with the exact non-member import maps applied."""
+    ctx.actions.run(
+        executable = ctx.executable._arcc,
+        arguments = [
+            "package-layout-merge",
+            "--layout=" + base_layout.path,
+            "--imports=" + ordinary_import_data.metadata.path,
+            "--output=" + layout.path,
+        ],
+        inputs = depset(direct = [base_layout, ordinary_import_data.metadata]),
+        tools = [ctx.executable._arcc],
+        outputs = [layout],
+        use_default_shell_env = False,
+        execution_requirements = {"block-network": "1"},
+        mnemonic = "ArccLayout",
+        progress_message = "Writing package layout for component %s" % ctx.label,
+    )
 
 def _dependency_binding_record(ctx, info, auto_attached):
     """Validates one provider and projects it into layout metadata plus files."""
@@ -828,23 +849,27 @@ def go_component_impl(ctx, attachment_fn = go_attached_infra):
             ordinary_import_data = _ordinary_import_graph_action(
                 ctx,
                 merged = merged,
+                roots = layout_roots,
                 platform = platform,
                 target = target_mode,
             )
-        ctx.actions.write(
-            output = layout,
-            content = _layout_content(
-                ctx,
-                merged = merged,
-                roots = layout_roots,
-                go_sdk_root = go_sdk_root(ctx),
-                platform = platform,
-                target = target_mode,
-                dependency_bindings = dependency_bindings,
-                ordinary_import_data = ordinary_import_data,
-                stdlib_export_data = stdlib_export_data,
-            ),
+        layout_content = _layout_content(
+            ctx,
+            merged = merged,
+            roots = layout_roots,
+            go_sdk_root = go_sdk_root(ctx),
+            platform = platform,
+            target = target_mode,
+            dependency_bindings = dependency_bindings,
+            ordinary_import_data = ordinary_import_data,
+            stdlib_export_data = stdlib_export_data,
         )
+        if ordinary_import_data != None:
+            base_layout = ctx.actions.declare_file(ctx.label.name + ".package-layout.base.json")
+            ctx.actions.write(output = base_layout, content = layout_content)
+            _merge_ordinary_import_graph_action(ctx, base_layout, ordinary_import_data, layout)
+        else:
+            ctx.actions.write(output = layout, content = layout_content)
         direct_layouts = [layout]
     else:
         layout = None

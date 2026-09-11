@@ -401,8 +401,8 @@ def _deterministic_multi_infra_impl(env, target):
     manifest_b_norm = action_manifest_b.actual.content.replace("multi_infra_b", "multi_infra_a")
     env.expect.that_str(manifest_a).equals(manifest_b_norm)
 
-    action_layout_a = env.expect.that_target(target.target_a).action_generating("bazel_rules/go/tests/testdata/membercomponent/multi_infra_a.package-layout.json")
-    action_layout_b = env.expect.that_target(target.target_b).action_generating("bazel_rules/go/tests/testdata/membercomponent/multi_infra_b.package-layout.json")
+    action_layout_a = env.expect.that_target(target.target_a).action_generating("bazel_rules/go/tests/testdata/membercomponent/multi_infra_a.package-layout.base.json")
+    action_layout_b = env.expect.that_target(target.target_b).action_generating("bazel_rules/go/tests/testdata/membercomponent/multi_infra_b.package-layout.base.json")
 
     layout_a = action_layout_a.actual.content
     layout_b_norm = action_layout_b.actual.content.replace("multi_infra_b", "multi_infra_a")
@@ -418,7 +418,9 @@ def _dependency_artifact_bindings_test(name):
 
 def _dependency_artifact_bindings_impl(env, target):
     info = target[ArccComponentInfo]
-    layout = env.expect.that_target(target).action_generating(info.layout.short_path).actual.content
+    layout = env.expect.that_target(target).action_generating(
+        "bazel_rules/go/tests/testdata/reportboundary/consumer/bindings_component.package-layout.base.json",
+    ).actual.content
     bindings = json.decode(layout)["dependency_artifact_bindings"]
     env.expect.that_collection([binding["dependency"] for binding in bindings]).contains_exactly([
         "manual_component",
@@ -728,7 +730,12 @@ def _export_layout_shape_test(name):
 
 def _export_layout_shape_impl(env, target):
     info = target[ArccComponentInfo]
-    layout = env.expect.that_target(target).action_generating(info.layout.short_path)
+    # The final layout is assembled by ArccLayout from the deterministic base
+    # write and the exact ordinary-import graph. Inspect the base request here;
+    # the execution/golden tests cover the assembled package Imports bytes.
+    layout = env.expect.that_target(target).action_generating(
+        "bazel_rules/go/tests/testdata/api/api_component.package-layout.base.json",
+    )
     content = layout.actual.content
 
     # The layout keeps source fields for the current transition but gives
@@ -750,7 +757,7 @@ def _export_layout_shape_impl(env, target):
 def _sdk_repo_prefix(env, target):
     """The runfiles-frame prefix of the SDK sources, from the emitted layout."""
     layout_action = env.expect.that_target(target).action_generating(
-        "bazel_rules/go/tests/testdata/api/api_component.package-layout.json",
+        "bazel_rules/go/tests/testdata/api/api_component.package-layout.base.json",
     ).actual
     content = layout_action.content
     marker = "\"go_sdk_root\": \""

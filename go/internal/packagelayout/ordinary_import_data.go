@@ -55,6 +55,7 @@ type ImportGraph struct {
 	FormatVersion int                  `json:"format_version"`
 	Platform      *Platform            `json:"platform,omitempty"`
 	Packages      []ImportGraphPackage `json:"packages"`
+	Errors        []string             `json:"errors,omitempty"`
 }
 
 // ImportGraphPackage carries one package's exact direct import paths.
@@ -173,6 +174,9 @@ func ResolveOrdinaryImportData(l *Layout, workspaceDir string) error {
 	graph, err := readImportGraph(metadataPath)
 	if err != nil {
 		return fmt.Errorf("reading ordinary import metadata %q: %w", metadataPath, err)
+	}
+	if len(graph.Errors) > 0 {
+		return fmt.Errorf("ordinary import graph source projection failed: %s", strings.Join(graph.Errors, "; "))
 	}
 	if err := validateImportGraphPlatform(l.Platform, graph.Platform); err != nil {
 		return err
@@ -294,10 +298,114 @@ func readImportGraph(metadataPath string) (ImportGraph, error) {
 	if graph.FormatVersion != ordinaryImportDataFormatVersion {
 		return ImportGraph{}, fmt.Errorf("unsupported ordinary import metadata format version %d", graph.FormatVersion)
 	}
-	if len(graph.Packages) == 0 {
-		return ImportGraph{}, errors.New("ordinary import metadata contains no package records")
-	}
 	return graph, nil
+}
+
+// MergeImportGraphLayout applies the exact ordinary source-import graph to a
+// base layout artifact. The action-time merge makes the emitted package-layout
+// JSON self-describing for inspection; ResolveOrdinaryImportData repeats the
+// identity resolution at the runtime boundary and replaces placeholder IDs for
+// target-configured stdlib records.
+func MergeImportGraphLayout(baseLayoutPath, graphPath, outputPath string) error {
+	baseBytes, err := os.ReadFile(baseLayoutPath)
+	if err != nil {
+		return fmt.Errorf("reading base package layout %q: %w", baseLayoutPath, err)
+	}
+	layout, err := Parse(strings.NewReader(string(baseBytes)))
+	if err != nil {
+		return fmt.Errorf("parsing base package layout %q: %w", baseLayoutPath, err)
+	}
+	graph, err := readImportGraph(graphPath)
+	if err != nil {
+		return fmt.Errorf("reading ordinary import graph %q: %w", graphPath, err)
+	}
+	if err := validateImportGraphPlatform(layout.Platform, graph.Platform); err != nil {
+		return err
+	}
+	if len(graph.Errors) > 0 {
+		// Keep the default layout output buildable for a source that is itself
+		// malformed. The checked action will read the same descriptor and
+		// fail closed with the source-scanning diagnostic before packages.Load.
+		if err := os.WriteFile(outputPath, baseBytes, 0o666); err != nil {
+			return fmt.Errorf("writing base package layout %q: %w", outputPath, err)
+		}
+		return nil
+	}
+	index, err := indexLayoutPackages(layout)
+	if err != nil {
+		return err
+	}
+	rootPackages, _, err := layoutRootPackages(layout.Roots, index)
+	if err != nil {
+		return err
+	}
+	rootIDs := make(map[string]bool, len(rootPackages))
+	for _, pkg := range rootPackages {
+		rootIDs[pkg.ID] = true
+	}
+
+	seenRecords := make(map[string]bool, len(graph.Packages))
+	for _, record := range graph.Packages {
+		if record.ID == "" || record.PkgPath == "" {
+			return fmt.Errorf("ordinary import graph has a package with incomplete identity: ID=%q PkgPath=%q", record.ID, record.PkgPath)
+		}
+		if seenRecords[record.ID] {
+			return fmt.Errorf("ordinary import graph repeats package ID %q", record.ID)
+		}
+		seenRecords[record.ID] = true
+		pkg, ok := index.byID[record.ID]
+		if !ok {
+			return fmt.Errorf("ordinary import graph package %q is absent from the base layout", record.PkgPath)
+		}
+		if pkg.PkgPath != record.PkgPath {
+			return fmt.Errorf("ordinary import graph package %q has base layout path %q", record.PkgPath, pkg.PkgPath)
+		}
+		if rootIDs[pkg.ID] {
+			continue
+		}
+		imports := make(map[string]*packages.Package, len(record.Imports))
+		seenImports := make(map[string]bool, len(record.Imports))
+		for _, importPath := range record.Imports {
+			if importPath == "" {
+				return fmt.Errorf("ordinary package %q has an empty import path", record.PkgPath)
+			}
+			if importPath == "C" {
+				return fmt.Errorf("ordinary package %q includes cgo pseudo-import C", record.PkgPath)
+			}
+			if seenImports[importPath] {
+				return fmt.Errorf("ordinary package %q repeats import path %q", record.PkgPath, importPath)
+			}
+			seenImports[importPath] = true
+			// Ordinary package IDs are their import paths. Stdlib package IDs
+			// are host-specific and are repaired by the runtime resolver after
+			// its descriptor has been materialized, so the emitted artifact uses
+			// the path as a deterministic placeholder here.
+			imports[importPath] = &packages.Package{ID: importPath}
+		}
+		pkg.Imports = imports
+		if layout.importsOmitted == nil {
+			layout.importsOmitted = make(map[string]bool)
+		}
+		layout.importsOmitted[pkg.ID] = false
+	}
+	for _, pkg := range layout.Packages {
+		if rootIDs[pkg.ID] || layout.IsStdlibPackage(pkg) {
+			continue
+		}
+		if !seenRecords[pkg.ID] {
+			return fmt.Errorf("ordinary package %q has no record in ordinary import graph", pkg.PkgPath)
+		}
+	}
+
+	data, err := json.MarshalIndent(layout, "", "  ")
+	if err != nil {
+		return fmt.Errorf("encoding merged package layout: %w", err)
+	}
+	data = append(data, '\n')
+	if err := os.WriteFile(outputPath, data, 0o666); err != nil {
+		return fmt.Errorf("writing merged package layout %q: %w", outputPath, err)
+	}
+	return nil
 }
 
 func validateImportGraphPlatform(actual, expected *Platform) error {
@@ -412,16 +520,19 @@ func WriteImportGraph(configPath, outputPath string) error {
 			}
 			source, err := os.ReadFile(file)
 			if err != nil {
-				return fmt.Errorf("reading source file %q for ordinary package %q: %w", file, input.PkgPath, err)
+				graph.Errors = append(graph.Errors, fmt.Sprintf("ordinary package %q source file %q: %v", input.PkgPath, file, err))
+				continue
 			}
 			name, fileImports, _, err := scanGoSource(file, source)
 			if err != nil {
-				return fmt.Errorf("scanning source file %q for ordinary package %q: %w", file, input.PkgPath, err)
+				graph.Errors = append(graph.Errors, fmt.Sprintf("ordinary package %q source file %q: %v", input.PkgPath, file, err))
+				continue
 			}
 			if packageName == "" {
 				packageName = name
 			} else if packageName != name {
-				return fmt.Errorf("ordinary package %q has source package names %q and %q", input.PkgPath, packageName, name)
+				graph.Errors = append(graph.Errors, fmt.Sprintf("ordinary package %q has source package names %q and %q", input.PkgPath, packageName, name))
+				continue
 			}
 			for _, importPath := range fileImports {
 				imports[importPath] = true
@@ -441,6 +552,7 @@ func WriteImportGraph(configPath, outputPath string) error {
 			Imports: sortedImports,
 		})
 	}
+	sort.Strings(graph.Errors)
 
 	data, err := json.MarshalIndent(graph, "", "  ")
 	if err != nil {

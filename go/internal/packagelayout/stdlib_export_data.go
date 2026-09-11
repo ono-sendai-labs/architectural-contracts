@@ -106,6 +106,9 @@ func cloneStdlibExportData(data *StdlibExportData) (*StdlibExportData, error) {
 			BuildTags:        append([]string(nil), data.Target.BuildTags...),
 			GOEXPERIMENT:     data.Target.GOEXPERIMENT,
 		}
+		if clone.Target.BuildTags == nil {
+			clone.Target.BuildTags = []string{}
+		}
 		sort.Strings(clone.Target.BuildTags)
 	}
 	return clone, nil

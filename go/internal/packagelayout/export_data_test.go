@@ -437,6 +437,56 @@ func TestWriteImportGraphPreservesDirectStdlibImports(t *testing.T) {
 	}
 }
 
+func TestMergeImportGraphLayoutEmitsDirectStdlibEdge(t *testing.T) {
+	layout, workspace := stdlibExportLayoutFixture(t, false)
+	layout.OrdinaryImportData = &OrdinaryImportData{Metadata: ordinaryImportDataLogicalPath}
+	layout.Packages = append(layout.Packages, &packages.Package{
+		ID: "dep-id", Name: "dep", PkgPath: "example.com/dep",
+		ExportFile: "dep.x", Imports: map[string]*packages.Package{},
+	})
+	basePath := filepath.Join(workspace, "base.package-layout.json")
+	baseBytes, err := json.Marshal(layout)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(basePath, baseBytes, 0644); err != nil {
+		t.Fatal(err)
+	}
+	graphPath := filepath.Join(workspace, "imports.json")
+	graphBytes, err := json.Marshal(ImportGraph{
+		FormatVersion: ordinaryImportDataFormatVersion,
+		Platform:      layout.Platform,
+		Packages: []ImportGraphPackage{
+			{ID: "member-id", PkgPath: "example.com/member", Imports: []string{"example.com/dep"}},
+			{ID: "dep-id", PkgPath: "example.com/dep", Imports: []string{"strings"}},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(graphPath, graphBytes, 0644); err != nil {
+		t.Fatal(err)
+	}
+	outputPath := filepath.Join(workspace, "merged.package-layout.json")
+	if err := MergeImportGraphLayout(basePath, graphPath, outputPath); err != nil {
+		t.Fatalf("MergeImportGraphLayout() error = %v", err)
+	}
+	mergedBytes, err := os.ReadFile(outputPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	merged, err := Parse(bytes.NewReader(mergedBytes))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := packageByPath(merged, "example.com/dep").Imports["strings"].ID; got != "strings" {
+		t.Fatalf("emitted dep strings edge ID = %q, want strings placeholder", got)
+	}
+	if packageByPath(merged, "example.com/member").Imports != nil {
+		t.Fatalf("member Imports = %#v, want source-owned root to retain omitted map", packageByPath(merged, "example.com/member").Imports)
+	}
+}
+
 func TestAttachLayoutPathContextDerivesComponentAndImportGraphSibling(t *testing.T) {
 	workspace := t.TempDir()
 	layout := &Layout{
@@ -452,6 +502,47 @@ func TestAttachLayoutPathContextDerivesComponentAndImportGraphSibling(t *testing
 	}
 	if got, want := layout.OrdinaryImportData.Metadata, "bazel-out/bin/api_component.package-imports.json"; got != want {
 		t.Errorf("ordinary import metadata = %q, want %q", got, want)
+	}
+}
+
+func TestRunDriverNamesDerivedComponentOnMetadataError(t *testing.T) {
+	workspace := t.TempDir()
+	memberFile := filepath.Join(workspace, "member.go")
+	if err := os.WriteFile(memberFile, []byte("package member\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	version := "go1.26.4"
+	layout := &Layout{
+		GoSDKRoot: "",
+		Platform:  &Platform{GOOS: "linux", GOARCH: "amd64", ToolchainVersion: &version},
+		Roots:     []string{"member-id"},
+		Packages: []*packages.Package{{
+			ID: "member-id", Name: "member", PkgPath: "example.com/member",
+			GoFiles: []string{"member.go"}, CompiledGoFiles: []string{"member.go"},
+		}},
+		StdlibExportData: &StdlibExportData{
+			Metadata: "missing.stdlib.pkg.json",
+			Target: &StdlibExportTarget{
+				ToolchainVersion: version, GOOS: "linux", GOARCH: "amd64",
+			},
+		},
+	}
+	layoutPath := filepath.Join(workspace, "broken_component.package-layout.json")
+	layoutBytes, err := json.Marshal(layout)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(layoutPath, layoutBytes, 0644); err != nil {
+		t.Fatal(err)
+	}
+	err = RunDriver(layoutPath, workspace, []string{"example.com/member"}, strings.NewReader(`{"Mode":0}`), new(bytes.Buffer))
+	if err == nil {
+		t.Fatal("RunDriver() error = nil, want missing metadata failure")
+	}
+	for _, want := range []string{"broken_component", "missing.stdlib.pkg.json", "does not exist"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error = %q, want substring %q", err, want)
+		}
 	}
 }
 
