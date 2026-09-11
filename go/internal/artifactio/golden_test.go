@@ -153,6 +153,7 @@ func TestShapeSnapshotSurfaceMakesDefaultSemanticsExplicit(t *testing.T) {
 
 func TestShapeSnapshotMapRetainsTerminalClassesAndOrdering(t *testing.T) {
 	input := validMap()
+	input.Key.ClassifierHash = "classifier"
 	input.Symbols = append(input.Symbols, &gen.SymbolRecord{
 		Package:        "bytes",
 		Id:             "bytes.Reader",
@@ -220,6 +221,8 @@ func TestShapeSnapshotsAreByteIdenticalAcrossLogicalOrderings(t *testing.T) {
 
 	mapA := validMap()
 	mapB := validMap()
+	mapA.Key.ClassifierHash = "classifier"
+	mapB.Key.ClassifierHash = "classifier"
 	mapB.Packages = []*gen.PackageInventory{mapB.Packages[2], mapB.Packages[0], mapB.Packages[1]}
 	mapB.Symbols = []*gen.SymbolRecord{mapB.Symbols[1], mapB.Symbols[0]}
 	mapB.Inits = []*gen.InitRecord{mapB.Inits[1], mapB.Inits[0]}
@@ -275,11 +278,21 @@ func TestShapeSnapshotsAreByteIdenticalAcrossLogicalOrderings(t *testing.T) {
 }
 
 func TestShapeSnapshotCanonicalizesOnlyThroughProductionBoundary(t *testing.T) {
-	surfaceData, err := MarshalSurface(validSurface())
+	surfaceInput := validSurface()
+	surfaceInput.SdkKey = &gen.SDKKey{
+		ToolchainVersion: "go1.26.4",
+		Goos:             "linux",
+		Goarch:           "amd64",
+		ClassifierHash:   "classifier",
+		MapFormatVersion: 1,
+	}
+	surfaceData, err := MarshalSurface(surfaceInput)
 	if err != nil {
 		t.Fatalf("MarshalSurface: %v", err)
 	}
-	mapData, err := MarshalMap(validMap())
+	mapInput := validMap()
+	mapInput.Key.ClassifierHash = "classifier"
+	mapData, err := MarshalMap(mapInput)
 	if err != nil {
 		t.Fatalf("MarshalMap: %v", err)
 	}
@@ -310,6 +323,33 @@ func TestShapeSnapshotCanonicalizesOnlyThroughProductionBoundary(t *testing.T) {
 				t.Errorf("Snapshot() error = %v, want text %q", err, tc.want)
 			}
 		})
+	}
+}
+
+func TestShapeSnapshotRequiresCompleteSDKKey(t *testing.T) {
+	surface := validSurface()
+	surface.SdkKey = &gen.SDKKey{
+		ToolchainVersion: "go1.26.4",
+		Goos:             "linux",
+		Goarch:           "amd64",
+		MapFormatVersion: 1,
+	}
+	surfaceData, err := MarshalSurface(surface)
+	if err != nil {
+		t.Fatalf("MarshalSurface: %v", err)
+	}
+	if _, err := Snapshot(ShapeSurface, bytes.NewReader(surfaceData)); err == nil || !strings.Contains(err.Error(), "classifier_hash") {
+		t.Errorf("Snapshot(surface with incomplete key) error = %v, want classifier_hash validation", err)
+	}
+
+	stdlibMap := validMap()
+	stdlibMap.Key.ClassifierHash = ""
+	mapData, err := MarshalMap(stdlibMap)
+	if err != nil {
+		t.Fatalf("MarshalMap: %v", err)
+	}
+	if _, err := Snapshot(ShapeMap, bytes.NewReader(mapData)); err == nil || !strings.Contains(err.Error(), "classifier_hash") {
+		t.Errorf("Snapshot(map with incomplete key) error = %v, want classifier_hash validation", err)
 	}
 }
 

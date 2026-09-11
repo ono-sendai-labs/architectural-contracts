@@ -414,6 +414,25 @@ func sdkKeyShapeOf(key *gen.SDKKey) (sdkKeyShape, error) {
 	if key == nil {
 		return sdkKeyShape{}, fmt.Errorf("artifact shape requires a complete SDK key")
 	}
+	missing := []string{}
+	if key.ToolchainVersion == "" {
+		missing = append(missing, "toolchain_version")
+	}
+	if key.Goos == "" {
+		missing = append(missing, "goos")
+	}
+	if key.Goarch == "" {
+		missing = append(missing, "goarch")
+	}
+	if key.ClassifierHash == "" {
+		missing = append(missing, "classifier_hash")
+	}
+	if key.MapFormatVersion == 0 {
+		missing = append(missing, "map_format_version")
+	}
+	if len(missing) > 0 {
+		return sdkKeyShape{}, fmt.Errorf("artifact shape requires a complete SDK key, missing: %s", strings.Join(missing, ", "))
+	}
 	goexperiment := key.Goexperiment
 	if goexperiment != "" {
 		goexperiment = shapeSDKExperiment

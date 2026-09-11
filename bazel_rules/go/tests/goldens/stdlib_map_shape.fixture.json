@@ -4,7 +4,7 @@
     "toolchainVersion": "go1.26.4",
     "goos": "linux",
     "goarch": "amd64",
-    "classifierHash": "shape-fixture-classifier",
+    "classifierHash": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
     "mapFormatVersion": 1
   },
   "packages": [
