@@ -1,0 +1,285 @@
+review:
+  project: 2026-08-04-compositional-component-analysis
+  scope: step
+  step: 8
+  plan_path: .agents/planning/2026-08-04-compositional-component-analysis/implementation/plan.md
+  design_path: .agents/planning/2026-08-04-compositional-component-analysis/design/detailed-design.md
+  reviewed_at: 2026-09-11T14:37:02Z
+  schema_version: 1
+  steps_in_scope: [8]
+  commits_in_scope: 31
+  remediation_step: .agents/tasks/2026-08-04-compositional-component-analysis/step08/
+  verdict: remediation_recommended
+
+summary: |
+  The confirmation pass finds the original F1 and F2 resolved in the current
+  implementation. F1 is closed fail-closed: selected member Go remains source,
+  excluded Go is retained as IgnoredFiles, assembly is retained as OtherFiles,
+  the driver clears every source role on non-members, and the executing strict/WARN
+  fixture would fail if any of the three bypass sites disappeared. F2 is resolved
+  across the design overview, N1/N2, topology, type-loading, composition, acceptance
+  matrix, schema discussion, and Step 8 research note, which now disclose and require
+  measurement of the cached ArccImportGraph projection. One important documentation
+  inconsistency remains: the schema and research note's supposedly exact ArccCheck
+  inventory still says selected member .go files only, omitting the excluded Go and
+  assembly inputs restored for F1; one documentation remediation task is generated.
+
+architecture:
+  - element: Export-data layout schema and fail-closed closure validation
+    expected: |
+      Component layouts distinguish member source roots from export-backed
+      non-members, retain a transitively complete import graph, and reject malformed
+      paths, missing nodes, missing artifacts, and omitted leaf maps before
+      packages.Load.
+    actual: |
+      Layout, OrdinaryImportData, and StdlibExportData form the effective graph;
+      ValidateAndResolveForMemberOnly resolves member file roles, materializes the
+      ordinary and stdlib descriptors, and validates the complete reachable export
+      closure before serving the driver.
+    status: aligned
+    files:
+      - go/internal/packagelayout/packagelayout.go
+      - go/internal/packagelayout/ordinary_import_data.go
+      - go/internal/packagelayout/stdlib_export_data.go
+    notes: |
+      Source-backed whole-stdlib layouts retain their separate validation path.
+
+  - element: Ordinary package export-data adapter and exact import graph
+    expected: |
+      The rules_go-specific adapter exposes one deterministic export artifact per
+      ordinary package, while a host-neutral projection supplies exact imports,
+      including ordinary-to-stdlib edges omitted by GoArchive.direct.
+    actual: |
+      go_adapter.bzl confines GoArchive.data.export_file access to the adapter; the
+      aspect merges duplicate package records fail-closed, and ArccImportGraph emits
+      sorted target-selected imports that the runtime resolves against the effective
+      package graph.
+    status: aligned
+    files:
+      - bazel_rules/go/private/go_adapter.bzl
+      - bazel_rules/go/private/aspect.bzl
+      - bazel_rules/go/private/component.bzl
+      - go/internal/packagelayout/ordinary_import_data.go
+    notes: |
+      The stale fixture comments retained as F3 do not affect the graph.
+
+  - element: Target-configured standard-library export-data seam
+    expected: |
+      A host-neutral adapter supplies the target stdlib graph, export artifacts, and
+      complete GOOS/GOARCH/cgo/tags/toolchain/GOEXPERIMENT identity without exposing
+      SDK source or toolchain executables to ArccCheck.
+    actual: |
+      GoStdLib metadata plus generated cache/pkg trees are validated against the
+      selected map identity and merged into the effective layout; ArccCheck sees only
+      those generated artifacts.
+    status: aligned
+    files:
+      - bazel_rules/go/private/go_adapter.bzl
+      - go/internal/packagelayout/stdlib_export_data.go
+      - bazel_rules/go/tests/stdlib_export_data_tests.bzl
+    notes: |
+      The successful seam test still omits three less-visible identity assertions;
+      that deliberately deferred suggestion remains F4.
+
+  - element: One-analysis-action topology and auxiliary metadata producers
+    expected: |
+      Exactly one ArccCheck action checks each checked component. Auxiliary
+      declared-input producers may read non-member source when the pinned ruleset
+      cannot supply metadata, but must be hermetic and must not pass that source to
+      ArccCheck.
+    actual: |
+      ArccImportGraph reads a declared ordinary non-member source set and emits one
+      import descriptor; ArccLayout reads only the base layout and descriptor; and
+      ArccCheck reads the final layout, descriptor, member analysis files, exports,
+      map, and direct dependency artifacts. The design and linked documentation now
+      disclose this cached lexical projection and its closure-shaped cost.
+    status: aligned
+    files:
+      - bazel_rules/go/private/component.bzl
+      - bazel_rules/go/tests/component_tests.bzl
+      - .agents/planning/2026-08-04-compositional-component-analysis/design/detailed-design.md
+      - .agents/planning/2026-08-04-compositional-component-analysis/research/step08-input-pruning.md
+    notes: |
+      This resolves prior F2. The Step 13 performance row requires action count,
+      ordinary-source count/bytes, projection and layout elapsed contribution, export
+      count/bytes, and ArccCheck loader time.
+
+  - element: Member-only go/packages loading and typed reference fidelity
+    expected: |
+      Production component loads omit NeedDeps, keep full syntax and types.Info only
+      for members, read every reachable non-member from export data, reject incomplete
+      or version-skewed artifacts, and preserve Step 6 reference/import semantics.
+    actual: |
+      componentLoadMode omits NeedDeps; the driver clears all non-member source-shaped
+      fields; pre- and post-load guards enforce the role split; and integration
+      matrices cover source-absent deep closures, typed references, imports,
+      incomplete graphs, and incompatible producer versions.
+    status: aligned
+    files:
+      - go/internal/goanalysis/goanalysis.go
+      - go/internal/packagelayout/packagelayout.go
+      - go/internal/goanalysis/member_only_integration_test.go
+      - go/internal/goanalysis/member_only_load_test.go
+    notes: |
+      Native mode intentionally obtains export data through the host Go driver.
+
+  - element: Complete member source vocabulary for AnalysisDefeating scanning
+    expected: |
+      Selected member Go files remain type-checking roots; build-excluded Go files
+      remain visible as IgnoredFiles; assembly remains visible as OtherFiles; every
+      required member file is an ArccCheck input; and all non-member source remains
+      absent from that action and from the driver projection.
+    actual: |
+      component.bzl emits all declared non-Go files as OtherFiles and stages the
+      complete member source set. ValidateAndResolveForMemberOnly deterministically
+      partitions excluded Go files into IgnoredFiles, and projectDriverPackages keeps
+      every member role while clearing GoFiles, CompiledGoFiles, IgnoredFiles,
+      OtherFiles, embed fields, and syntax state from non-members. The strict report
+      contains assembly, linkname, and cgo sites as a violation; WARN retains the same
+      three sites as ANALYSIS_LIMITATION warnings.
+    status: aligned
+    files:
+      - bazel_rules/go/private/component.bzl
+      - go/internal/packagelayout/packagelayout.go
+      - go/internal/goanalysis/defeatscan.go
+      - bazel_rules/go/tests/testdata/defeat/BUILD.bazel
+      - bazel_rules/go/tests/BUILD.bazel
+      - bazel_rules/go/tests/component_tests.bzl
+    notes: |
+      This resolves prior F1. Removing the restored roles makes the strict report pass
+      instead of fail and removes required file names; the strict verdict-plus-grep
+      test therefore fails. Regressing any one role is also caught because both strict
+      and WARN tests require every site, while the action-input test rejects shared.go
+      and every unexpected non-member .go/.s input.
+
+  - element: Public member-file role and action-input documentation
+    expected: |
+      The build-emitter schema and Step 8 evidence describe the same complete member
+      analysis-file vocabulary that the fail-closed implementation requires.
+    actual: |
+      The implementation correctly retains selected Go, excluded Go, and assembly,
+      but docs/package-layout-schema.md and step08-input-pruning.md still describe the
+      exact ArccCheck inventory as selected member .go files only and never document
+      the IgnoredFiles/OtherFiles roles.
+    status: partial
+    files:
+      - docs/package-layout-schema.md
+      - .agents/planning/2026-08-04-compositional-component-analysis/research/step08-input-pruning.md
+    notes: |
+      F6 is documentation drift, not a remaining fail-open in the current code.
+
+  - element: Export-data diagnostics and canonical report integration
+    expected: |
+      Reports record the deduplicated count and byte total of actual non-member export
+      artifacts in native and Bazel modes without affecting verdicts, and older reports
+      remain readable.
+    actual: |
+      The loader validates, canonicalizes, deduplicates, stats, and overflow-checks
+      export paths; the application carries the values into deterministic report
+      JSON/text, and legacy reports decode with zero diagnostics.
+    status: aligned
+    files:
+      - go/internal/goanalysis/goanalysis.go
+      - go/internal/facts/facts.go
+      - go/internal/report/report.go
+      - go/internal/artifactio/report.go
+    notes: ""
+
+doc_code_alignment:
+  - artifact: docs/package-layout-schema.md
+    section: 3a Source and export-data package roles / 3b Bazel handoff
+    issue: |
+      The public emitter contract says member roots retain selected GoFiles and
+      CompiledGoFiles and that ArccCheck declares exactly selected member .go files.
+      Current fail-closed behavior also retains build-excluded member Go as
+      IgnoredFiles and assembly as OtherFiles and declares both as action inputs.
+    suggested_action: update_doc
+    related_finding: F6
+
+  - artifact: .agents/planning/2026-08-04-compositional-component-analysis/research/step08-input-pruning.md
+    section: Final ArccCheck input inventory
+    issue: |
+      The supposedly final inventory and its test description say target-selected or
+      member-only .go inputs, omitting build-excluded Go and assembly restored by F1.
+    suggested_action: update_doc
+    related_finding: F6
+
+findings:
+  - id: F6
+    severity: important
+    category: doc_divergence
+    file: docs/package-layout-schema.md
+    line: 260
+    title: Exact ArccCheck inventory omits fail-closed member file roles
+    details: |
+      docs/package-layout-schema.md:178-205 describes member roots only through
+      selected GoFiles/CompiledGoFiles, and line 260 says the checked action declares
+      exactly selected member .go files. The Step 8 evidence repeats target-selected
+      .go files at step08-input-pruning.md:8 and calls the analysis assertion an exact
+      member-only .go set at line 25. After F1, component.bzl:142-172 emits non-Go
+      member files as OtherFiles, lines 909-916 stage all declared member sources, and
+      packagelayout.go:1800-1837 preserves assembly and moves excluded Go into
+      IgnoredFiles. The implementation and design's generic "member sources" wording
+      are correct, but the public emitter contract and evidence can direct a future
+      implementation back to the fail-open that F1 fixed.
+    suggested_action: |
+      Document the selected Go, build-excluded Go/ignored, and assembly/other member
+      roles in the package-layout schema; correct the exact ArccCheck allowlist and the
+      Step 8 research inventory/test description; and preserve the explicit exclusion
+      of every non-member and SDK source input.
+    source: built-in
+    addressed_by: .agents/tasks/2026-08-04-compositional-component-analysis/step08/task-09-reconcile-member-file-role-documentation.code-task.md
+
+  - id: F3
+    severity: suggestion
+    category: consistency
+    file: bazel_rules/go/tests/aspect_tests.bzl
+    line: 138
+    title: Fixture comments describe the pre-split embed graph
+    details: |
+      The normal probe uses the direct core fixture, while the real embed edge is under
+      the separate embed probe. Comments at lines 138-140 and 185-186 still attribute
+      the normal closure to embed folding and inherited dependencies. Assertions remain
+      correct, so this deliberately deferred item is unchanged from the first report.
+    suggested_action: |
+      Rewrite the comments for the direct core fixture and point embed-specific
+      reasoning at the dedicated embed probe when this test is next maintained.
+    source: built-in
+
+  - id: F4
+    severity: suggestion
+    category: coverage
+    file: bazel_rules/go/tests/stdlib_export_data_tests.bzl
+    line: 36
+    title: Positive stdlib seam test omits three identity fields
+    details: |
+      The successful descriptor test directly asserts GOOS, GOARCH, and cgo but not
+      build tags, normalized toolchain version, or GOEXPERIMENT. Production comparison
+      covers all six fields and mismatch coverage exists, so this deliberately deferred
+      item remains non-blocking.
+    suggested_action: |
+      Assert all successful target identity fields or add focused transitioned fixtures
+      for tags, toolchain version, and GOEXPERIMENT when extending this seam.
+    source: built-in
+
+  - id: F5
+    severity: nit
+    category: style
+    file: bazel_rules/go/private/component.bzl
+    line: 38
+    title: Starlark load entry uses a tab
+    details: |
+      The go_build_platform load entry still begins with a tab while surrounding entries
+      use spaces. Bazel behavior is unaffected; this deliberately deferred nit remains
+      unchanged from the first report.
+    suggested_action: |
+      Replace the tab with surrounding indentation when this file is next touched.
+    source: built-in
+
+remediation_tasks:
+  - path: .agents/tasks/2026-08-04-compositional-component-analysis/step08/task-09-reconcile-member-file-role-documentation.code-task.md
+    title: Reconcile Member File-Role Documentation
+    addresses_findings: [F6]
+    sequence: 1
+
+ecosystem_reviews: []
