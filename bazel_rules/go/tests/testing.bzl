@@ -36,7 +36,7 @@ def _test_attach_predicate(roots, entry, package_view = None):
         for root in roots:
             if ArccPackageInfo not in root:
                 return False
-        return go_attach_infra(roots, entry)
+        return go_attach_infra(roots, entry, package_view)
     if attach_mode == "CLOSURE":
         search_patterns = entry.import_path_patterns
         if not search_patterns:

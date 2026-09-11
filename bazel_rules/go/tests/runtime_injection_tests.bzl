@@ -16,6 +16,7 @@ RuntimeInjectionProbeInfo = provider(fields = ["attrs", "packages"])
 _INJECTED_COMPONENT = "//bazel_rules/go/tests/testdata/injected_runtime:runtime_injection_component"
 _CGO_COMPONENT = "//bazel_rules/go/tests:injected_cgo_component"
 _CONFLICT_COMPONENT = "//bazel_rules/go/tests:injected_conflict_component"
+_ORDINARY_CONFLICT_COMPONENT = "//bazel_rules/go/tests:injected_ordinary_conflict_component"
 _ORDER_COMPONENT_A = "//bazel_rules/go/tests:injected_order_component_a"
 _ORDER_COMPONENT_B = "//bazel_rules/go/tests:injected_order_component_b"
 
@@ -126,6 +127,9 @@ def _injected_runtime_is_merged_and_attached_impl(env, target):
     env.expect.that_collection(check_inputs).contains("runtime_boundary.surface.json")
     env.expect.that_collection(check_inputs).contains("runtime.x")
     env.expect.that_collection([name for name in check_inputs if name == "runtime.go"]).contains_exactly([])
+    env.expect.that_int(
+        len([action for action in target.actions if action.mnemonic == "ArccCheck"]),
+    ).equals(1)
 
 def _injected_cgo_fails_test(name):
     analysis_test(
@@ -161,6 +165,23 @@ def _injected_export_conflict_fails_impl(env, target):
         matching.str_matches("*injected_conflict_node_b*bazel_rules/go/tests/test_export_b.data*"),
     )
 
+def _injected_ordinary_export_conflict_fails_test(name):
+    analysis_test(
+        name = name,
+        target = _ORDINARY_CONFLICT_COMPONENT,
+        impl = _injected_ordinary_export_conflict_fails_impl,
+        attr_values = {"size": "small"},
+        expect_failure = True,
+    )
+
+def _injected_ordinary_export_conflict_fails_impl(env, target):
+    env.expect.that_target(target).failures().contains_predicate(
+        matching.str_matches("*example.com/aspect/api*conflicting export_file*"),
+    )
+    env.expect.that_target(target).failures().contains_predicate(
+        matching.str_matches("*injected_ordinary_conflict_package*bazel_rules/go/tests/test_export_b.data*"),
+    )
+
 def _injected_package_order_is_deterministic_test(name):
     analysis_test(
         name = name,
@@ -188,6 +209,7 @@ def runtime_injection_test_suite(name):
         _injected_runtime_is_merged_and_attached_test,
         _injected_cgo_fails_test,
         _injected_export_conflict_fails_test,
+        _injected_ordinary_export_conflict_fails_test,
         _injected_package_order_is_deterministic_test,
     ]:
         test_name = get_test_name_from_function(setup_func)

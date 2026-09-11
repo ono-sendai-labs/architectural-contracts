@@ -59,6 +59,11 @@ fake_runtime_package(
     export_file = "test_export_b.data",
 )
 fake_runtime_package(
+    name = "injected_ordinary_conflict_package",
+    importpath = "example.com/aspect/api",
+    export_file = "test_export_b.data",
+)
+fake_runtime_package(
     name = "injected_order_node_a",
     importpath = "example.com/injected/order-a",
     export_file = "test_export_a.data",
@@ -82,6 +87,12 @@ testing_go_component_direct(
         ":injected_conflict_node_a",
         ":injected_conflict_node_b",
     ],
+)
+testing_go_component_direct(
+    name = "injected_ordinary_conflict_component",
+    interface = "//bazel_rules/go/tests/testdata/api:api",
+    tags = ["manual"],
+    test_runtime_packages = [":injected_ordinary_conflict_package"],
 )
 testing_go_component_direct(
     name = "injected_order_component_a",
