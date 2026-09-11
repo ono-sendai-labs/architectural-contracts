@@ -3,7 +3,7 @@ load("@rules_shell//shell:sh_test.bzl", "sh_test")
 load("//bazel_rules/go/private:check.bzl", "arcc_check_grep_test", "arcc_check_layout_golden_test", "arcc_check_report_golden_test", "arcc_check_surface_golden_test", "arcc_check_test", "arcc_check_verdict_golden_test", "arcc_checked_analysis_test")
 load(":aspect_tests.bzl", "arcc_deps_aspect_full_test_suite", "arcc_deps_aspect_test_suite")
 load(":artifact_shape_tests.bzl", "artifact_shape_test_suite")
-load(":asserted_surface_tests.bzl", "asserted_surface_test_suite")
+load(":asserted_surface_tests.bzl", "asserted_surface_comparison", "asserted_surface_test_suite")
 load(":component_tests.bzl", "go_component_test_suite")
 load(":layout_shape_tests.bzl", "layout_shape_test_suite")
 load(":pattern_match_test.bzl", "pattern_match_test_suite")
@@ -187,6 +187,32 @@ arcc_deps_aspect_test_suite(name = "arcc_deps_aspect_tests")
 go_component_test_suite(name = "go_component_tests")
 
 asserted_surface_test_suite(name = "asserted_surface_tests")
+
+# The same UNKNOWN component name and package set in three packages exercise
+# reordered and duplicate raw member declarations. The analysis test compares
+# provider package collections; this execution test compares persisted bytes.
+asserted_surface_comparison(
+    name = "reordered_asserted_surface_comparison",
+    component_a = "//bazel_rules/go/tests/testdata/reportboundary/reordered_a:reordered_component",
+    component_b = "//bazel_rules/go/tests/testdata/reportboundary/reordered_b:reordered_component",
+    component_duplicate = "//bazel_rules/go/tests/testdata/reportboundary/reordered_duplicate:reordered_component",
+)
+
+sh_test(
+    name = "reordered_unknown_surface_bytes_test",
+    srcs = ["asserted_surface_determinism_test.sh"],
+    size = "small",
+    args = [
+        "$(rootpath //bazel_rules/go/tests/testdata/reportboundary/reordered_a:reordered_surface)",
+        "$(rootpath //bazel_rules/go/tests/testdata/reportboundary/reordered_b:reordered_surface)",
+        "$(rootpath //bazel_rules/go/tests/testdata/reportboundary/reordered_duplicate:reordered_surface)",
+    ],
+    data = [
+        "//bazel_rules/go/tests/testdata/reportboundary/reordered_a:reordered_surface",
+        "//bazel_rules/go/tests/testdata/reportboundary/reordered_b:reordered_surface",
+        "//bazel_rules/go/tests/testdata/reportboundary/reordered_duplicate:reordered_surface",
+    ],
+)
 artifact_shape_test_suite(name = "artifact_shape_tests")
 layout_shape_test_suite(name = "layout_shape_tests")
 

@@ -199,15 +199,19 @@ def _go_component_impl(name, visibility, **kwargs):
     component_is_asserted = set_kwargs.get("authority", DECLARED) == UNKNOWN
 
     raw_members = set_kwargs.get("members", [])
-    target_members = []
+    target_members = {}
     for m in raw_members:
         m_str = str(m)
         if _is_label(m_str) and not _has_wildcards(m_str):
-            target_members.append(m_str)
+            # The public macro receives members as strings before the private
+            # rule's typed label_list is instantiated. Canonicalize repeated
+            # labels here so equivalent declarations cannot be rejected by
+            # the typed attr or perturb asserted-surface ordering.
+            target_members[m_str] = True
         else:
             fail("component %s: members must be literal target labels: %r" % (name, m_str))
 
-    set_kwargs["members"] = target_members
+    set_kwargs["members"] = sorted(target_members.keys())
     if "infra_deps" not in set_kwargs:
         set_kwargs["infra_deps"] = go_infra_deps()
 

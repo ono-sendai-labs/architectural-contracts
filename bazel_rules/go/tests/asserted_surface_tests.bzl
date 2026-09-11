@@ -11,6 +11,35 @@ load("@rules_testing//lib:analysis_test.bzl", "analysis_test", "test_suite")
 load("@rules_testing//lib:truth.bzl", "matching")
 load("//bazel_rules:providers.bzl", "ArccComponentInfo")
 
+_AssertedSurfaceComparisonInfo = provider(fields = ["package_sets"])
+
+def _asserted_surface_comparison_impl(ctx):
+    package_sets = []
+    for component in [ctx.attr.component_a, ctx.attr.component_b, ctx.attr.component_duplicate]:
+        info = component[ArccComponentInfo]
+        if info.provenance != "asserted" or info.report != None or info.surface == None:
+            fail("asserted surface comparison inputs must be asserted providers")
+        package_sets.append(sorted([pkg.importpath for pkg in info.closure.to_list()]))
+    return [_AssertedSurfaceComparisonInfo(package_sets = package_sets)]
+
+asserted_surface_comparison = rule(
+    implementation = _asserted_surface_comparison_impl,
+    attrs = {
+        "component_a": attr.label(
+            mandatory = True,
+            providers = [ArccComponentInfo],
+        ),
+        "component_b": attr.label(
+            mandatory = True,
+            providers = [ArccComponentInfo],
+        ),
+        "component_duplicate": attr.label(
+            mandatory = True,
+            providers = [ArccComponentInfo],
+        ),
+    },
+)
+
 _ASSERTED_COMPONENT = "//bazel_rules/go/tests/testdata/reportboundary/manual:manual_component"
 _TAGGED_DECLARED_COMPONENT = "//bazel_rules/go/tests/testdata/reportboundary/manual:tagged_declared_component"
 _DIRECT_INVALID_AUTHORITY_COMPONENT = "//bazel_rules/go/tests/testdata/reportboundary/manual:direct_invalid_authority_component"
@@ -49,6 +78,26 @@ def _manual_tagged_declared_stays_checked_impl(env, target):
     manifest = env.expect.that_target(target).action_generating(info.manifest.short_path).actual.content
     if "authority: UNKNOWN" in manifest:
         env.fail("manual tag must not synthesize UNKNOWN authority")
+
+def _reordered_unknown_provider_test(name):
+    analysis_test(
+        name = name,
+        target = "//bazel_rules/go/tests:reordered_asserted_surface_comparison",
+        impl = _reordered_unknown_provider_impl,
+        attr_values = {"size": "small"},
+    )
+
+def _reordered_unknown_provider_impl(env, target):
+    expected = [
+        "example.com/aspect/shared",
+        "example.com/reportboundary/manual",
+    ]
+    package_sets = target[_AssertedSurfaceComparisonInfo].package_sets
+    env.expect.that_int(len(package_sets)).equals(3)
+    for package_set in package_sets:
+        env.expect.that_collection(package_set).contains_exactly(expected).in_order()
+    if package_sets[0] != package_sets[1] or package_sets[0] != package_sets[2]:
+        env.fail("equivalent UNKNOWN providers expose different package collections: %s" % package_sets)
 
 def _explicit_check_of_asserted_component_fails_test(name):
     # AC 5 (task req 7): an explicitly requested `.check` of an asserted
@@ -216,6 +265,7 @@ def asserted_surface_test_suite(name):
             _surface_schema_has_no_provenance_bit_test,
             _default_outputs_unchanged_test,
             _manual_tagged_declared_stays_checked_test,
+            _reordered_unknown_provider_test,
             _invalid_direct_authority_fails_test,
             _explicit_check_of_asserted_component_fails_test,
         ],

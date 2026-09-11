@@ -1,0 +1,22 @@
+load("@rules_arcc//bazel_rules/go:defs.bzl", "PACKAGE_SURFACE", "UNKNOWN", "go_component")
+
+# The same two UNKNOWN members as reordered_b, deliberately listed in the
+# opposite order. Their component names and semantic inputs are otherwise
+# identical, so their asserted surfaces must be byte-identical.
+go_component(
+    name = "reordered_component",
+    authority = UNKNOWN,
+    interface_style = PACKAGE_SURFACE,
+    members = [
+        "//bazel_rules/go/tests/testdata/reportboundary/manual:manual",
+        "//bazel_rules/go/tests/testdata/shared:shared",
+    ],
+    visibility = ["//bazel_rules:__subpackages__"],
+)
+
+filegroup(
+    name = "reordered_surface",
+    srcs = [":reordered_component"],
+    output_group = "arcc",
+    visibility = ["//bazel_rules:__subpackages__"],
+)

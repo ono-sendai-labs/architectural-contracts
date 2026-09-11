@@ -94,16 +94,16 @@ def testing_go_component(name, visibility = None, **kwargs):
     set_kwargs = {key: value for key, value in kwargs.items() if value != None}
 
     raw_members = set_kwargs.get("members", [])
-    target_members = []
+    target_members = {}
     for m in raw_members:
         m_str = str(m)
         if m_str.startswith("//") or m_str.startswith(":") or m_str.startswith("@"):
             if not any([c in m_str for c in ["*", "?", "[", "]", "\\"]]):
-                target_members.append(m_str)
+                target_members[m_str] = True
                 continue
         fail("component %s: members must be literal target labels: %r" % (name, m_str))
 
-    set_kwargs["members"] = target_members
+    set_kwargs["members"] = sorted(target_members.keys())
 
     # Mirror the production macro (defs.bzl): only the explicit authority
     # selector suppresses the generated `.check`; `check_tags` are tags for the
