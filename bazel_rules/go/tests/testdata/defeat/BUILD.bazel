@@ -1,0 +1,37 @@
+load("@rules_arcc//bazel_rules/go:defs.bzl", "go_component")
+load("@rules_go//go:def.bzl", "go_library")
+
+go_library(
+    name = "defeat",
+    srcs = [
+        "ignored_cgo.go",
+        "ignored_link.go",
+        "member.go",
+        "stub.s",
+    ],
+    importpath = "example.com/aspect/defeat",
+    visibility = ["//bazel_rules:__subpackages__"],
+)
+
+# This component keeps every member source in the checked action while its
+# report is asserted by focused tests below. The direct dependency and the
+# strings import make the N2 action-input allowlist observable in both
+# directions: surfaces/export data are present, source is absent.
+go_component(
+    name = "strict_component",
+    component_deps = ["//bazel_rules/go/tests/testdata/shared:shared_component"],
+    interface_style = "PACKAGE_SURFACE",
+    members = [":defeat"],
+    check_tags = ["manual"],
+    visibility = ["//bazel_rules:__subpackages__"],
+)
+
+go_component(
+    name = "warn_component",
+    component_deps = ["//bazel_rules/go/tests/testdata/shared:shared_component"],
+    interface_style = "PACKAGE_SURFACE",
+    members = [":defeat"],
+    analysis_defeating_policy = "warn",
+    check_tags = ["manual"],
+    visibility = ["//bazel_rules:__subpackages__"],
+)

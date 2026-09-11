@@ -32,6 +32,7 @@ _UNKNOWN_PROVENANCE_COMPONENT = "//bazel_rules/go/tests/testdata/reportboundary/
 _DUPLICATE_DEPENDENCY_COMPONENT = "//bazel_rules/go/tests/testdata/reportboundary/consumer:duplicate_dependency_component"
 _CONFLICTING_EDGE_COMPONENT = "//bazel_rules/go/tests/testdata/reportboundary/consumer:conflicting_edge_component"
 _INVALID_ANALYSIS_DEFEATING_POLICY_COMPONENT = "//bazel_rules/go/tests/testdata/conflict:invalid_analysis_defeating_policy_component"
+_DEFEAT_STRICT_COMPONENT = "//bazel_rules/go/tests/testdata/defeat:strict_component"
 
 def _membership_classification_test(name):
     analysis_test(
@@ -791,6 +792,58 @@ def _checked_action_inputs_impl(env, target):
     env.expect.that_collection([b for b in non_sdk_inputs if ".export" in b]).contains_exactly([])
     env.expect.that_collection([b for b in non_sdk_inputs if b == "go" or b.endswith(".a")]).contains_exactly([])
 
+def _defeat_member_action_inputs_test(name):
+    analysis_test(
+        name = name,
+        target = _DEFEAT_STRICT_COMPONENT,
+        impl = _defeat_member_action_inputs_impl,
+        attr_values = {"size": "small"},
+    )
+
+def _defeat_member_action_inputs_impl(env, target):
+    """Pins all declared member file roles at the final ArccCheck boundary."""
+    info = target[ArccComponentInfo]
+    action, raw = _checked_action(env, target)
+    inputs = [file.short_path for file in raw.inputs.to_list()]
+    input_basenames = [path.rsplit("/", 1)[-1] for path in inputs]
+
+    member_basenames = sorted([
+        source.basename
+        for package in info.closure.to_list()
+        for source in package.srcs
+    ])
+    env.expect.that_collection(input_basenames).contains_exactly(
+        member_basenames + [
+            "strict_component.component.textproto",
+            "strict_component.package-layout.json",
+            "shared_component.report.json",
+            "shared_component.surface.json",
+            "stdlib.pkg.json",
+            "gocache",
+            "pkg",
+            "strict_component.package-imports.json",
+            "arcc_stdlib_map.stdlib-map.json",
+            "arcc",
+            "arcc.runfiles",
+            "strict_component.arcc-check-wrapper.sh",
+        ],
+    )
+    env.expect.that_collection(input_basenames).contains("ignored_link.go")
+    env.expect.that_collection(input_basenames).contains("ignored_cgo.go")
+    env.expect.that_collection(input_basenames).contains("stub.s")
+    env.expect.that_collection(input_basenames).not_contains("shared.go")
+
+    # No source-shaped SDK or dependency input may enter ArccCheck. Export
+    # metadata and generated export trees remain allowed inputs.
+    member_set = {basename: True for basename in member_basenames}
+    unexpected_source = [
+        path
+        for path in inputs
+        if (path.endswith(".go") or path.endswith(".s")) and
+           not member_set.get(path.rsplit("/", 1)[-1])
+    ]
+    env.expect.that_collection(unexpected_source).contains_exactly([])
+
 def _export_layout_shape_test(name):
     analysis_test(
         name = name,
@@ -932,6 +985,7 @@ def go_component_test_suite(name):
             _checked_component_outputs_test,
             _checked_action_command_test,
             _checked_action_inputs_test,
+            _defeat_member_action_inputs_test,
             _component_action_topology_test,
             _export_layout_shape_test,
             _migrated_fixture_stays_checked_test,
