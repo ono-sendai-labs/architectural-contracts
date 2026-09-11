@@ -66,10 +66,12 @@
       "CompiledGoFiles": [
         "_main/bazel_rules/go/tests/testdata/shared/shared.go"
       ],
+      "ExportFile": "_main/bazel_rules/go/tests/testdata/shared/shared.x",
       "GoFiles": [
         "_main/bazel_rules/go/tests/testdata/shared/shared.go"
       ],
       "ID": "example.com/aspect/shared",
+      "Imports": {},
       "Name": "shared",
       "PkgPath": "example.com/aspect/shared",
       "is_stdlib": false
@@ -87,5 +89,26 @@
     "example.com/aspect/core",
     "example.com/aspect/extradep",
     "example.com/aspect/lowlevel"
-  ]
+  ],
+  "stdlib_export_data": {
+    "export_roots": [
+      {
+        "exec_path": "<STDLIB_EXPORT_ROOT>",
+        "runfiles_path": "rules_go+/stdlib_/gocache"
+      },
+      {
+        "exec_path": "<STDLIB_EXPORT_ROOT>",
+        "runfiles_path": "rules_go+/stdlib_/pkg"
+      }
+    ],
+    "metadata": "rules_go+/stdlib_/stdlib.pkg.json",
+    "target": {
+      "build_tags": [],
+      "cgo_enabled": false,
+      "goarch": "amd64",
+      "goexperiment": "",
+      "goos": "linux",
+      "toolchain_version": "go1.26.4"
+    }
+  }
 }

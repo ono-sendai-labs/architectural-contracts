@@ -3,7 +3,7 @@ load("@rules_go//go:def.bzl", "go_library", "go_test")
 
 go_library(
     name = "packagelayout",
-    srcs = ["cgo_disabled.go", "cgo_enabled.go", "packagelayout.go"],
+    srcs = ["cgo_disabled.go", "cgo_enabled.go", "packagelayout.go", "stdlib_export_data.go"],
     importpath = "github.com/ono-sendai-labs/architectural-contracts/go/internal/packagelayout",
     visibility = [
         "//bazel_rules:__subpackages__",
@@ -17,7 +17,7 @@ go_library(
 go_test(
     name = "packagelayout_test",
     size = "small",
-    srcs = ["dependency_artifacts_test.go", "packagelayout_test.go"],
+    srcs = ["dependency_artifacts_test.go", "export_data_test.go", "packagelayout_test.go"],
     embed = [":packagelayout"],
     deps = [
         "//go/internal/hostpolicy",

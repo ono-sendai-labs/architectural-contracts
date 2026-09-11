@@ -86,6 +86,11 @@ type Layout struct {
 	Platform  *Platform           `json:"platform,omitempty"`
 	Roots     []string            `json:"roots"`
 	Packages  []*packages.Package `json:"packages"`
+	// StdlibExportData points at the target-configured standard-library package
+	// descriptor emitted by a Bazel host adapter. It is merged into Packages
+	// before validation; its compiled export artifacts remain ordinary declared
+	// action inputs rather than being embedded in the layout JSON.
+	StdlibExportData *StdlibExportData `json:"stdlib_export_data,omitempty"`
 	// DependencyArtifactBindings associate every direct component dependency
 	// with the artifacts its provider published. The paths use the same
 	// runfiles frame as the manifest and package layout; this is structural
@@ -97,9 +102,10 @@ type Layout struct {
 	// versus enumerated target); emitters must not derive it by re-running an
 	// import-path heuristic. Upstream packages.Package cannot retain this field,
 	// so validation-owned metadata keeps it beside the decoded package graph.
-	stdlibByID       map[string]bool
-	stdlibByPath     map[string]bool
-	emittedPackageID map[string]bool
+	stdlibByID               map[string]bool
+	stdlibByPath             map[string]bool
+	emittedPackageID         map[string]bool
+	stdlibExportDataResolved bool
 
 	// UnresolvedImports contains imports observed in surviving source files that
 	// do not resolve to a layout or SDK package. It is loader-owned state and is
@@ -1141,6 +1147,10 @@ func (l *Layout) MarshalJSON() ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("invalid dependency artifact bindings: %w", err)
 	}
+	stdlibExportData, err := cloneStdlibExportData(l.StdlibExportData)
+	if err != nil {
+		return nil, fmt.Errorf("invalid standard-library export data: %w", err)
+	}
 
 	packageJSON := make([]json.RawMessage, len(pkgs))
 	for i, p := range pkgs {
@@ -1155,6 +1165,12 @@ func (l *Layout) MarshalJSON() ([]byte, error) {
 		var fields map[string]json.RawMessage
 		if err := json.Unmarshal(raw, &fields); err != nil {
 			return nil, fmt.Errorf("marshalling package %q: %w", p.ID, err)
+		}
+		// packages.Package's own JSON codec omits an empty Imports map, but
+		// the layout contract distinguishes an explicit empty leaf from an
+		// omitted map. Preserve that distinction in the outer layout codec.
+		if p.Imports != nil && len(p.Imports) == 0 {
+			fields["Imports"] = json.RawMessage("{}")
 		}
 		emitted := l.emittedPackageID == nil || l.emittedPackageID[p.ID]
 		if emitted {
@@ -1174,12 +1190,14 @@ func (l *Layout) MarshalJSON() ([]byte, error) {
 		Platform                   *Platform                   `json:"platform,omitempty"`
 		Roots                      []string                    `json:"roots"`
 		Packages                   []json.RawMessage           `json:"packages"`
+		StdlibExportData           *StdlibExportData           `json:"stdlib_export_data,omitempty"`
 		DependencyArtifactBindings []DependencyArtifactBinding `json:"dependency_artifact_bindings,omitempty"`
 	}{
 		GoSDKRoot:                  l.GoSDKRoot,
 		Platform:                   l.Platform,
 		Roots:                      roots,
 		Packages:                   packageJSON,
+		StdlibExportData:           stdlibExportData,
 		DependencyArtifactBindings: bindingCloned,
 	})
 }
@@ -1194,6 +1212,7 @@ func (l *Layout) UnmarshalJSON(data []byte) error {
 		Platform                   *Platform                   `json:"platform,omitempty"`
 		Roots                      []string                    `json:"roots"`
 		Packages                   []json.RawMessage           `json:"packages"`
+		StdlibExportData           *StdlibExportData           `json:"stdlib_export_data,omitempty"`
 		DependencyArtifactBindings []DependencyArtifactBinding `json:"dependency_artifact_bindings,omitempty"`
 	}
 	if err := json.Unmarshal(data, &wire); err != nil {
@@ -1207,6 +1226,7 @@ func (l *Layout) UnmarshalJSON(data []byte) error {
 	packagesList := make([]*packages.Package, len(wire.Packages))
 	stdlibByID := make(map[string]bool, len(wire.Packages))
 	emittedPackageID := make(map[string]bool, len(wire.Packages))
+	importsOmitted := make(map[string]bool, len(wire.Packages))
 	for i, raw := range wire.Packages {
 		if string(raw) == "null" {
 			continue
@@ -1221,6 +1241,32 @@ func (l *Layout) UnmarshalJSON(data []byte) error {
 		if err := json.Unmarshal(raw, &metadata); err != nil {
 			return fmt.Errorf("decoding package %q provenance: %w", p.ID, err)
 		}
+		var packageFields map[string]json.RawMessage
+		if err := json.Unmarshal(raw, &packageFields); err != nil {
+			return fmt.Errorf("decoding package %q fields: %w", p.ID, err)
+		}
+		imports, present := packageFields["Imports"]
+		legacyImportsSpelling := false
+		if !present {
+			// Hand-written integration layouts historically used the Go-style
+			// lower-case spelling even though packages.Package's flat driver
+			// encoding emits `Imports`. Preserve the omitted-vs-empty contract
+			// for both accepted spellings.
+			imports, present = packageFields["imports"]
+			legacyImportsSpelling = true
+		}
+		if present && string(imports) != "null" {
+			if p.Imports == nil {
+				p.Imports = make(map[string]*packages.Package)
+			}
+			// The old hand-written integration layouts used a lower-case
+			// empty object as the omitted-imports spelling. A non-empty
+			// lower-case map is still an explicit declaration and must retain
+			// strict source comparison.
+			importsOmitted[p.ID] = legacyImportsSpelling && string(imports) == "{}"
+		} else {
+			importsOmitted[p.ID] = true
+		}
 		packagesList[i] = &p
 		stdlibByID[p.ID] = metadata.IsStdlib
 		emittedPackageID[p.ID] = true
@@ -1230,12 +1276,14 @@ func (l *Layout) UnmarshalJSON(data []byte) error {
 	l.Platform = wire.Platform
 	l.Roots = wire.Roots
 	l.Packages = packagesList
+	l.StdlibExportData = wire.StdlibExportData
 	l.DependencyArtifactBindings = bindingCloned
 	l.stdlibByID = stdlibByID
 	l.stdlibByPath = make(map[string]bool, len(stdlibByID))
 	l.emittedPackageID = emittedPackageID
 	l.UnresolvedImports = nil
-	l.importsOmitted = nil
+	l.importsOmitted = importsOmitted
+	l.stdlibExportDataResolved = false
 	return nil
 }
 
@@ -1319,6 +1367,12 @@ func layoutRootPackages(roots []string, index layoutPackageIndex) ([]*packages.P
 // ValidateAndResolve validates the layout's structural consistency and resolves
 // all workspace-relative and SDK-relative source paths, checking that each file exists.
 func ValidateAndResolve(l *Layout, workspaceDir string) error {
+	if l == nil {
+		return errors.New("package layout is required")
+	}
+	if err := ResolveStdlibExportData(l, workspaceDir); err != nil {
+		return fmt.Errorf("resolving standard-library export data: %w", err)
+	}
 	bindingCloned, err := cloneDependencyArtifactBindings(l.DependencyArtifactBindings)
 	if err != nil {
 		return fmt.Errorf("invalid dependency artifact bindings: %w", err)
@@ -1402,7 +1456,7 @@ func ValidateAndResolve(l *Layout, workspaceDir string) error {
 		return err
 	}
 	byID, byPath := index.byID, index.byPath
-	rootPackages, _, err := layoutRootPackages(l.Roots, index)
+	rootPackages, rootIDs, err := layoutRootPackages(l.Roots, index)
 	if err != nil {
 		return err
 	}
@@ -1462,6 +1516,11 @@ func ValidateAndResolve(l *Layout, workspaceDir string) error {
 	var unresolvedImports []UnresolvedImport
 	for _, p := range l.Packages {
 		if !l.IsStdlibPackage(p) {
+			// Before the export-data schema, packages.Package's JSON decoder
+			// collapsed a lower-case empty Imports object to nil. UnmarshalJSON
+			// records that legacy spelling as omitted; the member-only validator
+			// still treats a canonical explicit empty map as a strict declaration.
+			importsOmitted := l.importsOmitted[p.ID]
 			sortedFiles := SurvivingSourceFiles(p)
 
 			importSources := make(map[string][]string)
@@ -1488,10 +1547,19 @@ func ValidateAndResolve(l *Layout, workspaceDir string) error {
 			for _, impPath := range sortedImports {
 				sources := importSources[impPath]
 				if target, resolvable := resolveImport(impPath); resolvable {
-					if l.importsOmitted[p.ID] {
+					if importsOmitted {
 						if p.Imports == nil {
 							p.Imports = make(map[string]*packages.Package)
 						}
+						if _, exists := p.Imports[impPath]; !exists {
+							p.Imports[impPath] = &packages.Package{ID: target.ID}
+						}
+					} else if l.StdlibExportData != nil && l.IsStdlibPackage(target) {
+						// The transitional emitter can provide ordinary package
+						// edges from the aspect while the standard-library descriptor
+						// supplies the SDK graph. Complete this cross-source edge
+						// from the surviving source before the member-only cutover;
+						// Task 5 will stop reading non-member sources.
 						if _, exists := p.Imports[impPath]; !exists {
 							p.Imports[impPath] = &packages.Package{ID: target.ID}
 						}
@@ -1508,7 +1576,7 @@ func ValidateAndResolve(l *Layout, workspaceDir string) error {
 
 			}
 
-			if !l.importsOmitted[p.ID] {
+			if !importsOmitted {
 				declared := make(map[string]bool)
 				for impPath := range p.Imports {
 					if impPath == "C" {
@@ -1604,6 +1672,12 @@ func ValidateAndResolve(l *Layout, workspaceDir string) error {
 		}
 	}
 
+	if l.StdlibExportData != nil {
+		if err := validateReachableExportClosure(l, index, rootPackages, rootIDs, workspaceDir); err != nil {
+			return err
+		}
+	}
+
 	return nil
 }
 
@@ -1616,6 +1690,9 @@ func ValidateAndResolve(l *Layout, workspaceDir string) error {
 func ValidateAndResolveForMemberOnly(l *Layout, workspaceDir string) error {
 	if l == nil {
 		return errors.New("member-only package layout is required")
+	}
+	if err := ResolveStdlibExportData(l, workspaceDir); err != nil {
+		return fmt.Errorf("resolving standard-library export data: %w", err)
 	}
 	if bindingCloned, err := cloneDependencyArtifactBindings(l.DependencyArtifactBindings); err != nil {
 		return fmt.Errorf("invalid dependency artifact bindings: %w", err)
@@ -1759,58 +1836,8 @@ func ValidateAndResolveForMemberOnly(l *Layout, workspaceDir string) error {
 		}
 	}
 
-	visited := make(map[string]bool, len(l.Packages))
-	var visit func(*packages.Package) error
-	visit = func(p *packages.Package) error {
-		if visited[p.ID] {
-			return nil
-		}
-		visited[p.ID] = true
-
-		if !rootIDs[p.ID] {
-			if p.PkgPath != "unsafe" || p.ExportFile != "" {
-				resolved, err := l.resolveAndCheckExportFile(p, p.ExportFile, workspaceDir)
-				if err != nil {
-					return err
-				}
-				if p.Imports == nil {
-					return fmt.Errorf("export-backed package %q (import path %q) has omitted Imports map; provide an explicit empty map for a leaf", p.ID, p.PkgPath)
-				}
-				p.ExportFile = resolved
-			}
-		}
-
-		var importPaths []string
-		for importPath := range p.Imports {
-			importPaths = append(importPaths, importPath)
-		}
-		sort.Strings(importPaths)
-		for _, importPath := range importPaths {
-			if importPath == "C" {
-				continue
-			}
-			reference := p.Imports[importPath]
-			if reference == nil {
-				return fmt.Errorf("package %q (import path %q) imports path %q with a nil package reference", p.ID, p.PkgPath, importPath)
-			}
-			target, ok := index.byID[reference.ID]
-			if !ok {
-				return fmt.Errorf("package %q (import path %q) imports path %q but package ID %q is absent from the layout", p.ID, p.PkgPath, importPath, reference.ID)
-			}
-			if target.PkgPath != importPath && (target.PkgPath != "vendor/"+importPath || !l.IsStdlibPackage(target)) {
-				return fmt.Errorf("package %q (import path %q) imports path %q with ID %q, but target package import path is %q", p.ID, p.PkgPath, importPath, target.ID, target.PkgPath)
-			}
-			if err := visit(target); err != nil {
-				return err
-			}
-		}
-		return nil
-	}
-
-	for _, root := range rootPackages {
-		if err := visit(root); err != nil {
-			return err
-		}
+	if err := validateReachableExportClosure(l, index, rootPackages, rootIDs, workspaceDir); err != nil {
+		return err
 	}
 	return nil
 }

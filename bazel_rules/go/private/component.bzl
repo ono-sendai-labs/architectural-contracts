@@ -41,6 +41,7 @@ load(
     "go_sdk_root",
     "go_sdk_srcs",
     "go_stdlib_toolchain",
+    "go_stdlib_export_data",
     "go_target_mode",
 )
 load(":paths.bzl", "match_path", "runfiles_path")
@@ -135,7 +136,8 @@ def _manifest_content(ctx, interface_files, component_deps, auto_attached_deps, 
 
     return "\n".join(lines) + "\n"
 
-def _layout_content(ctx, merged, roots, go_sdk_root, platform, target, dependency_bindings):
+def _layout_content(ctx, merged, roots, go_sdk_root, platform, target, dependency_bindings, stdlib_export_data = None):
+    root_set = {root: True for root in roots}
     packages = []
     for importpath in sorted(merged.keys()):
         pkg = merged[importpath]
@@ -147,7 +149,7 @@ def _layout_content(ctx, merged, roots, go_sdk_root, platform, target, dependenc
 
         # Package IDs are import paths: the closure is already folded by
         # import path, so they are unique, and it keeps the layout readable.
-        packages.append({
+        package = {
             "ID": importpath,
             "Name": _package_name(importpath),
             "PkgPath": importpath,
@@ -158,7 +160,21 @@ def _layout_content(ctx, merged, roots, go_sdk_root, platform, target, dependenc
             # The closure contains only enumerated build targets, not SDK packages,
             # so this provenance bit is structurally false (see docs/package-layout-schema.md §4).
             "is_stdlib": False,
-        })
+        }
+        if importpath not in root_set:
+            if pkg.export_file == None:
+                fail("package %s has no export file for non-member package %s" % (ctx.label.name, importpath))
+            package["ExportFile"] = runfiles_path(ctx, pkg.export_file)
+            # The aspect's generic dependency projection contains the
+            # non-stdlib direct edges. Standard-library edges are completed by
+            # the target-configured descriptor during the transitional
+            # source-backed validation path; the map is explicit even for a
+            # leaf so the later member-only validator can fail closed.
+            package["Imports"] = {
+                dep: dep
+                for dep in sorted(pkg.deps)
+            }
+        packages.append(package)
 
     layout_data = {
         "go_sdk_root": go_sdk_root,
@@ -171,6 +187,32 @@ def _layout_content(ctx, merged, roots, go_sdk_root, platform, target, dependenc
         # canonical name order; the artifact paths remain ordinary runfiles
         # frame data, never semantic trust claims.
         layout_data["dependency_artifact_bindings"] = dependency_bindings
+    if stdlib_export_data != None:
+        if stdlib_export_data.target == None:
+            fail("component %s: standard-library export descriptor has no target identity" % ctx.label.name)
+        export_target = stdlib_export_data.target
+        export_files_by_path = {
+            export_file.path: export_file
+            for export_file in stdlib_export_data.export_files.to_list()
+        }
+        layout_data["stdlib_export_data"] = {
+            "metadata": runfiles_path(ctx, stdlib_export_data.metadata),
+            "export_roots": [
+                {
+                    "runfiles_path": runfiles_path(ctx, export_files_by_path[path]),
+                    "exec_path": path,
+                }
+                for path in sorted(export_files_by_path.keys())
+            ],
+            "target": {
+                "toolchain_version": export_target.toolchain_version,
+                "goos": export_target.goos,
+                "goarch": export_target.goarch,
+                "build_tags": sorted(export_target.tags),
+                "cgo_enabled": export_target.cgo_enabled,
+                "goexperiment": export_target.goexperiment,
+            },
+        }
     if platform:
         layout_platform = {
             "goos": platform.goos,
@@ -357,7 +399,7 @@ def _shell_quote(arg):
     """Shell-quote one argv element for the generated frame wrapper (see check.bzl)."""
     return "'" + arg.replace("'", "'\\''") + "'"
 
-def _frame_symlink_commands(files, workspace_name):
+def _frame_symlink_commands(files, workspace_name, preferred_files = []):
     """Shell commands recreating the runfiles path frame in an action sandbox.
 
     The manifest and layout name sources in the runfiles-root frame
@@ -367,15 +409,45 @@ def _frame_symlink_commands(files, workspace_name):
     execroot — a frame in which none of those names resolve as written.
 
     Two symlink families repair that with declared inputs alone (no host
-    state, I5): `<workspace_name> -> .` recovers every main-repo path, and
-    one `<apparent repo name> -> external/<canonical repo name>` per external
-    repository the frame names recovers every external path. Both are derived
-    from the inputs themselves, so the command is deterministic.
+    state, I5): `<workspace_name> -> .` recovers main-repo paths, and external
+    repositories get either one root link or a deterministic per-file overlay.
+    The overlay is needed when a repository contributes both source files and
+    generated export outputs: Bazel's source and bazel-out trees have different
+    physical roots but share one runfiles apparent name. Both forms are
+    derived from the inputs themselves, so the command is deterministic.
     """
-    external_repos = {}
-    generated_files = {}
+    preferred = {f.path: True for f in preferred_files}
+    external_candidates = {}
+    external_entries = {}
+    generated_candidates = {}
+
+    def add_external_candidate(apparent, priority, root, relative, target):
+        external_candidates.setdefault(apparent, []).append((priority, root))
+        external_entries.setdefault(apparent, {}).setdefault(relative, []).append((priority, target))
+
     for f in files:
         short_path = f.short_path
+        # Tree and generated files produced under an external repository keep
+        # a `../repo/...` runfiles short path even though their sandbox path is
+        # a declared bazel-out path. Recreate that repository frame from the
+        # declared output root; the stdlib metadata path uses this frame.
+        if f.path.startswith("bazel-out/") and short_path.startswith("../"):
+            marker = "/external/"
+            marker_index = f.path.find(marker)
+            if marker_index == -1:
+                fail("component generated input %s has no external repository frame" % f.path)
+            repository = f.path[marker_index + len(marker):].split("/")[0]
+            external_root = f.path[:marker_index + len(marker)] + repository
+            apparent = short_path[len("../"):].split("/")[0]
+            relative = short_path[len("../") + len(apparent):].lstrip("/")
+            add_external_candidate(
+                apparent,
+                0 if preferred.get(f.path, False) else 1,
+                external_root,
+                relative,
+                f.path,
+            )
+            continue
         if not short_path.startswith("../"):
             # Generated outputs keep their package-relative runfiles spelling
             # in the layout, while Bazel stages the declared input under its
@@ -383,7 +455,10 @@ def _frame_symlink_commands(files, workspace_name):
             # just as the runfiles tree would; source files already have an
             # identical path and need no link.
             if f.path != short_path and f.path.startswith("bazel-out/"):
-                generated_files[short_path] = f.path
+                generated_candidates.setdefault(short_path, []).append((
+                    0 if preferred.get(f.path, False) else 1,
+                    f.path,
+                ))
             continue
         apparent = short_path[len("../"):].split("/")[0]
         path_parts = f.path.split("/")
@@ -391,7 +466,52 @@ def _frame_symlink_commands(files, workspace_name):
             fail(("component input %s names an external repository frame the action " +
                   "sandbox does not stage; refusing to guess a symlink") % f.path)
         canonical = path_parts[1]
-        external_repos[apparent] = "external/" + canonical
+        external_root = "external/" + canonical
+        relative = short_path[len("../") + len(apparent):].lstrip("/")
+        add_external_candidate(
+            apparent,
+            0 if preferred.get(f.path, False) else 1,
+            external_root,
+            relative,
+            f.path,
+        )
+
+    def select_frame_target(candidates, label):
+        best_priority = min([candidate[0] for candidate in candidates])
+        best = sorted({candidate[1]: True for candidate in candidates if candidate[0] == best_priority}.keys())
+        if len(best) != 1:
+            fail("component has ambiguous declared frame targets for %s: %s" % (label, ", ".join(best)))
+        return best[0]
+
+    external_repos = {}
+    external_overlays = {}
+    for apparent, candidates in external_candidates.items():
+        best_priority = min([candidate[0] for candidate in candidates])
+        best_roots = sorted({candidate[1]: True for candidate in candidates if candidate[0] == best_priority}.keys())
+        if len(best_roots) == 1:
+            external_repos[apparent] = best_roots[0]
+            continue
+
+        entries = {}
+        for relative, entry_candidates in external_entries[apparent].items():
+            best_entries = sorted({candidate[1]: True for candidate in entry_candidates if candidate[0] == best_priority}.keys())
+            if not best_entries:
+                # The entry belongs only to an incidental runfile under a
+                # lower-priority configuration. It is not part of the frame
+                # this action names and must not force an overlay entry.
+                continue
+            if len(best_entries) != 1:
+                fail("component has ambiguous declared frame targets for %s/%s: %s" % (
+                    apparent,
+                    relative,
+                    ", ".join(best_entries),
+                ))
+            entries[relative] = best_entries[0]
+        external_overlays[apparent] = entries
+    generated_files = {
+        short_path: select_frame_target(candidates, short_path)
+        for short_path, candidates in generated_candidates.items()
+    }
 
     commands = ["ln -s . " + _shell_quote(workspace_name)]
     for apparent in sorted(external_repos.keys()):
@@ -399,18 +519,29 @@ def _frame_symlink_commands(files, workspace_name):
             _shell_quote(external_repos[apparent]),
             _shell_quote(apparent),
         ))
+    for apparent in sorted(external_overlays.keys()):
+        for relative in sorted(external_overlays[apparent].keys()):
+            frame_path = apparent + "/" + relative if relative else apparent
+            parent = _dirname(frame_path)
+            if parent:
+                commands.append("mkdir -p " + _shell_quote(parent))
+            commands.append("if [ ! -e %s ]; then ln -s %s %s; fi" % (
+                _shell_quote(frame_path),
+                _shell_quote(_relativize(external_overlays[apparent][relative], parent)),
+                _shell_quote(frame_path),
+            ))
     for short_path in sorted(generated_files.keys()):
         parent = _dirname(short_path)
         if parent:
             commands.append("mkdir -p " + _shell_quote(parent))
         commands.append("if [ ! -e %s ]; then ln -s %s %s; fi" % (
             _shell_quote(short_path),
-            _shell_quote(generated_files[short_path]),
+            _shell_quote(_relativize(generated_files[short_path], parent)),
             _shell_quote(short_path),
         ))
     return commands
 
-def _checked_analysis_action(ctx, manifest, layout, closure_srcs, transitive_manifests, transitive_layouts, dep_artifacts, dep_runfiles, sdk_root_file):
+def _checked_analysis_action(ctx, manifest, layout, closure_srcs, export_files, stdlib_export_data, transitive_manifests, transitive_layouts, dep_artifacts, dep_runfiles, sdk_root_file):
     """The checked-component analysis action (design R8, task reqs 1/3/5/6).
 
     One ordinary action running `command.bzl`'s analysis argv — the exact
@@ -431,13 +562,13 @@ def _checked_analysis_action(ctx, manifest, layout, closure_srcs, transitive_man
     so the action stays deterministic and hermetic (I5) while keeping the
     existing layout-driver working-directory contract.
 
-    Inputs are exactly the Step 7 transition set: the manifest and layout,
-    today's source and runfile closure (including the direct dependencies'
-    own), the SDK sources today's loader reads, the declared stdlib map, and
-    the direct dependencies' report/surface artifacts named by the layout.
-    The action consumes those artifacts semantically through the surface
-    resolver; the closure-source and NeedDeps inputs remain until Step 8 adds
-    export-data loading. Export data is not an input until Step 8.
+    Inputs retain the Step 7 source-backed transition set and add the Step 8
+    export closure: ordinary non-member archive exports, plus the
+    target-configured stdlib metadata and generated export trees. The SDK and
+    closure sources remain deliberately staged until Task 5 cuts the loader
+    over to member-only type loading. The descriptor's `inputs` is the complete
+    host-neutral stdlib input set, so the action does not need to know any
+    rules_go provider details.
 
     No environment at all: the argv and the frame symlinks fully determine
     the action; network access is blocked.
@@ -461,16 +592,24 @@ def _checked_analysis_action(ctx, manifest, layout, closure_srcs, transitive_man
     # inputs. Keeping them in this list makes repository symlink construction
     # independent of transitive dependency runfiles, which may contain the
     # files today only as an incidental consequence of provider wiring.
-    frame_files = list(closure_srcs) + list(dep_artifacts) + [sdk_root_file]
+    sdk_source_files = go_sdk_srcs(ctx).to_list()
+    frame_files = list(closure_srcs) + list(export_files) + list(dep_artifacts) + [sdk_root_file]
+    frame_files += sdk_source_files
+    stdlib_export_inputs = stdlib_export_data.inputs.to_list()
+    frame_files += stdlib_export_inputs
     frame_files += transitive_manifests.to_list() + transitive_layouts.to_list()
     frame_files += dep_runfiles.to_list()
+    preferred_frame_files = list(closure_srcs) + list(export_files) + list(dep_artifacts) + [sdk_root_file]
+    preferred_frame_files += sdk_source_files
+    preferred_frame_files += stdlib_export_inputs
+    preferred_frame_files += transitive_manifests.to_list() + transitive_layouts.to_list()
 
     ctx.actions.write(
         output = wrapper,
         # `set -eu` fails the action immediately if a frame symlink cannot be
         # created: the working-directory contract must fail closed, never
         # silently continue with unresolved paths.
-        content = "\n".join(["#!/bin/bash", "set -eu"] + _frame_symlink_commands(frame_files, ctx.workspace_name) + ["exec \"$@\"", ""]),
+        content = "\n".join(["#!/bin/bash", "set -eu"] + _frame_symlink_commands(frame_files, ctx.workspace_name, preferred_frame_files) + ["exec \"$@\"", ""]),
         is_executable = True,
     )
 
@@ -478,8 +617,8 @@ def _checked_analysis_action(ctx, manifest, layout, closure_srcs, transitive_man
         executable = wrapper,
         arguments = argv,
         inputs = depset(
-            direct = [manifest, layout, map_file] + list(closure_srcs) + list(dep_artifacts),
-            transitive = [go_sdk_srcs(ctx), transitive_manifests, transitive_layouts, dep_runfiles],
+            direct = [manifest, layout, map_file] + list(closure_srcs) + list(export_files) + list(dep_artifacts),
+            transitive = [go_sdk_srcs(ctx), stdlib_export_data.inputs, transitive_manifests, transitive_layouts, dep_runfiles],
         ),
         tools = [ctx.executable._arcc],
         outputs = [report, surface],
@@ -594,6 +733,14 @@ def go_component_impl(ctx, attachment_fn = go_attached_infra):
 
     manifest = ctx.actions.declare_file(ctx.label.name + ".component.textproto")
 
+    map_info = ctx.attr._stdlib_map
+    stdlib_export_data = None
+    if roots and "manual" not in ctx.attr.tags:
+        stdlib_export_data = go_stdlib_export_data(
+            ctx,
+            expected_mode = arcc_sdk_key_fields(map_info[ArccStdlibMapInfo]),
+        )
+
     if roots:
         layout = ctx.actions.declare_file(ctx.label.name + ".package-layout.json")
         # Roots are the component's effective owned packages, not every
@@ -614,6 +761,7 @@ def go_component_impl(ctx, attachment_fn = go_attached_infra):
                 platform = platform,
                 target = target_mode,
                 dependency_bindings = dependency_bindings,
+                stdlib_export_data = stdlib_export_data,
             ),
         )
         direct_layouts = [layout]
@@ -649,6 +797,13 @@ def go_component_impl(ctx, attachment_fn = go_attached_infra):
     for importpath in merged:
         closure_srcs.extend(merged[importpath].srcs)
 
+    member_set = {importpath: True for importpath in members}
+    export_files = [
+        merged[importpath].export_file
+        for importpath in sorted(merged.keys())
+        if importpath not in member_set
+    ]
+
     transitive_manifests = depset(
         direct = [manifest],
         transitive = [dep[ArccComponentInfo].transitive_manifests for dep in ctx.attr.component_deps] + [info.transitive_manifests for info in auto_attached_deps],
@@ -675,7 +830,6 @@ def go_component_impl(ctx, attachment_fn = go_attached_infra):
     report = None
     surface = None
     provenance = None
-    map_info = ctx.attr._stdlib_map
     if "manual" in ctx.attr.tags:
         # The asserted producer path (design I6, Step 5 task 05): a manual
         # component is not analysed. Its surface is asserted ABOUT it —
@@ -720,6 +874,8 @@ def go_component_impl(ctx, attachment_fn = go_attached_infra):
             manifest = manifest,
             layout = layout,
             closure_srcs = closure_srcs,
+            export_files = export_files,
+            stdlib_export_data = stdlib_export_data,
             transitive_manifests = transitive_manifests,
             transitive_layouts = transitive_layouts,
             dep_artifacts = dep_artifacts,
@@ -727,6 +883,13 @@ def go_component_impl(ctx, attachment_fn = go_attached_infra):
             sdk_root_file = go_stdlib_toolchain(ctx).root_file,
         )
         provenance = "checked"
+
+    analysis_export_inputs = depset()
+    if provenance == "checked":
+        analysis_export_inputs = depset(
+            direct = export_files,
+            transitive = [stdlib_export_data.inputs] if stdlib_export_data != None else [],
+        )
 
     transitive_artifacts = depset(
         direct = [artifact for artifact in (report, surface) if artifact != None],
@@ -753,6 +916,7 @@ def go_component_impl(ctx, attachment_fn = go_attached_infra):
             transitive_manifests = transitive_manifests,
             transitive_layouts = transitive_layouts,
             transitive_artifacts = transitive_artifacts,
+            analysis_export_inputs = analysis_export_inputs,
             closure = depset([
                 struct(
                     importpath = importpath,

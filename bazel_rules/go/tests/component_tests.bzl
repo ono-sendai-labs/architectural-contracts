@@ -616,9 +616,10 @@ def _checked_action_inputs_impl(env, target):
     action, raw = _checked_action(env, target)
     argv = raw.argv
 
-    # Step 5 transition inputs (AC 5): manifest, layout, today's source and
-    # runfile closure, SDK sources, stdlib map, and the direct dependency's
-    # report/surface artifacts — the producer edge R8 needs (AC 4).
+    # Transitional Step 8 inputs: manifest, layout, today's source and
+    # runfile closure, ordinary export artifacts, target-configured stdlib
+    # metadata/export trees, SDK sources, stdlib map, and the direct
+    # dependency's report/surface artifacts — the producer edge R8 needs.
     inputs = [f.basename for f in raw.inputs.to_list()]
     env.expect.that_collection(inputs).contains("api_component.component.textproto")
     env.expect.that_collection(inputs).contains("api_component.package-layout.json")
@@ -633,6 +634,16 @@ def _checked_action_inputs_impl(env, target):
     env.expect.that_str(dep_info != None).equals(True)
     env.expect.that_collection(inputs).contains("shared_component.report.json")
     env.expect.that_collection(inputs).contains("shared_component.surface.json")
+    env.expect.that_collection(inputs).contains("shared.x")
+    env.expect.that_collection(inputs).contains("stdlib.pkg.json")
+    env.expect.that_collection(inputs).contains("gocache")
+    env.expect.that_collection(inputs).contains("pkg")
+
+    wrapper = env.expect.that_target(target).action_generating(
+        "bazel_rules/go/tests/testdata/api/api_component.arcc-check-wrapper.sh",
+    )
+    wrapper.content().contains("rules_go+")
+    wrapper.content().contains("shared.x")
 
     # Outputs: exactly the two structural artifacts (task req 1).
     env.expect.that_collection([f.basename for f in raw.outputs.to_list()]).contains_exactly([
@@ -661,6 +672,10 @@ def _checked_action_inputs_impl(env, target):
     expected_basenames[info.manifest.basename] = True
     expected_basenames[info.layout.basename] = True
     expected_basenames["arcc_stdlib_map.stdlib-map.json"] = True
+    expected_basenames["shared.x"] = True
+    expected_basenames["stdlib.pkg.json"] = True
+    expected_basenames["gocache"] = True
+    expected_basenames["pkg"] = True
     for manifest in info.transitive_manifests.to_list():
         if manifest == info.manifest:
             continue
@@ -677,7 +692,8 @@ def _checked_action_inputs_impl(env, target):
         # The arcc tool and its runfiles (the argv[1] executable, declared as
         # a tool), the generated frame wrapper (the action's executable), and
         # covered dependency sources — today's source/runfile closure, which
-        # AC 5 explicitly keeps in the transition set until Step 8.
+        # The closure source is intentionally retained until Task 5's
+        # member-only loader cutover.
         and basename != argv[1].rsplit("/", 1)[-1]
         and basename != "arcc.runfiles"
         and basename != argv[0].rsplit("/", 1)[-1]
@@ -692,11 +708,38 @@ def _checked_action_inputs_impl(env, target):
     ]
     env.expect.that_collection(missing).contains_exactly([])
 
-    # Explicit negatives over the non-SDK inputs (AC 5): no export data, no
-    # host/toolchain caches, no toolchain binary in the declared inputs.
+    # Export artifacts and the generated stdlib cache/pkg trees are now
+    # intentional declared inputs. Host caches outside the generated tree and
+    # toolchain binaries remain absent.
     env.expect.that_collection([b for b in non_sdk_inputs if ".export" in b]).contains_exactly([])
-    env.expect.that_collection([b for b in non_sdk_inputs if "cache" in b]).contains_exactly([])
     env.expect.that_collection([b for b in non_sdk_inputs if b == "go" or b.endswith(".a")]).contains_exactly([])
+
+def _export_layout_shape_test(name):
+    analysis_test(
+        name = name,
+        target = _API_COMPONENT,
+        impl = _export_layout_shape_impl,
+        attr_values = {"size": "small"},
+    )
+
+def _export_layout_shape_impl(env, target):
+    info = target[ArccComponentInfo]
+    layout = env.expect.that_target(target).action_generating(info.layout.short_path)
+    content = layout.actual.content
+
+    # The layout keeps source fields for the current transition but gives
+    # every effective non-member ordinary package an explicit export binding
+    # and import map, and carries the target-configured stdlib descriptor.
+    env.expect.that_str(content).contains('"ExportFile":')
+    env.expect.that_str(content).contains('"Imports": {}')
+    env.expect.that_str(content).contains('"stdlib_export_data":')
+    env.expect.that_str(content).contains('"metadata": "rules_go+/stdlib_/stdlib.pkg.json"')
+    env.expect.that_str(content).contains('"toolchain_version": "go1.26.4"')
+    package_sections = content.split('"ID":')
+    # The first package is the member root `api`; its section must keep source
+    # ownership without an export role.
+    if '"ExportFile":' in package_sections[1]:
+        env.fail("member root api unexpectedly carries an ExportFile role")
 
 def _sdk_repo_prefix(env, target):
     """The runfiles-frame prefix of the SDK sources, from the emitted layout."""
@@ -805,6 +848,7 @@ def go_component_test_suite(name):
             _checked_component_outputs_test,
             _checked_action_command_test,
             _checked_action_inputs_test,
+            _export_layout_shape_test,
             _migrated_fixture_stays_checked_test,
             _negative_rules_stage_the_checked_report_test,
             _golden_rule_stages_the_checked_report_test,

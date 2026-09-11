@@ -271,6 +271,251 @@ func TestExportDataLayoutJSONIsDeterministicAndPreservesBindings(t *testing.T) {
 	}
 }
 
+func TestValidateAndResolveForMemberOnlyMergesStdlibExportMetadata(t *testing.T) {
+	layout, workspace := stdlibExportLayoutFixture(t, false)
+
+	if err := ValidateAndResolveForMemberOnly(layout, workspace); err != nil {
+		t.Fatalf("ValidateAndResolveForMemberOnly() error = %v", err)
+	}
+
+	fmtPackage := packageByPath(layout, "fmt")
+	if !layout.IsStdlibPackage(fmtPackage) {
+		t.Fatal("fmt was not marked as stdlib from descriptor provenance")
+	}
+	if got, want := fmtPackage.ID, "fmt"; got != want {
+		t.Errorf("fmt ID = %q, want %q", got, want)
+	}
+	if got, want := fmtPackage.ExportFile, filepath.Join(workspace, "bazel-out", "exports", "fmt.a"); got != want {
+		t.Errorf("fmt ExportFile = %q, want %q", got, want)
+	}
+	if got, want := fmtPackage.CompiledGoFiles, fmtPackage.GoFiles; !reflect.DeepEqual(got, want) {
+		t.Errorf("fmt CompiledGoFiles = %v, want the metadata GoFiles fallback %v", got, want)
+	}
+	if got, want := fmtPackage.Imports["io"].ID, "io"; got != want {
+		t.Errorf("fmt io edge ID = %q, want %q", got, want)
+	}
+	if got := packageByPath(layout, "io").Imports; got == nil || len(got) != 0 {
+		t.Errorf("io Imports = %#v, want an explicit empty map", got)
+	}
+	if got := packageByPath(layout, "unsafe").ExportFile; got != "" {
+		t.Errorf("unsafe ExportFile = %q, want empty", got)
+	}
+	member := packageByPath(layout, "example.com/member")
+	if len(member.GoFiles) != 1 || len(member.CompiledGoFiles) != 1 {
+		t.Errorf("member source fields = GoFiles %v, CompiledGoFiles %v, want one source in each", member.GoFiles, member.CompiledGoFiles)
+	}
+	if member.ExportFile != "" {
+		t.Errorf("member ExportFile = %q, want source-owned root without an export role", member.ExportFile)
+	}
+}
+
+func TestValidateAndResolveForMemberOnlyRejectsMalformedStdlibExportMetadata(t *testing.T) {
+	tests := []struct {
+		name       string
+		metadata   string
+		configure  func(*Layout, string)
+		wantErrors []string
+	}{
+		{
+			name: "missing metadata",
+			configure: func(layout *Layout, _ string) {
+				layout.StdlibExportData.Metadata = "missing.stdlib.pkg.json"
+			},
+			wantErrors: []string{"standard-library export metadata", "does not exist"},
+		},
+		{
+			name: "duplicate package path",
+			metadata: `{"ID":"stdlib/fmt","Name":"fmt","PkgPath":"fmt","ExportFile":"__BAZEL_EXECROOT__/bazel-out/exports/fmt.a","Imports":{},"Standard":true}
+{"ID":"stdlib/fmt2","Name":"fmt","PkgPath":"fmt","ExportFile":"__BAZEL_EXECROOT__/bazel-out/exports/fmt.a","Imports":{},"Standard":true}
+`,
+			wantErrors: []string{"duplicate standard-library package import path", "fmt"},
+		},
+		{
+			name: "duplicate package ID",
+			metadata: `{"ID":"stdlib/fmt","Name":"fmt","PkgPath":"fmt","ExportFile":"__BAZEL_EXECROOT__/bazel-out/exports/fmt.a","Imports":{},"Standard":true}
+{"ID":"stdlib/fmt","Name":"io","PkgPath":"io","ExportFile":"__BAZEL_EXECROOT__/bazel-out/exports/io.a","Imports":{},"Standard":true}
+`,
+			wantErrors: []string{"duplicate standard-library package ID", "stdlib/fmt"},
+		},
+		{
+			name: "missing export",
+			metadata: `{"ID":"stdlib/fmt","Name":"fmt","PkgPath":"fmt","ExportFile":"","Imports":{},"Standard":true}
+`,
+			wantErrors: []string{"empty export file path", "fmt"},
+		},
+		{
+			name: "incomplete graph",
+			metadata: `{"ID":"stdlib/fmt","Name":"fmt","PkgPath":"fmt","ExportFile":"__BAZEL_EXECROOT__/bazel-out/exports/fmt.a","Imports":{"io":"stdlib/missing"},"Standard":true}
+`,
+			wantErrors: []string{"standard-library package", "fmt", "stdlib/missing"},
+		},
+		{
+			name: "unsafe export path",
+			metadata: `{"ID":"stdlib/fmt","Name":"fmt","PkgPath":"fmt","ExportFile":"../fmt.a","Imports":{},"Standard":true}
+`,
+			wantErrors: []string{"unsafe export file path", "fmt"},
+		},
+		{
+			name: "target mismatch",
+			metadata: `{"ID":"stdlib/fmt","Name":"fmt","PkgPath":"fmt","ExportFile":"__BAZEL_EXECROOT__/bazel-out/exports/fmt.a","Imports":{},"Standard":true}
+`,
+			configure: func(layout *Layout, _ string) {
+				layout.StdlibExportData.Target.GOARCH = "arm64"
+			},
+			wantErrors: []string{"configuration mismatch", "arm64"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			layout, workspace := stdlibExportLayoutFixture(t, true)
+			if tt.metadata != "" {
+				if err := os.WriteFile(filepath.Join(workspace, "stdlib.pkg.json"), []byte(tt.metadata), 0644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if tt.configure != nil {
+				tt.configure(layout, workspace)
+			}
+
+			err := ValidateAndResolveForMemberOnly(layout, workspace)
+			if err == nil {
+				t.Fatal("ValidateAndResolveForMemberOnly() error = nil, want metadata error")
+			}
+			for _, want := range tt.wantErrors {
+				if !strings.Contains(err.Error(), want) {
+					t.Errorf("error = %q, want substring %q", err, want)
+				}
+			}
+		})
+	}
+}
+
+func TestStdlibExportMetadataMergeIsDeterministic(t *testing.T) {
+	first, workspace := stdlibExportLayoutFixture(t, false)
+	firstMetadata, err := os.ReadFile(filepath.Join(workspace, "stdlib.pkg.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ValidateAndResolveForMemberOnly(first, workspace); err != nil {
+		t.Fatalf("first ValidateAndResolveForMemberOnly() error = %v", err)
+	}
+
+	second := &Layout{
+		GoSDKRoot: first.GoSDKRoot,
+		Platform:  first.Platform,
+		Roots:     append([]string(nil), first.Roots...),
+		Packages: []*packages.Package{{
+			ID: "member-id", Name: "member", PkgPath: "example.com/member",
+			GoFiles: []string{"member.go"}, CompiledGoFiles: []string{"member.go"},
+		}},
+		StdlibExportData: &StdlibExportData{
+			Metadata: "stdlib.pkg.json",
+			Target:   first.StdlibExportData.Target,
+		},
+	}
+	if err := os.WriteFile(filepath.Join(workspace, "stdlib.pkg.json"), reverseStdlibExportMetadata(firstMetadata), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := ValidateAndResolveForMemberOnly(second, workspace); err != nil {
+		t.Fatalf("second ValidateAndResolveForMemberOnly() error = %v", err)
+	}
+
+	firstJSON, err := json.Marshal(first)
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondJSON, err := json.Marshal(second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(firstJSON, secondJSON) {
+		t.Fatalf("stdlib metadata merge is not deterministic:\n%s\n%s", firstJSON, secondJSON)
+	}
+}
+
+func TestStdlibExportMetadataMapsExecrootArtifactsToRunfilesFrame(t *testing.T) {
+	layout, workspace := stdlibExportLayoutFixture(t, false)
+	runfilesDir := filepath.Join(workspace, "rules_go+", "stdlib_", "gocache")
+	if err := os.MkdirAll(runfilesDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"fmt.a", "io.a"} {
+		if err := os.WriteFile(filepath.Join(runfilesDir, name), []byte(name+" export data"), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	layout.StdlibExportData.ExportRoots = []StdlibExportRoot{{
+		RunfilesPath: "rules_go+/stdlib_/gocache",
+		ExecPath:     "bazel-out/exports",
+	}}
+
+	if err := ValidateAndResolveForMemberOnly(layout, workspace); err != nil {
+		t.Fatalf("ValidateAndResolveForMemberOnly() error = %v", err)
+	}
+	for _, importPath := range []string{"fmt", "io"} {
+		pkg := packageByPath(layout, importPath)
+		want := filepath.Join(workspace, "rules_go+", "stdlib_", "gocache", importPath+".a")
+		if pkg.ExportFile != want {
+			t.Errorf("%s ExportFile = %q, want runfiles path %q", importPath, pkg.ExportFile, want)
+		}
+	}
+}
+
+func stdlibExportLayoutFixture(t *testing.T, rewriteMetadata bool) (*Layout, string) {
+	t.Helper()
+	workspace := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(workspace, "bazel-out", "exports"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	for name, data := range map[string][]byte{
+		"member.go":               []byte("package member\nimport \"fmt\"\n"),
+		"bazel-out/exports/fmt.a": []byte("fmt export data"),
+		"bazel-out/exports/io.a":  []byte("io export data"),
+	} {
+		if err := os.WriteFile(filepath.Join(workspace, name), data, 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	metadata := `{"ID":"stdlib/fmt","Name":"fmt","PkgPath":"fmt","ExportFile":"__BAZEL_EXECROOT__/bazel-out/exports/fmt.a","Imports":{"io":"stdlib/io"},"Standard":true}
+{"ID":"stdlib/io","Name":"io","PkgPath":"io","ExportFile":"__BAZEL_EXECROOT__/bazel-out/exports/io.a","Imports":{},"Standard":true}
+{"ID":"stdlib/unsafe","Name":"unsafe","PkgPath":"unsafe","ExportFile":"","Imports":{},"Standard":true}
+`
+	if rewriteMetadata {
+		metadata = `{"ID":"stdlib/fmt","Name":"fmt","PkgPath":"fmt","ExportFile":"__BAZEL_EXECROOT__/bazel-out/exports/fmt.a","Imports":{},"Standard":true}
+`
+	}
+	if err := os.WriteFile(filepath.Join(workspace, "stdlib.pkg.json"), []byte(metadata), 0644); err != nil {
+		t.Fatal(err)
+	}
+	version := "go1.26.4"
+	return &Layout{
+		GoSDKRoot: filepath.Join(workspace, "sdk", "src"),
+		Platform: &Platform{
+			GOOS: "linux", GOARCH: "amd64", ToolchainVersion: &version,
+		},
+		Roots: []string{"member-id"},
+		Packages: []*packages.Package{{
+			ID: "member-id", Name: "member", PkgPath: "example.com/member",
+			GoFiles: []string{"member.go"}, CompiledGoFiles: []string{"member.go"},
+		}},
+		StdlibExportData: &StdlibExportData{
+			Metadata: "stdlib.pkg.json",
+			Target: &StdlibExportTarget{
+				ToolchainVersion: "go1.26.4", GOOS: "linux", GOARCH: "amd64",
+			},
+		},
+	}, workspace
+}
+
+func reverseStdlibExportMetadata(data []byte) []byte {
+	lines := strings.Split(strings.TrimSpace(string(data)), "\n")
+	for i, j := 0, len(lines)-1; i < j; i, j = i+1, j-1 {
+		lines[i], lines[j] = lines[j], lines[i]
+	}
+	return []byte(strings.Join(lines, "\n") + "\n")
+}
+
 func exportLayoutFixture(t *testing.T) (*Layout, string) {
 	t.Helper()
 	workspace := t.TempDir()

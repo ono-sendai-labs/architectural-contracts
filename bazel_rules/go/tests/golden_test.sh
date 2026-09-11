@@ -47,7 +47,10 @@ if [[ "${sdk_root}" != *"go_sdk"*/src ]]; then
 fi
 
 normalized_layout="${TEST_TMPDIR:-/tmp}/normalized.package-layout.json"
-sed -e 's|"go_sdk_root": ".*"|"go_sdk_root": "<GO_SDK_ROOT>"|' "${generated_layout}" > "${normalized_layout}"
+sed \
+  -e 's|"go_sdk_root": ".*"|"go_sdk_root": "<GO_SDK_ROOT>"|' \
+  -e 's|"exec_path": ".*"|"exec_path": "<STDLIB_EXPORT_ROOT>"|' \
+  "${generated_layout}" > "${normalized_layout}"
 
 if ! diff -u "${golden_layout}" "${normalized_layout}"; then
   echo "FAIL: generated layout differs from ${golden_layout} (< golden, > generated)" >&2

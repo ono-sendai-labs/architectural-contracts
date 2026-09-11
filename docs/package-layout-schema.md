@@ -23,6 +23,27 @@ left to be inferred from the field names.
     "cgo_enabled": false
   },
   "roots": ["example.com/svc", "example.com/svc/impl"],
+  "stdlib_export_data": {
+    "metadata": "rules_go+/stdlib_/stdlib.pkg.json",
+    "export_roots": [
+      {
+        "runfiles_path": "rules_go+/stdlib_/gocache",
+        "exec_path": "bazel-out/<config>/bin/external/rules_go+/stdlib_/gocache"
+      },
+      {
+        "runfiles_path": "rules_go+/stdlib_/pkg",
+        "exec_path": "bazel-out/<config>/bin/external/rules_go+/stdlib_/pkg"
+      }
+    ],
+    "target": {
+      "toolchain_version": "go1.26.4",
+      "goos": "linux",
+      "goarch": "amd64",
+      "build_tags": [],
+      "cgo_enabled": false,
+      "goexperiment": ""
+    }
+  },
   "dependency_artifact_bindings": [
     {
       "dependency": "logger",
@@ -45,6 +66,8 @@ left to be inferred from the field names.
       "ID": "example.com/dep",
       "Name": "dep",
       "PkgPath": "example.com/dep",
+      "GoFiles": ["_main/dep/dep.go"],
+      "CompiledGoFiles": ["_main/dep/dep.go"],
       "ExportFile": "external/dep/pkg.a",
       "Imports": {},
       "is_stdlib": false
@@ -58,6 +81,7 @@ left to be inferred from the field names.
 | `go_sdk_root` | Path to the Go SDK's `src` directory. arcc enumerates and type-checks the standard library from here itself; the emitter does **not** list stdlib packages. |
 | `platform` | The target the analysis is for (§3). Optional; absent means `build.Default`. |
 | `roots` | The component's member packages. Must equal the manifest's `members`, or the load fails (§2). |
+| `stdlib_export_data` | The target-configured host-adapter descriptor. `metadata` is a newline-delimited rules_go package graph; `export_roots` maps its generated execroot paths to runfiles paths; `target` is checked against `platform` before records are merged. Its compiled export trees are declared action inputs, not embedded in the package records. |
 | `dependency_artifact_bindings` | Sorted direct dependency artifact bindings. Each names the manifest dependency and its runfiles-frame surface, optional report, edge origin, and structural producer provenance (§6). |
 | `packages` | Every package in the closure, in `go/packages`' own driver "flat" encoding, plus the layout-only `is_stdlib` bit (§4). Member roots carry source fields; effective non-members carry `ExportFile` for member-only loading. |
 
@@ -157,6 +181,13 @@ For member-only validation:
   Every such package except the builtin `unsafe` must have an export artifact
   and an explicit `Imports` map. A leaf must use `"Imports": {}`; an omitted
   or `null` field is an incomplete graph, not an empty leaf.
+- During the Task 4 transition the emitter also retains non-member source
+  fields and stages the closure sources because the active loader still uses
+  `NeedDeps`. Those fields are compatibility inputs only; Task 5's driver
+  response selects source for roots and `ExportFile` for non-roots. The
+  emitted ordinary non-member records already carry their export artifact and
+  aspect-projected direct graph, while the stdlib descriptor supplies the
+  target-configured SDK graph.
 - **The graph is not an API-surface projection.** Packages and edges are kept
   even when an imported package does not appear to be referenced by the
   exporting package's public API. The validator walks sorted roots and sorted
@@ -191,6 +222,25 @@ read or infer the graph from import-path spelling. The descriptor's `inputs`
 contain no SDK `.go` source, `go` binary, compiler/linker tools, undeclared host
 cache, or network dependency; source-backed `StdlibLayout` generation remains a
 separate path.
+
+The concrete upstream metadata uses `__BAZEL_EXECROOT__/` as a placeholder in
+each `ExportFile`. Runtime resolution strips only that leading marker, verifies
+the resulting relative path and artifact, and resolves it against the action
+execroot. A marker in any other position, an absolute path, or a parent escape
+is rejected. The checked action declares the transition input set: member and
+closure sources, the manifest/layout, ordinary non-member export files, the
+stdlib metadata file and its generated `gocache`/`pkg` export trees, direct
+dependency surfaces/reports, and the target stdlib map. The closure and SDK
+source inputs remain only until Task 5; they are not a second analysis action
+or a source of stdlib provenance.
+
+The optional `export_roots` records are the same two spellings the host adapter
+knows for each generated tree: `exec_path` is the relative path beneath the
+action execroot, while `runfiles_path` is the path staged for the replay/test
+runfiles frame. Runtime replaces a metadata export path beneath the execroot
+root with the corresponding runfiles path before checking the artifact. This
+keeps the layout usable both from the action wrapper's execroot and from a
+checked-analysis test's runfiles root without guessing a repository name.
 
 **Pinning the toolchain.** The platform block may carry two optional
 identity fields, `toolchain_version` (`go1.N.M`) and `goexperiment`. When
