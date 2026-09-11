@@ -1,0 +1,92 @@
+result:
+  task_file: .agents/tasks/2026-08-04-compositional-component-analysis/step08/task-02-collect-go-archive-export-files.code-task.md
+  change_id: ppymmkptqtwsmmlrowonqwnmxqvpyosm
+  status: completed
+  schema_version: 2
+  produced_at: 2026-09-11T06:50:40Z
+
+acceptance_criteria:
+  - text: |
+      **Every Go closure node carries export data**
+        - Given a component root with direct and transitive Go dependencies
+        - When `_arcc_deps` projects the closure
+        - Then each importable non-stdlib package node exposes the exact `GoArchive.data.export_file` through the generic adapter contract.
+    addressed: yes
+    evidence: |
+      bazel_rules/go/private/go_adapter.bzl:191-249 documents and projects the pinned
+      `GoArchive.data.export_file` as the generic `export_file` File. The real closure
+      assertion in `bazel_rules/go/tests/aspect_tests.bzl:149-163` verifies every merged
+      package has a non-empty artifact; `arcc_deps_aspect_tests` and `just ci` pass.
+  - text: |
+      **Embedding merges deterministically**
+        - Given embedder and embedded targets that fold to one import path and share an export artifact
+        - When `merge_by_importpath` runs in either traversal order
+        - Then the merged node contains one stable export file and otherwise identical metadata.
+    addressed: yes
+    evidence: |
+      bazel_rules/go/private/aspect.bzl:53-125 keys artifacts by stable File.path,
+      validates one artifact, and emits it in the merged node. The forward/reverse
+      same-File seam and metadata comparison are covered by
+      bazel_rules/go/tests/aspect_tests.bzl:313-350.
+  - text: |
+      **Conflicts fail closed**
+        - Given two nodes for one import path with missing or distinct export artifacts
+        - When the closure is merged
+        - Then analysis fails with a diagnostic naming the package and conflicting metadata rather than choosing one by iteration order.
+    addressed: yes
+    evidence: |
+      bazel_rules/go/private/aspect.bzl:92-116 rejects missing or multiple artifact
+      paths and sorts all contributor labels/files into the diagnostic. Missing and
+      distinct-file analysis tests, including contributor assertions, are at
+      bazel_rules/go/tests/aspect_tests.bzl:352-430; the real embedded conflict seam is
+      covered at lines 232-253.
+  - text: |
+      **Non-Go traversal stays compatible**
+        - Given a filegroup or other non-Go target on a traversed edge
+        - When the aspect visits it
+        - Then it yields an empty package depset and does not attempt to read `GoArchive`.
+    addressed: yes
+    evidence: |
+      bazel_rules/go/private/aspect.bzl:27-33 returns an empty `ArccPackageInfo` before
+      any Go projection. bazel_rules/go/tests/aspect_tests.bzl:301-311 asserts the
+      non-Go probe's package depset is empty, and the focused suite passes.
+  - text: |
+      **Layering is preserved**
+        - Given the completed Starlark change
+        - When imports are inspected and Bazel tests run
+        - Then only `go_adapter.bzl` loads rules_go providers and upper layers use the generic projection.
+    addressed: yes
+    evidence: |
+      The adapter loads rules_go providers at bazel_rules/go/private/go_adapter.bzl:20-21
+      and exposes the generic projection at :191-249. aspect.bzl loads only
+      `go_target_info`/`is_go_target` at :14-15, component.bzl loads adapter seams, and
+      the required empty upper-layer reference check is recorded in work.log.
+  - text: |
+      **Repository checks pass**
+        - Given the completed change
+        - When `just ci` runs
+        - Then all existing checks pass while the runtime load path remains source-backed.
+    addressed: yes
+    evidence: |
+      The complete `just ci` run passed in work.log, including Go build/test/integration,
+      self-check staging, Bazel build/test, and the source-backed layout/action checks.
+      bazel_rules/go/private/component.bzl:154-157 and :413-481 still emit/use GoFiles,
+      CompiledGoFiles, closure sources, and source-backed action inputs without adding
+      export files.
+
+artifacts:
+  scratchpad_dir: .agents/scratchpad/2026-08-04-compositional-component-analysis/step08/task-02-collect-go-archive-export-files/
+  files:
+    - context.md
+    - plan.md
+    - progress.md
+    - work.log
+    - result.yaml
+
+notes: |
+  The Bazel adapter now exposes the pinned rules_go archive export artifact through a
+  generic closure-node contract, and the aspect merge is deterministic and fail-closed
+  for missing or conflicting metadata. Analysis tests cover real transitive and embed
+  traversal, stable duplicate merging, non-Go edges, and contributor diagnostics.
+  `just ci` passed, and the implementation plus follow-up test assertion were committed
+  as unbookmarked jj changes with an empty working copy.

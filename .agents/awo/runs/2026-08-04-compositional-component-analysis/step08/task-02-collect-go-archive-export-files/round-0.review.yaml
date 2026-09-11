@@ -1,0 +1,124 @@
+review:
+  task_file: .agents/tasks/2026-08-04-compositional-component-analysis/step08/task-02-collect-go-archive-export-files.code-task.md
+  change_id: ppymmkptqtwsmmlrowonqwnmxqvpyosm
+  reviewed_at: 2026-09-11T06:56:07Z
+  verdict: changes_requested
+  schema_version: 2
+  lsp_coverage: unavailable
+
+merge_request:
+  title: "feat(bazel): collect Go archive export metadata [Compositional Analysis: Step 08/Task 02]"
+  body: |
+    Reviews the initial export-metadata implementation change and the ordered
+    follow-up that strengthened missing/conflicting-artifact diagnostics. The
+    series updates the rules_go adapter, closure merge, and Bazel analysis
+    fixtures while leaving source-backed layouts and action inputs unchanged.
+
+summary: |
+  The ordered changes correctly expose rules_go 0.61.1 export files through the adapter,
+  propagate them through the closure, and fail closed on missing or conflicting artifacts.
+  Focused Bazel analysis tests pass, and the recorded just ci run passes all repository checks.
+  One existing embed-only test was weakened by replacing its source-file assertion with only
+  package-presence coverage, so the series needs a small test-coverage repair before approval.
+
+acceptance_criteria:
+  - text: |
+      **Every Go closure node carries export data**
+        - Given a component root with direct and transitive Go dependencies
+        - When `_arcc_deps` projects the closure
+        - Then each importable non-stdlib package node exposes the exact `GoArchive.data.export_file` through the generic adapter contract.
+    status: pass
+    evidence: |
+      bazel_rules/go/private/go_adapter.bzl:191-249 documents and projects
+      `GoArchive.data.export_file` as the generic `export_file` File. The real
+      closure assertion at bazel_rules/go/tests/aspect_tests.bzl:149-163 verifies
+      every merged package has a non-empty export artifact, and the focused
+      analysis suite passes.
+  - text: |
+      **Embedding merges deterministically**
+        - Given embedder and embedded targets that fold to one import path and share an export artifact
+        - When `merge_by_importpath` runs in either traversal order
+        - Then the merged node contains one stable export file and otherwise identical metadata.
+    status: pass
+    evidence: |
+      bazel_rules/go/private/aspect.bzl:53-125 keys artifacts by stable File.path,
+      validates exactly one artifact, and emits it in the merged node. The
+      forward/reverse same-file seam and metadata comparison are covered at
+      bazel_rules/go/tests/aspect_tests.bzl:313-350.
+  - text: |
+      **Conflicts fail closed**
+        - Given two nodes for one import path with missing or distinct export artifacts
+        - When the closure is merged
+        - Then analysis fails with a diagnostic naming the package and conflicting metadata rather than choosing one by iteration order.
+    status: pass
+    evidence: |
+      bazel_rules/go/private/aspect.bzl:92-116 rejects missing or multiple
+      artifact paths and sorts contributor labels/files into the diagnostic.
+      Missing and distinct-file analysis tests at
+      bazel_rules/go/tests/aspect_tests.bzl:352-433 assert the package, field,
+      contributor labels, and artifact paths; the real embedded conflict seam is
+      covered at lines 232-253.
+  - text: |
+      **Non-Go traversal stays compatible**
+        - Given a filegroup or other non-Go target on a traversed edge
+        - When the aspect visits it
+        - Then it yields an empty package depset and does not attempt to read `GoArchive`.
+    status: pass
+    evidence: |
+      bazel_rules/go/private/aspect.bzl:27-33 returns an empty ArccPackageInfo
+      before any Go projection. bazel_rules/go/tests/aspect_tests.bzl:298-311
+      asserts the non-Go probe has an empty package depset, and the focused suite
+      passes.
+  - text: |
+      **Layering is preserved**
+        - Given the completed Starlark change
+        - When imports are inspected and Bazel tests run
+        - Then only `go_adapter.bzl` loads rules_go providers and upper layers use the generic projection.
+    status: pass
+    evidence: |
+      bazel_rules/go/private/go_adapter.bzl:20-21 is the production provider
+      load and :191-249 exposes the generic projection. The changed aspect loads
+      only go_target_info/is_go_target at bazel_rules/go/private/aspect.bzl:14-15;
+      component.bzl continues to consume the adapter and merge contract. The
+      repository search found no rules_go provider load added above the adapter.
+  - text: |
+      **Repository checks pass**
+        - Given the completed change
+        - When `just ci` runs
+        - Then all existing checks pass while the runtime load path remains source-backed.
+    status: pass
+    evidence: |
+      The complete just ci run recorded in the task work.log passes Go vet/build/
+      tests, integration tests, self-check staging, Bazel build, and bazel test
+      //.... The focused review run also passed
+      bazel test //bazel_rules/go/tests:arcc_deps_aspect_tests. The unchanged
+      source-backed path remains visible at bazel_rules/go/private/component.bzl:
+      138-167 and :413-485; export files are not added to layouts, runfiles, or
+      analysis-action inputs.
+
+findings:
+  - severity: important
+    category: tests
+    file: bazel_rules/go/tests/aspect_tests.bzl
+    line: 227
+    title: "Embed-only closure test dropped source coverage"
+    details: |
+      The base test asserted that the embed-only dependency contributed the
+      expected `extradep.go` source (the removed assertion was in the original
+      `_embed_only_dependency_is_reached_impl`). The current test at
+      bazel_rules/go/tests/aspect_tests.bzl:227-230 checks only that the import
+      path is present, so a node with an empty or incorrect `srcs` set would still
+      pass. The related replacement also removed the prior `api.go` source
+      assertion. progress.md/work.log explain the fixture split needed for the
+      new real embedded-artifact conflict case, but do not justify this loss of
+      source-field coverage or provide an equivalent assertion elsewhere.
+    suggested_action: |
+      Keep the embed-only probe on the real embedded closure and assert the
+      matching package's source basenames include exactly `extradep.go` (and
+      restore equivalent `api.go` coverage on the normal closure if that
+      regression check is still intended). If the assertions are intentionally
+      obsolete, document the reason in progress.md and replace them with a
+      contract-level source assertion in another analysis test.
+    source: built-in
+
+ecosystem_reviews: []

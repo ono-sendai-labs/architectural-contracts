@@ -1,0 +1,120 @@
+review:
+  task_file: .agents/tasks/2026-08-04-compositional-component-analysis/step08/task-02-collect-go-archive-export-files.code-task.md
+  change_id: vmxpuwqyrkrzmzrutlqypqsqusuqxkqy
+  reviewed_at: 2026-09-11T07:04:00Z
+  verdict: approved
+  schema_version: 2
+  lsp_coverage: unavailable
+
+merge_request:
+  title: "feat(bazel): collect Go archive export metadata [Compositional Analysis: Step 08/Task 02]"
+  body: |
+    Reviews the complete ordered task series: the initial adapter/aspect
+    implementation, the follow-up contributor-diagnostic assertions, and the
+    rework restoring embed-closure source assertions. The series carries
+    rules_go export metadata through the generic closure contract while keeping
+    layouts, runfiles, and source-backed analysis inputs unchanged.
+
+summary: |
+  The rework resolves the prior important finding: the normal closure again asserts api.go,
+  and the embed-only dependency asserts exactly extradep.go; the RED/GREEN/REFACTOR evidence
+  and focused Bazel tests confirm the restored coverage. The complete change series satisfies
+  all six acceptance criteria, and the recorded rework just ci run passes. One stale test comment
+  remains from the pre-fixture-split graph, but it is non-blocking.
+
+acceptance_criteria:
+  - text: |
+      **Every Go closure node carries export data**
+        - Given a component root with direct and transitive Go dependencies
+        - When `_arcc_deps` projects the closure
+        - Then each importable non-stdlib package node exposes the exact `GoArchive.data.export_file` through the generic adapter contract.
+    status: pass
+    evidence: |
+      bazel_rules/go/private/go_adapter.bzl:191-249 documents and projects the
+      pinned `GoArchive.data.export_file` as the generic `export_file` File.
+      bazel_rules/go/tests/aspect_tests.bzl:157-163 verifies every merged normal
+      closure package has a non-empty export artifact, and the rework preserves
+      the normal-closure source assertions at lines 141-151. The focused suite
+      passes.
+  - text: |
+      **Embedding merges deterministically**
+        - Given embedder and embedded targets that fold to one import path and share an export artifact
+        - When `merge_by_importpath` runs in either traversal order
+        - Then the merged node contains one stable export file and otherwise identical metadata.
+    status: pass
+    evidence: |
+      bazel_rules/go/private/aspect.bzl:53-125 keys artifacts by stable File.path,
+      validates exactly one artifact, and emits it in the merged node. The
+      forward/reverse same-file seam and metadata comparison are covered at
+      bazel_rules/go/tests/aspect_tests.bzl:313-350.
+  - text: |
+      **Conflicts fail closed**
+        - Given two nodes for one import path with missing or distinct export artifacts
+        - When the closure is merged
+        - Then analysis fails with a diagnostic naming the package and conflicting metadata rather than choosing one by iteration order.
+    status: pass
+    evidence: |
+      bazel_rules/go/private/aspect.bzl:92-116 rejects missing or multiple
+      artifact paths and sorts contributor labels/files into the diagnostic.
+      Missing and distinct-file analysis tests at
+      bazel_rules/go/tests/aspect_tests.bzl:352-433 assert package, field,
+      contributor labels, and artifact paths; the real embedded conflict seam is
+      covered at lines 232-253.
+  - text: |
+      **Non-Go traversal stays compatible**
+        - Given a filegroup or other non-Go target on a traversed edge
+        - When the aspect visits it
+        - Then it yields an empty package depset and does not attempt to read `GoArchive`.
+    status: pass
+    evidence: |
+      bazel_rules/go/private/aspect.bzl:27-33 returns an empty ArccPackageInfo
+      before any Go projection. bazel_rules/go/tests/aspect_tests.bzl:298-311
+      asserts the non-Go probe has an empty package depset, and the focused suite
+      passes.
+  - text: |
+      **Layering is preserved**
+        - Given the completed Starlark change
+        - When imports are inspected and Bazel tests run
+        - Then only `go_adapter.bzl` loads rules_go providers and upper layers use the generic projection.
+    status: pass
+    evidence: |
+      bazel_rules/go/private/go_adapter.bzl:20-21 is the production provider
+      load and :191-249 exposes the generic projection. The changed aspect loads
+      only go_target_info/is_go_target at bazel_rules/go/private/aspect.bzl:14-15;
+      component.bzl continues to consume the adapter and merge contract. The
+      production provider-load search found no rules_go provider load above the
+      adapter.
+  - text: |
+      **Repository checks pass**
+        - Given the completed change
+        - When `just ci` runs
+        - Then all existing checks pass while the runtime load path remains source-backed.
+    status: pass
+    evidence: |
+      The complete rework `just ci` run recorded in work.log passes Go
+      vet/build/tests, integration tests, self-check staging, Bazel build, and
+      bazel test //.... The focused re-review run also passed
+      bazel test //bazel_rules/go/tests:arcc_deps_aspect_tests. The unchanged
+      source-backed path remains visible at bazel_rules/go/private/component.bzl:
+      138-167 and :413-485; export files are not added to layouts, runfiles, or
+      analysis-action inputs.
+
+findings:
+  - severity: suggestion
+    category: style
+    file: bazel_rules/go/tests/aspect_tests.bzl
+    line: 138
+    title: "Update comments after the closure fixture split"
+    details: |
+      The normal `_PROBE` now uses the direct-source `core` fixture, while the
+      actual embed edge lives under `_EMBED_PROBE`. The comments at
+      bazel_rules/go/tests/aspect_tests.bzl:138-140 and :181-182 still say that
+      the normal closure folds an embedded library and that core inherits
+      `extradep` from it. The assertions are correct, but these explanations no
+      longer describe the graph being tested and can mislead future fixture edits.
+    suggested_action: |
+      Rewrite the comments to describe the direct `core` fixture and point to
+      `_EMBED_PROBE` for the real embed traversal/conflict behavior.
+    source: built-in
+
+ecosystem_reviews: []
