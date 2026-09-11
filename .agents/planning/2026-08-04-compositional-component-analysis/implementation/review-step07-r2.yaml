@@ -1,0 +1,209 @@
+review:
+  project: 2026-08-04-compositional-component-analysis
+  scope: step
+  step: 7
+  plan_path: .agents/planning/2026-08-04-compositional-component-analysis/implementation/plan.md
+  design_path: .agents/planning/2026-08-04-compositional-component-analysis/design/detailed-design.md
+  reviewed_at: 2026-09-11T05:36:14Z
+  schema_version: 1
+  steps_in_scope: [7]
+  commits_in_scope: 34
+  remediation_step: null
+  verdict: clean
+
+summary: |
+  Step 7 now aligns with the design across dependency-artifact binding, validated
+  surface consumption, boundary status axes, overlap rejection, foreign-runtime
+  ownership, and the explicit AnalysisDefeating policy carrier. All three findings
+  from the first pass are genuinely resolved: every analyzed native stage has an
+  explicit verdict expectation, stdlibmap passes under strict policy through one
+  acyclic packagelayout boundary, and both manifest and Bazel ownership audits recurse
+  through every named production root while excluding only Go/Bazel testdata fixture
+  subtrees. Focused confirmation checks and a fresh just ci run passed. No new
+  cross-cutting issue or unresolved task-review finding warrants further remediation.
+
+architecture:
+  - element: Direct dependency artifact bindings
+    expected: |
+      Every authored and auto-attached direct dependency has one deterministic layout
+      binding to its surface, optional report, edge provenance, and auto-attached flag;
+      malformed provider combinations fail before action creation.
+    actual: |
+      Package-layout bindings are emitted from direct ArccComponentInfo edges, validated,
+      canonically sorted, and declared as direct checked-action inputs.
+    status: aligned
+    files:
+      - bazel_rules/go/private/component.bzl
+      - go/internal/packagelayout/packagelayout.go
+    notes: |
+      The binding remains structural build metadata; native lookup continues to use the
+      documented sibling-artifact convention.
+
+  - element: Validated surface-backed dependency resolution
+    expected: |
+      Dependency packages and exact symbols come only from bounded persisted surfaces;
+      namespace, complete SDK identity, interface style, authority, report identity,
+      and structural producer invariants fail closed without loading dependency source.
+    actual: |
+      ResolveDependencySurface validates every artifact and binding invariant and
+      projects the result into facts.DependencyInterface. The production runner uses
+      this resolver for both native and layout modes, and the legacy source-derived
+      dependency-interface resolver is absent.
+    status: aligned
+    files:
+      - go/internal/goanalysis/surface_resolver.go
+      - go/cmd/arcc/app/check.go
+    notes: |
+      NeedDeps and closure-source staging remain intentionally deferred to Step 8.
+
+  - element: Boundary status axes and dependency warnings
+    expected: |
+      Provenance, freshness, and authority remain orthogonal in JSON and text output;
+      failed checked dependencies and stale native surfaces warn without importing a
+      dependency's own violations.
+    actual: |
+      facts and report retain all three axes, the checker emits deterministic
+      DEPENDENCY_CHECK_FAILED and stale-surface warnings, and integration coverage
+      exercises checked-pass, checked-fail, asserted, verified, stale, and unknown.
+    status: aligned
+    files:
+      - go/internal/facts/dependency_status.go
+      - go/internal/checker/checker.go
+      - go/internal/report/report.go
+      - go/cmd/arcc/app/surface_cutover_test.go
+    notes: ""
+
+  - element: Direct dependency overlap enforcement
+    expected: |
+      Two direct dependency surfaces claiming one package fail deterministically before
+      any package-to-dependency lookup or output artifact can be used.
+    actual: |
+      NewBoundaryIndex sorts and reports all collisions before constructing the lookup,
+      and production-runner tests verify exit 2 with no report or surface publication.
+    status: aligned
+    files:
+      - go/internal/checker/boundary.go
+      - go/cmd/arcc/app/app_test.go
+    notes: ""
+
+  - element: Protobuf-runtime package-surface ownership
+    expected: |
+      One asserted UNKNOWN PACKAGE_SURFACE component owns the concrete protobuf runtime
+      closure, and consumers use explicit component dependencies instead of duplicate
+      membership.
+    actual: |
+      protobuf-runtime is the sole owner in both checked-in manifests and production
+      go_component declarations. Its native and Bazel surfaces are package-level,
+      symbol-free, empty-digest assertions with no report.
+    status: aligned
+    files:
+      - go/internal/protobufruntime/component.textproto
+      - go/internal/protobufruntime/BUILD.bazel
+      - go/internal/manifestparity/ownership_test.go
+    notes: |
+      The repository-wide audit independently rejects any non-wrapper protobuf owner.
+
+  - element: x/tools package-surface ownership
+    expected: |
+      One asserted UNKNOWN PACKAGE_SURFACE wrapper owns the retained x/tools, x/mod, and
+      x/sync closure, with analyzers and generators consuming an explicit acyclic edge.
+    actual: |
+      x-tools is the sole owner in both manifest and Bazel inventories. goanalysis,
+      capslockadapter, stdlibmap, and the packagelayout boundary declare the required
+      component relationship without reclaiming foreign members.
+    status: aligned
+    files:
+      - go/internal/xtools/component.textproto
+      - go/internal/xtools/BUILD.bazel
+      - go/internal/manifestparity/x_tools_ownership_test.go
+    notes: ""
+
+  - element: Residual AnalysisDefeating policy carrier
+    expected: |
+      Omission is strict; explicit WARN maps only the empty AnalysisDefeating capability
+      key to a visible ANALYSIS_LIMITATION while preserving sites, class, SDK identity,
+      classifier semantics, and genuine authority violations.
+    actual: |
+      Manifest field 11 and the go_component attribute implement the strict/WARN carrier.
+      Only parsecsv and capslockadapter opt into WARN; stdlibmap and every other component
+      remain strict, and true authority findings cannot use the carrier.
+    status: aligned
+    files:
+      - proto/archcontracts/v1/component.proto
+      - go/internal/manifest/authority.go
+      - go/cmd/arcc/app/check.go
+      - go/internal/checker/aggregate.go
+    notes: |
+      Generation classifier text, classifier_hash, and pinned map semantics are unchanged.
+
+  - element: stdlibmap strict component conformance
+    expected: |
+      stdlibmap passes its real native component check without using the residual WARN
+      carrier, and its packagelayout uses cross one singular, explicit, acyclic boundary.
+    actual: |
+      The production io.ReadAll and errors.Is references that generated
+      AnalysisDefeating findings are gone. Bounded local helpers preserve the tested
+      reader and wrapped-not-found behavior, and stdlibmap depends on the singular
+      packagelayout PACKAGE_SURFACE component owned outside goanalysis.
+    status: aligned
+    files:
+      - go/internal/stdlibmap/cache.go
+      - go/internal/stdlibmap/component.textproto
+      - go/internal/packagelayout/component.textproto
+      - go/internal/goanalysis/component.textproto
+      - go/internal/manifestparity/ownership_test.go
+    notes: |
+      This resolves prior finding F2. Production stdlibmap contains neither prohibited
+      reference and no analysis_defeating_policy field; just selfcheck and just ci pass.
+
+  - element: Native selfcheck staging and verdict gate
+    expected: |
+      Every analyzed production stage has its canonical report checked against an
+      explicit expected verdict. Pass is the default, schema is the sole named expected
+      failure, and asserted wrappers remain report-free.
+    actual: |
+      selfcheck_stage_component runs report-verdict-only analysis and immediately invokes
+      arcc verdict on the canonical report. All 20 analyzed stages use the helper;
+      only schema passes an explicit fail expectation, while protobuf-runtime and x-tools
+      use the separate asserted-surface/no-report helper.
+    status: aligned
+    files:
+      - scripts/selfcheck-staging.sh
+      - scripts/selfcheck-staging-test.sh
+      - justfile
+      - README.md
+    notes: |
+      This resolves prior finding F1. The regression proves that a stage-only fail report
+      exits nonzero and names the component; missing, malformed, or contradictory reports
+      are rejected by the canonical verdict command rather than silently discarded.
+
+  - element: Repository-wide foreign-ownership regression guards
+    expected: |
+      Every production component manifest and go_component declaration under internal,
+      command, and example trees participates in the one-owner audit, with test fixtures
+      excluded through a narrow documented rule and duplicate identities rejected.
+    actual: |
+      Deterministic recursive inventories walk go/internal, go/cmd, and go/examples,
+      parse every component.textproto and BUILD.bazel below them, reject duplicate manifest
+      names and unresolved ownership labels, and apply exact protobuf and x/tools prefix
+      rules to interface roots and member declarations.
+    status: aligned
+    files:
+      - go/internal/manifestparity/ownership_inventory.go
+      - go/internal/manifestparity/ownership_inventory_test.go
+      - go/internal/manifestparity/ownership_test.go
+      - go/internal/manifestparity/x_tools_ownership_test.go
+    notes: |
+      This resolves prior finding F3. The only pruned directory name is testdata, the
+      conventional non-production fixture boundary that Go ignores for package discovery
+      and this repository also excludes from Bazel production generation. Negative tests
+      cover nested example manifests, member lists, interface roots, and duplicate names;
+      live sentinels prove all nested csvtool declarations are present.
+
+doc_code_alignment: []
+
+findings: []
+
+remediation_tasks: []
+
+ecosystem_reviews: []
