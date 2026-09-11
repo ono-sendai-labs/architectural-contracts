@@ -136,6 +136,23 @@ func TestLayoutShapeSnapshotRejectsInvalidInputBeforeNormalization(t *testing.T)
 			copy.Packages[1].Imports = nil
 			return copy
 		}(), want: "Imports"},
+		{name: "root is not declared", layout: func() *packagelayout.Layout {
+			copy := layoutShapeFixture("example.com")
+			copy.Roots = []string{"example.com/missing"}
+			return copy
+		}(), want: "root package path"},
+		{name: "ordinary import target is dangling", layout: func() *packagelayout.Layout {
+			copy := layoutShapeFixture("example.com")
+			copy.Packages[0].Imports["example.com/missing"] = &packages.Package{ID: "example.com/missing"}
+			return copy
+		}(), want: "does not resolve"},
+		{name: "ordinary import target identity mismatches", layout: func() *packagelayout.Layout {
+			copy := layoutShapeFixture("example.com")
+			copy.Packages[0].Imports = map[string]*packages.Package{
+				"example.com/dep": {ID: "example.com/member"},
+			}
+			return copy
+		}(), want: "does not match"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

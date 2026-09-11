@@ -177,6 +177,11 @@ type layoutTargetShape struct {
 	GOEXPERIMENT     any `json:"goexperiment"`
 }
 
+type layoutPackageIdentity struct {
+	id   string
+	path string
+}
+
 func marshalLayoutShape(layout *packagelayout.Layout) ([]byte, error) {
 	shape, err := buildLayoutShape(layout)
 	if err != nil {
@@ -487,6 +492,8 @@ func validateLayoutShape(layout *packagelayout.Layout) error {
 	if len(layout.Packages) == 0 {
 		return fmt.Errorf("packages is empty")
 	}
+	packageByID := make(map[string]layoutPackageIdentity, len(layout.Packages))
+	packageByPath := make(map[string]layoutPackageIdentity, len(layout.Packages))
 	seenIDs := make(map[string]bool, len(layout.Packages))
 	seenPaths := make(map[string]bool, len(layout.Packages))
 	for _, pkg := range layout.Packages {
@@ -506,15 +513,31 @@ func validateLayoutShape(layout *packagelayout.Layout) error {
 		}
 		seenIDs[canonicalID] = true
 		seenPaths[canonicalPath] = true
-		for name, files := range map[string][]string{
-			"GoFiles":         pkg.GoFiles,
-			"CompiledGoFiles": pkg.CompiledGoFiles,
-			"IgnoredFiles":    pkg.IgnoredFiles,
-			"OtherFiles":      pkg.OtherFiles,
-		} {
-			for i, file := range files {
+		identity := layoutPackageIdentity{id: canonicalID, path: canonicalPath}
+		packageByID[canonicalID] = identity
+		packageByPath[canonicalPath] = identity
+	}
+	for _, root := range layout.Roots {
+		canonicalRoot := hostpolicy.CanonicalizePath(root)
+		if _, ok := packageByPath[canonicalRoot]; !ok {
+			return fmt.Errorf("root package path %q does not resolve to a declared package", root)
+		}
+	}
+	for _, pkg := range layout.Packages {
+		canonicalPath := hostpolicy.CanonicalizePath(pkg.PkgPath)
+		roles := []struct {
+			name  string
+			files []string
+		}{
+			{name: "CompiledGoFiles", files: pkg.CompiledGoFiles},
+			{name: "GoFiles", files: pkg.GoFiles},
+			{name: "IgnoredFiles", files: pkg.IgnoredFiles},
+			{name: "OtherFiles", files: pkg.OtherFiles},
+		}
+		for _, role := range roles {
+			for i, file := range role.files {
 				if _, err := shapeRequiredLayoutPath(file, layoutWorkspacePlaceholder); err != nil {
-					return fmt.Errorf("package %q %s[%d]: %w", pkg.ID, name, i, err)
+					return fmt.Errorf("package %q %s[%d]: %w", pkg.ID, role.name, i, err)
 				}
 			}
 		}
@@ -522,6 +545,9 @@ func validateLayoutShape(layout *packagelayout.Layout) error {
 			if _, err := shapeRequiredLayoutPath(pkg.ExportFile, layoutExportPlaceholder); err != nil {
 				return fmt.Errorf("package %q ExportFile: %w", pkg.ID, err)
 			}
+		}
+		if roots[canonicalPath] && pkg.ExportFile != "" {
+			return fmt.Errorf("member package %q must not have an ExportFile", pkg.ID)
 		}
 		if !roots[canonicalPath] && canonicalPath != "unsafe" && pkg.ExportFile == "" {
 			return fmt.Errorf("non-member package %q has no ExportFile", pkg.ID)
@@ -537,6 +563,21 @@ func validateLayoutShape(layout *packagelayout.Layout) error {
 				if imported == nil || imported.ID == "" {
 					return fmt.Errorf("package %q import %q has no package ID", pkg.ID, importPath)
 				}
+				canonicalImport := hostpolicy.CanonicalizePath(importPath)
+				canonicalID := hostpolicy.CanonicalizePath(imported.ID)
+				target, ok := packageByID[canonicalID]
+				if !ok {
+					if descriptorBackedStdlibImport(layout, canonicalImport, canonicalID) {
+						continue
+					}
+					return fmt.Errorf("package %q import %q target ID %q does not resolve to a declared package", pkg.ID, importPath, imported.ID)
+				}
+				if target.path != canonicalImport {
+					return fmt.Errorf("package %q import %q target ID %q resolves to %q and does not match the import key", pkg.ID, importPath, imported.ID, target.path)
+				}
+				if imported.PkgPath != "" && hostpolicy.CanonicalizePath(imported.PkgPath) != target.path {
+					return fmt.Errorf("package %q import %q target ID %q has mismatched package path %q", pkg.ID, importPath, imported.ID, imported.PkgPath)
+				}
 			}
 		}
 	}
@@ -544,6 +585,17 @@ func validateLayoutShape(layout *packagelayout.Layout) error {
 		return err
 	}
 	return nil
+}
+
+// descriptorBackedStdlibImport recognizes the one intentional omission from a
+// component layout's ordinary package list. The target-configured stdlib
+// export descriptor declares SDK packages such as strings by identity, while
+// the component emitter keeps only ordinary build-graph packages in Packages.
+// Go SDK import paths are dotless; ordinary component package paths in these
+// layouts carry their module prefix. This is only a layout-closure check — the
+// stdlib authority map remains the sole source of semantic stdlib membership.
+func descriptorBackedStdlibImport(layout *packagelayout.Layout, importPath, targetID string) bool {
+	return layout.StdlibExportData != nil && importPath == targetID && !strings.Contains(importPath, ".")
 }
 
 func validateStdlibTargetMatchesPlatform(platform *packagelayout.Platform, target *packagelayout.StdlibExportTarget) error {

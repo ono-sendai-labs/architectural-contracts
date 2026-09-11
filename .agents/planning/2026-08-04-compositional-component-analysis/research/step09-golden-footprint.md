@@ -53,9 +53,10 @@ The repository-local before/after inventory is:
 | Persisted surface-shape goldens | 3 | 3 | Intentional checked/asserted surface shape; target SDK/digest values use named placeholders |
 | Bounded stdlib-map shape fixture + golden | 2 | 2 | One small fixture and one shape golden; no second whole-SDK map |
 | Final package-layout shape goldens | 0 | 2 | Typed API/member layouts replaced the old raw snapshots |
+| Raw full package-layout JSON snapshots | 2 | 0 | Deleted; their distinct contracts are represented by the two typed layout-shape goldens above |
 | Redundant generated-manifest byte goldens | 2 | 0 | Deleted; generated manifests are covered by `manifestparity` |
-| Combined manifest/layout golden helper | 1 | 0 | Deleted; layout uses `artifact-shape layout` |
-| Golden-directory files total | 16 | 14 | Four redundant files removed, two typed layout goldens retained |
+| Combined manifest/layout golden helper (not a golden-directory file) | 1 | 0 | Deleted; layout uses `artifact-shape layout` |
+| Golden-directory files total | 16 | 14 | Two raw layouts and two manifests removed; two typed layout goldens retained |
 
 The golden-style inputs outside `goldens/` are unchanged and unrelated to the
 semantic/layout split: `hostile_verdict_input.txt`, `pattern_cases.json`,
@@ -77,7 +78,10 @@ pins a distinct persisted contract:
 - `goldens/member_component.layout.shape.golden.json` — the member/non-member
   export-data closure with complete non-member import maps and direct export
   files. It intentionally retains the member source fields separately from the
-  non-member export role.
+  non-member export role. The validator resolves ordinary targets against the
+  package indexes and treats the dotless `strings`-style edge as declared by
+  the accompanying target-configured stdlib export descriptor, which is the
+  final-layout representation of SDK packages omitted from `packages`.
 - `goldens/api_component.report.shape.golden.json`,
   `goldens/reportboundary_consumer.report.shape.golden.json`,
   `goldens/strict_component.report.shape.golden.json`, and
