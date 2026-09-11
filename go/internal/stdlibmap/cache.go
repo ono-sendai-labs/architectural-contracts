@@ -5,9 +5,9 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -116,8 +116,56 @@ func (s *CacheSeams) readFile() func(string) ([]byte, error) {
 			return nil, err
 		}
 		defer f.Close()
-		return io.ReadAll(io.LimitReader(f, artifactio.MaxMapBytes+1))
+		return readBounded(f, int64(artifactio.MaxMapBytes)+1)
 	}
+}
+
+// readBounded copies up to limit bytes and stops at that boundary without
+// asking the source for an additional byte. The extra byte used by the cache
+// reader is the decoder's oversize sentinel: an oversized artifact remains a
+// cache miss, matching the former LimitReader behavior. The explicit loop
+// preserves io.ReadAll's EOF and reader-error results while bounding no-progress
+// readers instead of allowing them to loop forever; it also keeps this member
+// package free of the stdlib map's UNANALYZED io.ReadAll reference.
+func readBounded(r io.Reader, limit int64) ([]byte, error) {
+	if limit < 0 {
+		return nil, fmt.Errorf("reading cached stdlib map: negative byte limit %d", limit)
+	}
+	const chunkSize = 32 * 1024
+	capacity := int64(chunkSize)
+	if limit < capacity {
+		capacity = limit
+	}
+	data := make([]byte, 0, int(capacity))
+	buf := make([]byte, chunkSize)
+	noProgress := 0
+	for int64(len(data)) < limit {
+		remaining := limit - int64(len(data))
+		readBuf := buf
+		if remaining < int64(len(readBuf)) {
+			readBuf = readBuf[:int(remaining)]
+		}
+		n, err := r.Read(readBuf)
+		if n < 0 || n > len(readBuf) {
+			return data, fmt.Errorf("reading cached stdlib map: invalid reader count %d", n)
+		}
+		if n > 0 {
+			data = append(data, readBuf[:n]...)
+			noProgress = 0
+		} else if err == nil {
+			noProgress++
+			if noProgress >= 100 {
+				return data, fmt.Errorf("reading cached stdlib map: %w", io.ErrNoProgress)
+			}
+		}
+		if err == io.EOF {
+			return data, nil
+		}
+		if err != nil {
+			return data, err
+		}
+	}
+	return data, nil
 }
 
 func (s *CacheSeams) mkdirAll() func(string, os.FileMode) error {
@@ -194,7 +242,7 @@ func OpenCachedMap(in CachedMapInput) (stdlibauthority.StdlibAuthority, error) {
 		}
 		// Corrupt or mismatched cache content is a miss: fall through to
 		// regeneration (task req 3).
-	} else if !errors.Is(err, os.ErrNotExist) {
+	} else if !isNotExist(err) {
 		// Only absence is a miss. A permission failure, I/O error, or other
 		// filesystem fault is not corrupt content — it is a broken cache, and
 		// silently regenerating on top of it would hide the fault (review:
@@ -222,6 +270,54 @@ func OpenCachedMap(in CachedMapInput) (stdlibauthority.StdlibAuthority, error) {
 		return nil, fmt.Errorf("storing the stdlib map in the cache: %w", err)
 	}
 	return auth, nil
+}
+
+func isNotExist(err error) bool {
+	return isNotExistDepth(err, 0)
+}
+
+// isNotExistDepth preserves errors.Is-style matching without adding a direct
+// reference to errors.Is to the checked stdlibmap member package. The stdlib
+// map intentionally classifies errors.Is as UNANALYZED; this cache still needs
+// its prior recursive missing-artifact behavior for wrapped filesystem errors,
+// so the bounded walk handles both single- and multi-error Unwrap contracts.
+func isNotExistDepth(err error, depth int) bool {
+	if err == nil || depth > 100 {
+		return false
+	}
+	if os.IsNotExist(err) || err == fs.ErrNotExist {
+		return true
+	}
+	switch unwrapped := err.(type) {
+	case interface{ Is(error) bool }:
+		if unwrapped.Is(fs.ErrNotExist) {
+			return true
+		}
+		return isNotExistUnwrap(err, depth)
+	case interface{ Unwrap() error }:
+		return isNotExistDepth(unwrapped.Unwrap(), depth+1)
+	case interface{ Unwrap() []error }:
+		for _, child := range unwrapped.Unwrap() {
+			if isNotExistDepth(child, depth+1) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func isNotExistUnwrap(err error, depth int) bool {
+	switch unwrapped := err.(type) {
+	case interface{ Unwrap() error }:
+		return isNotExistDepth(unwrapped.Unwrap(), depth+1)
+	case interface{ Unwrap() []error }:
+		for _, child := range unwrapped.Unwrap() {
+			if isNotExistDepth(child, depth+1) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // WriteArtifactAtomic replaces path with persisted stdlib-map artifact bytes

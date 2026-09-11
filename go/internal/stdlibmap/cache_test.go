@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -107,6 +108,75 @@ func cacheSeams(t *testing.T, root string, spy *generatorSpy) *CacheSeams {
 	return &CacheSeams{
 		UserCacheDir: func() (string, error) { return root, nil },
 		Generate:     spy.generate,
+	}
+}
+
+type cacheReadError struct{}
+
+func (cacheReadError) Read(p []byte) (int, error) {
+	copy(p, "partial")
+	return len("partial"), errors.New("cache reader failed")
+}
+
+type cacheNoProgressReader struct{}
+
+func (cacheNoProgressReader) Read([]byte) (int, error) { return 0, nil }
+
+func TestReadBoundedPreservesCacheReaderSemantics(t *testing.T) {
+	tests := []struct {
+		name       string
+		reader     io.Reader
+		limit      int64
+		want       string
+		wantErr    string
+		wantNoProg bool
+	}{
+		{name: "EOF", reader: strings.NewReader("cache"), limit: 32, want: "cache"},
+		{name: "reader failure", reader: cacheReadError{}, limit: 32, want: "partial", wantErr: "cache reader failed"},
+		{name: "sentinel bound", reader: strings.NewReader("012345"), limit: 4, want: "0123"},
+		{name: "no progress", reader: cacheNoProgressReader{}, limit: 4, wantNoProg: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := readBounded(tt.reader, tt.limit)
+			if string(got) != tt.want {
+				t.Fatalf("readBounded() bytes = %q, want %q", got, tt.want)
+			}
+			switch {
+			case tt.wantNoProg:
+				if !errors.Is(err, io.ErrNoProgress) {
+					t.Fatalf("readBounded() error = %v, want io.ErrNoProgress", err)
+				}
+			case tt.wantErr != "":
+				if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+					t.Fatalf("readBounded() error = %v, want %q", err, tt.wantErr)
+				}
+			default:
+				if err != nil {
+					t.Fatalf("readBounded() error = %v, want nil", err)
+				}
+			}
+		})
+	}
+}
+
+func TestIsNotExistMatchesDirectAndWrappedErrors(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{name: "direct", err: os.ErrNotExist, want: true},
+		{name: "wrapped", err: fmt.Errorf("open cache: %w", os.ErrNotExist), want: true},
+		{name: "joined", err: errors.Join(errors.New("other"), os.ErrNotExist), want: true},
+		{name: "unrelated", err: os.ErrPermission, want: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := isNotExist(tt.err); got != tt.want {
+				t.Fatalf("isNotExist(%v) = %t, want %t", tt.err, got, tt.want)
+			}
+		})
 	}
 }
 
