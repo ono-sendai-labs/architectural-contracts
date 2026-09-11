@@ -1,0 +1,83 @@
+result:
+  task_file: .agents/tasks/2026-08-04-compositional-component-analysis/step08/task-09-reconcile-member-file-role-documentation.code-task.md
+  change_id: kplkyluryumqzvmpzvnoznnnmtrnkruk
+  status: completed
+  schema_version: 2
+  produced_at: 2026-09-11T14:48:23Z
+
+acceptance_criteria:
+  - text: |
+      **Member package roles are complete**
+         - Given a member package with selected Go, target-excluded Go, and assembly files
+         - When an emitter author reads the package-layout schema
+         - Then the document assigns them to `GoFiles`/`CompiledGoFiles`, `IgnoredFiles`, and `OtherFiles` respectively and explains which roles are type-checked versus defeat-scanned.
+    addressed: yes
+    evidence: |
+      docs/package-layout-schema.md:181-192 defines selected Go in GoFiles/
+      CompiledGoFiles, target-excluded Go in IgnoredFiles, and assembly/other
+      non-Go in OtherFiles; it distinguishes ArccCheck package parsing and
+      type-checking from the fail-closed ScanAnalysisDefeats scan. The matching
+      inventory appears at research/step08-input-pruning.md:11-32.
+  - text: |
+      **The ArccCheck allowlist matches the implementation**
+         - Given the final Step 8 action boundary
+         - When the schema and research inventory enumerate its inputs
+         - Then both include the complete declared member analysis-file set and still forbid every non-member and SDK source input.
+    addressed: yes
+    evidence: |
+      docs/package-layout-schema.md:267-281 enumerates all three member file
+      roles, manifest/layout, export and graph metadata, dependency artifacts,
+      and the stdlib map, then excludes ordinary non-member and SDK source.
+      research/step08-input-pruning.md:11-32 repeats the same allowlist and
+      exclusion.
+  - text: |
+      **F1 and F2 guarantees remain explicit together**
+         - Given the restored member-role implementation and the accepted auxiliary import projection
+         - When both documents are read end to end
+         - Then member assembly/excluded Go remain visible only as member analysis inputs, ordinary non-member source remains confined to `ArccImportGraph`, and the producer-chain performance measurements remain required.
+    addressed: yes
+    evidence: |
+      docs/package-layout-schema.md:185-189 keeps ignored Go and assembly in
+      the member defeat-scan input vocabulary, while :274-280 confines ordinary
+      non-member source to ArccImportGraph and preserves ArccLayout's metadata
+      merge boundary. research/step08-input-pruning.md:34-41 and :66-78 retain
+      the cached producer-chain distinction, source asymmetry, and required
+      ArccImportGraph/ArccLayout/ArccCheck measurements.
+  - text: |
+      **Contradictory inventory wording is absent**
+         - Given the updated documentation
+         - When targeted searches inspect claims about selected member `.go` inputs, `IgnoredFiles`, `OtherFiles`, and exact action inputs
+         - Then no passage still presents selected member `.go` files as the whole member input vocabulary.
+    addressed: yes
+    evidence: |
+      The targeted stale-claim search recorded in the scratchpad work.log
+      returned no matches. The remaining selected-Go references in
+      docs/package-layout-schema.md:181-189 and research/step08-input-pruning.md:11-32
+      are explicitly paired with IgnoredFiles and OtherFiles.
+  - text: |
+      **Repository checks pass**
+         - Given the completed documentation change
+         - When link/whitespace/conflict-marker checks and `just ci` run
+         - Then all checks pass without behavior or generated-file changes.
+    addressed: yes
+    evidence: |
+      work.log records the Markdown link, whitespace, and conflict-marker checks
+      passing, followed by `just ci` exit 0. The CI run passed gen-is-clean,
+      Go vet/gofmt/build/tests, integration tests, selfcheck staging, Bazel build,
+      and all 145 Bazel tests; jj status after the final commit was clean.
+
+artifacts:
+  scratchpad_dir: .agents/scratchpad/2026-08-04-compositional-component-analysis/step08/task-09-reconcile-member-file-role-documentation/
+  files:
+    - context.md
+    - plan.md
+    - progress.md
+    - work.log
+    - result.yaml
+
+notes: |
+  Updated the public package-layout schema and Step 8 research evidence to document
+  selected, ignored, and other member file roles and the complete ArccCheck allowlist.
+  Preserved the fail-closed defeat scan, ordinary-source asymmetry, and cached
+  ArccImportGraph/ArccLayout measurement requirements. Both documentation changes
+  were committed as fresh jj changes; `just ci` and final hygiene checks passed.

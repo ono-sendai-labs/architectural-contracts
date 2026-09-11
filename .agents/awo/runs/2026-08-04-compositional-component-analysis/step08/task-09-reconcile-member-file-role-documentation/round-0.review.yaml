@@ -1,0 +1,96 @@
+review:
+  task_file: .agents/tasks/2026-08-04-compositional-component-analysis/step08/task-09-reconcile-member-file-role-documentation.code-task.md
+  change_id: kplkyluryumqzvmpzvnoznnnmtrnkruk
+  reviewed_at: 2026-09-11T14:53:26Z
+  verdict: approved
+  schema_version: 2
+  lsp_coverage: unavailable
+
+merge_request:
+  title: "docs: reconcile member file-role inputs [Compositional Analysis: Step 08/Task 09]"
+  body: |
+    Reviews the complete base-to-current jj series. The initial change
+    documents the complete selected, ignored, and other member file roles and
+    expands the schema's exact ArccCheck allowlist; the subsequent change
+    updates the Step 8 research inventory and action-test description with the
+    same role-aware wording. No tests, implementation code, or generated files
+    were changed.
+
+summary: |
+  The complete two-change series resolves F6: both documents now describe selected
+  Go, build-excluded Go, and assembly/non-Go member roles, and both preserve the
+  exact ArccCheck exclusion of ordinary non-member and SDK source. The F1
+  fail-closed defeat scan, F2 ArccImportGraph/ArccLayout distinction, and Step 13
+  producer-chain measurements remain explicit. All five acceptance criteria pass;
+  repository hygiene checks and `just ci` completed successfully, with no findings.
+
+acceptance_criteria:
+  - text: |
+      1. **Member package roles are complete**
+         - Given a member package with selected Go, target-excluded Go, and assembly files
+         - When an emitter author reads the package-layout schema
+         - Then the document assigns them to `GoFiles`/`CompiledGoFiles`, `IgnoredFiles`, and `OtherFiles` respectively and explains which roles are type-checked versus defeat-scanned.
+    status: pass
+    evidence: |
+      docs/package-layout-schema.md:181-192 assigns selected Go to
+      GoFiles/CompiledGoFiles, target-excluded Go to IgnoredFiles, and assembly
+      plus other declared non-Go files to OtherFiles; it distinguishes selected
+      parsing/type-checking from the fail-closed ScanAnalysisDefeats scan.
+      The matching inventory is repeated at research/step08-input-pruning.md:11-32.
+  - text: |
+      2. **The ArccCheck allowlist matches the implementation**
+         - Given the final Step 8 action boundary
+         - When the schema and research inventory enumerate its inputs
+         - Then both include the complete declared member analysis-file set and still forbid every non-member and SDK source input.
+    status: pass
+    evidence: |
+      docs/package-layout-schema.md:267-281 enumerates all declared member
+      analysis-file roles, manifest/layout, ordinary export artifacts and graph
+      descriptor, stdlib export inputs, direct dependency artifacts, and the
+      target stdlib map, while excluding ordinary non-member and SDK source.
+      research/step08-input-pruning.md:11-32 repeats the same inventory and
+      exclusion; the implementation's member source collection is at
+      bazel_rules/go/private/component.bzl:909-916 and its action input list is
+      at bazel_rules/go/private/component.bzl:716-727.
+  - text: |
+      3. **F1 and F2 guarantees remain explicit together**
+         - Given the restored member-role implementation and the accepted auxiliary import projection
+         - When both documents are read end to end
+         - Then member assembly/excluded Go remain visible only as member analysis inputs, ordinary non-member source remains confined to `ArccImportGraph`, and the producer-chain performance measurements remain required.
+    status: pass
+    evidence: |
+      docs/package-layout-schema.md:185-189 keeps ignored Go and assembly in
+      the member defeat-scan input vocabulary, while :274-280 confines ordinary
+      non-member source to ArccImportGraph and preserves ArccLayout's metadata
+      boundary. research/step08-input-pruning.md:34-41 and :64-78 retain the
+      cached producer-chain distinction, source asymmetry, and required action,
+      source-volume, elapsed-time, and loader measurements.
+  - text: |
+      4. **Contradictory inventory wording is absent**
+         - Given the updated documentation
+         - When targeted searches inspect claims about selected member `.go` inputs, `IgnoredFiles`, `OtherFiles`, and exact action inputs
+         - Then no passage still presents selected member `.go` files as the whole member input vocabulary.
+    status: pass
+    evidence: |
+      The complete current contents of docs/package-layout-schema.md and
+      research/step08-input-pruning.md contain only role-qualified selected-Go
+      wording. The targeted stale-claim search recorded at work.log:34-36
+      returned no matches, and the remaining selected-Go references are paired
+      with IgnoredFiles and OtherFiles at schema:181-189 and research:11-32.
+  - text: |
+      5. **Repository checks pass**
+         - Given the completed documentation change
+         - When link/whitespace/conflict-marker checks and `just ci` run
+         - Then all checks pass without behavior or generated-file changes.
+    status: pass
+    evidence: |
+      `just ci` exited 0 during this review and passed generation cleanliness,
+      Go vet/gofmt/build/tests, integration tests, stdlib-map pin checks,
+      selfcheck staging, Bazel build, and all 145 Bazel tests, including the
+      member defeat-input and exact action-input tests. The documentation
+      hygiene checks passed, and jj status remained clean; the base-to-current
+      diff contains only the two documentation files.
+
+findings: []
+
+ecosystem_reviews: []
