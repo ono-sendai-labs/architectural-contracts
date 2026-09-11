@@ -1810,11 +1810,24 @@ func ValidateAndResolveForMemberOnly(l *Layout, workspaceDir string) (err error)
 			return err
 		}
 		p.CompiledGoFiles = resolvedCompiledFiles
+		resolvedIgnoredFiles, err := l.resolveAndCheckFiles(p, p.IgnoredFiles, l.GoSDKRoot, workspaceDir)
+		if err != nil {
+			return err
+		}
+		p.IgnoredFiles = resolvedIgnoredFiles
+		resolvedOtherFiles, err := l.resolveAndCheckFiles(p, p.OtherFiles, l.GoSDKRoot, workspaceDir)
+		if err != nil {
+			return err
+		}
+		p.OtherFiles = resolvedOtherFiles
 
 		if !l.IsStdlibPackage(p) {
 			hadGoSources := hasGoSources(p.GoFiles) || hasGoSources(p.CompiledGoFiles)
-			p.GoFiles = filterByBuildConstraintsWithContext(p.GoFiles, bctx)
-			p.CompiledGoFiles = filterByBuildConstraintsWithContext(p.CompiledGoFiles, bctx)
+			var ignoredByConstraints []string
+			p.GoFiles, ignoredByConstraints = splitGoFilesByBuildConstraints(p.GoFiles, bctx)
+			selectedCompiledFiles, ignoredCompiledFiles := splitGoFilesByBuildConstraints(p.CompiledGoFiles, bctx)
+			p.CompiledGoFiles = selectedCompiledFiles
+			p.IgnoredFiles = mergeFileRoles(p.IgnoredFiles, ignoredByConstraints, ignoredCompiledFiles)
 			if hadGoSources && !hasGoSources(p.GoFiles) && !hasGoSources(p.CompiledGoFiles) {
 				return fmt.Errorf("package %q has no Go sources after the declared platform excluded every Go source", p.PkgPath)
 			}
@@ -1937,6 +1950,49 @@ func filterByBuildConstraintsWithContext(files []string, bctx build.Context) []s
 		}
 	}
 	return kept
+}
+
+// splitGoFilesByBuildConstraints separates the files selected for type-checking
+// from the files the target declares but excludes. The latter are still member
+// metadata: ScanAnalysisDefeats must inspect them for directives and cgo syntax,
+// while go/packages must never receive them as source roots (DR-11).
+func splitGoFilesByBuildConstraints(files []string, bctx build.Context) (selected, ignored []string) {
+	selected = make([]string, 0, len(files))
+	ignored = make([]string, 0, len(files))
+	seen := make(map[string]bool, len(files))
+	for _, file := range files {
+		if seen[file] {
+			continue
+		}
+		seen[file] = true
+		if FileMatchesBuildConstraintsWithContext(file, bctx) {
+			selected = append(selected, file)
+		} else {
+			ignored = append(ignored, file)
+		}
+	}
+	sort.Strings(selected)
+	sort.Strings(ignored)
+	return selected, ignored
+}
+
+// mergeFileRoles returns a sorted, duplicate-free list for a package file role.
+// A file can arrive in both GoFiles and CompiledGoFiles because provider layouts
+// commonly mirror those fields; one ignored entry is sufficient for the defeat
+// scan and keeps its observations deterministic.
+func mergeFileRoles(lists ...[]string) []string {
+	seen := make(map[string]bool)
+	for _, list := range lists {
+		for _, file := range list {
+			seen[file] = true
+		}
+	}
+	merged := make([]string, 0, len(seen))
+	for file := range seen {
+		merged = append(merged, file)
+	}
+	sort.Strings(merged)
+	return merged
 }
 
 // FileMatchesBuildConstraints reports whether the .go file at path is compiled

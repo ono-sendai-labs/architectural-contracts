@@ -144,6 +144,11 @@ def _layout_content(ctx, merged, roots, go_sdk_root, platform, target, dependenc
             for src in pkg.srcs
             if src.extension == "go"
         ]
+        other_files = [
+            runfiles_path(ctx, src)
+            for src in pkg.srcs
+            if src.extension != "go"
+        ]
 
         # Package IDs are import paths: the closure is already folded by
         # import path, so they are unique, and it keeps the layout readable.
@@ -159,6 +164,12 @@ def _layout_content(ctx, merged, roots, go_sdk_root, platform, target, dependenc
             # so this provenance bit is structurally false (see docs/package-layout-schema.md §4).
             "is_stdlib": False,
         }
+        if other_files:
+            # The member-only driver uses this declared non-Go vocabulary for
+            # analysis-defeating scanning. Non-member roles are cleared before
+            # go/packages loads export-backed packages. Omit empty lists to
+            # preserve the established layout bytes for ordinary Go packages.
+            package["OtherFiles"] = other_files
         if importpath not in root_set:
             if pkg.export_file == None:
                 fail("package %s has no export file for non-member package %s" % (ctx.label.name, importpath))
@@ -895,14 +906,14 @@ def go_component_impl(ctx, attachment_fn = go_attached_infra):
         ),
     )
 
-    member_srcs = []
-    seen_member_sources = {}
+    member_sources_by_path = {}
     for importpath in members:
         for src in merged[importpath].srcs:
-            if src.extension != "go" or src.path in seen_member_sources:
-                continue
-            seen_member_sources[src.path] = True
-            member_srcs.append(src)
+            member_sources_by_path[src.path] = src
+    member_srcs = [
+        member_sources_by_path[path]
+        for path in sorted(member_sources_by_path.keys())
+    ]
 
     member_set = {importpath: True for importpath in members}
     export_files = [
