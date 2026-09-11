@@ -108,10 +108,15 @@ selfcheck:
 			--report-out="$base.report.json" --surface-out="$base.surface.json" \
 			--report-verdict-only >/dev/null; \
 	}; \
+	stage_asserted_component() { \
+		manifest="$1"; base="${manifest%.textproto}"; \
+		test -f "$base.surface.json" || { echo "missing native asserted surface: $base.surface.json" >&2; exit 1; }; \
+		test ! -e "$base.report.json" || { echo "asserted component unexpectedly has a report: $base.report.json" >&2; exit 1; }; \
+	}; \
 	stage_component internal/capanalyzer/component.textproto; \
 	stage_component internal/hostpolicy/component.textproto; \
 	stage_component internal/symbol/component.textproto; \
-	stage_component internal/protobufruntime/component.textproto; \
+	stage_asserted_component internal/protobufruntime/component.textproto; \
 	stage_component internal/xtools/component.textproto; \
 	stage_component internal/schema/component.textproto; \
 	schema_verdict="$(sed -n 's/.*\"verdict\": \"\([^\"]*\)\".*/\1/p' internal/schema/component.report.json | head -n 1)"; \

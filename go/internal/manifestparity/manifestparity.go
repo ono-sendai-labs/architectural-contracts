@@ -46,7 +46,12 @@ func Run(t testing.TB, files []string) {
 			continue
 		case base == "component.textproto":
 			checkedIn[dir] = resolved
-		case strings.HasSuffix(base, "_component.component.textproto"):
+		case strings.HasSuffix(base, ".component.textproto"):
+			// Most generated targets use the `_component` suffix, but an
+			// adopted foreign boundary may use its logical component name
+			// directly (for example `protobuf-runtime`). Both are generated
+			// manifests, while the hand-authored `component.textproto` was
+			// handled by the preceding case.
 			generated[dir] = resolved
 		default:
 			t.Errorf("unexpected manifest argument %q", f)

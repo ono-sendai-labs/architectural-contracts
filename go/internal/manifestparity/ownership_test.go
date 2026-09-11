@@ -2,10 +2,12 @@ package manifestparity_test
 
 import (
 	"bytes"
+	"encoding/json"
 	"go/parser"
 	"go/token"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -251,6 +253,174 @@ func TestSchemaSurfaceCoversCapabilityTaxonomy(t *testing.T) {
 			t.Errorf("%s consumes the capability taxonomy via schema.KnownCapabilities but declares no schema component dependency", consumer)
 		}
 	}
+}
+
+// TestProtobufRuntimeHasOneConcreteOwnerAndBuildParity audits the adopted
+// foreign boundary introduced after surface consumption. The checked-in
+// manifest is the native import-path spelling; the BUILD target is the Bazel
+// label spelling. They must remain the same concrete, sorted package set so a
+// consumer cannot resolve one closure while the build graph owns another.
+func TestProtobufRuntimeHasOneConcreteOwnerAndBuildParity(t *testing.T) {
+	manifests := checkedInComponentManifests(t)
+	wrapper, ok := manifests["protobuf-runtime"]
+	if !ok {
+		t.Fatal("checked-in manifest for component protobuf-runtime not found")
+	}
+	if wrapper.InterfaceStyle != manifest.InterfaceStylePackageSurface {
+		t.Fatalf("protobuf-runtime interface style = %v, want PACKAGE_SURFACE", wrapper.InterfaceStyle)
+	}
+	if wrapper.Authority.Known || len(wrapper.DeclaredAuthority) != 0 {
+		t.Fatalf("protobuf-runtime authority = %+v/%v, want UNKNOWN with no declared authority", wrapper.Authority, wrapper.DeclaredAuthority)
+	}
+	if !slices.IsSorted(wrapper.Members) {
+		t.Fatalf("protobuf-runtime manifest members are not sorted: %v", wrapper.Members)
+	}
+	if hasDuplicate(wrapper.Members) {
+		t.Fatalf("protobuf-runtime manifest members contain duplicates: %v", wrapper.Members)
+	}
+
+	buildPath := filepath.Join("..", "protobufruntime", "BUILD.bazel")
+	buildData, err := os.ReadFile(buildPath)
+	if err != nil {
+		t.Fatalf("reading %s: %v", buildPath, err)
+	}
+	buildMembers := protobufBuildMembers(t, string(buildData))
+	if !slices.Equal(buildMembers, wrapper.Members) {
+		t.Fatalf("protobuf-runtime BUILD members = %v, want checked-in manifest members %v", buildMembers, wrapper.Members)
+	}
+
+	for name, component := range manifests {
+		if name == "protobuf-runtime" {
+			continue
+		}
+		for _, member := range component.Members {
+			if strings.HasPrefix(member, "google.golang.org/protobuf/") {
+				t.Errorf("protobuf package %q is also a member of component %q", member, name)
+			}
+		}
+	}
+}
+
+// TestProtobufRuntimeConsumersDeclareTheSharedBoundary keeps the repository
+// audit explicit for direct and foreign-closure consumers. The capslockadapter
+// component is native-only under the cgo rule, but its manifest still needs the
+// same edge as the Bazel-capable schema/manifest/artifactio consumers.
+func TestProtobufRuntimeConsumersDeclareTheSharedBoundary(t *testing.T) {
+	manifests := checkedInComponentManifests(t)
+	for _, name := range []string{"schema", "manifest", "artifactio", "capslockadapter"} {
+		component, ok := manifests[name]
+		if !ok {
+			t.Fatalf("checked-in manifest for component %q not found", name)
+		}
+		found := false
+		for _, dep := range component.ComponentDependencies {
+			if dep.Name == "protobuf-runtime" && dep.Manifest == "../protobufruntime/component.textproto" {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("component %q does not declare the shared protobuf-runtime boundary", name)
+		}
+	}
+}
+
+// TestProtobufRuntimeNativeSurfaceIsAsserted checks the pinned native
+// convention artifact. It deliberately has no digest, symbols, or report
+// verdict: native staging must consume this as an UNKNOWN package-level
+// assertion, never as a checked claim derived from foreign source.
+func TestProtobufRuntimeNativeSurfaceIsAsserted(t *testing.T) {
+	const surfacePath = "../protobufruntime/component.surface.json"
+	data, err := os.ReadFile(surfacePath)
+	if err != nil {
+		t.Fatalf("reading %s: %v", surfacePath, err)
+	}
+	var got struct {
+		FormatVersion  int    `json:"formatVersion"`
+		Component      string `json:"component"`
+		InterfaceStyle string `json:"interfaceStyle"`
+		Authority      struct {
+			Authority string `json:"authority"`
+		} `json:"authority"`
+		Packages  []string `json:"packages"`
+		Symbols   []string `json:"symbols"`
+		Namespace string   `json:"namespace"`
+		SDKKey    struct {
+			ToolchainVersion string `json:"toolchainVersion"`
+			GOOS             string `json:"goos"`
+			GOARCH           string `json:"goarch"`
+			ClassifierHash   string `json:"classifierHash"`
+			MapFormatVersion int    `json:"mapFormatVersion"`
+		} `json:"sdkKey"`
+		ProducerVersion string `json:"producerVersion"`
+		Digest          string `json:"digest"`
+	}
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatalf("decode %s: %v", surfacePath, err)
+	}
+	wrapper, err := manifest.Parse(bytes.NewReader(mustRead(t, filepath.Join("..", "protobufruntime", "component.textproto"))))
+	if err != nil {
+		t.Fatalf("parse protobuf-runtime manifest: %v", err)
+	}
+	if got.FormatVersion != 1 || got.Component != "protobuf-runtime" || got.InterfaceStyle != "INTERFACE_STYLE_PACKAGE_SURFACE" {
+		t.Fatalf("native protobuf surface identity = %+v", got)
+	}
+	if got.Authority.Authority != "UNKNOWN" || len(got.Symbols) != 0 || got.Digest != "" {
+		t.Fatalf("native protobuf surface is not an empty-digest UNKNOWN assertion: %+v", got)
+	}
+	if !slices.Equal(got.Packages, wrapper.Members) || !slices.IsSorted(got.Packages) {
+		t.Fatalf("native protobuf surface packages = %v, want sorted manifest members %v", got.Packages, wrapper.Members)
+	}
+	if got.Namespace != "upstream" || got.SDKKey.ToolchainVersion != "go1.26.4" || got.SDKKey.GOOS != "linux" || got.SDKKey.GOARCH != "amd64" || got.SDKKey.ClassifierHash == "" || got.SDKKey.MapFormatVersion != 1 || got.ProducerVersion == "" {
+		t.Fatalf("native protobuf surface target identity = %+v", got)
+	}
+}
+
+func hasDuplicate(values []string) bool {
+	for i := 1; i < len(values); i++ {
+		if values[i] == values[i-1] {
+			return true
+		}
+	}
+	return false
+}
+
+func protobufBuildMembers(t *testing.T, build string) []string {
+	t.Helper()
+	const prefix = "@org_golang_google_protobuf//"
+	var members []string
+	for _, line := range strings.Split(build, "\n") {
+		line = strings.TrimSpace(line)
+		if !strings.HasPrefix(line, `"`+prefix) {
+			continue
+		}
+		line = strings.Trim(strings.TrimSuffix(line, ","), `"`)
+		label := strings.TrimPrefix(line, prefix)
+		parts := strings.SplitN(label, ":", 2)
+		if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+			t.Fatalf("malformed protobuf BUILD member label %q", line)
+		}
+		if parts[1] != filepath.Base(parts[0]) {
+			t.Fatalf("protobuf BUILD member label %q does not use its package basename as target", line)
+		}
+		members = append(members, "google.golang.org/protobuf/"+parts[0])
+	}
+	if len(members) == 0 {
+		t.Fatal("protobuf BUILD target has no external runtime member labels")
+	}
+	if !slices.IsSorted(members) || hasDuplicate(members) {
+		t.Fatalf("protobuf BUILD member labels are not sorted and unique: %v", members)
+	}
+	return members
+}
+
+func mustRead(t *testing.T, path string) []byte {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read %s: %v", path, err)
+	}
+	return data
 }
 
 // purePackages are the pure-core packages that must never import the

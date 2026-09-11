@@ -42,4 +42,4 @@ go_component(
     visibility = ["//go:__subpackages__"],
 )
 
-exports_files(["component.textproto"])
+exports_files(["component.surface.json", "component.textproto"])

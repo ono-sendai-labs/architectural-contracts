@@ -85,11 +85,18 @@ def _package_name(importpath):
 def _textproto_string(value):
     return '"' + value.replace("\\", "\\\\").replace('"', '\\"') + '"'
 
-def _manifest_content(ctx, interface_files, component_deps, auto_attached_deps, declared_authority, manifest_dir, interface_style, members):
+def _manifest_content(ctx, interface_files, component_deps, auto_attached_deps, declared_authority, manifest_dir, interface_style, members, authority_unknown):
     lines = ["name: " + _textproto_string(ctx.label.name)]
 
     if interface_style == "PACKAGE_SURFACE":
         lines.append("interface_style: INTERFACE_STYLE_PACKAGE_SURFACE")
+
+    if authority_unknown:
+        # The manual producer is an asserted UNKNOWN component. Keep its
+        # generated manifest aligned with the checked-in declaration so
+        # manifestparity cannot mistake the provider's structural authority
+        # for the default DECLARED{} value (design I6/R10).
+        lines.append("authority: UNKNOWN")
 
     for path in interface_files:
         lines.append("interface_files: " + _textproto_string(path))
@@ -621,6 +628,7 @@ def go_component_impl(ctx, attachment_fn = go_attached_infra):
             manifest_dir = _dirname(runfiles_path(ctx, manifest)),
             interface_style = ctx.attr.interface_style,
             members = manifest_members,
+            authority_unknown = "manual" in ctx.attr.tags,
         ),
     )
 

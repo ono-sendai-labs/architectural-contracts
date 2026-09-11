@@ -1,0 +1,48 @@
+{
+  "formatVersion": 1,
+  "component": "protobuf-runtime",
+  "interfaceStyle": "INTERFACE_STYLE_PACKAGE_SURFACE",
+  "authority": {
+    "authority": "UNKNOWN"
+  },
+  "packages": [
+    "google.golang.org/protobuf/encoding/protojson",
+    "google.golang.org/protobuf/encoding/prototext",
+    "google.golang.org/protobuf/encoding/protowire",
+    "google.golang.org/protobuf/internal/descfmt",
+    "google.golang.org/protobuf/internal/descopts",
+    "google.golang.org/protobuf/internal/detrand",
+    "google.golang.org/protobuf/internal/editiondefaults",
+    "google.golang.org/protobuf/internal/encoding/defval",
+    "google.golang.org/protobuf/internal/encoding/json",
+    "google.golang.org/protobuf/internal/encoding/messageset",
+    "google.golang.org/protobuf/internal/encoding/tag",
+    "google.golang.org/protobuf/internal/encoding/text",
+    "google.golang.org/protobuf/internal/errors",
+    "google.golang.org/protobuf/internal/filedesc",
+    "google.golang.org/protobuf/internal/filetype",
+    "google.golang.org/protobuf/internal/flags",
+    "google.golang.org/protobuf/internal/genid",
+    "google.golang.org/protobuf/internal/impl",
+    "google.golang.org/protobuf/internal/order",
+    "google.golang.org/protobuf/internal/pragma",
+    "google.golang.org/protobuf/internal/protolazy",
+    "google.golang.org/protobuf/internal/set",
+    "google.golang.org/protobuf/internal/strs",
+    "google.golang.org/protobuf/internal/version",
+    "google.golang.org/protobuf/proto",
+    "google.golang.org/protobuf/reflect/protoreflect",
+    "google.golang.org/protobuf/reflect/protoregistry",
+    "google.golang.org/protobuf/runtime/protoiface",
+    "google.golang.org/protobuf/runtime/protoimpl"
+  ],
+  "namespace": "upstream",
+  "sdkKey": {
+    "toolchainVersion": "go1.26.4",
+    "goos": "linux",
+    "goarch": "amd64",
+    "classifierHash": "adc198ed82f2ae81de8f2d00e26a0c90a22a1317a19579476ab0d7e33cc52eed",
+    "mapFormatVersion": 1
+  },
+  "producerVersion": "arcc 0.0.0-dev"
+}
