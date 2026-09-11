@@ -375,8 +375,8 @@ done
 ```
 
 The first command currently exits `1`: `csv.Reader.ReadAll` is an honest
-`UNANALYZED` result and is a known AC8b gate exemption until Step 7 supplies the
-residual policy. The other three commands exit `0`. A component with dependencies
+`UNANALYZED` result and remains a non-gating AC8b case until a later residual
+policy task supplies its explicit treatment. The other three commands exit `0`. A component with dependencies
 also lists each checked boundary:
 ```
 Component "app" conforms; does not exceed declared authority

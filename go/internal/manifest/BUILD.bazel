@@ -55,19 +55,10 @@ go_test(
 )
 
 # Mirrors the checked-in manifest/component.textproto. The generated schema
-# package is owned by the schema component and consumed through a declared
-# component dependency.
-# The foreign protobuf runtime is consumed through the shared package-surface
-# component, so its source is not charged to this component's own contract.
-# EXEMPT (Step 6 task 05 AC8b; TODO(Step 7 residual-UNANALYZED decision):
-# the component's own manifest reader still has one honest UNANALYZED
-# io.ReadAll site, so its checked .check would fail its pass assertion. The
-# foreign protobuf runtime is now behind the shared package-surface component.
-# check_tags=["manual"] keeps the transitional verdict test out of the gate
-# without weakening the emitted report.
+# package and foreign protobuf runtime are consumed through declared component
+# dependencies; the manifest reader is checked on its own.
 go_component(
     name = "manifest_component",
-    check_tags = ["manual"],
     component_deps = [
         "//go/internal/protobufruntime:protobuf-runtime",
         "//go/internal/schema:schema_component",

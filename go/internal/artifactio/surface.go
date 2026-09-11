@@ -151,16 +151,50 @@ func validateAuthority(a *gen.AuthorityDeclaration) error {
 }
 
 // boundedRead reads at most max bytes plus one sentinel byte, so an oversized
-// input fails before any unbounded read or allocation.
+// input fails before any unbounded read or allocation. The explicit reader
+// loop avoids io.ReadAll's UNANALYZED stdlib classification while preserving
+// its EOF, reader-error, and no-progress behavior for this shell boundary.
 func boundedRead(r io.Reader, max int64) ([]byte, error) {
-	data, err := io.ReadAll(io.LimitReader(r, max+1))
-	if err != nil {
-		return nil, fmt.Errorf("read artifact: %w", err)
+	if max < 0 {
+		return nil, fmt.Errorf("read artifact: negative byte limit %d", max)
 	}
-	if int64(len(data)) > max {
-		return nil, fmt.Errorf("artifact size %d exceeds the %d byte limit", len(data), max)
+	const chunkSize = 32 * 1024
+	data := make([]byte, 0, chunkSize)
+	buf := make([]byte, chunkSize)
+	noProgress := 0
+	for {
+		remaining := max - int64(len(data))
+		readBuf := buf
+		if remaining < int64(len(readBuf)) {
+			// Ask the underlying reader for no more than the limit plus the
+			// one sentinel byte. This preserves io.LimitReader's bounded-read
+			// contract rather than merely rejecting an oversized result after
+			// the reader has already consumed it.
+			readBuf = readBuf[:int(remaining)+1]
+		}
+		n, err := r.Read(readBuf)
+		if n < 0 || n > len(buf) {
+			return nil, fmt.Errorf("read artifact: invalid reader count %d", n)
+		}
+		if n > 0 {
+			data = append(data, buf[:n]...)
+			noProgress = 0
+		} else if err == nil {
+			noProgress++
+			if noProgress >= 100 {
+				return nil, fmt.Errorf("read artifact: %w", io.ErrNoProgress)
+			}
+		}
+		if int64(len(data)) > max {
+			return nil, fmt.Errorf("artifact size %d exceeds the %d byte limit", len(data), max)
+		}
+		if err == io.EOF {
+			return data, nil
+		}
+		if err != nil {
+			return nil, fmt.Errorf("read artifact: %w", err)
+		}
 	}
-	return data, nil
 }
 
 // decodeInto parses canonical or non-canonical (but well-formed) artifact

@@ -59,16 +59,11 @@ go_test(
 
 # Mirrors the checked-in artifactio/component.textproto: shell component with
 # the foreign protobuf runtime behind its shared package-surface dependency;
-# schema and symbol remain declared component dependencies.
-# EXEMPT (Step 6 task 05 AC8b; TODO(Step 7 residual-UNANALYZED decision):
-# the component's own byte-bounded artifact reader still has one honest
-# UNANALYZED io.ReadAll site, so its checked .check would fail its pass
-# assertion. check_tags=["manual"] keeps the transitional verdict test out of
-# the gate without weakening the emitted report.
+# schema and symbol remain declared component dependencies. Its bounded reader
+# is checked on its own.
 go_component(
     name = "artifactio_component",
     interface_style = "PACKAGE_SURFACE",
-    check_tags = ["manual"],
     component_deps = [
         "//go/internal/report:report_component",
         "//go/internal/schema:schema_component",

@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"io"
 	"strings"
 	"testing"
 
@@ -206,6 +207,39 @@ func TestDecodeSizeCaps(t *testing.T) {
 			t.Errorf("DecodeMap(oversize) error = %v, want an actionable size error", err)
 		}
 	})
+}
+
+type boundedReadProbe struct {
+	data       []byte
+	maxRequest int
+	violated   bool
+}
+
+func (r *boundedReadProbe) Read(p []byte) (int, error) {
+	if len(p) > r.maxRequest {
+		r.violated = true
+		return 0, io.ErrShortBuffer
+	}
+	if len(r.data) == 0 {
+		return 0, io.EOF
+	}
+	n := copy(p, r.data)
+	r.data = r.data[n:]
+	return n, nil
+}
+
+// TestBoundedReadDoesNotConsumePastSentinel pins the byte-bounded reader's
+// shell contract: it asks the underlying reader for no more than max+1 bytes,
+// even when the caller supplies a larger buffer.
+func TestBoundedReadDoesNotConsumePastSentinel(t *testing.T) {
+	reader := &boundedReadProbe{data: []byte("oversized"), maxRequest: 4}
+	_, err := boundedRead(reader, 3)
+	if err == nil || !strings.Contains(err.Error(), "byte limit") {
+		t.Fatalf("boundedRead error = %v, want byte-limit error", err)
+	}
+	if reader.violated {
+		t.Fatal("boundedRead requested more than max+1 bytes from the underlying reader")
+	}
 }
 
 // TestDigestCanonicalEquivalence pins AC2: equivalent artifacts encoded with

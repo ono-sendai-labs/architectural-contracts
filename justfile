@@ -64,21 +64,21 @@ run *args:
 #
 # Keeping both legs is deliberate: native FR1 membership and Bazel declared
 # membership checking the same components cross-checks the whole membership model.
-# Step 7 gives the transitional foreign protobuf and x/tools closures one
-# package-surface boundary each, so the real component manifests can be staged
-# without dependency overlap. The five Step 6 AC8b cases remain explicit:
-# artifactio and manifest retain their named residual-policy TODOs if their own
-# reports fail, goanalysis retains its residual-policy TODO, capslockadapter retains
-# the residual-UNANALYZED TODO, and csvtool/parsecsv retains its residual TODO.
+# Step 7 gives the foreign protobuf and x/tools closures one package-surface
+# boundary each, so the real component manifests can be staged without
+# dependency overlap. The remaining non-gating cases are the generated schema
+# surface, goanalysis/capslockadapter's native-only analysis limits, and the
+# csvtool parser's residual UNANALYZED result.
 # Their report verdicts are computed for dependency consumption and deliberately
 # discarded with this temporary tree; they are not claimed to be persisted or
 # promoted to the gate. `schema` is not one of those five and has no standalone
 # selfcheck gate: its generated protobuf code currently produces an expected
 # UNANALYZED verdict while it is consumed as a dependency artifact. That
 # expected non-gating verdict is checked explicitly below and then discarded.
-# The adopted `protobuf-runtime` and `x-tools` manifests are staging-only
-# package-surface producers for the same reason: their temporary reports are
-# discarded and never count as additional selfcheck exemptions or gate legs.
+# The adopted `protobuf-runtime` is different: its checked-in native surface is
+# the pinned empty-digest UNKNOWN assertion, so staging it performs no analysis
+# and creates no report. Bazel uses the component-level `tags = ["manual"]`
+# asserted producer for the same boundary.
 selfcheck:
 	@echo "=== Validating pinned selfcheck toolchain ==="
 	@test "$(cd {{go_dir}} && go env GOVERSION)" = "go1.26.4"
@@ -91,11 +91,12 @@ selfcheck:
 	mkdir -p bin
 	cd {{go_dir}} && go build -o ../bin/arcc ./cmd/arcc
 	@echo "=== Staging self-hosting surfaces in dependency order ==="
-	# The order is the component-dependency topological order. Every staged
-	# report/surface is produced beside its manifest, so native convention lookup
-	# never reads a developer cache or an uncontrolled host path. Staging verdicts
-	# are consumed in this temporary tree and discarded on exit; only the two
-	# final real selfcheck commands below are gate assertions.
+	# The order is the component-dependency topological order. Every analyzed
+	# staging component produces its report/surface beside its manifest, so native
+	# convention lookup never reads a developer cache or an uncontrolled host path.
+	# The asserted protobuf wrapper supplies its checked-in surface and no report.
+	# Staging verdicts are consumed in this temporary tree and discarded on exit;
+	# only the final real selfcheck commands below are gate assertions.
 	@selfcheck_stage="$(mktemp -d "${TMPDIR:-/tmp}/arcc-selfcheck.XXXXXX")"; \
 	trap 'rm -rf "$selfcheck_stage"' EXIT; \
 	cp -a "$(pwd)/go" "$selfcheck_stage/go"; \
@@ -140,6 +141,8 @@ selfcheck:
 	"$arcc_bin" check internal/checker/component.textproto --stdlib-map="$map_path"; \
 	"$arcc_bin" check internal/surface/component.textproto --stdlib-map="$map_path"; \
 	echo "=== Running self-hosting checks (remaining real manifests) ==="; \
+	"$arcc_bin" check internal/manifest/component.textproto --stdlib-map="$map_path" >/dev/null; \
+	"$arcc_bin" check internal/artifactio/component.textproto --stdlib-map="$map_path" >/dev/null; \
 	"$arcc_bin" check cmd/arcc/component.textproto --stdlib-map="$map_path" >/dev/null; \
 	"$arcc_bin" check examples/csvtool/app/component.textproto --stdlib-map="$map_path" >/dev/null
 

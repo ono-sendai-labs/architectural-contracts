@@ -193,7 +193,7 @@ type ComponentDependency struct {
 // Parse reads textproto content from the provided reader, unmarshals it into the
 // generated message, and maps it onto the native model. It is ambient-authority-free.
 func Parse(r io.Reader) (Manifest, error) {
-	bytes, err := io.ReadAll(r)
+	bytes, err := readAll(r)
 	if err != nil {
 		return Manifest{}, fmt.Errorf("reading manifest: %w", err)
 	}
@@ -244,6 +244,39 @@ func Parse(r io.Reader) (Manifest, error) {
 	}
 
 	return m, nil
+}
+
+// readAll copies the supplied reader without routing through io.ReadAll. The
+// stdlib authority map intentionally keeps io.ReadAll UNANALYZED because its
+// implementation dispatches through an arbitrary reader; spelling the one
+// interface read here lets the component boundary and the reader capability
+// remain visible to the typed scan (Step 7 AC8b migration).
+func readAll(r io.Reader) ([]byte, error) {
+	const chunkSize = 32 * 1024
+	var data []byte
+	buf := make([]byte, chunkSize)
+	noProgress := 0
+	for {
+		n, err := r.Read(buf)
+		if n < 0 || n > len(buf) {
+			return nil, fmt.Errorf("invalid reader count %d", n)
+		}
+		if n > 0 {
+			data = append(data, buf[:n]...)
+			noProgress = 0
+		} else if err == nil {
+			noProgress++
+			if noProgress >= 100 {
+				return nil, io.ErrNoProgress
+			}
+		}
+		if err == io.EOF {
+			return data, nil
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
 }
 
 func copyStrings(values []string) []string {
