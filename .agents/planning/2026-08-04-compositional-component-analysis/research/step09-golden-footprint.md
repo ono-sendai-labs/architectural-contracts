@@ -15,6 +15,31 @@ The first command is the canonical golden inventory. The second captures
 golden-style inputs outside the golden directory so they can be classified
 without accidentally treating ordinary Go test data as a semantic golden.
 
+The final golden-directory inventory is:
+
+```text
+api_component.layout.shape.golden.json
+api_component.report.shape.golden.json
+api_component.surface.shape.golden.json
+api_component.verdict.golden
+manual_component.surface.shape.golden.json
+member_component.layout.shape.golden.json
+package_surface_component.surface.shape.golden.json
+reportboundary_consumer.report.shape.golden.json
+reportboundary_consumer.verdict.golden
+stdlib_map_shape.fixture.json
+stdlib_map_shape.golden.json
+strict_component.report.shape.golden.json
+undeclared_dep_component.verdict.golden
+violation_component.report.shape.golden.json
+```
+
+The six non-golden testdata inputs found by the second command are
+`hostile_verdict_input.txt`, `pattern_cases.json`, `test_export_a.data`,
+`test_export_b.data`, `testdata/malformed/broken.component.textproto`, and
+`testdata/nongo/nongo_data.txt`. The first four are direct Bazel-test inputs;
+the last two are malformed-manifest/non-Go fixtures.
+
 ## Baseline and result
 
 The downstream friction report records 50 `rules_arcc` patches, 45 of them
@@ -53,11 +78,17 @@ pins a distinct persisted contract:
   export-data closure with complete non-member import maps and direct export
   files. It intentionally retains the member source fields separately from the
   non-member export role.
-- `goldens/*.report.shape.golden.json` — four report envelope/dependency/finding
+- `goldens/api_component.report.shape.golden.json`,
+  `goldens/reportboundary_consumer.report.shape.golden.json`,
+  `goldens/strict_component.report.shape.golden.json`, and
+  `goldens/violation_component.report.shape.golden.json` — four report envelope/dependency/finding
   contracts. Export metrics, source locations, evidence, messages, and SDK
   identity are represented by explicit placeholders.
-- `goldens/*.surface.shape.golden.json` — checked declared-interface,
-  checked package-surface, and asserted package-surface/UNKNOWN contracts.
+- `goldens/api_component.surface.shape.golden.json`,
+  `goldens/package_surface_component.surface.shape.golden.json`, and
+  `goldens/manual_component.surface.shape.golden.json` — checked
+  declared-interface, checked package-surface, and asserted
+  package-surface/UNKNOWN contracts.
   Target SDK scalars and derived content digests are placeholders; empty
   asserted symbols/digest remain exact.
 - `goldens/stdlib_map_shape.golden.json` — one bounded map contract containing

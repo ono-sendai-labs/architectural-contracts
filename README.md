@@ -237,7 +237,7 @@ Usage:
         [--report-out=<path>] [--surface-out=<path>] [--stdlib-map=<artifact>]
         [--report-verdict-only]
   arcc verdict <report> (--expect=pass|fail | --expect-file=<verdict-golden>)
-  arcc artifact-shape <report|surface|stdlib-map> <artifact> [--golden=<shape.json> | --print]
+  arcc artifact-shape <report|surface|stdlib-map|layout> <artifact> [--golden=<shape.json> | --print]
   arcc stdlibmap generate --output=<path> [--toolchain=<version>] [--goos=<os>] [--goarch=<arch>] [--cgo] [--tags=<t1,t2>] [--goexperiment=<exp>]
   arcc stdlibmap inspect <artifact> [--expect-key=<field=value,...>] [summary | symbol <id> | init <pkg>]...
   arcc --version
@@ -249,13 +249,15 @@ non-fatal `ANALYSIS_LIMITATION` warnings. This policy applies only to the empty
 capability key used for `AnalysisDefeating`; real authority such as `FILES` and
 `NETWORK` still requires `declared_authority`.
 
-`arcc artifact-shape` validates a persisted report, surface, or stdlib-map
-through the bounded production decoder and rejects non-canonical bytes before
-comparing its typed shape snapshot. `--print` emits the deterministic snapshot
-for an intentional golden update; `--golden` compares it and returns exit 1
-for a focused shape mismatch. Host paths, target SDK scalars, diagnostics, and
-content digests use only the named placeholders documented by the shape seam;
-stable identities and schema axes remain visible.
+`arcc artifact-shape` validates a persisted report, surface, stdlib-map, or
+final package layout through its bounded production/schema decoder and rejects
+non-canonical bytes before comparing a typed shape snapshot. `--print` emits
+the deterministic snapshot for an intentional shape-golden update; `--golden`
+compares it and returns exit 1 for a focused shape mismatch. Host paths, target
+SDK scalars, diagnostics, and content digests use only the named placeholders
+documented by the shape seams; stable identities and schema axes remain
+visible. A package-layout shape is not a semantic verdict golden and must not
+be copied into one.
 
 ### Check artifact emission
 
