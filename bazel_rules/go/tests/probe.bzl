@@ -10,13 +10,20 @@ load("//bazel_rules/go:providers.bzl", "ArccPackageInfo", "ArccStdlibMapInfo")
 load("//bazel_rules/go/private:aspect.bzl", "arcc_deps_aspect")
 load(
     "//bazel_rules/go/private:go_adapter.bzl",
+    "GO_CONTEXT_DATA_ATTRS",
+    "GO_TOOLCHAINS",
     "INFRA_COMPONENTS",
     "go_attach_infra",
     "go_build_platform",
+    "go_stdlib_export_data",
 )
 
 ArccGoPlatformInfo = provider(
     fields = ["goos", "goarch", "tags", "cgo_enabled", "infra_attached", "registry"],
+)
+
+StdlibExportDataInfo = provider(
+    fields = ["metadata", "export_files", "inputs", "target"],
 )
 
 def _fake_component_info_impl(ctx):
@@ -150,6 +157,71 @@ go_platform_probe = rule(
         ),
     },
     doc = "Exposes adapter platform and infrastructure-seam results for analysis tests.",
+)
+
+def _stdlib_export_data_probe_impl(ctx):
+    data = go_stdlib_export_data(
+        ctx,
+        expected_mode = ctx.attr.map[ArccStdlibMapInfo],
+    )
+    return [StdlibExportDataInfo(
+        metadata = data.metadata,
+        export_files = data.export_files,
+        inputs = data.inputs,
+        target = data.target,
+    )]
+
+stdlib_export_data_probe = rule(
+    implementation = _stdlib_export_data_probe_impl,
+    attrs = {} | GO_CONTEXT_DATA_ATTRS | {
+        "map": attr.label(
+            default = "//:arcc_stdlib_map",
+            providers = [ArccStdlibMapInfo],
+            doc = "The authority map whose target identity must match the export data.",
+        ),
+    },
+    toolchains = GO_TOOLCHAINS,
+    provides = [StdlibExportDataInfo],
+    doc = "Exposes the host-neutral stdlib export-data adapter contract for analysis tests.",
+)
+
+def _stdlib_export_data_missing_probe_impl(ctx):
+    go_stdlib_export_data(ctx)
+    return []
+
+stdlib_export_data_missing_probe = rule(
+    implementation = _stdlib_export_data_missing_probe_impl,
+    attrs = {
+        # Deliberately omit the adapter's export-enabling transition. The
+        # provider is otherwise the same rules_go context target, so the
+        # adapter must diagnose missing target-configured export material.
+        "_go_context_data": attr.label(
+            default = Label("@rules_go//:go_context_data"),
+        ),
+    },
+    toolchains = GO_TOOLCHAINS,
+    doc = "Test-only missing-stdlib-export-material seam.",
+)
+
+def _stdlib_export_data_mismatch_probe_impl(ctx):
+    go_stdlib_export_data(
+        ctx,
+        expected_mode = ctx.attr.map[0][ArccStdlibMapInfo],
+    )
+    return []
+
+stdlib_export_data_mismatch_probe = rule(
+    implementation = _stdlib_export_data_mismatch_probe_impl,
+    attrs = {} | GO_CONTEXT_DATA_ATTRS | {
+        "map": attr.label(
+            mandatory = True,
+            providers = [ArccStdlibMapInfo],
+            cfg = _darwin_arm64_transition,
+            doc = "A deliberately transitioned map identity for the negative seam.",
+        ),
+    },
+    toolchains = GO_TOOLCHAINS,
+    doc = "Test-only mismatched-stdlib-export-configuration seam.",
 )
 
 def _transitioned_checked_map_impl(ctx):

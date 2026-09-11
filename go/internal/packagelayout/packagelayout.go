@@ -16,14 +16,18 @@
 //     validated whole-stdlib layout for a pinned target (StdlibLayout), and
 //     serves validated layouts through the GOPACKAGESDRIVER self-exec
 //     protocol (HandleDriverRequest/RunDriver, with the target GOARCH as the
-//     response Arch).
+//     response Arch). Bazel emitters hand it a host-neutral stdlib export
+//     descriptor: generated package metadata plus declared compiled export
+//     artifacts, never the SDK source tree or a toolchain executable.
 //   - What it requires: A validated layout file (or SDK root plus platform
 //     for StdlibLayout), a workspace/runfiles directory for emitter-listed
 //     source and export paths, and the ARCC_PACKAGE_LAYOUT/ARCC_DRIVER_MODE
 //     environment markers set by WithDriverEnv/WithTemporaryLayout when
 //     invoked as the driver subprocess. Source-backed validation resolves SDK
 //     files below go_sdk_root; member-only validation resolves export files in
-//     the workspace frame and does not read non-member source.
+//     the workspace frame and does not read non-member source. A Bazel host
+//     adapter supplies the metadata/export inputs as declared files before the
+//     emitter writes the member-only layout.
 //   - What it provides: Layout/Platform and direct dependency artifact bindings,
 //     Parse, MarshalJSON/UnmarshalJSON,
 //     ValidateAndResolve (source-backed), ValidateAndResolveForMemberOnly

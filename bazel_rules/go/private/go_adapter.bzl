@@ -3,6 +3,7 @@
 Everything arcc's rules need from the host's Go rules is funneled through this
 one file: the providers it keys on, how to read a target's import path, its
 compiled sources, its direct-dependency import paths, export artifact and cgo flag, how to
+project target-configured standard-library package metadata and compiled export data,
 forward a library's Go providers so a component target can stand in for its
 interface library, and how to locate the Go SDK root. `aspect.bzl`,
 `component.bzl`, and the rest of the rules import ONLY this adapter and never
@@ -18,7 +19,7 @@ constant instead; that is conforming behavior, not a degraded fallback.
 """
 
 load("@rules_go//go:def.bzl", "GoArchive", "GoInfo")
-load("@rules_go//go/private:providers.bzl", "GoConfigInfo")
+load("@rules_go//go/private:providers.bzl", "GoConfigInfo", "GoStdLib")
 load("//bazel_rules:providers.bzl", "ArccComponentInfo")
 load(":paths.bzl", "runfiles_path")
 
@@ -294,12 +295,30 @@ def go_sdk_srcs(ctx):
 
 # Rule attributes that carry the target build configuration. Merged into a
 # rule's `attrs` by stdlib_map.bzl; the impl reads the resulting
-# GoConfigInfo through `go_target_mode`.
+# GoConfigInfo and GoStdLib through `go_target_mode` and
+# `go_stdlib_export_data`. The transition enables rules_go's generated export
+# metadata without changing the target GOOS/GOARCH, cgo, tags, or experiment
+# identity. It is deliberately private to this adapter: upper layers ask for
+# the generic descriptor and never name the setting or provider.
+def _stdlib_export_data_transition_impl(settings, attr):
+    _ = settings, attr
+    return {
+        "@rules_go//go/config:export_stdlib": True,
+    }
+
+_stdlib_export_data_transition = transition(
+    implementation = _stdlib_export_data_transition_impl,
+    inputs = [],
+    outputs = ["@rules_go//go/config:export_stdlib"],
+)
+
 GO_CONTEXT_DATA_ATTRS = {
     "_go_context_data": attr.label(
         default = Label("@rules_go//:go_context_data"),
+        cfg = _stdlib_export_data_transition,
+        providers = [GoConfigInfo, GoStdLib],
         doc = "rules_go's build-configuration collector: supplies the target " +
-              "GOOS/GOARCH/cgo/tags the stdlib map is keyed by.",
+              "GOOS/GOARCH/cgo/tags and generated stdlib export metadata.",
     ),
 }
 
@@ -336,7 +355,7 @@ def go_target_mode(ctx):
     spelling ("go" + version) the SDK key uses natively.
     """
     sdk = go_stdlib_toolchain(ctx)
-    config = ctx.attr._go_context_data[GoConfigInfo]
+    config = _go_context_data_target(ctx)[GoConfigInfo]
     version = sdk.version or ""
     if version and not version.startswith("go"):
         version = "go" + version
@@ -348,4 +367,108 @@ def go_target_mode(ctx):
         cgo_enabled = not config.pure,
         tags = tuple(tags),
         goexperiment = ",".join(sdk.experiments),
+    )
+
+def _go_context_data_target(ctx):
+    """Returns the context-data target through direct and transitioned attrs."""
+    context_data = ctx.attr._go_context_data
+    if type(context_data) == type([]):
+        if len(context_data) != 1:
+            fail("component %s: Go adapter context-data transition returned %d targets" % (
+                ctx.label.name,
+                len(context_data),
+            ))
+        return context_data[0]
+    return context_data
+
+def _stdlib_mode_mismatches(actual, expected):
+    """Returns SDK-key fields whose target values disagree.
+
+    The expected value is intentionally a structural record rather than an
+    ArccStdlibMapInfo dependency. This keeps the adapter usable by a different
+    host while still allowing the component emitter to compare the export
+    producer with the authority-map provider before it writes a layout.
+    """
+    expected_tags = getattr(expected, "build_tags", None)
+    if expected_tags == None:
+        expected_tags = getattr(expected, "tags", None)
+    if expected_tags == None:
+        return ["build_tags"]
+
+    fields = [
+        ("toolchain_version", actual.toolchain_version, expected.toolchain_version),
+        ("goos", actual.goos, expected.goos),
+        ("goarch", actual.goarch, expected.goarch),
+        ("cgo_enabled", actual.cgo_enabled, expected.cgo_enabled),
+        ("build_tags", tuple(actual.tags), tuple(sorted(expected_tags))),
+        ("goexperiment", actual.goexperiment, expected.goexperiment),
+    ]
+    return [name for name, actual_value, expected_value in fields if actual_value != expected_value]
+
+def go_stdlib_export_data(ctx, expected_mode = None):
+    """Returns the host-neutral target stdlib export-data descriptor.
+
+    The upstream ruleset stores the package graph and each package's direct
+    import edges in its generated `_list_json` artifact. With export generation
+    enabled, the JSON's `ExportFile` values point into the generated cache and
+    compiled stdlib archive tree. The returned descriptor deliberately exposes
+    only those generated artifacts:
+
+      metadata    File — package identities, direct imports, and ExportFile paths;
+      export_files depset[File] — generated cache/archive trees containing those
+                  compiler export artifacts;
+      inputs      depset[File] — exactly metadata plus export_files, for a check
+                  action to declare without pulling in SDK sources or tools;
+      target      struct — the same target identity returned by go_target_mode.
+
+    `expected_mode`, when supplied, is any record carrying the SDK-key fields
+    (the stdlib-map provider is one such record). The comparison happens during
+    analysis and names the consuming target on mismatch; this prevents a
+    transitioned component from pairing one target's layout with another
+    target's stdlib data. No toolchain executable is returned or run here.
+    """
+    target_mode = go_target_mode(ctx)
+    if expected_mode != None:
+        mismatches = _stdlib_mode_mismatches(target_mode, expected_mode)
+        if mismatches:
+            fail(("component %s: standard-library export data configuration mismatch " +
+                  "with the selected authority map; mismatched fields: %s") % (
+                ctx.label.name,
+                ", ".join(mismatches),
+            ))
+
+    context_data = _go_context_data_target(ctx)
+    if GoStdLib not in context_data:
+        fail(("component %s: the Go adapter context provides no standard-library " +
+              "export-data descriptor") % ctx.label.name)
+    config = context_data[GoConfigInfo]
+    if not getattr(config, "export_stdlib", False):
+        fail(("component %s: GoStdLib does not provide target-configured export " +
+              "metadata; enable rules_go export_stdlib for this target") % ctx.label.name)
+
+    stdlib = context_data[GoStdLib]
+    metadata = getattr(stdlib, "_list_json", None)
+    cache_dir = getattr(stdlib, "cache_dir", None)
+    libs = getattr(stdlib, "libs", None)
+    missing = []
+    if metadata == None:
+        missing.append("package metadata")
+    if cache_dir == None and libs == None:
+        missing.append("compiled export artifacts")
+    if missing:
+        fail(("component %s: GoStdLib is missing target-configured export material: %s") % (
+            ctx.label.name,
+            ", ".join(missing),
+        ))
+
+    export_files = depset(transitive = [cache_dir, libs])
+    if not export_files.to_list():
+        fail(("component %s: GoStdLib exposes no compiled standard-library " +
+              "export artifacts") % ctx.label.name)
+
+    return struct(
+        metadata = metadata,
+        export_files = export_files,
+        inputs = depset(direct = [metadata], transitive = [export_files]),
+        target = target_mode,
     )

@@ -171,6 +171,27 @@ and validates them through the ordinary source-backed `ValidateAndResolve`
 path. That generation layout may have no `ExportFile` values and must not be
 passed through the member-only export validator.
 
+### 3b. The Bazel stdlib export-data handoff
+
+The Bazel emitter obtains member-only standard-library material through its host
+adapter. The adapter returns a host-neutral descriptor with four values:
+
+| Descriptor value | Package-layout use |
+|---|---|
+| `metadata` (`File`) | Generated package JSON containing every target-configured stdlib package identity, direct `Imports` edge, and `ExportFile` path. |
+| `export_files` (`depset[File]`) | Generated cache/archive trees containing the compiled export artifacts named by `metadata`. |
+| `inputs` (`depset[File]`) | The exact union of `metadata` and `export_files` for declaration on the component action. |
+| `target` (platform record) | The GOOS, GOARCH, cgo, tags, toolchain version, and GOEXPERIMENT identity checked against the attached stdlib authority map. |
+
+The package-layout emitter consumes this descriptor in Task 4: it stages the
+metadata and export trees, rewrites the generated paths into the workspace
+frame, and lets the runtime validator populate `ExportFile` for every reachable
+stdlib node while preserving the metadata's complete import graph. It does not
+read or infer the graph from import-path spelling. The descriptor's `inputs`
+contain no SDK `.go` source, `go` binary, compiler/linker tools, undeclared host
+cache, or network dependency; source-backed `StdlibLayout` generation remains a
+separate path.
+
 **Pinning the toolchain.** The platform block may carry two optional
 identity fields, `toolchain_version` (`go1.N.M`) and `goexperiment`. When
 present they pin the loader's release tags and tool (GOEXPERIMENT) tags to
