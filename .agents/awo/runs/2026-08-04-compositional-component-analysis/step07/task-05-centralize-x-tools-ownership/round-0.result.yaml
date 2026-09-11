@@ -1,0 +1,112 @@
+result:
+  task_file: .agents/tasks/2026-08-04-compositional-component-analysis/step07/task-05-centralize-x-tools-ownership.code-task.md
+  change_id: nolswrrtzwmwvsznlynvznoputqwuswr
+  status: completed
+  schema_version: 2
+  produced_at: 2026-09-11T01:27:57Z
+
+acceptance_criteria:
+  - text: |
+      **Retained x/tools packages have one owner**
+      - Given all checked-in component manifests and Bazel declarations
+      - When package ownership is indexed
+      - Then every retained x/tools/support package belongs to exactly one explicit package-surface wrapper and no consumer duplicates that membership
+    addressed: yes
+    evidence: |
+      `go/internal/manifestparity/x_tools_ownership_test.go:15-90` pins the
+      exact 31-package x/mod, x/sync, and x/tools union, checks sorted and
+      duplicate-free ownership, compares the checked-in manifest with every
+      wrapper BUILD label, and rejects members in every other checked-in
+      component. The completed list is present in
+      `go/internal/xtools/component.textproto:7-37` and
+      `go/internal/xtools/BUILD.bazel:10-40`; the repository-wide `go list -deps`
+      audit is recorded in `work.log:1998-2032`.
+  - text: |
+      **Goanalysis checks only its side of the boundary**
+      - Given the migrated goanalysis component
+      - When native and Bazel checks run
+      - Then x/tools references resolve through the wrapper, x/tools stdlib findings are not attributed to goanalysis, and the component passes without a manual check exemption
+    addressed: yes
+    evidence: |
+      `go/internal/goanalysis/BUILD.bazel:48-78` has no `check_tags` exemption
+      and retains only goanalysis/packagelayout as local members;
+      `justfile:145-149` runs the real native goanalysis check. The restored
+      target passed at `//go/internal/goanalysis:goanalysis_component.check`,
+      and the final `just ci` output records the passing target and the native
+      selfcheck in `work.log:389-1991`. The local checker-facing cleanup is in
+      `go/internal/goanalysis/defeatscan.go:166-275`,
+      `go/internal/packagelayout/packagelayout.go:242-320,646-866,1425-1597`,
+      and `go/internal/goanalysis/surface_resolver.go:495-616`; it preserves
+      the map's UNANALYZED classifications rather than overriding them.
+  - text: |
+      **The wrapper is asserted, not falsely certified**
+      - Given a report for a component consuming x-tools
+      - When boundary status is inspected
+      - Then the wrapper is `ASSERTED`, has `UNKNOWN` authority and renders untrusted, with no report or content-derived symbol/digest claim
+    addressed: yes
+    evidence: |
+      `go/internal/xtools/BUILD.bazel:3-46` uses the component-level
+      `tags = ["manual"]` producer, while
+      `go/internal/xtools/component.surface.json:2-49` is the pinned,
+      symbol-free, empty-digest package-level UNKNOWN artifact. The no-loader
+      resolver test asserts `ASSERTED`/`BUILD_GRAPH` and UNKNOWN package-surface
+      status at `go/internal/goanalysis/surface_resolver_internal_test.go:81-127`;
+      the native selfcheck uses the checked-in surface and requires no sibling
+      report at `justfile:113-122`.
+  - text: |
+      **Dependency source remains unnecessary**
+      - Given the x-tools surface and unavailable x/tools source in the dependency-resolver path
+      - When goanalysis is checked
+      - Then boundary resolution succeeds from exact package ownership without parsing x/tools files
+    addressed: yes
+    evidence: |
+      `go/internal/goanalysis/surface_resolver_internal_test.go:81-127` loads
+      only the checked-in x-tools surface, rejects every other artifact read,
+      and fails the test if the package-loader seam is called; it also checks
+      the complete package-surface closure. The production artifact-only
+      resolver is `go/internal/goanalysis/surface_resolver.go:94-198`, and the
+      real goanalysis native/Bazel checks pass in the final gate.
+  - text: |
+      **Residual findings remain honest**
+      - Given capslockadapter after protobuf and x-tools packages move behind wrappers
+      - When its strict check is run for inventory
+      - Then every remaining `AnalysisDefeating` site is recorded as residual member-code evidence for Task 6 and none is silently made safe or dropped
+    addressed: yes
+    evidence: |
+      The strict post-wrapper capslockadapter inventory is recorded in
+      `work.log:2071-2073` as exactly 892 AnalysisDefeating sites: 326
+      no-symbol bypass/assembly observations plus
+      `(bufio.Writer).Flush` 1, `(sync.Once).Do` 3, `sort.Search` 2,
+      `sort.Slice` 4, `sort.Sort` 6, `unsafe.Offsetof` 4,
+      `unsafe.Pointer` 516, `unsafe.Sizeof` 23, and `unsafe.Slice` 7.
+      The sites are confined to the non-wrapper member roots `analyzer` (13),
+      `proto` (1), and `unix` (878); the existing residual non-gating treatment
+      remains documented at `justfile:69-81,134-147` for Task 6.
+  - text: |
+      **Repository gates pass**
+      - Given manifest parity, selfcheck, generator code, and Bazel analysis actions
+      - When `just ci` runs
+      - Then all pass except the deliberately retained capslockadapter and parsecsv residual-policy exemptions owned by Task 6
+    addressed: yes
+    evidence: |
+      The final `just ci` run passed generation cleanliness, vet, formatting,
+      Go unit/integration tests, native selfcheck, Bazel build/test, manifest
+      parity, and the validation scripts; its output is recorded in
+      `work.log:389-1991`. No AC8b/EXEMPT/check_tags marker remains for
+      goanalysis (`go/internal/goanalysis/BUILD.bazel:41-78` and
+      `work.log:2068-2069`); only the separately retained parsecsv manual seam
+      is present at `go/examples/csvtool/internal/parsecsv/BUILD.bazel:12-23`,
+      while capslockadapter remains native-only as documented by its existing
+      component contract.
+
+artifacts:
+  scratchpad_dir: .agents/scratchpad/2026-08-04-compositional-component-analysis/step07/task-05-centralize-x-tools-ownership/
+  files:
+    - context.md
+    - plan.md
+    - progress.md
+    - work.log
+    - result.yaml
+
+notes: |
+  Task 03 had already supplied the single x-tools wrapper, consumer dependency edges, and staging metadata, but its 25-entry list lacked the six SSA/VTA packages retained by Capslock generation and it had no native asserted surface or parity proof. This task completed the 31-package asserted boundary, added the pinned empty-digest surface and ownership/no-loader tests, restored goanalysis's native and Bazel gates, and preserved project ownership while removing local unanalyzable helper edges without changing map classification. The strict post-wrapper capslock inventory remains 892 AnalysisDefeating sites in non-wrapper Capslock/proto/unix members for Task 6. Changes were committed incrementally as `ypllwmtukmlltrvlyowqynwxzlkkokpz` and `nolswrrtzwmwvsznlynvznoputqwuswr`; the working-copy `@` is empty after the final `just ci` pass.

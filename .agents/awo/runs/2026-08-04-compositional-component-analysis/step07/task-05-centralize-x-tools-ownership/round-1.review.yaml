@@ -1,0 +1,108 @@
+review:
+  task_file: .agents/tasks/2026-08-04-compositional-component-analysis/step07/task-05-centralize-x-tools-ownership.code-task.md
+  change_id: uvosuwstoxypywxrxznxstwrsomnxzmx
+  reviewed_at: "2026-09-11T01:57:48Z"
+  verdict: approved
+  schema_version: 2
+  lsp_coverage: unavailable
+
+merge_request:
+  title: "feat: centralize x-tools ownership [X-tools Ownership: Step 07/Task 05]"
+  body: |
+    Reviews the complete ordered series from the pre-existing Step 03 wrapper
+    through the initial asserted-boundary implementation
+    (ypllwmtukmlltrvlyowqynwxzlkkokpz), the goanalysis exemption removal and
+    local-layout changes (nolswrrtzwmwvsznlynvznoputqwuswr), and the targeted
+    rework fixing wrapped artifact errors and source validation
+    (uvosuwstoxypywxrxznxstwrsomnxzmx).
+
+summary: |
+  Both prior important findings are resolved in the fresh rework: recursive optional-report not-found matching now has wrapped-error coverage, and the lexical layout scanner rejects the malformed package/import cases that were previously accepted. The rework does not restore any x-tools member declaration; focused tests, the goanalysis Bazel check, and the final `just ci` run pass, with no regressions found across the complete change range. LSP diagnostics were unavailable in this harness.
+
+acceptance_criteria:
+  - text: |
+      **Retained x/tools packages have one owner**
+      - Given all checked-in component manifests and Bazel declarations
+      - When package ownership is indexed
+      - Then every retained x/tools/support package belongs to exactly one explicit package-surface wrapper and no consumer duplicates that membership
+    status: pass
+    evidence: |
+      `go/internal/manifestparity/x_tools_ownership_test.go:56-90` checks the
+      exact 31-package sorted/unique set, BUILD-label parity, and duplicate
+      ownership across checked-in manifests. The wrapper membership is present
+      in `go/internal/xtools/component.textproto:6-37` and its matching labels
+      in `go/internal/xtools/BUILD.bazel:6-40`; the repository-wide closure audit
+      is recorded at `work.log:1998-2066`. The rework range adds no x-tools
+      member declaration.
+  - text: |
+      **Goanalysis checks only its side of the boundary**
+      - Given the migrated goanalysis component
+      - When native and Bazel checks run
+      - Then x/tools references resolve through the wrapper, x/tools stdlib findings are not attributed to goanalysis, and the component passes without a manual check exemption
+    status: pass
+    evidence: |
+      `go/internal/goanalysis/BUILD.bazel:48-78` has no `check_tags` exemption
+      and keeps packagelayout as the only explicit local member while declaring
+      the x-tools dependency. The native selfcheck command is restored at
+      `justfile:145-149`; the final Bazel target passed at `work.log:4513` and
+      the final native/Go gate completed at `work.log:4282-4536`. Rework 1 only
+      changes resolver/source-validation behavior and does not reintroduce the
+      removed ownership.
+  - text: |
+      **The wrapper is asserted, not falsely certified**
+      - Given a report for a component consuming x-tools
+      - When boundary status is inspected
+      - Then the wrapper is `ASSERTED`, has `UNKNOWN` authority and renders untrusted, with no report or content-derived symbol/digest claim
+    status: pass
+    evidence: |
+      `go/internal/xtools/BUILD.bazel:6-44` uses the component-level manual
+      producer, and `go/internal/xtools/component.surface.json:1-50` contains
+      the package-level UNKNOWN, symbol-free, empty-digest convention surface.
+      `go/internal/manifestparity/x_tools_ownership_test.go:120-155` verifies
+      the artifact shape and absent report; the resolver test verifies
+      asserted/UNKNOWN status at
+      `go/internal/goanalysis/surface_resolver_internal_test.go:81-127`.
+  - text: |
+      **Dependency source remains unnecessary**
+      - Given the x-tools surface and unavailable x/tools source in the dependency-resolver path
+      - When goanalysis is checked
+      - Then boundary resolution succeeds from exact package ownership without parsing x/tools files
+    status: pass
+    evidence: |
+      `go/internal/goanalysis/surface_resolver.go:94-168` consumes persisted
+      surface/report artifacts without loading dependency packages. The focused
+      no-loader test at
+      `go/internal/goanalysis/surface_resolver_internal_test.go:81-127`
+      rejects foreign reads and loader calls while checking the x-tools closure;
+      the wrapped missing-report regression is covered at
+      `go/internal/goanalysis/surface_resolver_test.go:271-308` without adding
+      any x-tools member ownership.
+  - text: |
+      **Residual findings remain honest**
+      - Given capslockadapter after protobuf and x-tools packages move behind wrappers
+      - When its strict check is run for inventory
+      - Then every remaining `AnalysisDefeating` site is recorded as residual member-code evidence for Task 6 and none is silently made safe or dropped
+    status: pass
+    evidence: |
+      The strict post-wrapper inventory is recorded as the exact 892-site JSON
+      list at `work.log:2071-2073`, including every file, line, and symbol. The
+      retained non-wrapper roots are analyzer, proto, and unix; the existing
+      residual treatment remains documented in `justfile:69-81,134-147`.
+  - text: |
+      **Repository gates pass**
+      - Given manifest parity, selfcheck, generator code, and Bazel analysis actions
+      - When `just ci` runs
+      - Then all pass except the deliberately retained capslockadapter and parsecsv residual-policy exemptions owned by Task 6
+    status: pass
+    evidence: |
+      The final rework `just ci` run passed generation cleanliness, vet,
+      formatting, Go unit/integration tests, native selfcheck, Bazel build/test,
+      manifest parity, and validation scripts at `work.log:4282-4536`.
+      The first post-rework run stopped only because the malformed-fixture
+      diagnostic changed after validation moved earlier (`work.log:4276-4281`);
+      the same rework updated `justfile:170` to accept the two valid diagnostic
+      forms, and the subsequent complete gate passed.
+
+findings: []
+
+ecosystem_reviews: []

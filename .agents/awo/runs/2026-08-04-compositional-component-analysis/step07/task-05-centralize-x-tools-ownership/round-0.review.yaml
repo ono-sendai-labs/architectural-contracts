@@ -1,0 +1,145 @@
+review:
+  task_file: .agents/tasks/2026-08-04-compositional-component-analysis/step07/task-05-centralize-x-tools-ownership.code-task.md
+  change_id: nolswrrtzwmwvsznlynvznoputqwuswr
+  reviewed_at: "2026-09-11T01:38:05Z"
+  verdict: changes_requested
+  schema_version: 2
+  lsp_coverage: unavailable
+
+merge_request:
+  title: "feat: centralize x-tools ownership [X-tools Ownership: Step 07/Task 05]"
+  body: |
+    Reviews the complete task series from the existing Step 03 x-tools staging
+    wrapper through the initial asserted-boundary completion change
+    (ypllwmtukmlltrvlyowqynwxzlkkokpz) and the follow-on goanalysis exemption
+    removal and local-layout changes (nolswrrtzwmwvsznlynvznoputqwuswr).
+
+summary: |
+  The 31-package asserted x-tools boundary, ownership/parity checks, persisted-surface no-loader proof, goanalysis dependency cutover, and residual Capslock inventory are present, and the focused tests plus recorded `just ci` run pass. Two important regressions were found in the follow-on change: optional missing-report detection no longer unwraps arbitrary `fs.ErrNotExist` errors, and the replacement lexical source scanner accepts malformed Go syntax that the prior parser rejected. The report is therefore changes_requested; LSP diagnostics were unavailable in this harness.
+
+acceptance_criteria:
+  - text: |
+      **Retained x/tools packages have one owner**
+      - Given all checked-in component manifests and Bazel declarations
+      - When package ownership is indexed
+      - Then every retained x/tools/support package belongs to exactly one explicit package-surface wrapper and no consumer duplicates that membership
+    status: pass
+    evidence: |
+      `go/internal/manifestparity/x_tools_ownership_test.go:56-90` checks the
+      exact 31-package sorted/unique set, BUILD-label parity, and duplicate
+      ownership across checked-in manifests. The wrapper membership is present
+      in `go/internal/xtools/component.textproto:6-37` and its matching labels
+      in `go/internal/xtools/BUILD.bazel:6-40`; the repository-wide closure audit
+      is recorded at `work.log:1998-2066`.
+  - text: |
+      **Goanalysis checks only its side of the boundary**
+      - Given the migrated goanalysis component
+      - When native and Bazel checks run
+      - Then x/tools references resolve through the wrapper, x/tools stdlib findings are not attributed to goanalysis, and the component passes without a manual check exemption
+    status: pass
+    evidence: |
+      `go/internal/goanalysis/BUILD.bazel:48-78` removes `check_tags` and keeps
+      packagelayout as the only explicit local member while declaring the
+      x-tools dependency at lines 53-63. The native selfcheck command is
+      restored at `justfile:145-149`, and the Bazel target passed at
+      `work.log:1944`; the final gate output is recorded at `work.log:389-1997`.
+  - text: |
+      **The wrapper is asserted, not falsely certified**
+      - Given a report for a component consuming x-tools
+      - When boundary status is inspected
+      - Then the wrapper is `ASSERTED`, has `UNKNOWN` authority and renders untrusted, with no report or content-derived symbol/digest claim
+    status: pass
+    evidence: |
+      `go/internal/xtools/BUILD.bazel:6-44` uses the component-level manual
+      producer, and `go/internal/xtools/component.surface.json:1-50` contains
+      the package-level UNKNOWN, symbol-free, empty-digest convention surface.
+      `go/internal/manifestparity/x_tools_ownership_test.go:120-155` verifies
+      the artifact shape and absence of a report; the resolver test verifies
+      asserted/UNKNOWN boundary status at
+      `go/internal/goanalysis/surface_resolver_internal_test.go:81-127`.
+  - text: |
+      **Dependency source remains unnecessary**
+      - Given the x-tools surface and unavailable x/tools source in the dependency-resolver path
+      - When goanalysis is checked
+      - Then boundary resolution succeeds from exact package ownership without parsing x/tools files
+    status: pass
+    evidence: |
+      `go/internal/goanalysis/surface_resolver.go:94-168` consumes persisted
+      surface/report artifacts without loading dependency packages. The focused
+      test at `go/internal/goanalysis/surface_resolver_internal_test.go:81-127`
+      rejects loader calls and undeclared reads while checking the complete
+      x-tools package closure, and the native/Bazel gates pass per
+      `work.log:356-367` and `work.log:1944`.
+  - text: |
+      **Residual findings remain honest**
+      - Given capslockadapter after protobuf and x-tools packages move behind wrappers
+      - When its strict check is run for inventory
+      - Then every remaining `AnalysisDefeating` site is recorded as residual member-code evidence for Task 6 and none is silently made safe or dropped
+    status: pass
+    evidence: |
+      The strict post-wrapper inventory is recorded as the exact 892-site JSON
+      list at `work.log:2071-2073`, including the symbol counts and every file,
+      line, and symbol. The retained non-wrapper roots are analyzer, proto, and
+      unix; the existing residual treatment remains documented in
+      `justfile:69-81,134-147`.
+  - text: |
+      **Repository gates pass**
+      - Given manifest parity, selfcheck, generator code, and Bazel analysis actions
+      - When `just ci` runs
+      - Then all pass except the deliberately retained capslockadapter and parsecsv residual-policy exemptions owned by Task 6
+    status: pass
+    evidence: |
+      The recorded final `just ci` run covers generation cleanliness, vet,
+      formatting, Go unit/integration tests, native selfcheck, Bazel build/test,
+      manifest parity, and validation scripts at `work.log:389-1997`. The x-tools
+      and protobuf wrappers are staged as asserted surfaces at `justfile:121-126`,
+      while the only intentionally non-gating residual cases are documented at
+      `justfile:69-81`.
+
+findings:
+  - severity: important
+    category: other
+    file: go/internal/goanalysis/surface_resolver.go
+    line: 615
+    title: Missing-report detection no longer unwraps errors
+    details: |
+      `isNotExist` changed from `errors.Is(err, fs.ErrNotExist) ||
+      os.IsNotExist(err)` to `os.IsNotExist(err) || err == fs.ErrNotExist`.
+      `os.IsNotExist` only recognizes its historical OS wrappers/syscall errors,
+      not arbitrary `Unwrap` chains. A `ReadFile` implementation returning
+      `fmt.Errorf("read report: %w", fs.ErrNotExist)` is therefore no longer
+      treated as an absent optional report by `readDependencyReport` at
+      `go/internal/goanalysis/surface_resolver.go:590-603`, changing a valid
+      missing-report path into an error. Existing tests return `fs.ErrNotExist`
+      directly and do not cover this regression.
+    suggested_action: |
+      Restore recursive `fs.ErrNotExist` matching (for example with
+      `errors.Is` alongside the OS-specific check) or implement an equivalent
+      unwrapping helper, and add a resolver test whose reader returns a wrapped
+      `fs.ErrNotExist` for an optional report.
+    source: built-in
+  - severity: important
+    category: security
+    file: go/internal/packagelayout/packagelayout.go
+    line: 702
+    title: Lexical scan accepts malformed Go source
+    details: |
+      The replacement for `parser.ParseFile(..., parser.ImportsOnly)` at
+      `go/internal/packagelayout/packagelayout.go:702-780` only checks scanner
+      errors and whether some package identifier was seen. It does not validate
+      Go declaration grammar; malformed input such as `package p import "dep"`
+      or a source containing multiple package clauses can still produce a
+      package/import result. `ValidateAndResolve` now uses this routine for
+      non-stdlib files at `go/internal/packagelayout/packagelayout.go:1287-1295`,
+      so malformed layout source can pass graph validation where the previous
+      parser rejected it. Current tests cover valid fixtures and do not pin this
+      fail-closed behavior.
+    suggested_action: |
+      Preserve syntax validation separately from import extraction, either by
+      retaining a parser-based validation path compatible with the selfcheck
+      boundary or by making the replacement scanner grammar-aware. Add malformed
+      package/import and duplicate-package fixtures asserting that
+      `ValidateAndResolve` rejects them.
+    source: built-in
+
+ecosystem_reviews: []
