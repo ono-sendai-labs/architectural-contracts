@@ -61,9 +61,10 @@ selfcheck-staging-test:
 # The Bazel wildcard has 16 checked component gates: the twelve internal
 # components capanalyzer, hostpolicy, symbol, stdlibauthority, facts, report,
 # checker, manifest, goanalysis, artifactio, surface, and packagelayout, plus
-# the four CSV components parsecsv, csvfile, toprow, and app. Schema's check is manual for
-# the same expected generated-protobuf failure; the two wrappers are manual
-# asserted surfaces; capslockadapter and cli have no Bazel component gate
+# the four CSV components parsecsv, csvfile, toprow, and app. Schema's check is
+# excluded via `check_tags = ["manual"]` for the same expected generated-protobuf
+# failure; the two wrappers use `authority = UNKNOWN` for asserted surfaces;
+# capslockadapter and cli have no Bazel component gate
 # because their closure contains cgo; and stdlibmap is covered by dedicated
 # map-generation tests rather than a go_component check.
 #
@@ -150,7 +151,7 @@ bazel-test:
 	TEST_SRCDIR="$PWD" TEST_TMPDIR="${TMPDIR:-/tmp}" bazel_rules/go/tests/component_shape_validation_test.sh
 	@# Tool errors must fail the checked analysis action (AC 2): requesting the
 	@# arcc output group of the malformed fixture must fail the build, while the
-	@# wildcard default build above stayed green (the fixture is tagged manual).
+	@# wildcard default build above stayed green (the fixture uses a scheduling-only manual tag).
 	@# The log lands in a per-run mktemp path, so concurrent legs never share a file.
 	out="$(mktemp "${TMPDIR:-/tmp}/broken_go_component.XXXXXX.out")" && { if bazel build --output_groups=+arcc //bazel_rules/go/tests/testdata/malformed:broken_go_component >"$out" 2>&1; then echo "FAIL: expected the malformed component's import-graph or ArccCheck action to fail" >&2; rm -f "$out"; exit 1; fi; grep -Eq "failed to load package facts|package-layout loading failed|Projecting imports for component" "$out"; rc=$?; rm -f "$out"; exit $rc; }
 

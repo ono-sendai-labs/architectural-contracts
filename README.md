@@ -110,7 +110,7 @@ to hand-write and keep in sync, and no `go.mod` or Go toolchain needed at check
 time. Load it, and the authority constants, from one path:
 
 ```python
-load("@rules_arcc//bazel_rules/go:defs.bzl", "go_component", "FILES")
+load("@rules_arcc//bazel_rules/go:defs.bzl", "go_component", "FILES", "DECLARED", "UNKNOWN", "PACKAGE_SURFACE")
 
 go_library(
     name = "csvfile",
@@ -135,6 +135,8 @@ The attributes mirror the manifest schema below:
 - **`component_deps`** — other `go_component` targets this one depends on. Their packages are covered by them, so arcc checks references through their exact declared interfaces (the `app` example stays authority-free this way).
 - **`interface_style`** — omit for the declared style, or pass `PACKAGE_SURFACE` (exported by `defs.bzl`) to wrap a library that has no architectural interface. Under `PACKAGE_SURFACE`, `interface` must be absent and `members` non-empty. Members are always literal target labels; import-path patterns are rejected.
 - **`declared_authority`** — authority constants from `defs.bzl` (`FILES`, `NETWORK`, …). Empty means the component claims to be authority-free.
+- **`authority`** — verification status, `DECLARED` by default. Use explicit `UNKNOWN` only with `interface_style = PACKAGE_SURFACE` and concrete `members` when adopting code whose authority has not been checked; its boundary is rendered `untrusted` and `declared_authority` must be empty. `UNKNOWN` is distinct from `DECLARED` with an empty authority set.
+- **`check_tags`** — scheduling tags for the generated `.check` target only. Generic `tags`, including `manual`, never select authority or producer semantics.
 - **`contract`** — optional contract documents; Bazel-only metadata arcc never reads.
 
 ```python
@@ -148,6 +150,24 @@ go_component(
     declared_authority = [FILES],
 )
 ```
+
+An unowned package-level wrapper is explicit about its verification status:
+
+```python
+go_component(
+    name = "third_party_component",
+    interface_style = PACKAGE_SURFACE,
+    members = ["//vendor/library"],
+    authority = UNKNOWN,
+)
+```
+
+This writes an asserted, package-level surface without an analysis report or
+`.check`; dependents may cross the boundary, but reports retain `ASSERTED` and
+`UNKNOWN` and render it `untrusted`, never certified. The enforced I1 half is
+that every component is checked or explicitly UNKNOWN and visibly untrusted at
+each boundary. Approval of UNKNOWN components remains an external review and
+ownership/governance decision until the deferred Q7 whole-tree predicate exists.
 
 **Why `members` takes concrete labels and there is no wildcard helper.**
 `rules_arcc` deliberately ships no `arcc_subpackages()`-style expander. Bazel's
@@ -200,6 +220,10 @@ and the platform block) have an obvious implementation that is wrong.
 | `csvfile_component` | generates `csvfile_component.component.textproto` + `csvfile_component.package-layout.json`, runs the checked analysis action, and forwards the interface library's Go providers, so it can be used as a `deps` entry |
 | `csvfile_component.check` | a hermetic test that asserts the component's report verdict |
 | `arcc` output group | `bazel build //csvtool/csvfile:csvfile_component --output_groups=+arcc` additionally produces `csvfile_component.report.json` (the check report, verdict included) and `csvfile_component.surface.json` (the canonical surface manifest) |
+
+An `authority = UNKNOWN` component has no `.check`, report, or `ArccCheck`
+action. Its package-level surface is the only artifact in the `arcc` output
+group; the manifest and layout remain ordinary default outputs.
 
 Ordinary builds never run component analysis: the report and surface ride in
 the `arcc` output group, so `bazel build //...` stays analysis-free until a
@@ -746,4 +770,4 @@ This compiles the local `arcc` binary and stages one temporary Go tree in compon
 
 Every analyzed stage is followed by `arcc verdict` against its canonical report, with `pass` as the default expectation. The schema `fail` is named at its staging call; no other component is silently exempted, and no staged component is analyzed again by a later final-check list. The `parsecsv` and `capslockadapter` manifests use the explicit `WARN` policy only to keep their analysis-defeating findings visible as non-fatal `ANALYSIS_LIMITATION` warnings; their stage verdicts still gate the recipe.
 
-The Bazel wildcard has 16 checked component gates: `capanalyzer`, `hostpolicy`, `symbol`, `stdlibauthority`, `facts`, `report`, `checker`, `manifest`, `goanalysis`, `packagelayout`, `artifactio`, `surface`, `parsecsv`, `csvfile`, `toprow`, and `app`. `schema`'s check is manual for its documented generated-protobuf failure; the two wrappers are manual asserted surfaces; `capslockadapter` and `cli` have no component gate because of the cgo closure; and `stdlibmap` is covered by dedicated map-generation tests rather than a `go_component` check. Keeping both legs is deliberate: native FR1 membership and Bazel declared `members` cross-check the membership model. `self_manifest_parity_test` additionally asserts that generated and checked-in manifests agree.
+The Bazel wildcard has 16 checked component gates: `capanalyzer`, `hostpolicy`, `symbol`, `stdlibauthority`, `facts`, `report`, `checker`, `manifest`, `goanalysis`, `packagelayout`, `artifactio`, `surface`, `parsecsv`, `csvfile`, `toprow`, and `app`. `schema`'s check is excluded with a scheduling-only `check_tags = ["manual"]` for its documented generated-protobuf failure; the two wrappers are explicit `authority = UNKNOWN` asserted surfaces; `capslockadapter` and `cli` have no component gate because of the cgo closure; and `stdlibmap` is covered by dedicated map-generation tests rather than a `go_component` check. Keeping both legs is deliberate: native FR1 membership and Bazel declared `members` cross-check the membership model. `self_manifest_parity_test` additionally asserts that generated and checked-in manifests agree.

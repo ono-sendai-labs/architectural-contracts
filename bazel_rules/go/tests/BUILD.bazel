@@ -193,7 +193,8 @@ layout_shape_test_suite(name = "layout_shape_tests")
 # AC 5 (task req 7): an explicitly requested `.check` of an asserted
 # component must fail analysis with a clear no-checked-report diagnostic —
 # never silently pass from the asserted surface. The analysis test asserting
-# the diagnostic lives in asserted_surface_tests.bzl; the `manual` tag keeps
+# the diagnostic lives in asserted_surface_tests.bzl; the scheduling-only
+# `manual` tag keeps
 # this deliberately failing target out of `bazel test //...`.
 arcc_check_test(
     name = "asserted_component_check_rejected_test",
@@ -393,7 +394,8 @@ arcc_check_test(
 # //bazel_rules/go/tests/testdata/api:api_component.check, which runs the
 # stdlib-resolving path end to end (its closure imports "strings"). This is the
 # negative: a component that uses FILES without declaring it must fail its
-# check. The fixture's own auto `.check` is `manual`; this drives it explicitly.
+# check. The fixture's own auto `.check` is scheduling-only `manual`; this
+# drives it explicitly.
 arcc_check_test(
     name = "violation_component_check_fails_test",
     size = "small",

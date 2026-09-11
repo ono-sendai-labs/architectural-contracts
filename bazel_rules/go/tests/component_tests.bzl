@@ -892,9 +892,9 @@ def _sdk_repo_prefix(env, target):
     return root.split("/")[0] + "/"
 
 def _migrated_fixture_stays_checked_test(name):
-    # AC 4 (Step 5 task 05): a fixture whose `manual` tag was only a
-    # check-suppression workaround keeps the checked producer after the
-    # migration to `check_tags` — it must never receive an asserted surface.
+    # A fixture whose `manual` use was only a check-suppression workaround
+    # keeps the checked producer through `check_tags`; it must never receive
+    # an asserted surface.
     analysis_test(
         name = name,
         target = "//bazel_rules/go/tests/testdata/violation:violation_component",

@@ -1,10 +1,9 @@
 load("@rules_arcc//bazel_rules/go:defs.bzl", "PACKAGE_SURFACE", "go_component")
 load("//bazel_rules/go/tests:testing.bzl", "testing_go_component")
 
-# Step 5 task 05 audit: these fixtures are analysis-test material, not
-# unowned components. Each carries `check_tags = ["manual"]` — its generated
-# check stays out of `bazel test //...` while the component itself remains a
-# checked component; none of them is on the asserted path.
+# These fixtures are analysis-test material, not adopted UNKNOWN components.
+# Each carries `check_tags = ["manual"]` — its generated check stays out of
+# `bazel test //...` while the component itself remains checked.
 
 # The interface does not import //member. Its explicit member root must still
 # contribute both itself and its member-only dependency to the closure/layout.

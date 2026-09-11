@@ -11,8 +11,7 @@ go_library(
 # Uses FILES (os.Open) but declares nothing, so the auto-generated
 # `violation_component.check` would fail. `check_tags = ["manual"]` keeps
 # that check out of `bazel test //...` while the component itself stays on
-# the checked path (Step 5 task 05: fixture-only `manual` uses migrate off
-# the asserted branch); //bazel_rules/go/tests drives the negative assertion
+# the checked path; //bazel_rules/go/tests drives the negative assertion
 # explicitly with expect_violation = True.
 go_component(
     name = "violation_component",
