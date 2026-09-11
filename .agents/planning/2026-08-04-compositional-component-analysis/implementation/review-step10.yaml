@@ -1,0 +1,143 @@
+review:
+  project: 2026-08-04-compositional-component-analysis
+  scope: step
+  step: 10
+  plan_path: .agents/planning/2026-08-04-compositional-component-analysis/implementation/plan.md
+  design_path: .agents/planning/2026-08-04-compositional-component-analysis/design/detailed-design.md
+  reviewed_at: 2026-09-11T19:52:00Z
+  schema_version: 1
+  steps_in_scope: [10]
+  commits_in_scope: 4
+  remediation_step: null
+  verdict: clean
+
+summary: |
+  Step 10 aligns with R12 and the plan: the pure checker now reports each
+  declared but unexercised capability as a deterministic, non-failing
+  UNUSED_AUTHORITY warning derived from the existing typed reference/import
+  results. The implementation preserves the established authority-policy,
+  AnalysisDefeating, artifact, and core/shell boundaries, and the audited
+  production manifests remain synchronized with their Bazel declarations.
+  The single task spans four implementation commits and its final task review
+  approved every acceptance criterion with no findings outstanding. Selective
+  current-state validation passed the focused checker test, report-shape and
+  manifest-parity tests, and the complete native production self-check; no
+  architectural drift, documentation divergence, cross-cutting issue, or
+  unresolved review residue warrants remediation.
+
+architecture:
+  - element: UNUSED_AUTHORITY report vocabulary and warning semantics
+    expected: |
+      The report model exposes persisted kind UNUSED_AUTHORITY as a warning.
+      A report containing only unused-authority findings remains conforming,
+      and text and canonical JSON use the existing warning representation.
+    actual: |
+      report.UnusedAuthority has the exact persisted spelling, participates in
+      the ordinary warning collection and renderer, and leaves VerdictOf at
+      pass because verdict derivation continues to depend only on violations.
+    status: aligned
+    files:
+      - go/internal/report/report.go
+      - go/internal/report/report_test.go
+      - go/internal/artifactio/report_test.go
+    notes: |
+      The addition reuses the established finding model without adding a
+      protobuf field or a second serialization path.
+
+  - element: Exercised-authority comparison in the pure checker
+    expected: |
+      checker.Check diffs DeclaredAuthority against capabilities exercised by
+      the scan. Exercise comes from aggregated TrueAuthority observations,
+      including symbol references and package initialization, and the
+      comparison occurs before policy application.
+    actual: |
+      Check calls AggregateAuthority once, derives the exercised set from its
+      non-empty TrueAuthority capabilities, and appends one warning for every
+      declaration absent from that set before ApplyAuthorityPolicy runs.
+      Repeated observations and duplicate direct-call declarations collapse
+      deterministically.
+    status: aligned
+    files:
+      - go/internal/checker/checker.go
+      - go/internal/checker/aggregate.go
+      - go/internal/checker/unused_authority_test.go
+    notes: |
+      The implementation consumes the Step 6 reference/import classification
+      and DR-17 aggregation established by earlier steps; it introduces no
+      secondary scan or shell input.
+
+  - element: AnalysisDefeating and policy independence invariant
+    expected: |
+      AnalysisDefeating observations do not count as exercise of a named
+      capability and therefore cannot mask stale declarations. Their existing
+      strict or explicitly downgraded policy result remains visible alongside
+      UNUSED_AUTHORITY, while true authority counts as exercised regardless of
+      whether policy allows, warns on, or rejects it.
+    actual: |
+      The exercised-set helper admits only TrueAuthority findings with a
+      non-empty capability. Policy is applied afterward to the unchanged
+      aggregate, and focused strict, warn, allow, and AnalysisDefeating tests
+      cover the resulting combinations.
+    status: aligned
+    files:
+      - go/internal/checker/checker.go
+      - go/internal/checker/unused_authority_test.go
+    notes: |
+      This preserves the Step 7 policy carrier and fail-closed treatment of
+      unanalyzed stdlib symbols and member bypasses.
+
+  - element: Deterministic warning shape and integration seams
+    expected: |
+      Warnings are location-free, carry no invented site or evidence, sort via
+      the checker's existing deterministic order, survive canonical artifact
+      round trips, and coexist with dependency and policy warnings.
+    actual: |
+      Each warning contains only kind and message. The helper sorts and
+      compacts unused capability names before the existing report-wide warning
+      sort, and tests cover repeated runs, canonical bytes, rendering,
+      persistence, warning coexistence, and the Step 9 report-shape path.
+    status: aligned
+    files:
+      - go/internal/checker/checker.go
+      - go/internal/checker/unused_authority_test.go
+      - go/internal/artifactio/report_test.go
+      - bazel_rules/go/tests/goldens/api_component.report.shape.golden.json
+      - go/internal/checker/BUILD.bazel
+    notes: |
+      The final task rework registers the focused suite in Bazel and supplies
+      its artifactio test dependency, resolving the only earlier review issue.
+
+  - element: Production component authority audit and architectural boundaries
+    expected: |
+      Checked go/cmd and go/internal manifests retain only authority supported
+      by production scan evidence, matching their Bazel declarations. UNKNOWN
+      package-surface wrappers stay unchanged, and checker remains a pure core
+      package with no new ambient authority or outward dependency.
+    actual: |
+      The audited CLI and internal manifests remove unused declarations and
+      remain in manifest-parity with Bazel. The protobuf-runtime and x-tools
+      wrappers retain authority UNKNOWN, checker adds no dependency, filesystem
+      access, logging, or external package, and the staged native self-check
+      completes with the expected verdicts.
+    status: aligned
+    files:
+      - go/cmd/arcc/component.textproto
+      - go/internal/artifactio/component.textproto
+      - go/internal/capslockadapter/component.textproto
+      - go/internal/goanalysis/component.textproto
+      - go/internal/manifest/component.textproto
+      - go/internal/packagelayout/component.textproto
+      - go/internal/stdlibmap/component.textproto
+      - go/internal/protobufruntime/component.textproto
+      - go/internal/xtools/component.textproto
+    notes: |
+      The manifest changes are a tightening of the component contracts, not a
+      new ownership edge or exception to the design's compositional model.
+
+doc_code_alignment: []
+
+findings: []
+
+remediation_tasks: []
+
+ecosystem_reviews: []
