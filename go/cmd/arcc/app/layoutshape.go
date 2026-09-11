@@ -381,6 +381,7 @@ func shapeLayoutPaths(values []string, placeholder string) ([]string, error) {
 			return nil, fmt.Errorf("file %d: %w", i, err)
 		}
 	}
+	slices.Sort(shaped)
 	return shaped, nil
 }
 

@@ -79,6 +79,36 @@ func TestLayoutShapeSnapshotCanonicalizesImportPaths(t *testing.T) {
 	}
 }
 
+func TestLayoutShapeSnapshotIsDeterministicAcrossRepeatedUpdates(t *testing.T) {
+	first := layoutShapeFixture("example.com")
+	second := layoutShapeFixture("example.com")
+	first.Packages[1].GoFiles = append(first.Packages[1].GoFiles, "_main/dep/dep_extra.go")
+	first.Packages[1].CompiledGoFiles = append(first.Packages[1].CompiledGoFiles, "_main/dep/dep_extra.go")
+	second.Packages[1].GoFiles = append(second.Packages[1].GoFiles, "_main/dep/dep_extra.go")
+	second.Packages[1].CompiledGoFiles = append(second.Packages[1].CompiledGoFiles, "_main/dep/dep_extra.go")
+	second.Packages[0], second.Packages[1] = second.Packages[1], second.Packages[0]
+	second.Packages[0].GoFiles[0], second.Packages[0].GoFiles[1] = second.Packages[0].GoFiles[1], second.Packages[0].GoFiles[0]
+	second.Packages[0].CompiledGoFiles[0], second.Packages[0].CompiledGoFiles[1] = second.Packages[0].CompiledGoFiles[1], second.Packages[0].CompiledGoFiles[0]
+	second.StdlibExportData.ExportRoots[0], second.StdlibExportData.ExportRoots[1] =
+		second.StdlibExportData.ExportRoots[1], second.StdlibExportData.ExportRoots[0]
+
+	firstSnapshot, err := snapshotLayoutShape(marshalCanonicalLayoutShapeFixture(t, first))
+	if err != nil {
+		t.Fatalf("snapshot first layout: %v", err)
+	}
+	secondSnapshot, err := snapshotLayoutShape(marshalCanonicalLayoutShapeFixture(t, second))
+	if err != nil {
+		t.Fatalf("snapshot reordered layout: %v", err)
+	}
+	repeatedSnapshot, err := snapshotLayoutShape(marshalCanonicalLayoutShapeFixture(t, first))
+	if err != nil {
+		t.Fatalf("snapshot repeated layout: %v", err)
+	}
+	if !bytes.Equal(firstSnapshot, secondSnapshot) || !bytes.Equal(firstSnapshot, repeatedSnapshot) {
+		t.Fatalf("logical reorder or repeated shape update changed bytes:\nfirst:\n%s\nreordered:\n%s\nrepeated:\n%s", firstSnapshot, secondSnapshot, repeatedSnapshot)
+	}
+}
+
 func TestLayoutShapeSnapshotRejectsInvalidInputBeforeNormalization(t *testing.T) {
 	base := layoutShapeFixture("example.com")
 	canonical := marshalCanonicalLayoutShapeFixture(t, base)
@@ -90,6 +120,7 @@ func TestLayoutShapeSnapshotRejectsInvalidInputBeforeNormalization(t *testing.T)
 		want   string
 	}{
 		{name: "non-canonical bytes", data: append(canonical, ' '), want: "not canonical"},
+		{name: "oversized bytes", data: bytes.Repeat([]byte{'x'}, int(maxLayoutShapeBytes)+1), want: "byte limit"},
 		{name: "absolute sdk root", layout: func() *packagelayout.Layout {
 			copy := layoutShapeFixture("example.com")
 			copy.GoSDKRoot = "/sdk/src"
