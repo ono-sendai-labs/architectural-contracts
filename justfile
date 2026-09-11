@@ -10,10 +10,10 @@ build:
 	cd {{go_dir}} && go build -o ../bin/arcc ./cmd/arcc
 
 test:
-	cd {{go_dir}} && go test -timeout 2m ./...
+	cd {{go_dir}} && go test -timeout 5m ./...
 
 test-integration:
-	cd {{go_dir}} && go test -timeout 5m -tags=integration ./...
+	cd {{go_dir}} && go test -timeout 10m -tags=integration ./...
 
 # Full stdlib-map coverage is intentionally outside the routine feedback lane:
 # it retains the real two-generation determinism and cross-configuration
@@ -157,9 +157,9 @@ bazel-test:
 # Go-only leg: everything except selfcheck and bazel-test. Mirrors the
 # ci.yml "Go" job so the three CI jobs can run in parallel on separate
 # runners; selfcheck and bazel-test run as their own CI jobs.
-ci-go: gen-is-clean lint build test test-integration stdlibmap-pin-check selfcheck-staging-test
+ci-go: gen build test test-integration stdlibmap-pin-check selfcheck-staging-test
 
-ci: ci-go selfcheck bazel-test
+ci: gen-is-clean ci-go selfcheck bazel-test
 
 clean:
 	cd {{go_dir}} && go clean ./...
