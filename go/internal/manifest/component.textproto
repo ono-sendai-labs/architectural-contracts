@@ -10,8 +10,3 @@ component_dependencies {
   manifest: "../protobufruntime/component.textproto"
 }
 members: "github.com/ono-sendai-labs/architectural-contracts/go/internal/manifest"
-declared_authority: "READ_SYSTEM_STATE"
-declared_authority: "REFLECT"
-declared_authority: "RUNTIME"
-declared_authority: "SYSTEM_CALLS"
-declared_authority: "UNSAFE_POINTER"

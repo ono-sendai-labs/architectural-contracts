@@ -76,11 +76,7 @@ go_component(
     ],
     declared_authority = [
         "FILES",
-        "MODIFY_SYSTEM_STATE",
-        "READ_SYSTEM_STATE",
         "REFLECT",
-        "RUNTIME",
-        "SYSTEM_CALLS",
         "UNSAFE_POINTER",
     ],
     members = ["//go/internal/artifactio"],

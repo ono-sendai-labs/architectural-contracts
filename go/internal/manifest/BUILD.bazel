@@ -1,10 +1,5 @@
 load(
     "@rules_arcc//bazel_rules/go:defs.bzl",
-    "READ_SYSTEM_STATE",
-    "REFLECT",
-    "RUNTIME",
-    "SYSTEM_CALLS",
-    "UNSAFE_POINTER",
     "go_component",
 )
 load("@rules_go//go:def.bzl", "go_library", "go_test")
@@ -64,13 +59,6 @@ go_component(
         "//go/internal/schema:schema_component",
     ],
     members = [],
-    declared_authority = [
-        READ_SYSTEM_STATE,
-        REFLECT,
-        RUNTIME,
-        SYSTEM_CALLS,
-        UNSAFE_POINTER,
-    ],
     interface = ":manifest",
     visibility = ["//go:__subpackages__"],
 )

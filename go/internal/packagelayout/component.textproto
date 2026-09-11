@@ -9,7 +9,6 @@ component_dependencies {
   manifest: "../xtools/component.textproto"
 }
 declared_authority: "FILES"
-declared_authority: "EXEC"
 declared_authority: "READ_SYSTEM_STATE"
 declared_authority: "OPERATING_SYSTEM"
 declared_authority: "MODIFY_SYSTEM_STATE"

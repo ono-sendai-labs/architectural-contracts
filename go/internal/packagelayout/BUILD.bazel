@@ -34,7 +34,6 @@ go_component(
     component_deps = ["//go/internal/xtools:x-tools"],
     declared_authority = [
         "FILES",
-        "EXEC",
         "READ_SYSTEM_STATE",
         "OPERATING_SYSTEM",
         "MODIFY_SYSTEM_STATE",

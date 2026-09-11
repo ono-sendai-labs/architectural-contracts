@@ -1,14 +1,8 @@
 load(
     "@rules_arcc//bazel_rules/go:defs.bzl",
-    "ARBITRARY_EXECUTION",
-    "EXEC",
     "FILES",
-    "MODIFY_SYSTEM_STATE",
-    "OPERATING_SYSTEM",
     "READ_SYSTEM_STATE",
-    "REFLECT",
     "RUNTIME",
-    "UNSAFE_POINTER",
     "go_component",
 )
 load("@rules_go//go:def.bzl", "go_library")
@@ -43,7 +37,8 @@ go_library(
 # facts/manifest/symbol contracts plus the artifactio, schema,
 # stdlibauthority, surface, x-tools, report, hostpolicy, and packagelayout
 # component boundaries; retains local member ownership only of goanalysis;
-# declares 9 authorities. The foreign x/tools implementation and the in-tree
+# declares the three capabilities exercised by its member code. The foreign
+# x/tools implementation and the in-tree
 # package-layout loader are explicit package-surface boundaries rather than
 # duplicated member source, so this component's own analysis does not charge
 # either dependency's internals to it.
@@ -63,15 +58,9 @@ go_component(
         "//go/internal/packagelayout:packagelayout_component",
     ],
     declared_authority = [
-        ARBITRARY_EXECUTION,
         FILES,
-        EXEC,
         READ_SYSTEM_STATE,
-        OPERATING_SYSTEM,
-        REFLECT,
         RUNTIME,
-        UNSAFE_POINTER,
-        MODIFY_SYSTEM_STATE,
     ],
     interface = ":goanalysis",
     visibility = ["//go:__subpackages__"],
