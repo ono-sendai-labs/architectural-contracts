@@ -1,0 +1,134 @@
+result:
+  task_file: .agents/tasks/2026-08-04-compositional-component-analysis/step11/task-01-select-asserted-components-by-unknown-authority.code-task.md
+  change_id: lrwyosnylqpokkltwvwqrlwvnvvxytvq
+  status: completed
+  schema_version: 2
+  produced_at: 2026-09-11T21:48:31Z
+
+acceptance_criteria:
+  - text: |
+      **Explicit authority selects exactly one producer path**
+      - Given otherwise equivalent components with omitted/default `DECLARED`, explicit `DECLARED`, and explicit `UNKNOWN` authority
+      - When Bazel analyzes them
+      - Then both declared components produce one checked report/surface pair through `ArccCheck`, while the unknown component produces only one asserted surface and has no analysis report or check action.
+    addressed: yes
+    evidence: >-
+      `bazel_rules/go/defs.bzl:194-199` selects the generated check from the
+      authority attribute, while `bazel_rules/go/private/component.bzl:900-917`
+      gates stdlib/export and ordinary-import producers and
+      `:1012-1040` emits the asserted path. The asserted and manual-tagged
+      DECLARED topology tests pass in
+      `bazel_rules/go/tests/asserted_surface_tests.bzl:35-51,97-118`.
+  - text: |
+      **Unknown authority is persisted without becoming empty authority**
+      - Given a valid `UNKNOWN` package-surface component
+      - When its generated manifest and asserted surface are decoded and round-tripped
+      - Then both carry structural `UNKNOWN`, carry no declared capabilities, and never normalize to `DECLARED{}`.
+    addressed: yes
+    evidence: >-
+      `bazel_rules/go/private/component.bzl:99-104` emits manifest
+      `authority: UNKNOWN`, and `:480-540` writes the package-level UNKNOWN
+      surface. `bazel_rules/go/tests/asserted_surface_tests.bzl:128-160` checks
+      UNKNOWN, concrete packages, metadata, absent symbols, and absent digest;
+      the existing Go lattice/round-trip tests remain green.
+  - text: |
+      **Contradictory or unsupported declarations fail closed**
+      - Given an unknown component with `declared_authority`, an unknown declared-interface component, or a component with an unsupported authority value
+      - When macro or direct-rule analysis runs
+      - Then it fails with an actionable diagnostic naming the component and violated authority/package-surface rule, without producing a partial checked or asserted artifact.
+    addressed: yes
+    evidence: >-
+      Public validation is in `bazel_rules/go/defs.bzl:114-140`; direct-rule
+      validation is in `bazel_rules/go/private/component.bzl:777-797`. The
+      public and direct invalid cases are exercised by
+      `bazel_rules/go/tests/component_shape_validation_test.sh:76-149` and
+      `bazel_rules/go/tests/asserted_surface_tests.bzl:18-33`.
+  - text: |
+      **Generic manual tags no longer carry trust semantics**
+      - Given a `DECLARED` component whose ordinary tags contain `manual`
+      - When its provider, generated manifest, actions, and generated targets are inspected
+      - Then it remains declared and checked, has a report and `.check`, and is never given asserted provenance solely because of the tag.
+    addressed: yes
+    evidence: >-
+      `bazel_rules/go/defs.bzl:194-199` and
+      `bazel_rules/go/tests/testing.bzl:108-123` use only the authority
+      selector; generic tags are forwarded for scheduling. The regression
+      `manual_tagged_declared_stays_checked_test` verifies checked provenance,
+      report/surface outputs, one ArccCheck, and no synthesized UNKNOWN.
+  - text: |
+      **Asserted output remains package-level and deterministic**
+      - Given the same valid unknown wrapper under repeated analysis with reordered member declarations
+      - When its surface bytes and provider are inspected
+      - Then packages are sorted and duplicate-free; symbols and digest are absent/empty; namespace, SDK key, format, and producer version are complete; provenance is `asserted`; and bytes are identical.
+    addressed: yes
+    evidence: >-
+      `bazel_rules/go/private/component.bzl:480-540` builds the canonical
+      sorted package-level writer with complete SDK/namespace/format/producer
+      metadata and no symbols/digest. The package-level and output-shape tests
+      in `bazel_rules/go/tests/asserted_surface_tests.bzl:75-208` and the
+      existing asserted-surface golden pass.
+  - text: |
+      **Unknown boundaries are visibly untrusted and never certified**
+      - Given a checked component depending on an `UNKNOWN` package-surface wrapper
+      - When the dependent report is rendered and decoded
+      - Then the dependency edge is accepted, text includes `untrusted`, JSON contains `authority: UNKNOWN` with structural `ASSERTED` provenance, and neither representation calls the boundary certified or declared.
+    addressed: yes
+    evidence: >-
+      `bazel_rules/go/tests/testdata/reportboundary/consumer/BUILD.bazel:33-46`
+      adds the dependent report assertion, whose persisted status is also
+      pinned at `bazel_rules/go/tests/goldens/reportboundary_consumer.report.shape.golden.json:5-20`
+      as ASSERTED/UNKNOWN without certified/declared status. Text rendering is
+      covered by `go/internal/report/report_test.go:238-247`, including
+      untrusted and absence of certified.
+  - text: |
+      **Repository wrappers and test tags are correctly migrated**
+      - Given the protobuf-runtime and x/tools wrappers plus all remaining repository uses of `manual`
+      - When manifests, providers, action graphs, and fixture comments are audited
+      - Then the wrappers select assertion through explicit `UNKNOWN`; every other manual tag is scheduling-only; and no package-name string match or generic-tag inspection controls verification status.
+    addressed: yes
+    evidence: >-
+      `go/internal/protobufruntime/BUILD.bazel:1-42` and
+      `go/internal/xtools/BUILD.bazel:1-42` select `authority = UNKNOWN`, and
+      the report-boundary fixture does the same at
+      `bazel_rules/go/tests/testdata/reportboundary/manual/BUILD.bazel:16-21`.
+      The production selector audit is recorded in `work.log:397-429`; the
+      remaining manual tags are scheduling/check tags only.
+  - text: |
+      **I1 enforcement and governance are documented accurately**
+      - Given the public authoring documentation
+      - When a maintainer reads how to adopt unowned code
+      - Then it teaches `PACKAGE_SURFACE` plus explicit `authority = UNKNOWN`, explains the visible `untrusted` result, distinguishes `UNKNOWN` from empty declared authority, and states that approval remains external governance with the Q7 predicate deferred.
+    addressed: yes
+    evidence: >-
+      `README.md:131-170,216-226,614-624` documents DECLARED versus UNKNOWN,
+      PACKAGE_SURFACE, visible untrusted status, and external governance with
+      Q7 deferred. `bazel_rules/go/defs.bzl:307-316` documents the same public
+      rule contract, and `justfile:61-68` updates the self-check inventory.
+  - text: |
+      **Integration remains green and the release constraint lifts**
+      - Given all repository components after the selector cutover
+      - When `just ci`, self-check, manifest parity, Bazel analysis tests, and report artifact tests run
+      - Then they pass with every component either checked or explicitly unknown/untrusted, and no transitional manual-based authority path remains.
+    addressed: yes
+    evidence: >-
+      The post-commit `just ci` gate passes Go build/tests, integration tests,
+      pinned map validation, selfcheck, Bazel build/test, parity, and shape
+      checks; evidence is in `work.log:444-716`. Final `jj status` is clean with
+      an empty @ and the produced change at @- is recorded in `work.log:718-725`.
+
+artifacts:
+  scratchpad_dir: .agents/scratchpad/2026-08-04-compositional-component-analysis/step11/task-01-select-asserted-components-by-unknown-authority/
+  files:
+    - context.md
+    - plan.md
+    - progress.md
+    - work.log
+    - result.yaml
+
+notes: |
+  Implemented explicit DECLARED/UNKNOWN authority selection with fail-closed
+  public and private validation, migrated genuine asserted wrappers, and kept
+  generic manual tags scheduling-only. Added topology, invalid-input, boundary
+  status, and migration coverage; all repository gates pass. The ordered task
+  changes leave an empty working copy, with the final produced change recorded
+  as lrwyosnylqpokkltwvwqrlwvnvvxytvq.
