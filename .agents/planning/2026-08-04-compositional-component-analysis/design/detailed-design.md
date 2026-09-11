@@ -4,7 +4,8 @@
 (hermetic map generation through the layout driver; cgo scoping — see I5); 2026-09-08
 (asserted surfaces are package-level — see I6); 2026-09-09 (bounded routine stdlib-map
 generation and CI feedback time — see N5); 2026-09-10 (Step 7 residual
-AnalysisDefeating policy carrier)
+AnalysisDefeating policy carrier); 2026-09-11 (accepted auxiliary ordinary-import
+projection; see §Build topology and the Step 8 Task 04 repair)
 **Status:** design complete; implementation series in progress.
 **Baseline:** `dev-exp-go-bazel-mvp` @ `5011b726` (code unchanged through `cca66212`)
 **Inputs:** [`../rough-idea.md`](../rough-idea.md), [`../idea-honing.md`](../idea-honing.md),
@@ -40,13 +41,24 @@ graph. This design replaces the whole-program analysis with three pieces:
 3. a **surface manifest** published for each component by an ordinary build action and
    consumed by its dependents in place of their source.
 
-The result is faster, but the reason to do it is that component checks become
-**independent, cacheable, and composable**: a check parses, type-checks and scans only
-its own sources, and everything else it needs is a declared, cached artifact. What is
-eliminated is all *work* over the closure — parsing, type-checking, SSA, VTA, Capslock.
-What remains proportional to the closure is a set of already-built compiler export files
-that the type checker reads (see *Type loading*); this is a measured, capped cost rather
-than a claim of zero dependence.
+The result is faster, but the reason to do it is that the component-analysis action
+becomes **independent, cacheable, and composable**: `ArccCheck` parses, type-checks and
+performs the typed reference scan only over member sources, and everything else it needs
+is a declared, cached artifact. That action boundary does not mean that the complete
+Bazel producer chain reads no non-member source. Because pinned rules_go's `GoArchive.direct`
+provider does not expose the exact ordinary import graph (including implicit standard-
+library edges), each checked component currently has a hermetic `ArccImportGraph`
+producer that lexically scans target-selected ordinary non-member Go source and emits a
+cached descriptor; `ArccLayout` merges it before `ArccCheck` runs.
+
+Across that per-component check chain, full package parsing/type-checking, typed
+reference scanning, SSA, VTA, and Capslock over non-members are eliminated. The import
+projection performs only the limited lexical work needed to recover direct imports.
+Residual closure-shaped cost therefore has two measured parts: already-built compiler
+export files read by `ArccCheck` and ordinary source input/scan work in the cached
+`ArccImportGraph` action (see *Type loading*); neither part is a semantic analysis of
+dependency source. The separately generated standard-library authority map remains a
+distinct producer with its own documented source-backed generation path.
 
 Two further changes fall out. `absorbed_dependencies` (and the pattern-membership
 wildcard) are removed, their role taken by ordinary components under a stated
@@ -125,16 +137,27 @@ response; Q-numbers cite the decision record, DR-numbers the review.
 
 ### Non-functional
 
-- **N1.** A check MUST parse, type-check and scan only member source. It MUST NOT parse
-  or type-check dependency or stdlib source, and MUST NOT build SSA, a call graph, or
-  run Capslock. Dependency and stdlib type information MAY be consumed from compiled
-  export data. The number and total size of non-member action inputs MUST be measured
-  and recorded; the scaling benchmark in *Testing Strategy* is the acceptance test.
-  (DR-02)
-- **N2.** In Bazel, a check MUST be a single ordinary action whose declared inputs are:
-  member sources, the component manifest and layout, export data for the member
-  packages' transitive import closure, the direct dependencies' surfaces and reports,
-  and the stdlib map for the target SDK key. Nothing else. (DR-01, DR-02)
+- **N1.** The `ArccCheck` component-analysis action MUST parse, type-check and perform
+  the typed reference scan only on member source. Across the per-component Bazel check
+  chain, full package parsing/type-checking, typed reference scanning, SSA, VTA, and
+  Capslock over non-members MUST be eliminated. Dependency and stdlib type information
+  MAY be consumed from compiled export data. The one source-reading exception is the
+  hermetic `ArccImportGraph` metadata action: because pinned rules_go does not expose the
+  exact ordinary import graph, it MAY perform a limited lexical scan of target-selected
+  ordinary non-member Go source to emit the declared descriptor, but it MUST NOT
+  type-check or pass that source to `ArccCheck`. The number and total size of non-member
+  inputs MUST be measured separately for export artifacts and this projection, together
+  with their elapsed contributions; the scaling benchmark in *Testing Strategy* is the
+  acceptance test. (DR-02)
+- **N2.** In Bazel, the `ArccCheck` component-analysis action MUST be a single ordinary
+  action whose declared inputs are exactly: member sources, the component manifest and
+  final layout, export data for the complete transitive import closure, the direct
+  dependencies' surfaces and reports, and the stdlib map for the target SDK key. Nothing
+  else. In particular, ordinary non-member source MUST NOT be an `ArccCheck` input,
+  including through provider runfiles. This allowlist applies to `ArccCheck`, not to
+  the preceding producer chain: `ArccImportGraph` may receive the declared ordinary
+  non-member source needed for its lexical projection, while `ArccLayout` receives only
+  the base layout and that descriptor. (DR-01, DR-02)
 - **N3.** The check MUST fail closed when the stdlib map for the target SDK key is
   unavailable or mismatched. (Q13)
 - **N4.** All existing determinism guarantees (sorted findings, stable symbol keys) MUST
@@ -220,8 +243,9 @@ flowchart LR
         B4 --> B5
         B5 --> B6[checker.Check]
     end
-    subgraph After["Proposed — work scales with the component"]
-        A1[manifest + layout] --> A2["parse + type-check<br/>member packages only"]
+    subgraph After["Proposed — component analysis plus cached producer chain"]
+        A0[member sources] --> A2["ArccCheck:<br/>parse + type-check<br/>member packages only"]
+        A1[manifest + final layout] --> A2
         A9[(export data:<br/>closure, already built)] --> A2
         A2 --> A3[reference scan]
         A4[(stdlib authority map)] --> A3
@@ -229,6 +253,10 @@ flowchart LR
         A3 --> A6[checker.Check]
         A6 --> A7[(report)]
         A6 --> A8[(own surface)]
+        A10[(ordinary non-member<br/>source closure)] --> A11["ArccImportGraph:<br/>lexical import projection"]
+        A12[(base package layout)] --> A13["ArccLayout:<br/>merge import descriptor"]
+        A11 --> A13
+        A13 --> A1
     end
 ```
 
@@ -241,10 +269,14 @@ assertion (DR-01):
 ```mermaid
 flowchart LR
     SRC[member sources] --> AN[analysis action<br/><i>arcc check --report-out --surface-out</i>]
-    MAN[manifest + layout] --> AN
+    MAN[manifest + final layout] --> AN
     EXP[export data<br/>closure] --> AN
     MAP[(stdlib map)] --> AN
     DS[direct dep surfaces + reports<br/>via ArccComponentInfo] --> AN
+    NSRC[ordinary non-member<br/>source closure] --> IG["ArccImportGraph<br/>lexical import projection"]
+    BASE[base package layout] --> IL["ArccLayout<br/>merge import descriptor"]
+    IG --> IL
+    IL --> MAN
     AN --> REP[(name.report.json)]
     AN --> SUR[(name.surface.json)]
     REP --> PROV[ArccComponentInfo<br/>surface, report, provenance]
@@ -258,10 +290,16 @@ flowchart LR
 - **One analysis action per component; auxiliary input-producing actions are not
   "a second action".** The topology invariant is that a component's code is checked by
   exactly one `arcc check` action, and that negative and golden tests need no second
-  one. Actions that only compute a *declared input* to it — `arcc_stdlib_map`, and any
-  metadata projection the pinned ruleset's providers cannot supply directly — are
-  permitted, subject to I5. Such a projection action may read non-member source; the
-  analysis action itself may not (N2). (Step 8 task 04 escalation, 2026-09-11.)
+  one. Actions that only compute a *declared input* to it — `arcc_stdlib_map`,
+  `ArccImportGraph`, and the `ArccLayout` metadata merge — are permitted, subject to
+  I5. In the current pinned rules_go integration, `ArccImportGraph` is one hermetic,
+  cacheable action per checked component: it reads a declared request and
+  target-selected ordinary non-member source, performs the limited lexical projection
+  that `GoArchive.direct` cannot provide, and emits the ordinary-import descriptor;
+  `ArccLayout` applies that descriptor to the base layout. These producer actions are
+  part of the component's build chain, but they do not pass ordinary non-member source
+  to `ArccCheck`. The analysis action itself may not receive that source (N2).
+  (Step 8 task 04 escalation, 2026-09-11.)
 - **The analysis action always exits 0 when analysis ran.** Violations are recorded as
   the report's verdict; tool errors (exit 2 today) still fail the action. This keeps
   `bazel build` semantics unchanged, needs no second action for negative and golden
@@ -303,10 +341,16 @@ proved the mechanism and its cost model:
   bad layout is a tool error rather than a crash.
 - In Bazel, export data for dependencies comes from rules_go's `GoArchive.data.export_file`
   collected by the aspect, and for the stdlib from the toolchain's compiled stdlib
-  (`GoStdLib`); both are ordinary cached compile outputs, so the *work* eliminated is
-  parsing/type-checking/SSA over the closure while the *inputs* still enumerate it.
-  Natively, `go list -export` supplies build-cache archives; the `.a`-with-`__.PKGDEF`
-  format is accepted verbatim.
+  (`GoStdLib`); both are ordinary cached compile outputs. The `ArccCheck` action and
+  its per-component producer chain eliminate full package parsing/type-checking, typed reference
+  scanning, SSA, VTA, and Capslock over the non-member closure while the inputs still
+  enumerate it. The separate `ArccImportGraph` action reads the target-selected
+  ordinary non-member source closure only for a limited lexical import projection;
+  its source input volume and scan time remain closure-shaped and are cached alongside
+  the descriptor. Thus the residual closure cost is export-data reading plus this
+  declared source projection, not dependency semantic analysis. Natively,
+  `go list -export` supplies build-cache archives; the `.a`-with-`__.PKGDEF` format is
+  accepted verbatim.
 - Version skew: `gcexportdata` reads the last two Go releases plus tip. The SDK key
   (below) pins the toolchain; a mismatch between the export data's producer and the
   `x/tools` compiled into `arcc` is a tool error surfaced at load.
@@ -367,11 +411,24 @@ flowchart BT
     EXP[(export data)] --> CA
     EXP --> CB
     EXP --> CC
+    SRC[(target-selected ordinary<br/>non-member source per component)] --> IP["ArccImportGraph<br/>cached lexical projection per component"]
+    IP --> IL["ArccLayout<br/>cached descriptor merge per component"]
+    IL --> CA
+    IL --> CB
+    IL --> CC
 ```
 
-Each analysis is a leaf action depending on its own sources, the map, export data, and
-its direct dependencies' surfaces and reports. Nothing re-reads, parses or type-checks a
-dependency's source.
+Each `ArccCheck` is a leaf component-analysis action depending on its own member
+sources, the map, export data, final layout, and its direct dependencies' surfaces and
+reports. The complete Bazel chain also includes one cached `ArccImportGraph` projection
+and one `ArccLayout` merge for each checked component. Because the pinned rules_go
+provider does not expose the exact ordinary graph, `ArccImportGraph` reads the
+target-selected ordinary non-member source closure and lexically projects its direct
+imports; `ArccLayout` applies the descriptor. No action type-checks or performs the
+typed reference scan, SSA, VTA, or Capslock over dependency source, and no dependency
+source is passed to or read by `ArccCheck`. The source projection's input volume and
+elapsed time are nevertheless residual closure-shaped costs and belong in the scaling
+measurement.
 
 ---
 
@@ -817,7 +874,7 @@ site and the site count; JSON carries all sites, the map's evidence frames for
 | Map key | Two target configurations under one host, including a cross-compile, select distinct maps; cgo/tag changes change the key; a cgo-enabled target configuration fails `arcc_stdlib_map` analysis with an error naming the target | 4 |
 | Freshness | Bazel is `BUILD_GRAPH`; native is `VERIFIED`/`STALE` when readable and `UNKNOWN` when not, without parsing | 7 |
 | Analysis defeating | linkname/asm/cgo fixture is a violation by default and a warning only with policy | 6 |
-| Performance | Fixed member source with dependency depth 1, 4, 16: no dependency parse/type-check/SSA; export-data input count and load time recorded | 13 |
+| Performance | Fixed member source with dependency depth 1, 4, 16: no dependency full package parse/type-check/typed reference scan/SSA/VTA/Capslock; record export artifact count/bytes and `ArccCheck` loader time plus the whole producer chain's `ArccImportGraph` action count, ordinary non-member source input count/bytes, and import-projection/`ArccLayout` elapsed contribution | 13 |
 | CI feedback time | On pinned Linux/amd64, warm-Bazel-cache `just ci` completes within five minutes; a cold routine run performs zero native and at most one Bazel whole-SDK map generation | 6 |
 | Hermeticity | Bazel checks and map generation pass in a clean sandbox with no native cache and no `go` binary; the map action's inputs contain no toolchain binary or build cache (I5) | 4, 13 |
 | Determinism | Maps, surfaces, reports byte-identical for identical inputs; corrupt and concurrent cache writes recover | 3, 4 |
@@ -853,7 +910,7 @@ integration test of record and MUST stay green throughout.
 | `absorbed_dependencies` and its checks | `checker.go:100-112,189-205`, `facts.go:49-58`, proto field 4 |
 | `own_check_runs`, `certification_reference` | proto fields 8, 9; `facts.go:107-114`; `defs.bzl:124`; `report.go:135-144` |
 | `NeedDeps` in the load mode | `goanalysis.go:104-109`, `1441-1446`, `1460-1465` |
-| Closure sources in component runfiles | `component.bzl:385-409` |
+| Closure sources in the `ArccCheck` action's runfiles | `component.bzl:385-409` |
 
 ### What is preserved
 
@@ -935,9 +992,14 @@ Detailed step ordering lives in [`../implementation/plan.md`](../implementation/
 **Export data rather than source for dependencies, with the full closure.** Spike-verified:
 dropping `NeedDeps` and supplying `ExportFile` makes dependency syntax unnecessary, but
 `go/packages` v0.48 needs export data for every reachable package and a complete import
-graph. The design accepts this: those files are cached compile outputs, and what is
-removed is all work over them. A future `x/tools` may relax the requirement
-(`packages.go:1084` TODO); the layout validation isolates us from either outcome.
+graph. The design accepts this: those files are cached compile outputs, and full package
+parsing/type-checking and semantic analysis over them are removed from `ArccCheck`.
+The current Bazel producer chain still performs a limited, cached lexical import
+projection over target-selected ordinary non-member source because pinned rules_go does
+not expose the exact graph; its action inputs and elapsed time are residual closure
+costs and are covered by the Step 13 benchmark. A future `x/tools` may relax the export
+requirement (`packages.go:1084` TODO); the layout validation isolates us from either
+outcome.
 
 **Capslock retained for map generation only,** with a generation classifier that preserves
 `UNANALYZED` (I4). Correct generation isolates each importable package because one
@@ -958,7 +1020,7 @@ and made byte-stable by canonicalisation; textproto stays for hand-authored mani
 ## Appendix B — Research Findings
 
 - Measured baseline: 2.1s / 6.4s CPU for four trivial packages; 3.8s / 13.5s for one
-  component. The closure sets the cost.
+  component. In the pre-cutover pipeline, the closure sets the cost.
 - The closure is loaded and SSA-built twice per run; each dependency is type-checked
   from source a third time.
 - ~110 lines compensate for VTA over-resolving interface calls, and over-correct.
