@@ -10,6 +10,7 @@ load("@rules_testing//lib:analysis_test.bzl", "analysis_test", "test_suite")
 load("@rules_testing//lib:truth.bzl", "matching")
 load("@rules_go//go:def.bzl", "GoInfo")
 load("//bazel_rules:providers.bzl", "ArccComponentInfo")
+load("//bazel_rules/go/tests:testing.bzl", "TestingInfraAttachmentInfo")
 
 _API_COMPONENT = "//bazel_rules/go/tests/testdata/api:api_component"
 _MEMBER_COMPONENT = "//bazel_rules/go/tests/testdata/membercomponent:member_component"
@@ -33,6 +34,8 @@ _DUPLICATE_DEPENDENCY_COMPONENT = "//bazel_rules/go/tests/testdata/reportboundar
 _CONFLICTING_EDGE_COMPONENT = "//bazel_rules/go/tests/testdata/reportboundary/consumer:conflicting_edge_component"
 _INVALID_ANALYSIS_DEFEATING_POLICY_COMPONENT = "//bazel_rules/go/tests/testdata/conflict:invalid_analysis_defeating_policy_component"
 _DEFEAT_STRICT_COMPONENT = "//bazel_rules/go/tests/testdata/defeat:strict_component"
+_EXACT_SELF_INFRA_ATTACHMENT_PROBE = "//bazel_rules/go/tests:exact_self_infra_attachment_probe"
+_SAME_SHORT_NAME_INFRA_COMPONENT = "//bazel_rules/go/tests/testdata/infra/same_short_name:runtime_component"
 
 def _membership_classification_test(name):
     analysis_test(
@@ -276,6 +279,42 @@ def _auto_attached_infra_impl(env, target):
     manifest_path = "bazel_rules/go/tests/testdata/membercomponent/auto_attached_infra_component.component.textproto"
     action = env.expect.that_target(target).action_generating(manifest_path)
     action.content().contains("component_dependencies {\n  name: \"package_surface_component\"\n  manifest: \"package_surface_component.component.textproto\"\n  auto_attached: true\n}")
+
+def _exact_self_infra_excluded_test(name):
+    analysis_test(
+        name = name,
+        target = _EXACT_SELF_INFRA_ATTACHMENT_PROBE,
+        impl = _exact_self_infra_excluded_impl,
+        attr_values = {"size": "small"},
+    )
+
+def _exact_self_infra_excluded_impl(env, target):
+    # The probe passes one real component target as both the consuming identity
+    # and the candidate. This exercises the exact-label branch without making
+    # the production component graph cyclic.
+    env.expect.that_collection(
+        target[TestingInfraAttachmentInfo].attached_targets,
+    ).contains_exactly([])
+
+def _same_short_name_infra_remains_eligible_test(name):
+    analysis_test(
+        name = name,
+        target = _SAME_SHORT_NAME_INFRA_COMPONENT,
+        impl = _same_short_name_infra_remains_eligible_impl,
+        attr_values = {"size": "small"},
+    )
+
+def _same_short_name_infra_remains_eligible_impl(env, target):
+    info = target[ArccComponentInfo]
+    candidate_manifest = "bazel_rules/go/tests/testdata/infra/runtime/runtime_component.component.textproto"
+    env.expect.that_collection(
+        [file.short_path for file in info.transitive_manifests.to_list()],
+    ).contains(candidate_manifest)
+    action = env.expect.that_target(target).action_generating(
+        "bazel_rules/go/tests/testdata/infra/same_short_name/runtime_component.component.textproto",
+    )
+    action.content().contains("component_dependencies {\n  name: \"runtime_component\"\n")
+    action.content().contains("  auto_attached: true\n}")
 
 def _declining_infra_test(name):
     analysis_test(
@@ -970,6 +1009,8 @@ def go_component_test_suite(name):
             _analysis_defeating_policy_manifest_test,
             _nested_component_root_allowed_test,
             _auto_attached_infra_test,
+            _exact_self_infra_excluded_test,
+            _same_short_name_infra_remains_eligible_test,
             _declining_infra_test,
             _closure_attached_infra_test,
             _root_collection_attachment_test,

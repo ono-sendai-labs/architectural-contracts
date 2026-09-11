@@ -1,0 +1,24 @@
+load("@rules_go//go:def.bzl", "go_library")
+load("@rules_arcc//bazel_rules/go:defs.bzl", "PACKAGE_SURFACE")
+load("//bazel_rules/go/tests:testing.bzl", "testing_go_component")
+
+go_library(
+    name = "same_short_name",
+    srcs = ["same_short_name.go"],
+    importpath = "example.com/infra/same_short_name",
+    visibility = ["//visibility:public"],
+)
+
+# This target deliberately publishes the same short component name as
+# //bazel_rules/go/tests/testdata/infra/runtime:runtime_component. Its package
+# path is different, so structural label identity must keep it eligible as an
+# infra candidate when it is used as a consumer in the analysis tests.
+testing_go_component(
+    name = "runtime_component",
+    interface_style = PACKAGE_SURFACE,
+    members = [":same_short_name"],
+    infra_deps = ["//bazel_rules/go/tests/testdata/infra/runtime:runtime_component"],
+    test_infra_attach = "ALWAYS",
+    check_tags = ["manual"],
+    visibility = ["//visibility:public"],
+)

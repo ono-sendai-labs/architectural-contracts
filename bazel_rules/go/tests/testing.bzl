@@ -17,6 +17,8 @@ load("//bazel_rules:providers.bzl", "ArccComponentInfo")
 load("//bazel_rules/go:providers.bzl", "ArccPackageInfo")
 load("//bazel_rules/go:defs.bzl", "DECLARED", "UNKNOWN", "validate_component_shape")
 
+TestingInfraAttachmentInfo = provider(fields = ["attached_targets"])
+
 def _test_attach_predicate(roots, entry):
     """Implements attachment modes for fixtures without modifying the host seam."""
     attach_mode = entry.attach_mode
@@ -66,6 +68,46 @@ def _testing_attachment_fn(ctx, roots, infra_deps):
         infra_deps,
         registry = _test_infra_registry(ctx),
     )
+
+def _testing_infra_attachment_probe_impl(ctx):
+    """Exposes the injected attachment seam for identity-only analysis tests."""
+    attached = go_attached_infra(
+        ctx.attr.consumer,
+        [],
+        ctx.attr.infra_deps,
+        registry = _test_infra_registry(ctx),
+    )
+    return [
+        DefaultInfo(),
+        TestingInfraAttachmentInfo(
+            attached_targets = tuple(sorted([str(item.target.label) for item in attached])),
+        ),
+    ]
+
+testing_infra_attachment_probe = rule(
+    implementation = _testing_infra_attachment_probe_impl,
+    attrs = {
+        "consumer": attr.label(
+            mandatory = True,
+            providers = [ArccComponentInfo],
+            doc = "Component whose target label supplies the consuming identity.",
+        ),
+        "infra_deps": attr.label_list(
+            mandatory = True,
+            providers = [ArccComponentInfo],
+            doc = "Injected infrastructure candidates to evaluate.",
+        ),
+        "test_infra_patterns": attr.string_list(
+            doc = "Test-only import-path patterns used by the attachment fixture harness.",
+        ),
+        "test_infra_attach": attr.string(
+            default = "ALWAYS",
+            doc = "Test-only attachment mode: ALWAYS, NEVER, CLOSURE, or ROOTS.",
+        ),
+    },
+    provides = [TestingInfraAttachmentInfo],
+    doc = "Test-only probe for the injected infrastructure attachment seam.",
+)
 
 def _testing_go_component_impl(ctx):
     return go_component_impl(ctx, attachment_fn = _testing_attachment_fn)

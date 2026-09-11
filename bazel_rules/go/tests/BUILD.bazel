@@ -12,11 +12,18 @@ load(":report_assertion_tests.bzl", "report_assertion_test_suite")
 load(":stdlib_map_probe.bzl", "darwin_arm64_stdlib_map", "default_seam_probe", "tagged_stdlib_map")
 load(":stdlib_map_tests.bzl", "stdlib_map_full_test_suite", "stdlib_map_test_suite")
 load(":stdlib_export_data_tests.bzl", "stdlib_export_data_test_suite")
+load(":testing.bzl", "testing_infra_attachment_probe")
 
 exports_files([
     "test_export_a.data",
     "test_export_b.data",
 ])
+
+testing_infra_attachment_probe(
+    name = "exact_self_infra_attachment_probe",
+    consumer = "//bazel_rules/go/tests/testdata/membercomponent:package_surface_component",
+    infra_deps = ["//bazel_rules/go/tests/testdata/membercomponent:package_surface_component"],
+)
 
 config_setting(
     name = "stdlibmap_full",
