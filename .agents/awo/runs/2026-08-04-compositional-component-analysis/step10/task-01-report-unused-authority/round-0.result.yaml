@@ -1,0 +1,76 @@
+result:
+  task_file: .agents/tasks/2026-08-04-compositional-component-analysis/step10/task-01-report-unused-authority.code-task.md
+  change_id: plwyywsutkpzlwnrxnrpyvsktwnurutn
+  status: completed
+  schema_version: 2
+  produced_at: 2026-09-11T19:31:32Z
+
+acceptance_criteria:
+  - text: |
+      **Over-declared authority is visible without failing conformance**
+      - Given a component that declares `FILES` and has no `FILES` authority observation
+      - When `checker.Check` evaluates it
+      - Then the report contains exactly one location-free `UNUSED_AUTHORITY` warning naming `FILES`, and the warning alone leaves the verdict as `pass`.
+    addressed: yes
+    evidence: |
+      `go/internal/checker/unused_authority_test.go:16-43` asserts the exact warning shape, zero violations, and passing verdict; the implementation appends the warning in `go/internal/checker/checker.go:180-184` and constructs it without location/evidence/sites at `checker.go:241-270`.
+  - text: |
+      **Exact declarations produce no unused warning**
+      - Given a component whose declared capabilities exactly match true authority exercised by symbol references or package initialization
+      - When the component is checked under strict, allow, or warn policy as applicable
+      - Then none of those declarations produces `UNUSED_AUTHORITY`, regardless of how policy classifies the already exercised capability.
+    addressed: yes
+    evidence: |
+      `go/internal/checker/unused_authority_test.go:46-78` covers exact symbol and package-init exercise; `:80-137` covers strict, warn, and allow interactions. The diff runs before `ApplyAuthorityPolicy` at `go/internal/checker/checker.go:176-185`.
+  - text: |
+      **The diff is per capability and deterministic**
+      - Given several sorted or unsorted declarations, repeated authority observations, multiple sites, and a finding that carries multiple capabilities
+      - When the same inputs are checked repeatedly
+      - Then each unexercised declaration appears once, each exercised declaration is absent, and warning order and serialized output are byte-identical across runs.
+    addressed: yes
+    evidence: |
+      `go/internal/checker/unused_authority_test.go:139-190` uses shuffled declarations, a multi-capability symbol, repeated observations, multiple sites, repeated checks, and `artifactio.MarshalReport` byte comparisons. `checker.go:254-261` sorts and compacts the declaration diff, followed by normal warning sorting at `checker.go:199-207`.
+  - text: |
+      **Analysis-defeating findings do not mask stale declarations**
+      - Given a component that declares `FILES` but has only an analysis-defeating observation from an unanalyzed stdlib symbol or member bypass
+      - When the component is checked under strict or explicitly downgraded policy
+      - Then its existing analysis-defeating violation or warning is preserved and `FILES` is also reported as unused.
+    addressed: yes
+    evidence: |
+      `go/internal/checker/unused_authority_test.go:193-247` verifies strict and empty-capability WARN outcomes, preserving `UNDECLARED_AUTHORITY`/`ANALYSIS_LIMITATION` while requiring a location-free `UNUSED_AUTHORITY`. The helper only records `TrueAuthority` capabilities at `checker.go:247-251`.
+  - text: |
+      **Existing warning behavior remains intact**
+      - Given a component with unused dependencies, dependency-status warnings, authority-policy warnings, and unused authority
+      - When the report is rendered and persisted
+      - Then every warning kind remains present, `UNUSED_AUTHORITY` uses the standard warning representation, and the final ordering is deterministic.
+    addressed: yes
+    evidence: |
+      `go/internal/checker/unused_authority_test.go:249-300` asserts coexistence and deterministic warning order. `go/internal/report/report.go:26-33` adds the persisted kind, `go/internal/report/report_test.go:494-517` covers text/JSON rendering, and `go/internal/artifactio/report_test.go:550-575` covers persisted round-trip and pass verdict. The intentional shape golden is updated at `bazel_rules/go/tests/goldens/api_component.report.shape.golden.json:20-33`.
+  - text: |
+      **Arcc's own declarations are audited**
+      - Given the checked component manifests under `go/cmd` and `go/internal`
+      - When the production self-check runs with the new rule
+      - Then no unexplained `UNUSED_AUTHORITY` warning remains; obsolete declarations have been removed and unknown-authority wrappers are unchanged.
+    addressed: yes
+    evidence: |
+      The production staging audit recorded `No UNUSED_AUTHORITY warnings in staged checked production reports` in `work.log:252-254`. Obsolete declarations were removed from the checked-in manifests (`go/cmd/arcc/component.textproto:66-71`, `go/internal/artifactio/component.textproto:31-33`, `go/internal/capslockadapter/component.textproto:31-38`, `go/internal/goanalysis/component.textproto:51-53`, `go/internal/manifest/component.textproto:1-12`, `go/internal/packagelayout/component.textproto:11-17`, and `go/internal/stdlibmap/component.textproto:55-59`) and synchronized in the corresponding Bazel BUILD files. `work.log:255-258` records both UNKNOWN wrapper declarations and an empty jj diff for them.
+  - text: |
+      **Repository checks pass**
+      - Given the implementation, tests, manifest audit, and any intentional shape-golden updates
+      - When `just ci` runs
+      - Then all Go, Bazel, self-check, manifest-parity, generation-cleanliness, and golden checks pass.
+    addressed: yes
+    evidence: |
+      The final `just ci` command and complete passing Go/Bazel/self-check/golden output are recorded in `work.log:259-530`; the final jj state is clean at `work.log:531-543`.
+
+artifacts:
+  scratchpad_dir: .agents/scratchpad/2026-08-04-compositional-component-analysis/step10/task-01-report-unused-authority/
+  files:
+    - context.md
+    - plan.md
+    - progress.md
+    - work.log
+    - result.yaml
+
+notes: |
+  Implemented the persisted UNUSED_AUTHORITY warning, pure checker capability diff, deterministic report coverage, shape-golden update, and production manifest audit. Focused RED/GREEN evidence, repeated-output checks, production self-check staging, and the final just ci run all pass. The final task change is plwyywsutkpzlwnrxnrpyvsktwnurutn at @-, with an empty working copy and no bookmark changes.

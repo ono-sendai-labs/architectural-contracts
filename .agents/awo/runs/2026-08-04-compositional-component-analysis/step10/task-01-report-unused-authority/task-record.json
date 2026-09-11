@@ -1,0 +1,76 @@
+{
+  "task_file": ".agents/tasks/2026-08-04-compositional-component-analysis/step10/task-01-report-unused-authority.code-task.md",
+  "planning_slug": "2026-08-04-compositional-component-analysis",
+  "step": 10,
+  "task": 1,
+  "implementer_session": "awo-impl-2026-08-04-compositional-component-analysis-step10-task01",
+  "reviewer_session": "awo-rev-2026-08-04-compositional-component-analysis-step10-task01",
+  "base": {
+    "change_id": "pqusynkxqoumqroyylowvzvyslvytwyy",
+    "bookmark": "pr/awo-generate-task-2026-08-04-compositional-component-analysis-step-10"
+  },
+  "produced_changes": [
+    "rwkuqyutkovutomyovsvxlttxloyyqmu",
+    "poxxxtxrwpsqwuorlltysqxtvvsonqxw",
+    "plwyywsutkpzlwnrxnrpyvsktwnurutn",
+    "punzwmrpkkztpksulzvqsvtqtmxyonvv"
+  ],
+  "rounds": [
+    {
+      "round": 0,
+      "role": "implementer",
+      "status": "completed",
+      "tokens": {
+        "total": 342168
+      },
+      "wall_s": 1170,
+      "tool_calls": 2789,
+      "compacted": false,
+      "window_pct": 42.4
+    },
+    {
+      "round": 0,
+      "role": "reviewer",
+      "verdict": "changes_requested",
+      "findings": 1,
+      "acceptance": "7/7 pass (but test not compiled)",
+      "tokens": {
+        "total": 153317
+      },
+      "wall_s": 421,
+      "tool_calls": 157,
+      "compacted": false
+    },
+    {
+      "round": 1,
+      "role": "implementer",
+      "status": "completed",
+      "tokens": {
+        "total": 370658
+      },
+      "wall_s": 202,
+      "tool_calls": 84,
+      "compacted": false,
+      "window_pct": 45.9
+    },
+    {
+      "round": 1,
+      "role": "reviewer",
+      "verdict": "approved",
+      "findings": 0,
+      "acceptance": "7/7",
+      "tokens": {
+        "total": 204197
+      },
+      "wall_s": 174,
+      "tool_calls": 104,
+      "compacted": false
+    }
+  ],
+  "session_restarts": [],
+  "outcome": {
+    "status": "approved",
+    "rounds": 2,
+    "bookmark": "pr/2026-08-04-compositional-component-analysis/step10/task-01-report-unused-authority.code-task"
+  }
+}

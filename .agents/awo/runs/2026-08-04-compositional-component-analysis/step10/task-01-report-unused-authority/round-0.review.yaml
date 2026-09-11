@@ -1,0 +1,150 @@
+review:
+  task_file: .agents/tasks/2026-08-04-compositional-component-analysis/step10/task-01-report-unused-authority.code-task.md
+  change_id: plwyywsutkpzlwnrxnrpyvsktwnurutn
+  reviewed_at: 2026-09-11T19:38:06Z
+  verdict: changes_requested
+  schema_version: 2
+  lsp_coverage: unavailable
+
+merge_request:
+  title: "feat(checker): report unused authority declarations [Compositional Analysis: Step 10/Task 01]"
+  body: |
+    Reviews the complete ordered task series from the report vocabulary change
+    through the checker implementation/tests and the production manifest audit.
+    rwkuqyut adds report.UnusedAuthority and report-level persistence/verdict
+    coverage; poxxxtx adds the pre-policy TrueAuthority diff, focused checker
+    tests, artifact coverage, and the report-shape golden; plwyywsut audits and
+    tightens the checked arcc manifests while synchronizing affected Bazel
+    declarations. The implementation is functionally sound, but the new
+    checker test file is not registered in go/internal/checker/BUILD.bazel.
+
+summary: |
+  The implementation correctly adds a non-fatal UNUSED_AUTHORITY warning and
+  derives exercised capabilities from aggregated TrueAuthority findings before
+  policy application, including symbol and package-init observations. The
+  focused Go tests, production self-check evidence, manifest audit, and just ci
+  evidence cover the requested behavior and remain green. One important test
+  integration issue remains: Bazel's checker_test target omits the new checker
+  test file and its artifactio test dependency, so the Bazel gate does not run
+  or compile that focused suite.
+
+acceptance_criteria:
+  - text: |
+      1. **Over-declared authority is visible without failing conformance**
+         - Given a component that declares `FILES` and has no `FILES` authority observation
+         - When `checker.Check` evaluates it
+         - Then the report contains exactly one location-free `UNUSED_AUTHORITY` warning naming `FILES`, and the warning alone leaves the verdict as `pass`.
+    status: pass
+    evidence: |
+      `go/internal/checker/unused_authority_test.go:16-43` asserts the exact
+      warning, zero violations, zero source fields, and passing verdict. The
+      warning construction is in `go/internal/checker/checker.go:241-270`.
+  - text: |
+      2. **Exact declarations produce no unused warning**
+         - Given a component whose declared capabilities exactly match true authority exercised by symbol references or package initialization
+         - When the component is checked under strict, allow, or warn policy as applicable
+         - Then none of those declarations produces `UNUSED_AUTHORITY`, regardless of how policy classifies the already exercised capability.
+    status: pass
+    evidence: |
+      Symbol-reference and package-init exact-declaration cases are covered by
+      `go/internal/checker/unused_authority_test.go:46-78`; strict, warn, and
+      allow policy interactions are exercised at `:80-137`. The comparison is
+      placed before `ApplyAuthorityPolicy` at
+      `go/internal/checker/checker.go:176-185`, so policy output cannot hide or
+      create the declaration diff.
+  - text: |
+      3. **The diff is per capability and deterministic**
+         - Given several sorted or unsorted declarations, repeated authority observations, multiple sites, and a finding that carries multiple capabilities
+         - When the same inputs are checked repeatedly
+         - Then each unexercised declaration appears once, each exercised declaration is absent, and warning order and serialized output are byte-identical across runs.
+    status: pass
+    evidence: |
+      `go/internal/checker/unused_authority_test.go:139-190` covers shuffled
+      declarations, a multi-capability symbol, repeated observations, multiple
+      sites, repeated checks, and byte-identical artifact output. The helper
+      sorts and compacts the unused declaration set at
+      `go/internal/checker/checker.go:254-261`, followed by normal warning
+      sorting at `checker.go:199-207`.
+  - text: |
+      4. **Analysis-defeating findings do not mask stale declarations**
+         - Given a component that declares `FILES` but has only an analysis-defeating observation from an unanalyzed stdlib symbol or member bypass
+         - When the component is checked under strict or explicitly downgraded policy
+         - Then its existing analysis-defeating violation or warning is preserved and `FILES` is also reported as unused.
+    status: pass
+    evidence: |
+      `go/internal/checker/unused_authority_test.go:193-247` verifies both
+      strict and explicitly downgraded outcomes, preserving the existing policy
+      finding while requiring a location-free UNUSED_AUTHORITY warning. Only
+      non-empty capabilities on `TrueAuthority` findings enter the exercised
+      set at `go/internal/checker/checker.go:246-251`.
+  - text: |
+      5. **Existing warning behavior remains intact**
+         - Given a component with unused dependencies, dependency-status warnings, authority-policy warnings, and unused authority
+         - When the report is rendered and persisted
+         - Then every warning kind remains present, `UNUSED_AUTHORITY` uses the standard warning representation, and the final ordering is deterministic.
+    status: pass
+    evidence: |
+      `go/internal/checker/unused_authority_test.go:249-300` checks coexistence
+      and warning ordering. The persisted kind is declared at
+      `go/internal/report/report.go:26-34`; report rendering/JSON coverage is
+      at `go/internal/report/report_test.go:494-517`, artifact round-trip
+      coverage is at `go/internal/artifactio/report_test.go:550-575`, and the
+      intentional shape golden is updated at
+      `bazel_rules/go/tests/goldens/api_component.report.shape.golden.json:20-33`.
+  - text: |
+      6. **Arcc's own declarations are audited**
+         - Given the checked component manifests under `go/cmd` and `go/internal`
+         - When the production self-check runs with the new rule
+         - Then no unexplained `UNUSED_AUTHORITY` warning remains; obsolete declarations have been removed and unknown-authority wrappers are unchanged.
+    status: pass
+    evidence: |
+      The production staging audit records no UNUSED_AUTHORITY warnings in
+      staged checked production reports at `work.log:252-254`. The audited
+      declarations are reflected in the current manifests, including
+      `go/cmd/arcc/component.textproto:66-71`,
+      `go/internal/artifactio/component.textproto:31-33`,
+      `go/internal/capslockadapter/component.textproto:31-38`,
+      `go/internal/goanalysis/component.textproto:51-53`,
+      `go/internal/manifest/component.textproto:1-12`,
+      `go/internal/packagelayout/component.textproto:11-17`, and
+      `go/internal/stdlibmap/component.textproto:55-59`. The unchanged UNKNOWN
+      wrappers and empty jj diff are recorded at `work.log:255-258`.
+  - text: |
+      7. **Repository checks pass**
+         - Given the implementation, tests, manifest audit, and any intentional report-shape golden updates
+         - When `just ci` runs
+         - Then all Go, Bazel, self-check, manifest-parity, generation-cleanliness, and golden checks pass.
+    status: pass
+    evidence: |
+      The recorded `just ci` run covers generation cleanliness, Go build/tests,
+      integration tests, stdlib-map pinning, self-check staging, Bazel build and
+      tests, manifest parity, and golden checks at `work.log:259-530`; the
+      final clean jj state is recorded at `work.log:531-543`. Independent
+      `go test -count=1 ./...` and `go vet ./...` checks also passed during this
+      review.
+
+findings:
+  - severity: important
+    category: tests
+    file: go/internal/checker/BUILD.bazel
+    line: 22
+    title: New checker tests are omitted from the Bazel target
+    details: |
+      The change adds `go/internal/checker/unused_authority_test.go`, including
+      the focused UNUSED_AUTHORITY coverage and an `artifactio` import, but the
+      checker Bazel target still lists only
+      `aggregate_test.go`, `boundary_test.go`, `checker_test.go`, and
+      `classify_test.go` in `go/internal/checker/BUILD.bazel:19-22`. A direct
+      `bazel query --output=build //go/internal/checker:checker_test` confirms
+      that explicit source list, so `bazel test //go/internal/checker:checker_test`
+      passes without compiling or running the new tests. The target also lacks
+      the test-only `//go/internal/artifactio` dependency required by the new
+      file. This leaves the Bazel portion of the repository gate unable to
+      validate the focused checker suite.
+    suggested_action: |
+      Add `unused_authority_test.go` to the checker `go_test.srcs` list and add
+      `//go/internal/artifactio` to that test target's deps, then rerun the
+      checker Bazel test and `just ci`.
+    source: built-in
+
+ecosystem_reviews: []
