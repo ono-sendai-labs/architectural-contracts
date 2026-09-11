@@ -177,6 +177,11 @@ func Check(in Inputs) (report.ConformanceReport, error) {
 	if err != nil {
 		return report.ConformanceReport{}, err
 	}
+	// Compare declarations with the capabilities actually observed before
+	// policy application. A declared capability remains exercised even when
+	// policy allows or warns on it; AnalysisDefeating findings carry no
+	// capability and therefore cannot suppress this warning (R12, DR-17).
+	warnings = append(warnings, unusedAuthorityWarnings(authorityFindings, in.Manifest.DeclaredAuthority)...)
 	authorityViolations, authorityWarnings := ApplyAuthorityPolicy(authorityFindings, effectivePolicy)
 	violations = append(violations, authorityViolations...)
 	warnings = append(warnings, authorityWarnings...)
@@ -231,6 +236,38 @@ func Check(in Inputs) (report.ConformanceReport, error) {
 		Violations:   violations,
 		Warnings:     warnings,
 	}, nil
+}
+
+// unusedAuthorityWarnings returns one location-free warning for each declared
+// capability absent from the aggregated TrueAuthority findings. The declared
+// list is treated as a set defensively: parsed manifests are already validated
+// as duplicate-free, but this keeps the pure checker deterministic for direct
+// callers too.
+func unusedAuthorityWarnings(findings []AuthorityFinding, declared []string) []report.Finding {
+	exercised := make(map[string]bool)
+	for _, finding := range findings {
+		if finding.Class == capanalyzer.TrueAuthority && finding.Capability != "" {
+			exercised[finding.Capability] = true
+		}
+	}
+
+	unused := make([]string, 0, len(declared))
+	for _, capability := range declared {
+		if !exercised[capability] {
+			unused = append(unused, capability)
+		}
+	}
+	slices.Sort(unused)
+	unused = slices.Compact(unused)
+
+	warnings := make([]report.Finding, 0, len(unused))
+	for _, capability := range unused {
+		warnings = append(warnings, report.Finding{
+			Kind:    report.UnusedAuthority,
+			Message: fmt.Sprintf("declared authority %q is unused", capability),
+		})
+	}
+	return warnings
 }
 
 // boundaryReportFinding converts one boundary observation to its report

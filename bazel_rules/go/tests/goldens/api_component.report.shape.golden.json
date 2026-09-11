@@ -17,6 +17,19 @@
       "non_member_export_bytes": "<EXPORT_BYTES>"
     },
     "violations": null,
-    "warnings": null
+    "warnings": [
+      {
+        "kind": "UNUSED_AUTHORITY",
+        "message": "<FINDING_MESSAGE>",
+        "location": {
+          "file": "",
+          "line": 0
+        },
+        "evidence": null,
+        "class": "",
+        "sdk_key": "",
+        "sites": null
+      }
+    ]
   }
 }

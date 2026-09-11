@@ -546,3 +546,31 @@ func TestMarshalReport_SitesClassAndSDKKeyCanonical(t *testing.T) {
 		t.Errorf("round trip lost first-site evidence: %+v", v)
 	}
 }
+
+func TestMarshalReport_UnusedAuthorityWarningRemainsPassing(t *testing.T) {
+	input := report.ConformanceReport{
+		Component: "component",
+		Warnings: []report.Finding{{
+			Kind:    report.UnusedAuthority,
+			Message: `declared authority "FILES" is unused`,
+		}},
+	}
+
+	data, err := artifactio.MarshalReport(input)
+	if err != nil {
+		t.Fatalf("MarshalReport() error = %v", err)
+	}
+	if !strings.Contains(string(data), `"kind": "UNUSED_AUTHORITY"`) {
+		t.Fatalf("serialized report = %s, want UNUSED_AUTHORITY", data)
+	}
+	got, err := artifactio.DecodeReport(data)
+	if err != nil {
+		t.Fatalf("DecodeReport() error = %v", err)
+	}
+	if got.Verdict != report.VerdictPass {
+		t.Fatalf("persisted verdict = %q, want %q for a warning-only report", got.Verdict, report.VerdictPass)
+	}
+	if !reflect.DeepEqual(got.Report, input) {
+		t.Fatalf("decoded report = %#v, want %#v", got.Report, input)
+	}
+}
