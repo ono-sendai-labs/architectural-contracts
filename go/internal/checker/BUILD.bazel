@@ -19,9 +19,10 @@ go_library(
 go_test(
     name = "checker_test",
     size = "small",
-    srcs = ["aggregate_test.go", "boundary_test.go", "checker_test.go", "classify_test.go"],
+    srcs = ["aggregate_test.go", "boundary_test.go", "checker_test.go", "classify_test.go", "unused_authority_test.go"],
     deps = [
         ":checker",
+        "//go/internal/artifactio",
         "//go/internal/capanalyzer",
         "//go/internal/facts",
         "//go/internal/manifest",
