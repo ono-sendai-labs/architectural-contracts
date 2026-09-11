@@ -126,8 +126,18 @@ def go_infra_components(ctx = None):
     """Returns the infra component registry entries."""
     return INFRA_COMPONENTS
 
+def _canonical_target_label(label):
+    """Returns the canonical textual identity of a Bazel target label."""
+    return str(label)
+
 def go_attached_infra(ctx, roots, infra_deps, registry = None):
     """Evaluates INFRA_COMPONENTS attachment against component roots.
+
+    When `ctx` is present, only an infra candidate with the exact same
+    canonical target label is exempted as the consuming component itself.
+    Component display names are deliberately not used for this identity:
+    different Bazel packages may publish the same short component name. The
+    registry name remains lookup metadata, not a self-exemption convention.
 
     Returns a list of generic attached component records:
         struct(
@@ -142,7 +152,7 @@ def go_attached_infra(ctx, roots, infra_deps, registry = None):
 
     for dep in infra_deps:
         info = dep[ArccComponentInfo]
-        if ctx != None and info.component_name == ctx.label.name:
+        if ctx != None and _canonical_target_label(dep.label) == _canonical_target_label(ctx.label):
             continue
 
         entry = None
