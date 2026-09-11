@@ -1,0 +1,123 @@
+review:
+  task_file: .agents/tasks/2026-08-04-compositional-component-analysis/step08/task-03-expose-stdlib-export-data.code-task.md
+  change_id: mosnkoyploqnyuqmrzuvsvopmpqvxtko
+  reviewed_at: 2026-09-11T07:38:14Z
+  verdict: approved
+  schema_version: 2
+  lsp_coverage: partial
+
+merge_request:
+  title: "feat(bazel): expose target stdlib export data [Compositional Analysis: Step 08/Task 03]"
+  body: |
+    Reviews the complete ordered task series: the initial change adds the
+    target-configured GoStdLib transition, host-neutral descriptor, analysis
+    probes, and documentation; the follow-up filters absent optional export
+    tree depsets for host replacement. Focused Bazel analysis tests and the
+    recorded full `just ci` validation pass.
+
+summary: |
+  The ordered changes implement the target-configured stdlib export-data seam,
+  keep rules_go-specific provider access in go_adapter.bzl, and expose only
+  generated metadata plus compiled export artifacts through the descriptor.
+  Matching, mismatch, missing-material, and input-exclusion analysis tests pass,
+  and the recorded full CI run is green. One non-blocking test-coverage
+  suggestion remains for asserting the less visible target identity fields;
+  gopls was clean for the touched Go file, while Starlark and Markdown LSP
+  diagnostics were unavailable.
+
+acceptance_criteria:
+  - text: |
+      1. **Target stdlib exports are available**
+      - Given a pure target configuration under the pinned rules_go toolchain
+      - When the adapter resolves standard-library type data
+      - Then it returns declared metadata and export artifacts sufficient to identify every reachable stdlib package, its imports, and its `ExportFile`.
+    status: pass
+    evidence: |
+      bazel_rules/go/private/go_adapter.bzl:408-473 projects GoStdLib's generated
+      `_list_json`, cache/archive depsets, and the exact declared-input union into
+      a host-neutral descriptor. The valid analysis test at
+      bazel_rules/go/tests/stdlib_export_data_tests.bzl:20-38 verifies the generated
+      metadata and both compiled export trees are exposed.
+  - text: |
+      2. **Configuration identity is consistent**
+      - Given a transitioned GOOS/GOARCH or build-tag configuration
+      - When stdlib export data and the stdlib map are selected
+      - Then both describe the same target identity, and absent or mismatched metadata fails with an actionable target-specific error.
+    status: pass
+    evidence: |
+      bazel_rules/go/private/go_adapter.bzl:347-406 derives the target mode from
+      the transitioned GoConfigInfo/toolchain path and compares all six SDK-key
+      fields. The transitioned mismatch probe at
+      bazel_rules/go/tests/probe.bzl:80-97 and :206-224, exercised by
+      bazel_rules/go/tests/stdlib_export_data_tests.bzl:57-72, fails analysis with
+      the consuming target and the mismatched fields.
+  - text: |
+      3. **No source or toolchain execution leaks in**
+      - Given the adapter's returned inputs
+      - When an analysis test inspects them
+      - Then they contain compiled stdlib type data and metadata but no SDK `.go` sources, `go` binary, compiler/linker tools, or host cache paths.
+    status: pass
+    evidence: |
+      bazel_rules/go/private/go_adapter.bzl:449-473 builds `inputs` only from
+      `_list_json` and the generated cache/archive export depsets; it does not
+      return SDK roots, sources, or tools and registers no action. The valid
+      analysis test at bazel_rules/go/tests/stdlib_export_data_tests.bzl:22-35
+      checks the exact three input artifacts and rejects source, bin, compiler,
+      linker-tool, and host-cache path patterns.
+  - text: |
+      4. **Host boundary stays isolated**
+      - Given the completed implementation
+      - When Starlark loads are inspected
+      - Then only `go_adapter.bzl` references `GoStdLib`; component/aspect code sees a host-neutral contract.
+    status: pass
+    evidence: |
+      bazel_rules/go/private/go_adapter.bzl:21-24 is the sole rules_go provider
+      load, and :408-473 contains all GoStdLib/private-field access. The upper
+      test seam imports only the generic `go_stdlib_export_data` function and
+      republishes its four descriptor fields at
+      bazel_rules/go/tests/probe.bzl:12-27; repository-wide Starlark inspection
+      found no GoStdLib reference outside go_adapter.bzl.
+  - text: |
+      5. **Failure is early and named**
+      - Given a toolchain that exposes no usable stdlib export-data descriptor
+      - When a component is analyzed
+      - Then Bazel analysis fails before action registration and names the component and missing adapter material.
+    status: pass
+    evidence: |
+      bazel_rules/go/private/go_adapter.bzl:440-467 fails during analysis for a
+      missing provider, disabled export generation, missing metadata, or empty
+      compiled-artifact depsets, and each diagnostic includes ctx.label.name. The
+      negative analysis seam at bazel_rules/go/tests/probe.bzl:188-204 and its
+      assertion at bazel_rules/go/tests/stdlib_export_data_tests.bzl:40-55 verify
+      the named missing-export diagnostic before any action is registered.
+  - text: |
+      6. **Repository checks pass**
+      - Given the additive seam
+      - When `just ci` runs
+      - Then existing component checks, stdlib-map generation, and self-check remain green.
+    status: pass
+    evidence: |
+      The task work log records the final `just ci` exit-0 validation, including
+      Go vet/gofmt/build, unit and integration tests, self-check staging, Bazel
+      build/test, and shell validations at
+      .agents/scratchpad/2026-08-04-compositional-component-analysis/step08/task-03-expose-stdlib-export-data/work.log:377-378.
+
+findings:
+  - severity: suggestion
+    category: tests
+    file: bazel_rules/go/tests/stdlib_export_data_tests.bzl
+    line: 36
+    title: Assert all target identity fields in the valid seam test
+    details: |
+      The valid descriptor test asserts GOOS, GOARCH, and cgo, while the
+      implementation also carries tags, toolchain_version, and goexperiment and
+      the mismatch path compares all six fields. The negative transition covers
+      GOOS/GOARCH/tags indirectly, but it does not directly verify the remaining
+      identity fields on a successful descriptor.
+    suggested_action: |
+      Add assertions for the expected build tags, normalized toolchain version,
+      and GOEXPERIMENT value (or add a focused transitioned fixture for them) so
+      the positive analysis test proves the complete target identity contract.
+    source: built-in
+
+ecosystem_reviews: []

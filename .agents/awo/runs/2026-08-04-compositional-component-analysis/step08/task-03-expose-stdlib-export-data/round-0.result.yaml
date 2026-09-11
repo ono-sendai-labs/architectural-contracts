@@ -1,0 +1,92 @@
+result:
+  task_file: .agents/tasks/2026-08-04-compositional-component-analysis/step08/task-03-expose-stdlib-export-data.code-task.md
+  change_id: mosnkoyploqnyuqmrzuvsvopmpqvxtko
+  status: completed
+  schema_version: 2
+  produced_at: 2026-09-11T07:29:40Z
+
+acceptance_criteria:
+  - text: |
+      **Target stdlib exports are available**
+        - Given a pure target configuration under the pinned rules_go toolchain
+        - When the adapter resolves standard-library type data
+        - Then it returns declared metadata and export artifacts sufficient to identify every reachable stdlib package, its imports, and its `ExportFile`.
+    addressed: yes
+    evidence: |
+      bazel_rules/go/private/go_adapter.bzl:408-475 implements the descriptor over
+      the pinned generated package metadata and compiled export trees. The matching
+      analysis probe and assertions at bazel_rules/go/tests/stdlib_export_data_tests.bzl:20-38
+      verify the metadata file, export trees, target platform, and descriptor inputs.
+  - text: |
+      **Configuration identity is consistent**
+        - Given a transitioned GOOS/GOARCH or build-tag configuration
+        - When stdlib export data and the stdlib map are selected
+        - Then both describe the same target identity, and absent or mismatched metadata fails with an actionable target-specific error.
+    addressed: yes
+    evidence: |
+      bazel_rules/go/private/go_adapter.bzl:384-406 compares toolchain version,
+      GOOS, GOARCH, cgo, build tags, and GOEXPERIMENT; :430-438 names the consuming
+      target on mismatch. The transitioned negative analysis test at
+      bazel_rules/go/tests/stdlib_export_data_tests.bzl:57-72 passes, while the
+      valid probe checks the target identity at :36-38.
+  - text: |
+      **No source or toolchain execution leaks in**
+        - Given the adapter's returned inputs
+        - When an analysis test inspects them
+        - Then they contain compiled stdlib type data and metadata but no SDK `.go` sources, `go` binary, compiler/linker tools, or host cache paths.
+    addressed: yes
+    evidence: |
+      The descriptor contract and input construction are at
+      bazel_rules/go/private/go_adapter.bzl:417-422 and :464-475. The analysis
+      assertion at bazel_rules/go/tests/stdlib_export_data_tests.bzl:29-35 rejects
+      source, bin, compiler-tool, and host-cache paths; the focused suite passes.
+  - text: |
+      **Host boundary stays isolated**
+        - Given the completed implementation
+        - When Starlark loads are inspected
+        - Then only `go_adapter.bzl` references `GoStdLib`; component/aspect code sees a host-neutral contract.
+    addressed: yes
+    evidence: |
+      bazel_rules/go/private/go_adapter.bzl:21-24 is the only production rules_go
+      provider load, and its generic descriptor is documented at :408-475.
+      The required repository inspection is recorded in work.log:379-396 and
+      found no upper-layer GoStdLib/private-field references.
+  - text: |
+      **Failure is early and named**
+        - Given a toolchain that exposes no usable stdlib export-data descriptor
+        - When a component is analyzed
+        - Then Bazel analysis fails before action registration and names the component and missing adapter material.
+    addressed: yes
+    evidence: |
+      bazel_rules/go/private/go_adapter.bzl:440-467 fails during analysis when the
+      provider, export setting, metadata, or compiled artifacts are unusable. The
+      missing-material analysis test at bazel_rules/go/tests/stdlib_export_data_tests.bzl:40-55
+      asserts the target name and export-metadata diagnostic.
+  - text: |
+      **Repository checks pass**
+        - Given the additive seam
+        - When `just ci` runs
+        - Then existing component checks, stdlib-map generation, and self-check remain green.
+    addressed: yes
+    evidence: |
+      work.log:377-378 records the final `just ci` result (exit 0), including Go
+      vet/gofmt/build, unit and integration tests, self-check staging, Bazel
+      build/test, and shell validations.
+
+artifacts:
+  scratchpad_dir: .agents/scratchpad/2026-08-04-compositional-component-analysis/step08/task-03-expose-stdlib-export-data/
+  files:
+    - context.md
+    - plan.md
+    - progress.md
+    - work.log
+    - result.yaml
+
+notes: |
+  Added the upstream rules_go adapter seam for target-configured standard-library
+  metadata and compiled export trees, with SDK-key validation and fail-closed
+  analysis diagnostics. Added focused Bazel analysis coverage and documented the
+  host-neutral handoff to package-layout; the existing source-backed runtime path
+  remains unchanged for the next Step 8 task. `just ci` passed; the fresh final
+  jj change is mosnkoyploqnyuqmrzuvsvopmpqvxtko, with an empty working copy left
+  behind.
