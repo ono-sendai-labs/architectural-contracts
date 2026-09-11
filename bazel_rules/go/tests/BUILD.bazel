@@ -1,6 +1,6 @@
 load("@rules_go//go:def.bzl", "go_test")
 load("@rules_shell//shell:sh_test.bzl", "sh_test")
-load("//bazel_rules/go/private:check.bzl", "arcc_check_grep_test", "arcc_check_report_golden_test", "arcc_check_test", "arcc_checked_analysis_test")
+load("//bazel_rules/go/private:check.bzl", "arcc_check_grep_test", "arcc_check_test", "arcc_check_verdict_golden_test", "arcc_checked_analysis_test")
 load(":aspect_tests.bzl", "arcc_deps_aspect_full_test_suite", "arcc_deps_aspect_test_suite")
 load(":asserted_surface_tests.bzl", "asserted_surface_test_suite")
 load(":component_tests.bzl", "go_component_test_suite")
@@ -198,6 +198,14 @@ arcc_check_test(
     tags = ["manual"],
 )
 
+arcc_check_verdict_golden_test(
+    name = "hostile_verdict_golden_launcher_probe_test",
+    size = "small",
+    component = "//bazel_rules/go/tests/testdata/api:api_component",
+    golden = "goldens/hostile.verdict.golden",
+    tags = ["manual"],
+)
+
 arcc_check_grep_test(
     name = "asserted_component_grep_rejected_test",
     size = "small",
@@ -226,11 +234,11 @@ arcc_check_grep_test(
     tags = ["manual"],
 )
 
-arcc_check_report_golden_test(
-    name = "asserted_component_golden_rejected_test",
+arcc_check_verdict_golden_test(
+    name = "asserted_component_verdict_golden_test",
     size = "small",
     component = "//bazel_rules/go/tests/testdata/reportboundary/manual:manual_component",
-    golden = "goldens/api_component.report.json",
+    golden = "goldens/api_component.verdict.golden",
     tags = ["manual"],
 )
 
@@ -433,30 +441,28 @@ sh_test(
     ],
 )
 
-# Report goldens pin the provider's canonical persisted report artifact
-# (Step 5 task 06): the rule diffs the analysis action's own
-# `<name>.report.json` byte-for-byte — the analysis is never rerun. The
-# display-format goldens were migrated into these artifacts; the broad
-# verdict/layout golden restructure is Step 9.
-arcc_check_report_golden_test(
-    name = "api_component_text_report_golden_test",
+# Verdict goldens pin only the stable report verdict. Complete report-shape
+# comparisons belong to the persisted-artifact shape task and must not be used
+# as semantic conformance goldens.
+arcc_check_verdict_golden_test(
+    name = "api_component_verdict_golden_test",
     size = "small",
     component = "//bazel_rules/go/tests/testdata/api:api_component",
-    golden = "goldens/api_component.report.json",
+    golden = "goldens/api_component.verdict.golden",
 )
 
-arcc_check_report_golden_test(
-    name = "api_component_json_report_golden_test",
+arcc_check_verdict_golden_test(
+    name = "undeclared_dep_component_verdict_golden_test",
     size = "small",
-    component = "//bazel_rules/go/tests/testdata/api:api_component",
-    golden = "goldens/api_component.report.json",
+    component = "//bazel_rules/go/tests/testdata/membercomponent:undeclared_dep_component",
+    golden = "goldens/undeclared_dep_component.verdict.golden",
 )
 
-arcc_check_report_golden_test(
-    name = "reportboundary_consumer_report_golden_test",
+arcc_check_verdict_golden_test(
+    name = "reportboundary_consumer_verdict_golden_test",
     size = "small",
     component = "//bazel_rules/go/tests/testdata/reportboundary/consumer:consumer_component",
-    golden = "goldens/reportboundary_consumer.report.json",
+    golden = "goldens/reportboundary_consumer.verdict.golden",
 )
 
 arcc_check_grep_test(

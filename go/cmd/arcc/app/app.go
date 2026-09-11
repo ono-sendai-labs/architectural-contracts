@@ -2,7 +2,7 @@
 //
 // Component Contract (FR10):
 // - What it does: Orchestrates manifest parsing, fact loading, stdlib-authority resolution, manifest-carried analysis-defeating policy selection, checker execution over the typed reference/import facts, report rendering, report-verdict assertion, check artifact emission (canonical report and exact surface from one analysis invocation), and the stdlibmap subcommands (generate native and explicit-input mode, inspect).
-// - What it requires: Command-line arguments specifying the command path and output format, as well as an environment for stdout/stderr output. Explicit-input `stdlibmap generate` declares its whole target (package list, config file, SDK root) and performs no host discovery. `verdict` reads only its named report artifact argument. Every check decision reads the declared stdlib-map artifact (--stdlib-map) in layout mode and the Step 4 native discovery/cache services in native mode; the map is validated fail-closed before any verdict.
+// - What it requires: Command-line arguments specifying the command path and output format, as well as an environment for stdout/stderr output. Explicit-input `stdlibmap generate` declares its whole target (package list, config file, SDK root) and performs no host discovery. `verdict` reads its named report artifact and, for verdict-golden assertions, its named one-line expected-verdict artifact. Every check decision reads the declared stdlib-map artifact (--stdlib-map) in layout mode and the Step 4 native discovery/cache services in native mode; the map is validated fail-closed before any verdict.
 // - What it provides: Actionable conformance reports and deterministic exit codes, plus the canonical report and exact surface artifacts consumed by Bazel and native workflows. Check and emitted surface share the same exact declaring-object interface.
 // - Ambient Authority: This component is a shell component and holds FILES, REFLECT, READ_SYSTEM_STATE, and UNSAFE_POINTER. Explicit-input map generation adds no EXEC beyond arcc's own self-exec layout driver: it never runs the toolchain (`go env`, `go list`), while native mode runs the host toolchain.
 package app
@@ -140,7 +140,7 @@ func printUsage(w io.Writer) {
 	fmt.Fprintln(w, "  arcc check <manifest> [--package-layout=<layout>] [--format=json]")
 	fmt.Fprintln(w, "        [--report-out=<path>] [--surface-out=<path>] [--stdlib-map=<artifact>]")
 	fmt.Fprintln(w, "        [--report-verdict-only]")
-	fmt.Fprintln(w, "  arcc verdict <report> --expect=pass|fail")
+	fmt.Fprintln(w, "  arcc verdict <report> (--expect=pass|fail | --expect-file=<verdict-golden>)")
 	fmt.Fprintln(w, "  arcc package-imports --config=<request.json> --output=<imports.json>")
 	fmt.Fprintln(w, "  arcc package-layout-merge --layout=<base.json> --imports=<imports.json> --output=<layout.json>")
 	fmt.Fprintln(w, "  arcc stdlibmap generate --output=<path> [--toolchain=<version>] [--goos=<os>] [--goarch=<arch>] [--cgo] [--tags=<t1,t2>] [--goexperiment=<exp>]")

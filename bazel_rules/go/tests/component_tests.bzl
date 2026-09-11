@@ -935,22 +935,24 @@ def _negative_rules_stage_the_checked_report_impl(env, target):
     # The golden rule is asserted through a second analysis test below; this
     # target's impl runs only for the grep rule.
 
-def _golden_rule_stages_the_checked_report_test(name):
-    # AC 4 (Step 5 task 06): the golden rule diffs the provider's canonical
-    # report directly; only the report and the golden are staged.
+def _verdict_golden_rule_stages_the_checked_report_test(name):
+    # Step 9 AC 1/4: the verdict-golden rule consumes the provider's canonical
+    # report plus a stable verdict golden and the shared arcc verdict command.
     analysis_test(
         name = name,
-        target = "//bazel_rules/go/tests:api_component_text_report_golden_test",
-        impl = _golden_rule_stages_the_checked_report_impl,
+        target = "//bazel_rules/go/tests:api_component_verdict_golden_test",
+        impl = _verdict_golden_rule_stages_the_checked_report_impl,
         attr_values = {"size": "small"},
     )
 
-def _golden_rule_stages_the_checked_report_impl(env, target):
+def _verdict_golden_rule_stages_the_checked_report_impl(env, target):
     runfiles = [
         f.basename
         for f in target[DefaultInfo].default_runfiles.files.to_list()
     ]
     env.expect.that_collection(runfiles).contains("api_component.report.json")
+    env.expect.that_collection(runfiles).contains("api_component.verdict.golden")
+    env.expect.that_collection(runfiles).contains("arcc")
     env.expect.that_collection([b for b in runfiles if b.endswith(".surface.json")]).contains_exactly([])
 
 def go_component_test_suite(name):
@@ -990,6 +992,6 @@ def go_component_test_suite(name):
             _export_layout_shape_test,
             _migrated_fixture_stays_checked_test,
             _negative_rules_stage_the_checked_report_test,
-            _golden_rule_stages_the_checked_report_test,
+            _verdict_golden_rule_stages_the_checked_report_test,
         ],
     )

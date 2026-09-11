@@ -1,12 +1,13 @@
-"""Analysis tests for the report-assertion check rules (Step 5 task 06).
+"""Analysis tests for the report-assertion check rules (Step 9 task 01).
 
 The three `.check` assertion rules consume the provider's canonical
 `ArccComponentInfo.report` — they never re-run `arcc check` (design R8, §Build
 topology). These tests pin that contract structurally at analysis time:
 launcher content names only the report-assertion argv (`arcc verdict`, grep,
-diff), and runfiles contain only the report plus the assertion-specific arcc
-or golden inputs — no SDK sources, manifest/layout, or component source
-closure (AC 3). The producer-chain and laziness tests cover AC 4 and AC 6.
+and the verdict-golden file form), and runfiles contain only the report plus
+the assertion-specific arcc or golden inputs — no SDK sources, manifest/layout,
+or component source closure. The producer-chain and laziness tests cover the
+same topology for the migrated semantic goldens.
 """
 
 load("@rules_testing//lib:analysis_test.bzl", "analysis_test", "test_suite")
@@ -17,10 +18,12 @@ _API_CHECK = "//bazel_rules/go/tests/testdata/api:api_component.check"
 _API_COMPONENT = "//bazel_rules/go/tests/testdata/api:api_component"
 _API_GREP = "//bazel_rules/go/tests:api_component_grep_report_test"
 _GREP_NEGATIVE = "//bazel_rules/go/tests:undeclared_member_dep_fails_test"
-_GOLDEN = "//bazel_rules/go/tests:api_component_json_report_golden_test"
+_VERDICT_GOLDEN = "//bazel_rules/go/tests:api_component_verdict_golden_test"
+_FAIL_VERDICT_GOLDEN = "//bazel_rules/go/tests:undeclared_dep_component_verdict_golden_test"
+_HOSTILE_VERDICT_GOLDEN = "//bazel_rules/go/tests:hostile_verdict_golden_launcher_probe_test"
 _CONSUMER = "//bazel_rules/go/tests/testdata/infra/consumer:consumer_component"
 _ASSERTED_GREP = "//bazel_rules/go/tests:asserted_component_grep_rejected_test"
-_ASSERTED_GOLDEN = "//bazel_rules/go/tests:asserted_component_golden_rejected_test"
+_ASSERTED_VERDICT_GOLDEN = "//bazel_rules/go/tests:asserted_component_verdict_golden_test"
 
 def _assert_absent(env, content, token):
     """Starlark-truth has no `not_contains` on strings; absence is asserted here."""
@@ -118,33 +121,99 @@ def _grep_negative_expects_fail_impl(env, target):
         "undeclared_member_dep_fails_test.sh",
     ])
 
-def _golden_diffs_provider_report_test(name):
-    # AC 2 (golden): the golden rule diffs the provider's canonical report
-    # directly; runfiles are exactly the report and the golden — no arcc, no
-    # analysis inputs (AC 3).
+def _verdict_golden_asserts_provider_report_test(name):
+    # AC 1/4: a verdict golden consumes the canonical provider report and a
+    # one-line verdict file through the shared `arcc verdict` behavior; it
+    # does not compare the report bytes or rerun analysis.
     analysis_test(
         name = name,
-        target = _GOLDEN,
-        impl = _golden_diffs_provider_report_impl,
+        target = _VERDICT_GOLDEN,
+        impl = _verdict_golden_asserts_provider_report_impl,
         attr_values = {"size": "small"},
     )
 
-def _golden_diffs_provider_report_impl(env, target):
+def _verdict_golden_asserts_provider_report_impl(env, target):
     content = _launcher(env, target)
-    env.expect.that_str(content).contains("diff -u")
+    env.expect.that_str(content).contains("verdict")
+    env.expect.that_str(content).contains("--expect-file=")
     env.expect.that_str(content).contains("api_component.report.json")
-    _assert_absent(env, content, "verdict")
+    env.expect.that_str(content).contains("api_component.verdict.golden")
+    _assert_absent(env, content, "diff -u")
     _assert_absent(env, content, "'check'")
-    _assert_absent(env, content, "grep -F")
-    # Both runfiles are named `api_component.report.json`: the provider's
-    # artifact and the golden — the exact same basename is the point, the
-    # launcher diffs one against the other. The duplicate pins "exactly two
-    # files, nothing else".
+    _assert_absent(env, content, "--package-layout")
+    _assert_absent(env, content, "--stdlib-map")
     env.expect.that_collection(_runfile_basenames(target)).contains_exactly([
         "api_component.report.json",
-        "api_component.report.json",
-        "api_component_json_report_golden_test.sh",
+        "api_component.verdict.golden",
+        "api_component_verdict_golden_test.sh",
+        "arcc",
     ])
+
+def _failing_verdict_golden_pins_fail_test(name):
+    # AC 1/6: the violating checked component has a separate stable `fail`
+    # golden, so the mismatch path remains actionable and can name both
+    # expected and actual values through `arcc verdict`.
+    analysis_test(
+        name = name,
+        target = _FAIL_VERDICT_GOLDEN,
+        impl = _failing_verdict_golden_pins_fail_impl,
+        attr_values = {"size": "small"},
+    )
+
+def _failing_verdict_golden_pins_fail_impl(env, target):
+    content = _launcher(env, target)
+    env.expect.that_str(content).contains("undeclared_dep_component.report.json")
+    env.expect.that_str(content).contains("undeclared_dep_component.verdict.golden")
+    env.expect.that_str(content).contains("--expect-file=")
+    _assert_absent(env, content, "diff -u")
+    env.expect.that_collection(_runfile_basenames(target)).contains_exactly([
+        "arcc",
+        "undeclared_dep_component.report.json",
+        "undeclared_dep_component.verdict.golden",
+        "undeclared_dep_component_verdict_golden_test.sh",
+    ])
+
+def _hostile_verdict_golden_stays_data_test(name):
+    # AC 6/7: the golden is passed as a path to the CLI. Its hostile contents
+    # never become generated shell source, and the runfiles remain minimal.
+    analysis_test(
+        name = name,
+        target = _HOSTILE_VERDICT_GOLDEN,
+        impl = _hostile_verdict_golden_stays_data_impl,
+        attr_values = {"size": "small"},
+    )
+
+def _hostile_verdict_golden_stays_data_impl(env, target):
+    content = _launcher(env, target)
+    env.expect.that_str(content).contains("--expect-file=")
+    env.expect.that_str(content).contains("hostile.verdict.golden")
+    _assert_absent(env, content, "$(touch SHOULD_NOT_RUN)")
+    _assert_absent(env, content, "diff -u")
+    env.expect.that_collection(_runfile_basenames(target)).contains_exactly([
+        "api_component.report.json",
+        "hostile_verdict_golden_launcher_probe_test.sh",
+        "arcc",
+        "hostile.verdict.golden",
+    ])
+
+def _verdict_golden_rejects_asserted_provider_test(name):
+    # AC 5: an asserted provider has no checked verdict and is rejected during
+    # analysis by the same fail-closed guard as the other assertion rules.
+    analysis_test(
+        name = name,
+        target = _ASSERTED_VERDICT_GOLDEN,
+        expect_failure = True,
+        impl = _asserted_verdict_golden_rejected_impl,
+        attr_values = {"size": "small"},
+    )
+
+def _asserted_verdict_golden_rejected_impl(env, target):
+    env.expect.that_target(target).failures().contains_predicate(
+        matching.contains("asserted component"),
+    )
+    env.expect.that_target(target).failures().contains_predicate(
+        matching.contains("no checked verdict"),
+    )
 
 def _dependent_builds_producer_chain_once_test(name):
     # AC 4: the dependent's own analysis action exists exactly once and
@@ -211,16 +280,6 @@ def _asserted_grep_rejected_test(name):
         attr_values = {"size": "small"},
     )
 
-def _asserted_golden_rejected_test(name):
-    # AC 5: same requirement for the golden rule.
-    analysis_test(
-        name = name,
-        target = _ASSERTED_GOLDEN,
-        expect_failure = True,
-        impl = _asserted_assertion_rejected_impl,
-        attr_values = {"size": "small"},
-    )
-
 def _asserted_assertion_rejected_impl(env, target):
     env.expect.that_target(target).failures().contains_predicate(
         matching.contains("asserted component"),
@@ -262,11 +321,13 @@ def report_assertion_test_suite(name):
             _check_asserts_recorded_verdict_test,
             _grep_asserts_verdict_and_strings_test,
             _grep_negative_expects_fail_test,
-            _golden_diffs_provider_report_test,
+            _verdict_golden_asserts_provider_report_test,
+            _failing_verdict_golden_pins_fail_test,
+            _hostile_verdict_golden_stays_data_test,
             _dependent_builds_producer_chain_once_test,
             _checked_artifacts_stay_lazy_test,
             _asserted_grep_rejected_test,
-            _asserted_golden_rejected_test,
+            _verdict_golden_rejects_asserted_provider_test,
             _hostile_grep_strings_stay_data_test,
         ],
     )

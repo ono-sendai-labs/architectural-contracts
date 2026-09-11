@@ -236,7 +236,7 @@ Usage:
   arcc check <manifest> [--package-layout=<layout>] [--format=json]
         [--report-out=<path>] [--surface-out=<path>] [--stdlib-map=<artifact>]
         [--report-verdict-only]
-  arcc verdict <report> --expect=pass|fail
+  arcc verdict <report> (--expect=pass|fail | --expect-file=<verdict-golden>)
   arcc stdlibmap generate --output=<path> [--toolchain=<version>] [--goos=<os>] [--goarch=<arch>] [--cgo] [--tags=<t1,t2>] [--goexperiment=<exp>]
   arcc stdlibmap inspect <artifact> [--expect-key=<field=value,...>] [summary | symbol <id> | init <pkg>]...
   arcc --version

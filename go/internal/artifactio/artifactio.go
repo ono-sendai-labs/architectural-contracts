@@ -22,8 +22,9 @@
 //     artifact vocabulary (report) for validation, and write access to
 //     the target directory for atomic replacement.
 //   - What it provides: MarshalSurface/MarshalMap, DecodeSurface/DecodeMap,
-//     ReadReportFile, SurfaceDigest/MapDigest, WriteFileAtomic with
-//     injectable write seams, WriteSurface, ReadSources, and the
+//     ReadReportFile/ReadVerdictGoldenFile, MarshalVerdict,
+//     SurfaceDigest/MapDigest, WriteFileAtomic with injectable write seams,
+//     WriteSurface, ReadSources, and the
 //     SurfacePath/ReportPath conventions. No cache regeneration policy,
 //     CLI commands, Bazel actions, or dependency freshness computation.
 //   - Ambient Authority: This is a shell component holding FILES,

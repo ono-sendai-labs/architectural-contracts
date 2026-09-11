@@ -429,6 +429,64 @@ func TestReadReportFile_RejectsOversizedInput(t *testing.T) {
 	}
 }
 
+func TestVerdictGolden_RoundTripAndCanonicalBytes(t *testing.T) {
+	tests := []struct {
+		name    string
+		verdict report.Verdict
+		want    string
+	}{
+		{name: "pass", verdict: report.VerdictPass, want: "pass\n"},
+		{name: "fail", verdict: report.VerdictFail, want: "fail\n"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			data, err := artifactio.MarshalVerdict(tt.verdict)
+			if err != nil {
+				t.Fatalf("MarshalVerdict() error = %v", err)
+			}
+			if string(data) != tt.want {
+				t.Fatalf("MarshalVerdict() = %q, want %q", data, tt.want)
+			}
+			path := filepath.Join(t.TempDir(), "component.verdict.golden")
+			if err := os.WriteFile(path, data, 0o644); err != nil {
+				t.Fatalf("write golden: %v", err)
+			}
+			got, err := artifactio.ReadVerdictGoldenFile(path)
+			if err != nil {
+				t.Fatalf("ReadVerdictGoldenFile() error = %v", err)
+			}
+			if got != tt.verdict {
+				t.Errorf("ReadVerdictGoldenFile() = %q, want %q", got, tt.verdict)
+			}
+		})
+	}
+}
+
+func TestVerdictGolden_RejectsNonCanonicalContent(t *testing.T) {
+	for _, input := range []string{
+		"pass",
+		"pass\n\n",
+		"maybe\n",
+		"$(touch SHOULD_NOT_RUN)\n",
+	} {
+		t.Run(strings.TrimSpace(input), func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "component.verdict.golden")
+			if err := os.WriteFile(path, []byte(input), 0o644); err != nil {
+				t.Fatalf("write golden: %v", err)
+			}
+			if _, err := artifactio.ReadVerdictGoldenFile(path); !errors.Is(err, artifactio.ErrInvalidVerdictGolden) {
+				t.Errorf("ReadVerdictGoldenFile() error = %v, want ErrInvalidVerdictGolden", err)
+			}
+		})
+	}
+}
+
+func TestVerdictGolden_RejectsUnknownVerdict(t *testing.T) {
+	if _, err := artifactio.MarshalVerdict(report.Verdict("maybe")); !errors.Is(err, artifactio.ErrInvalidVerdictGolden) {
+		t.Errorf("MarshalVerdict() error = %v, want ErrInvalidVerdictGolden", err)
+	}
+}
+
 func TestMarshalReport_SitesClassAndSDKKeyCanonical(t *testing.T) {
 	sitesFwd := []report.AuthoritySite{
 		{File: "member/c.go", Line: 11, Symbol: "os.Create"},

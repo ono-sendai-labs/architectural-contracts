@@ -22,6 +22,11 @@ import (
 const (
 	ReportFormatVersion = 1
 	MaxReportBytes      = 16 << 20 // 16 MiB
+	verdictGoldenPass   = "pass\n"
+	verdictGoldenFail   = "fail\n"
+	// MaxVerdictGoldenBytes is the exact size of either canonical verdict
+	// representation (`pass\n` or `fail\n`).
+	MaxVerdictGoldenBytes int64 = int64(len(verdictGoldenPass))
 )
 
 // Sentinels classifying persisted-report failures for `arcc verdict` and
@@ -32,6 +37,7 @@ var (
 	ErrUnknownVerdict           = errors.New("unknown report verdict")
 	ErrVerdictMismatch          = errors.New("persisted verdict contradicts the report")
 	ErrUnsupportedReportVersion = errors.New("unsupported report format version")
+	ErrInvalidVerdictGolden     = errors.New("invalid verdict golden")
 )
 
 // PersistedReport is the canonical report artifact: the completed
@@ -367,4 +373,45 @@ func ReadReportFile(path string) (PersistedReport, error) {
 		return PersistedReport{}, fmt.Errorf("decode report artifact %q: %w", path, err)
 	}
 	return persisted, nil
+}
+
+// ReadVerdictGoldenFile reads the deliberately small, canonical representation
+// consumed by a verdict-golden assertion. Requiring exactly one of the two
+// values plus a trailing newline keeps the golden deterministic and makes the
+// file safe to pass as data to a shell launcher; it is never interpreted as
+// shell syntax or as a report artifact.
+func ReadVerdictGoldenFile(path string) (report.Verdict, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return "", fmt.Errorf("open verdict golden %q: %w", path, err)
+	}
+	defer f.Close()
+
+	data, err := boundedRead(f, MaxVerdictGoldenBytes)
+	if err != nil {
+		return "", fmt.Errorf("%w %q: %v", ErrInvalidVerdictGolden, path, err)
+	}
+	switch string(data) {
+	case verdictGoldenPass:
+		return report.VerdictPass, nil
+	case verdictGoldenFail:
+		return report.VerdictFail, nil
+	default:
+		return "", fmt.Errorf("%w %q: expected exactly %q or %q", ErrInvalidVerdictGolden, path, verdictGoldenPass, verdictGoldenFail)
+	}
+}
+
+// MarshalVerdict returns the canonical bytes for a verdict golden. Keeping the
+// representation here, alongside its bounded reader, gives assertion clients
+// one stable format and prevents a host-specific report field from entering a
+// semantic golden.
+func MarshalVerdict(verdict report.Verdict) ([]byte, error) {
+	switch verdict {
+	case report.VerdictPass:
+		return []byte(verdictGoldenPass), nil
+	case report.VerdictFail:
+		return []byte(verdictGoldenFail), nil
+	default:
+		return nil, fmt.Errorf("%w: unknown verdict %q", ErrInvalidVerdictGolden, verdict)
+	}
 }

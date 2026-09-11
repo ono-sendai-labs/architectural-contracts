@@ -5,11 +5,12 @@ Two argv construction points, one per contract: `arcc_check_argv` is the
 analysis argv — the component analysis action (component.bzl's ArccCheck, via
 its generated frame wrapper) runs it in always-green report-verdict-only
 mode, and `arcc_checked_analysis_test` re-executes the exact same command, so
-the analysis and its execution coverage cannot drift. `arcc_verdict_argv` is
-the report-assertion argv — the `.check` and grep assertion rules consume the
-provider's canonical report through it (Step 5 task 06) and never re-run the
-analysis; the golden rule diffs the provider report directly against its
-golden, needing no tool.
+the analysis and its execution coverage cannot drift. `arcc_verdict_argv` and
+`arcc_verdict_golden_argv` are the report-assertion argv builders — `.check`,
+grep, and verdict-golden rules consume the provider's canonical report through
+the shared `arcc verdict` behavior and never re-run the analysis. The
+complete-report golden rule is reserved for persisted shape coverage and
+compares the provider report directly.
 """
 
 def arcc_check_argv(
@@ -61,7 +62,7 @@ _ARCC_VERDICTS = ("pass", "fail")
 def arcc_verdict_argv(arcc, report, expect):
     """Argv for `arcc verdict <report> --expect=pass|fail`, the report-assertion argv.
 
-    The `.check`, grep, and golden assertion rules consume the provider's
+    The `.check` and grep assertion rules consume the provider's
     canonical `ArccComponentInfo.report` through this one construction point
     (Step 5 task 06): the recorded verdict is asserted, never recomputed, and
     the argv cannot drift between the rules. `expect` must be one of the two
@@ -73,3 +74,13 @@ def arcc_verdict_argv(arcc, report, expect):
             expect,
         ))
     return [arcc, "verdict", report, "--expect=" + expect]
+
+def arcc_verdict_golden_argv(arcc, report, golden):
+    """Argv for asserting a report against a one-line verdict golden.
+
+    The golden remains a path-valued input. The CLI reads and validates its
+    `pass`/`fail` representation before using the same persisted-report
+    decoder and verdict derivation as `arcc verdict --expect=...`; no golden
+    contents are interpolated into generated shell code.
+    """
+    return [arcc, "verdict", report, "--expect-file=" + golden]
