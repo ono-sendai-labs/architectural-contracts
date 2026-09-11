@@ -1,0 +1,68 @@
+result:
+  task_file: .agents/tasks/2026-08-04-compositional-component-analysis/step07/task-04-centralize-protobuf-runtime-ownership.code-task.md
+  change_id: tnvqryptplrxyntwulnmyqvxnlsvkpmz
+  status: completed
+  schema_version: 2
+  produced_at: 2026-09-11T00:25:21Z
+
+acceptance_criteria:
+  - text: |
+      The protobuf runtime has one owner
+      - Given every checked-in component manifest and go_component declaration
+      - When concrete package ownership is indexed
+      - Then every retained google.golang.org/protobuf/... package is owned exactly once by protobuf-runtime, with no patterns or duplicate owners
+    addressed: yes
+    evidence: |
+      go/internal/manifestparity/ownership_test.go:258-302 compares the checked-in manifest and Bazel labels as a sorted, unique set and rejects protobuf members in every other checked-in component. The 28-package closure is recorded in work.log and is enumerated in go/internal/protobufruntime/component.textproto:7-35 and BUILD.bazel:10-39.
+  - text: |
+      Consumers use explicit boundaries
+      - Given schema, manifest, artifactio, capslockadapter, and any other direct protobuf consumers
+      - When their manifests and Bazel providers are compared
+      - Then they depend on the wrapper where required and no longer list its packages as their own members
+    addressed: yes
+    evidence: |
+      go/internal/manifestparity/ownership_test.go:304-325 audits the four required consumer manifests. The shared dependency edges are present in schema/component.textproto:11-13, manifest/component.textproto:4-11, artifactio/component.textproto:6-29, and capslockadapter/component.textproto:11-26; the ownership audit finds no duplicate protobuf members.
+  - text: |
+      The wrapper is visibly asserted
+      - Given Bazel and native consumers of the wrapper
+      - When their reports are rendered
+      - Then the boundary is package-level, ASSERTED, UNKNOWN authority, and untrusted, with no wrapper report, exact-symbol claim, or content digest
+    addressed: yes
+    evidence: |
+      go/internal/protobufruntime/BUILD.bazel:3-42 uses tags = ["manual"] and the component-level asserted producer. component.surface.json:1-48 is PACKAGE_SURFACE with UNKNOWN authority, no symbols/digest, pinned upstream Linux/amd64 identity, and no report; the asserted provider/report behavior is exercised by the existing Bazel asserted-surface tests and native selfcheck staging in justfile:111-120.
+  - text: |
+      Foreign source is not required for surface resolution
+      - Given the wrapper surface and a consumer whose protobuf source tree is unreadable or absent from the dependency-resolver inputs
+      - When the consumer check runs
+      - Then ownership and boundary classification succeed from the surface without parsing protobuf source
+    addressed: yes
+    evidence: |
+      go/internal/goanalysis/surface_resolver_internal_test.go:16-76 proves persisted surface resolution does not invoke the package loader, and go/internal/goanalysis/surface_resolver_test.go:515-518 proves an empty-digest asserted surface does not enumerate source bytes. The native wrapper surface is the empty-digest convention artifact in go/internal/protobufruntime/component.surface.json.
+  - text: |
+      Protobuf exemptions are removed
+      - Given the Step 6 AC8b exemption inventory
+      - When selfcheck and Bazel checks run after migration
+      - Then artifactio and manifest are checked normally, their exemption comments/tags are gone, and no replacement bypass hides their verdicts
+    addressed: yes
+    evidence: |
+      go/internal/artifactio/BUILD.bazel:60-86 and go/internal/manifest/BUILD.bazel:57-75 have no Step 6 exemption or check_tags seam. justfile:144-145 restores both as normal native gate commands; their component checks pass in the final just ci run. Schema's separate tag remains explicitly documented at go/internal/schema/BUILD.bazel:30-45 for its own generated-code UNANALYZED findings, not for protobuf ownership.
+  - text: |
+      Repository integration remains coherent
+      - Given generated schemas, manifest parsing, artifact I/O, native selfcheck, Bazel checks, and manifest parity
+      - When just ci runs
+      - Then all pass with one protobuf owner and deterministic asserted surfaces for the target configuration
+    addressed: yes
+    evidence: |
+      The final just ci run passed generation cleanliness, vet, formatting, Go unit/integration tests, native selfcheck, Bazel build/test, manifest parity, and validation scripts. The three produced jj changes are tnvqryptplrxyntwulnmyqvxnlsvkpmz, uzsvnnpvoonnvypmrpxrvotlvyvvsppu, and rplrspxlukootkwzqovtkqmtwtwplrzm; jj left an empty working-copy @.
+
+artifacts:
+  scratchpad_dir: .agents/scratchpad/2026-08-04-compositional-component-analysis/step07/task-04-centralize-protobuf-runtime-ownership/
+  files:
+    - context.md
+    - plan.md
+    - progress.md
+    - work.log
+    - result.yaml
+
+notes: |
+  The preceding task already supplied the protobuf-runtime manifest/BUILD target and the four required consumer edges; this iteration verified that existing staging artifact and completed the repository-wide ownership/parity audit. Added work includes the pinned native asserted surface, manual-manifest authority parity, restored artifactio/manifest gates, explicit bounded readers that remove their direct UNANALYZED findings, and an exact native SDK-key pin test. The final `just ci` passed, with schema's independently documented generated-code exclusion retained and all three task changes committed incrementally.

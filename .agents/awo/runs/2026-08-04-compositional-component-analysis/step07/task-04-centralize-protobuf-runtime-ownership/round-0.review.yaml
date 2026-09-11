@@ -1,0 +1,116 @@
+review:
+  task_file: .agents/tasks/2026-08-04-compositional-component-analysis/step07/task-04-centralize-protobuf-runtime-ownership.code-task.md
+  change_id: tnvqryptplrxyntwulnmyqvxnlsvkpmz
+  reviewed_at: 2026-09-11T00:32:47Z
+  verdict: approved
+  schema_version: 2
+  lsp_coverage: unavailable
+
+merge_request:
+  title: "Review protobuf runtime ownership [Compositional Analysis: Step 07/Task 04]"
+  body: |
+    Reviews the complete ordered change series from the supplied base through
+    the current change. The initial change adds the asserted protobuf-runtime
+    surface, ownership/parity audit, and native/Bazel wiring; the second change
+    removes the artifactio and manifest AC8b seams and replaces their defeating
+    reader sites; the final change pins the native surface SDK identity.
+
+summary: |
+  All six acceptance criteria pass. The three-change series centralizes the
+  28-package protobuf closure, verifies manifest/Bazel parity and asserted
+  provenance, removes the protobuf-specific selfcheck exemptions, and preserves
+  source-independent dependency resolution. Focused tests, uncached Bazel
+  coverage for the wrapper parity target, and a fresh `just ci` run passed; no
+  critical, important, suggestion, or nit findings were identified.
+
+acceptance_criteria:
+  - text: |
+      **The protobuf runtime has one owner**
+      - Given every checked-in component manifest and go_component declaration
+      - When concrete package ownership is indexed
+      - Then every retained `google.golang.org/protobuf/...` package is owned exactly once by `protobuf-runtime`, with no patterns or duplicate owners
+    status: pass
+    evidence: |
+      The wrapper manifest enumerates the sorted 28-package closure at
+      go/internal/protobufruntime/component.textproto:7-35 and its Bazel labels
+      at go/internal/protobufruntime/BUILD.bazel:10-39. The ownership/parity audit
+      at go/internal/manifestparity/ownership_test.go:263-301 checks sorted,
+      duplicate-free equality and rejects protobuf members in every other
+      checked-in component; an independent go list closure audit matched the
+      same set.
+  - text: |
+      **Consumers use explicit boundaries**
+      - Given `schema`, `manifest`, `artifactio`, `capslockadapter`, and any other direct protobuf consumers
+      - When their manifests and Bazel providers are compared
+      - Then they depend on the wrapper where required and no longer list its packages as their own members
+    status: pass
+    evidence: |
+      The required consumer edge audit passes at
+      go/internal/manifestparity/ownership_test.go:304-325. The checked-in
+      component edges are present in go/internal/schema/BUILD.bazel:34-41,
+      go/internal/manifest/BUILD.bazel:60-65, and
+      go/internal/artifactio/BUILD.bazel:64-74; the native capslockadapter edge
+      is present at go/internal/capslockadapter/component.textproto:15-18.
+      The full Bazel and native checks passed with no duplicate protobuf members.
+  - text: |
+      **The wrapper is visibly asserted**
+      - Given Bazel and native consumers of the wrapper
+      - When their reports are rendered
+      - Then the boundary is package-level, `ASSERTED`, `UNKNOWN` authority, and untrusted, with no wrapper report, exact-symbol claim, or content digest
+    status: pass
+    evidence: |
+      go/internal/protobufruntime/BUILD.bazel:7-42 uses the component-level
+      `tags = ["manual"]` asserted producer. The producer implementation at
+      bazel_rules/go/private/component.bzl:666-694 writes a package-level
+      UNKNOWN surface with no report, and the output-group wiring at
+      bazel_rules/go/private/component.bzl:730-772 keeps the provenance
+      structural. The native convention artifact at
+      go/internal/protobufruntime/component.surface.json:2-47 has UNKNOWN
+      authority, 28 packages, no symbols or digest, and the target namespace/
+      SDK identity; justfile:112-120 stages it without running analysis.
+  - text: |
+      **Foreign source is not required for surface resolution**
+      - Given the wrapper surface and a consumer whose protobuf source tree is unreadable or absent from the dependency-resolver inputs
+      - When the consumer check runs
+      - Then ownership and boundary classification succeed from the surface without parsing protobuf source
+    status: pass
+    evidence: |
+      The persisted-surface resolver test at
+      go/internal/goanalysis/surface_resolver_internal_test.go:16-76 fails if
+      the package loader is called, while
+      go/internal/goanalysis/surface_resolver_test.go:494-550 covers unreadable
+      sources and an empty-digest asserted surface without source enumeration.
+      The native selfcheck stages the checked-in protobuf surface and runs the
+      manifest and artifactio consumers at justfile:112-145; the complete
+      selfcheck and CI runs passed.
+  - text: |
+      **Protobuf exemptions are removed**
+      - Given the Step 6 AC8b exemption inventory
+      - When selfcheck and Bazel checks run after migration
+      - Then `artifactio` and `manifest` are checked normally, their exemption comments/tags are gone, and no replacement bypass hides their verdicts
+    status: pass
+    evidence: |
+      The artifactio and manifest component declarations at
+      go/internal/artifactio/BUILD.bazel:60-86 and
+      go/internal/manifest/BUILD.bazel:57-76 contain no Step 6 exemption or
+      component check tag. justfile:126-145 restores their normal staging and
+      gate commands. The remaining schema tag is documented at
+      go/internal/schema/BUILD.bazel:42-45 as the separate generated-code
+      UNANALYZED exclusion, and the affected Bazel checks passed.
+  - text: |
+      **Repository integration remains coherent**
+      - Given generated schemas, manifest parsing, artifact I/O, native selfcheck, Bazel checks, and manifest parity
+      - When `just ci` runs
+      - Then all pass with one protobuf owner and deterministic asserted surfaces for the target configuration
+    status: pass
+    evidence: |
+      The recorded final validation at
+      .agents/scratchpad/2026-08-04-compositional-component-analysis/step07/task-04-centralize-protobuf-runtime-ownership/work.log:719-971 shows
+      generation cleanliness, go vet, formatting, Go unit/integration tests,
+      native selfcheck, Bazel build/test, and validation scripts passing. A
+      fresh `just ci` rerun during review also exited successfully, and jj
+      reports an empty working copy.
+
+findings: []
+
+ecosystem_reviews: []
