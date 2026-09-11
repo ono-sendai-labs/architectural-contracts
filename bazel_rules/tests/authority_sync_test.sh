@@ -39,6 +39,16 @@ if [[ -z "${constants}" || -z "${all_authorities}" || -z "${known_capabilities}"
   exit 1
 fi
 
+# Each capability name must still be a same-named Starlark constant. This
+# preserves the original check while deliberately excluding DECLARED/UNKNOWN,
+# whose values are verification-status selectors rather than capabilities.
+while read -r name; do
+  if ! grep -Fqx "${name} = \"${name}\"" "${authority_bzl}"; then
+    echo "FAIL: authority.bzl capability ${name} is not a same-named constant" >&2
+    status=1
+  fi
+done <<< "${constants}"
+
 if [[ "${constants}" != "${all_authorities}" ]]; then
   echo "FAIL: authority.bzl constants and ALL_AUTHORITIES disagree:" >&2
   diff <(echo "${constants}") <(echo "${all_authorities}") >&2 || true
