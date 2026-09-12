@@ -1,0 +1,158 @@
+review:
+  project: 2026-08-04-compositional-component-analysis
+  plan_path: .agents/planning/2026-08-04-compositional-component-analysis/implementation/plan.md
+  design_path: .agents/planning/2026-08-04-compositional-component-analysis/design/detailed-design.md
+  reviewed_at: 2026-09-12T16:06:12Z
+  schema_version: 1
+  steps_in_scope: [13]
+  commits_in_scope: 21
+  remediation_step: null
+  verdict: clean
+
+summary: |
+  The second pass confirms that both actionable first-pass findings are
+  resolved: ArccCheck now receives a shared export-only stdlib projection with
+  no toolchain binaries, and both scanners expose exact member/non-member work
+  counters that every native and Bazel scaling row asserts. Step 13 as a whole
+  now establishes scaling, hermeticity, and determinism by direct assertion,
+  not by proxy: scanner-internal visits are counted, expanded action inputs and
+  hostile sandbox state are audited, and independently built artifacts are
+  compared byte for byte. The unactioned determinism-fixture verdict check
+  remains a worthwhile suggestion, but it does not weaken the exact-byte
+  determinism property and is acceptable to carry. All six task-level reviews
+  are approved, no important or critical residue remains, and a fresh `just ci`
+  run passed during this review.
+
+architecture:
+  - element: Member-analysis scaling acceptance
+    expected: |
+      Fixed member source across depth and width 1/4/16 must produce exact
+      evidence that typed reference and analysis-defeat scanning perform only
+      member work, while export volume and loader cost remain visible residuals.
+    actual: |
+      Package-private, nil-by-default observations are emitted from the actual
+      traversal loops in ScanReferences and ScanAnalysisDefeats. Native and
+      Bazel scaling rows assert one member entry, zero non-member entries and
+      work, identical operation counts and typed edges, and separately growing
+      export/projection volume; timing remains supporting evidence only.
+    status: aligned
+    files:
+      - go/internal/goanalysis/scanobserver.go
+      - go/internal/goanalysis/refscan.go
+      - go/internal/goanalysis/defeatscan.go
+      - go/internal/goanalysis/member_analysis_scaling_integration_test.go
+      - go/internal/goanalysis/producer_chain_scaling_integration_test.go
+    notes: |
+      This closes first-pass F2. The invariant is asserted at scanner entry and
+      work sites rather than inferred from the shape of packages.Load results.
+
+  - element: Complete Bazel producer-chain scaling acceptance
+    expected: |
+      Measure ArccImportGraph, ArccLayout and ArccCheck for matching depth,
+      width and direct-type-surface variants; keep action roles explicit and
+      require conforming checked reports.
+    actual: |
+      Thirteen variants exercise the real producer topology. Exact action
+      counts, source/export volumes, root and dependency loader/scanner work,
+      input roles, pass verdicts and residual action timings are asserted and
+      recorded separately.
+    status: aligned
+    files:
+      - bazel_rules/go/tests/testdata/producerchain/producer_chain.bzl
+      - bazel_rules/go/tests/producer_chain_tests.bzl
+      - go/internal/goanalysis/producer_chain_scaling_integration_test.go
+    notes: |
+      The suite explicitly distinguishes constant semantic member work from
+      the accepted closure-shaped import projection and export decoding costs.
+
+  - element: Restricted-sandbox hermeticity acceptance
+    expected: |
+      The real ArccImportGraph, ArccLayout, ArccCheck and ArccStdlibMap chain
+      must run without network, native caches, a host Go command, or toolchain
+      binaries in ArccCheck inputs, satisfying I5 and the N2 allowlist.
+    actual: |
+      One target-configured ArccStdlibExportProjection copies only metadata-
+      referenced compiler exports from the declared rules_go producer tree and
+      publishes that shared tree with metadata to ArccCheck. Analysis tests and
+      expanded execution-log checks reject bin/go, pkg/tool, compiler, SDK
+      source, cache and unclassified stdlib inputs without the former stdlib_
+      exemption; the restricted linux-sandbox run also asserts empty action
+      environments, blocked network, poisoned-cache immutability, pass verdicts
+      and one default map generation.
+    status: aligned
+    files:
+      - bazel_rules/go/private/stdlib_map.bzl
+      - bazel_rules/go/private/go_adapter.bzl
+      - bazel_rules/go/private/component.bzl
+      - go/internal/stdlibmap/project_export.go
+      - go/internal/goanalysis/hermeticity_integration_test.go
+    notes: |
+      This closes first-pass F1. The raw rules_go tree is confined to the one
+      declared projection producer; ArccCheck sees only metadata and the
+      projected export tree, and the public adapter fails closed if that
+      projection is unavailable.
+
+  - element: Full-build artifact determinism acceptance
+    expected: |
+      Independent component-producer builds with identical complete inputs
+      emit byte-identical reports and checked/asserted surfaces, while explicit
+      full lanes compare two real stdlib-map generations.
+    actual: |
+      Two isolated, reverse-order component graph builds compare raw bytes and
+      SHA-256 digests for nontrivial reports and checked/asserted surfaces, with
+      no normalization. Native and Bazel full lanes retain independent real map
+      generations and exact-byte comparisons.
+    status: aligned
+    files:
+      - bazel_rules/go/tests/testdata/determinism/BUILD.bazel
+      - go/internal/goanalysis/full_build_determinism_integration_test.go
+      - go/internal/stdlibmap/generate_integration_test.go
+      - justfile
+    notes: |
+      The remaining suggestion concerns the intended semantic verdict of one
+      fixture, not whether identical complete inputs produce identical bytes.
+
+  - element: Final acceptance evidence and host-import checklist
+    expected: |
+      Record baseline/final performance, scaling, hermeticity, determinism,
+      routine-CI and full-lane evidence, then walk every next-import item with
+      deferred work stated honestly.
+    actual: |
+      The research notes contain the required tables, exact scanner vectors,
+      environment, reproducible commands, action counts, artifact digests,
+      limitations and item-by-item host-import disposition.
+    status: aligned
+    files:
+      - .agents/planning/2026-08-04-compositional-component-analysis/research/current-analysis-pipeline.md
+      - .agents/planning/2026-08-04-compositional-component-analysis/research/host-import-friction.md
+    notes: ""
+
+doc_code_alignment: []
+
+findings:
+  - id: F3
+    severity: suggestion
+    category: tests
+    file: go/internal/goanalysis/full_build_determinism_integration_test.go
+    line: 301
+    title: Determinism fixture still does not pin its intended failing verdict
+    details: |
+      The consumer fixture intentionally produces three os.ReadFile sites, and
+      the semantic audit requires a sorted multi-site finding plus the expected
+      dependency-boundary axes, but it still does not require
+      consumerReport.Verdict == FAIL or constrain that finding to the intended
+      violation kind. Carrying this is acceptable at the final gate because
+      the Step 13 determinism claim is directly established by raw-byte and
+      digest equality across isolated builds; a future warning-policy change
+      could reduce the fixture's semantic strength but would not turn that
+      equality into a proxy. This remains a focused hardening opportunity, not
+      unresolved evidence for N4.
+    suggested_action: |
+      When this fixture is next touched, require the consumer report verdict to
+      be FAIL and require the expected multi-site finding to be a violation of
+      the intended kind rather than accepting a matching warning.
+    source: built-in
+
+remediation_tasks: []
+
+ecosystem_reviews: []
