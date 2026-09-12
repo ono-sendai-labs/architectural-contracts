@@ -1,0 +1,68 @@
+result:
+  task_file: .agents/tasks/2026-08-04-compositional-component-analysis/step13/task-06-remediate-exact-scan-scaling-counters.code-task.md
+  change_id: vltpykxooqprrmqzzyukrkqkttsyvvrm
+  status: completed
+  schema_version: 2
+  produced_at: 2026-09-12T15:45:55Z
+
+acceptance_criteria:
+  - text: |
+      Typed scan entry is member-only by exact count
+      - Given a loaded graph containing one fixed member and growing non-member closures
+      - When `ScanReferences` runs
+      - Then its internal observer records exactly one member package entry, the fixed member syntax/type-info/Uses/Selections/import workload, and zero non-member package entries or syntax/type-info work for every case.
+    addressed: yes
+    evidence: |
+      `go/internal/goanalysis/scanobserver.go:47-66` defines the nil-by-default package-private immutable event seam. `go/internal/goanalysis/refscan.go:51-86` records package consideration and `refscan.go:119-300` records actual typed traversal counts. `go/internal/goanalysis/scanobserver_test.go:234-307` proves exact member/non-member events, counts, deterministic reordering, unchanged results, and observer silence when disabled; native scaling assertions are in `member_analysis_scaling_integration_test.go:21-64`.
+  - text: |
+      Analysis-defeat scanning is also bounded
+      - Given the same graph family
+      - When analysis-defeating constructs are scanned
+      - Then its internal work counters remain fixed to member source and record no non-member traversal that performs AST/source analysis.
+    addressed: yes
+    evidence: |
+      `go/internal/goanalysis/defeatscan.go:37-60` observes member filtering and entry, while `defeatscan.go:76-446` counts declared files, AST/source, lexical, and bypass work at the traversal boundary. `go/internal/goanalysis/scanobserver_test.go:309-348` covers ignored-source lexical work and rejects non-member source traversal; scaling captures also compare `facts.Bypasses` and defeat counters.
+  - text: |
+      Native scaling rows pin actual scan work
+      - Given depth 1/4/16, width variants, and growing direct type surfaces
+      - When the member-analysis integration suite runs
+      - Then exact scanner-internal counters and typed edges are identical across rows while export artifact counts/bytes grow monotonically.
+    addressed: yes
+    evidence: |
+      `go/internal/goanalysis/member_analysis_scaling_fixture_test.go:226-326` captures/restores scan observation alongside phase and loader seams. `member_analysis_scaling_integration_test.go:21-136` asserts exact scan-work equality, zero non-member work, stable typed facts, and retained export volume growth for all primary and direct-type-surface rows. The focused native integration suite and final `just ci` passed.
+  - text: |
+      Bazel scaling rows pin both checked scans
+      - Given every producer-chain variant
+      - When root and checked-dependency loader observations are replayed from declared Bazel artifacts
+      - Then both subchains have identical exact scanner-internal work tokens and zero non-member scan entry, while projection/export volumes retain their expected growth.
+    addressed: yes
+    evidence: |
+      `go/internal/goanalysis/producer_chain_scaling_integration_test.go:866-949` captures/restores scan observations and exact typed facts for each checked subchain. `producer_chain_scaling_integration_test.go:321-441` and `991-1080` assert root/dependency member-only work, equal exact vectors, normalized stable typed edge sets, and volume growth across all 13 rows. `TestBazelProducerChainScaling_Integration` passed.
+  - text: |
+      Observation cannot affect persisted output
+      - Given otherwise identical runs with the scan observer disabled and enabled
+      - When reports, surfaces and facts are emitted
+      - Then their bytes are identical and contain no scan-counter or timing field.
+    addressed: yes
+    evidence: |
+      `go/internal/goanalysis/member_analysis_scaling_fixture_test.go:390-415` runs the same fixture with a nil or installed observer. `member_analysis_scaling_integration_test.go:186-208` compares JSON facts bytes and canonical report/surface bytes and requires enabled events; the test passed. The observer types are package-private in `scanobserver.go:7-66` and do not occur in persisted models.
+  - text: |
+      Timing remains evidence, not the invariant
+      - Given machine-dependent duration noise
+      - When the suites evaluate scaling
+      - Then timing tables and a broad regression guard remain available, but pass/fail for member-only typed work is determined by exact scanner counters.
+    addressed: yes
+    evidence: |
+      Existing separated phase capture remains in `member_analysis_scaling_fixture_test.go:226-326`, timing output remains in `member_analysis_scaling_integration_test.go:64-134`, and the broad guard remains at `member_analysis_scaling_integration_test.go:231-248` and `producer_chain_scaling_integration_test.go:1031-1058`. Exact scan-work and edge assertions are independent checks at the cited scaling helpers. The research record documents the exact vectors at `.agents/planning/2026-08-04-compositional-component-analysis/research/current-analysis-pipeline.md:433-443`.
+
+artifacts:
+  scratchpad_dir: .agents/scratchpad/2026-08-04-compositional-component-analysis/step13/task-06-remediate-exact-scan-scaling-counters/
+  files:
+    - context.md
+    - plan.md
+    - progress.md
+    - work.log
+    - result.yaml
+
+notes: |
+  Added a nil-by-default package-private observer at the typed reference and analysis-defeat scan boundaries, with exact package, syntax, type-info, AST, import, and source-work counters. Native and Bazel scaling harnesses now capture and restore the seam, compare exact member-only vectors and typed edge sets, retain timing observations as broad evidence, and verify observer-disabled/enabled artifact identity. The research note records the loader-versus-scanner distinction and invariant vectors; implementation changes were delivered in fresh jj changes `xwtwzqlknxwuzxvqwqyrkzkwxozktyvo` and `vltpykxooqprrmqzzyukrkqkttsyvvrm`, with an empty working-copy `@`.

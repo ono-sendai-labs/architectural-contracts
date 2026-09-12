@@ -1,0 +1,114 @@
+review:
+  task_file: .agents/tasks/2026-08-04-compositional-component-analysis/step13/task-06-remediate-exact-scan-scaling-counters.code-task.md
+  change_id: vltpykxooqprrmqzzyukrkqkttsyvvrm
+  reviewed_at: 2026-09-12T15:51:44Z
+  verdict: approved
+  schema_version: 2
+  lsp_coverage: unavailable
+
+merge_request:
+  title: "test(goanalysis): pin exact member-only scan work [Compositional Analysis: Step 13/Task 06]"
+  body: |
+    Reviews the complete ordered task series: the initial change adds the
+    package-private nil-by-default observer and scanner instrumentation, and
+    the follow-up change wires exact observations through native and Bazel
+    scaling harnesses, artifact-isolation checks, and the research record.
+
+summary: |
+  Both produced changes satisfy all six acceptance criteria. The scanner seam is
+  nil by default and records deterministic member/non-member package identity and
+  exact typed and analysis-defeat work; native and Bazel rows assert fixed work,
+  stable typed edges, and growing projection/export volumes while retaining broad
+  timing evidence. Focused unit, integration, vet, and formatting checks passed,
+  and the recorded final `just ci` run passed; no test weakening or security issue
+  was found. LSP diagnostics were unavailable in the review harness.
+
+acceptance_criteria:
+  - text: |
+      1. **Typed scan entry is member-only by exact count**
+         - Given a loaded graph containing one fixed member and growing non-member closures
+         - When `ScanReferences` runs
+         - Then its internal observer records exactly one member package entry, the fixed member syntax/type-info/Uses/Selections/import workload, and zero non-member package entries or syntax/type-info work for every case.
+    status: pass
+    evidence: |
+      `go/internal/goanalysis/scanobserver.go:47-66` defines the nil-by-default
+      package-private event seam. `go/internal/goanalysis/refscan.go:51-86` and
+      `refscan.go:119-317` record package identity, entry, type-info, Uses,
+      Selections, import, syntax, and AST traversal counts. The white-box test at
+      `go/internal/goanalysis/scanobserver_test.go:234-307` asserts exact member
+      and non-member events, unchanged scan results, and deterministic observation;
+      native rows assert the same invariant at
+      `member_analysis_scaling_integration_test.go:21-64`.
+  - text: |
+      2. **Analysis-defeat scanning is also bounded**
+         - Given the same graph family
+         - When analysis-defeating constructs are scanned
+         - Then its internal work counters remain fixed to member source and record no non-member traversal that performs AST/source analysis.
+    status: pass
+    evidence: |
+      `go/internal/goanalysis/defeatscan.go:37-60` filters package entry to
+      declared members, and `defeatscan.go:76-456` records declared-file, AST,
+      source, lexical, and bypass work at the traversal boundary. The focused
+      tests at `go/internal/goanalysis/scanobserver_test.go:234-348` cover both
+      ordinary and ignored-source paths and assert zero non-member work; scaling
+      rows compare the defeat counters and bypass facts as well.
+  - text: |
+      3. **Native scaling rows pin actual scan work**
+         - Given depth 1/4/16, width variants, and growing direct type surfaces
+         - When the member-analysis integration suite runs
+         - Then exact scanner-internal counters and typed edges are identical across rows while export artifact counts/bytes grow monotonically.
+    status: pass
+    evidence: |
+      `go/internal/goanalysis/member_analysis_scaling_fixture_test.go:226-326`
+      captures and restores the scan observer alongside the existing phase and
+      loader seams. `member_analysis_scaling_integration_test.go:21-136` checks
+      exact scan-work equality, member-only entry, stable typed facts, and export
+      volume growth for every primary and direct-type-surface row. The recorded
+      integration run and final `just ci` both passed.
+  - text: |
+      4. **Bazel scaling rows pin both checked scans**
+         - Given every producer-chain variant
+         - When root and checked-dependency loader observations are replayed from declared Bazel artifacts
+         - Then both subchains have identical exact scanner-internal work tokens and zero non-member scan entry, while projection/export volumes retain their expected growth.
+    status: pass
+    evidence: |
+      `go/internal/goanalysis/producer_chain_scaling_integration_test.go:866-949`
+      captures and restores scan observations for each checked subchain and
+      preserves exact typed facts. The row capture and comparison at
+      `producer_chain_scaling_integration_test.go:334-441` and `:991-1087`
+      assert member-only work, equal root/dependency vectors, normalized stable
+      typed edge sets, and projection/export growth across all 13 variants. The
+      recorded `TestBazelProducerChainScaling_Integration` run passed.
+  - text: |
+      5. **Observation cannot affect persisted output**
+         - Given otherwise identical runs with the scan observer disabled and enabled
+         - When reports, surfaces and facts are emitted
+         - Then their bytes are identical and contain no scan-counter or timing field.
+    status: pass
+    evidence: |
+      `go/internal/goanalysis/member_analysis_scaling_fixture_test.go:390-415`
+      runs the same fixture with a nil and installed observer. The integration
+      test at `member_analysis_scaling_integration_test.go:186-211` requires
+      observer events and compares JSON facts bytes plus canonical report and
+      surface bytes. Observer types are package-private and isolated in
+      `scanobserver.go:7-66`; they are not fields of any persisted model.
+  - text: |
+      6. **Timing remains evidence, not the invariant**
+         - Given machine-dependent duration noise
+         - When the suites evaluate scaling
+         - Then timing tables and a broad regression guard remain available, but pass/fail for member-only typed work is determined by exact scanner counters.
+    status: pass
+    evidence: |
+      Existing separated loader, scan, and total phase capture remains at
+      `go/internal/goanalysis/member_analysis_scaling_fixture_test.go:226-326`;
+      timing output remains in `member_analysis_scaling_integration_test.go:64-134`
+      and the broad guard remains at `:231-248` plus
+      `producer_chain_scaling_integration_test.go:1090-1099`. Exact scan-work
+      and typed-edge assertions are independent of those duration checks. The
+      research record documents the loaded-package versus scanner-internal
+      distinction and exact vectors at
+      `.agents/planning/2026-08-04-compositional-component-analysis/research/current-analysis-pipeline.md:351-369` and `:433-443`.
+
+findings: []
+
+ecosystem_reviews: []
