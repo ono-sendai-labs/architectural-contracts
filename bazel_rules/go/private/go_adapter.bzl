@@ -1,18 +1,22 @@
-"""go_adapter: the single seam binding arcc's Bazel rules to a Go ruleset.
+"""The single host adapter for the rules_arcc Bazel integration.
 
-Everything arcc's rules need from the host's Go rules is funneled through this
-one file: the providers it keys on, how to read a target's import path, its
-compiled sources, its direct-dependency import paths, export artifact and cgo flag, how to
-project target-configured standard-library package metadata and compiled export data,
-forward a library's Go providers so a component target can stand in for its
-interface library, and how to locate the Go SDK root. `aspect.bzl`,
-`component.bzl`, and the rest of the rules import ONLY this adapter and never
-`@rules_go` directly, so a host with a different Go ruleset (e.g. a monorepo's
-in-house rules exposing different providers) ports arcc by replacing just this
-file — the rules above it stay byte-identical. The runtime-injection hooks in
-this file are the only additional host-facing component seam: they expose
-private adapter attrs and project hidden runtime dependencies into the same
-host-neutral package records as ordinary roots.
+Everything arcc's generic rules need from a Go ruleset is funneled through this
+file: ordinary package records, the three SDK contracts, provider forwarding,
+runtime injection and infrastructure attachment. The SDK contracts are
+deliberately separate:
+
+* `go_stdlib_source_data` is source/oracle/root material for `arcc_stdlib_map`
+  only. It is never an input to a component check.
+* `go_stdlib_export_data` is compiled stdlib package metadata and export
+  artifacts for `ArccCheck`. It contains no SDK source tree or toolchain binary.
+* `go_target_identity` is the one target platform/SDK-key identity used by map
+  configuration, layouts, export-data validation and surfaces. It describes the
+  target, never the execution host.
+
+`aspect.bzl`, `component.bzl`, `stdlib_map.bzl`, and the rest of the generic
+rules import only this adapter and consume host-neutral structs, files, depsets,
+and private rule attributes. A host using another Go ruleset ports arcc by
+replacing this file; the generic rules stay byte-identical.
 
 Upstream binds to rules_go (GoInfo / GoArchive / @rules_go//go:toolchain).
 
@@ -33,6 +37,32 @@ GO_PROVIDERS = [GoInfo, GoArchive]
 
 # Toolchains the component rule requests, to reach the Go SDK.
 GO_TOOLCHAINS = ["@rules_go//go:toolchain"]
+
+def merge_private_rule_attrs(base, additions, contract):
+    """Merges a host contract's private attrs without widening a rule API.
+
+    Adapter-owned discovery attrs are composed at the rule boundary. A
+    collision is a host-porting error rather than a last-write-wins override,
+    and an unprefixed attr would become an author-facing API by accident.
+    Keeping this check here lets both the map and component rules use the same
+    contract without knowing anything about the provider implementation.
+    """
+    additions = additions or {}
+    collisions = sorted([name for name in additions.keys() if name in base])
+    if collisions:
+        fail("adapter contract %s collides with existing rule attributes: %s" % (
+            contract,
+            ", ".join(collisions),
+        ))
+    public = sorted([name for name in additions.keys() if not name.startswith("_")])
+    if public:
+        fail("adapter contract %s may add only private rule attributes: %s" % (
+            contract,
+            ", ".join(public),
+        ))
+    merged = dict(base)
+    merged.update(additions)
+    return merged
 
 # The arcc binary the component's analysis action and the check assertion rules
 # run. Upstream builds it at the repo root;
@@ -327,21 +357,26 @@ def _dirname(path):
 def go_sdk_root(ctx):
     """The `go_sdk_root` value for the emitted layout: a runfiles-root-relative
     path to the Go SDK's `src` directory, from which arcc reads standard-library
-    sources hermetically. Returned as a string so a host that knows its SDK
-    location by convention can supply it directly, rather than deriving it from a
-    toolchain-provided File.
+    paths when a layout is used by a source-backed producer. The component check
+    does not declare this source tree; its stdlib type information comes from
+    `go_stdlib_export_data` below. Returned as a string so a host that knows its
+    SDK location by convention can supply it directly, rather than deriving it
+    from a toolchain-provided File in a generic rule.
     """
-    root_file = ctx.toolchains[GO_TOOLCHAINS[0]].sdk.root_file
+    root_file = _go_sdk_toolchain(ctx).root_file
+    if root_file == None:
+        fail("component %s: the Go adapter exposes no SDK root" % ctx.label.name)
     return _dirname(runfiles_path(ctx, root_file)) + "/src"
 
 def go_sdk_srcs(ctx):
-    """The Go SDK source files used only by source-backed map generation.
+    """Compatibility accessor for the source-only SDK contract.
 
-    Component `ArccCheck` actions consume target-configured standard-library
-    export data and never stage this depset. The seam remains available to the
-    separate source-backed `StdlibLayout`/map-generation path.
+    New generic code should consume `go_stdlib_source_data(ctx)` so the source,
+    oracle, root and target identity remain one descriptor. Component
+    `ArccCheck` actions consume target-configured export data and never stage
+    this depset.
     """
-    return ctx.toolchains[GO_TOOLCHAINS[0]].sdk.srcs
+    return go_stdlib_source_data(ctx).srcs
 
 # --- stdlib-map toolchain material (Step 4 task 06) ------------------------------
 #
@@ -353,13 +388,12 @@ def go_sdk_srcs(ctx):
 # SDK through the layout driver. Everything below reads rules_go material so
 # the layers above never load `@rules_go` (the adapter is the single seam).
 
-# Rule attributes that carry the target build configuration. Merged into a
-# rule's `attrs` by stdlib_map.bzl; the impl reads the resulting
-# GoConfigInfo and GoStdLib through `go_target_mode` and
-# `go_stdlib_export_data`. The transition enables rules_go's generated export
-# metadata without changing the target GOOS/GOARCH, cgo, tags, or experiment
-# identity. It is deliberately private to this adapter: upper layers ask for
-# the generic descriptor and never name the setting or provider.
+# Rule attributes that carry the target build configuration. The two public
+# contract-attribute functions below return private attrs for the map and
+# component rules respectively. A host can extend either dictionary with its
+# own private discovery attrs without editing those generic rules. The
+# transition enables rules_go's generated export metadata without changing the
+# target GOOS/GOARCH, cgo, tags, or experiment identity.
 def _stdlib_export_data_transition_impl(settings, attr):
     _ = settings, attr
     return {
@@ -382,52 +416,140 @@ GO_CONTEXT_DATA_ATTRS = {
     ),
 }
 
-def go_stdlib_toolchain(ctx):
-    """The pinned toolchain material a hermetic stdlib-map generation needs.
+def sdk_source_attrs():
+    """Returns private attrs needed by the SDK-source/map contract.
 
-    Returns struct(srcs, package_list, root_file, version, experiments): the
-    SDK source depset, the toolchain-owned stdlib package-list file, a file in
-    the SDK root (for locating the SDK directory), the exact SDK version, and
-    the repo-pinned GOEXPERIMENT list. All of it comes from the resolved
-    toolchain — declared inputs, never host state — and none of it is an
-    executable toolchain binary.
+    Upstream uses the same target-configuration collector that supplies the
+    target identity. A host with a different source oracle may add private
+    discovery attrs here; `stdlib_map.bzl` merges them with collision checks.
     """
-    sdk = ctx.toolchains[GO_TOOLCHAINS[0]].sdk
+    return dict(GO_CONTEXT_DATA_ATTRS)
+
+def sdk_export_data_attrs():
+    """Returns private attrs needed by the SDK-export-data/check contract.
+
+    The upstream default requests rules_go's target-configured stdlib export
+    material. A host may replace or extend this private dictionary for its own
+    export-data provider; `component.bzl` never names that provider or field.
+    """
+    return dict(GO_CONTEXT_DATA_ATTRS)
+
+def _go_sdk_toolchain(ctx):
+    """Returns the ruleset-specific SDK object inside this adapter only."""
+    return ctx.toolchains[GO_TOOLCHAINS[0]].sdk
+
+def _sdk_experiments(sdk):
     experiments = sdk.experiments or []
     if type(experiments) == type(""):
         experiments = [e for e in experiments.split(",") if e]
+    return tuple(sorted(experiments))
+
+def _normalize_toolchain_version(version):
+    version = version or ""
+    if version and not version.startswith("go"):
+        return "go" + version
+    return version
+
+def _target_build_tags(identity):
+    """Reads the canonical build_tags field, accepting the old `tags` alias."""
+    build_tags = getattr(identity, "build_tags", None)
+    if build_tags == None:
+        build_tags = getattr(identity, "tags", None)
+    if build_tags == None:
+        return None
+    return tuple(sorted(build_tags))
+
+def target_identity_mismatches(actual, expected):
+    """Returns target-identity fields that differ between two adapter records."""
+    if actual == None:
+        return ["target identity"]
+    if expected == None:
+        return []
+    actual_tags = _target_build_tags(actual)
+    expected_tags = _target_build_tags(expected)
+    fields = [
+        ("toolchain_version", getattr(actual, "toolchain_version", None), getattr(expected, "toolchain_version", None)),
+        ("goos", getattr(actual, "goos", None), getattr(expected, "goos", None)),
+        ("goarch", getattr(actual, "goarch", None), getattr(expected, "goarch", None)),
+        ("cgo_enabled", getattr(actual, "cgo_enabled", None), getattr(expected, "cgo_enabled", None)),
+        ("build_tags", actual_tags, expected_tags),
+        ("goexperiment", getattr(actual, "goexperiment", None), getattr(expected, "goexperiment", None)),
+    ]
+    return [name for name, actual_value, expected_value in fields if actual_value != expected_value]
+
+def validate_target_identity(ctx, identity, material):
+    """Fails analysis if `identity` is incomplete or not canonically sorted."""
+    missing = []
+    for field in ["toolchain_version", "goos", "goarch", "cgo_enabled", "goexperiment"]:
+        if getattr(identity, field, None) == None:
+            missing.append(field)
+    tags = _target_build_tags(identity)
+    if tags == None:
+        missing.append("build_tags")
+    elif tuple(getattr(identity, "build_tags", tags)) != tags:
+        fail("%s %s: target identity build_tags must be sorted" % (ctx.label.name, material))
+    if not getattr(identity, "toolchain_version", ""):
+        missing.append("toolchain_version")
+    if not getattr(identity, "goos", ""):
+        missing.append("goos")
+    if not getattr(identity, "goarch", ""):
+        missing.append("goarch")
+    if missing:
+        fail("%s %s: incomplete target identity; missing fields: %s" % (
+            ctx.label.name,
+            material,
+            ", ".join(sorted(set(missing))),
+        ))
+    return identity
+
+def go_stdlib_toolchain(ctx):
+    """Compatibility view of the source contract's toolchain material.
+
+    `go_stdlib_source_data` is the canonical API. This accessor remains for
+    hosts that used the pre-Step-12 adapter name, but generic rules no longer
+    deconstruct the SDK provider themselves.
+    """
+    source = go_stdlib_source_data(ctx)
     return struct(
-        srcs = sdk.srcs,
-        package_list = sdk.package_list,
-        root_file = sdk.root_file,
-        version = sdk.version,
-        experiments = tuple(sorted(experiments)),
+        srcs = source.srcs,
+        package_list = source.package_list,
+        root_file = source.root_file,
+        version = source.version,
+        experiments = source.experiments,
+        sdk_root = source.sdk_root,
+        target = source.target,
     )
 
-def go_target_mode(ctx):
-    """The target build configuration the current analysis runs under.
+def go_target_identity(ctx):
+    """The complete target platform/SDK identity for this analysis.
 
     Read from rules_go's GoConfigInfo (collected by `@rules_go//:go_context_data`
     in this rule's configuration): goos/goarch follow toolchain resolution, so a
     platform transition yields the target platform, not the execution host.
-    cgo_enabled = not pure mirrors `go_build_platform`'s documented
-    approximation. The toolchain version is normalized to the GOVERSION
-    spelling ("go" + version) the SDK key uses natively.
+    cgo_enabled = not pure mirrors the adapter's documented approximation. The
+    identity includes the exact toolchain version, sorted build tags and
+    GOEXPERIMENT so every producer uses one target description.
     """
-    sdk = go_stdlib_toolchain(ctx)
+    sdk = _go_sdk_toolchain(ctx)
     config = _go_context_data_target(ctx)[GoConfigInfo]
-    version = sdk.version or ""
-    if version and not version.startswith("go"):
-        version = "go" + version
+    version = _normalize_toolchain_version(sdk.version)
     tags = sorted(getattr(config, "tags", []) or [])
-    return struct(
+    identity = struct(
         toolchain_version = version,
         goos = config.goos,
         goarch = config.goarch,
         cgo_enabled = not config.pure,
+        build_tags = tuple(tags),
+        # Keep `tags` as a compatibility alias for test-only hosts while all
+        # generic consumers use the canonical `build_tags` field.
         tags = tuple(tags),
-        goexperiment = ",".join(sdk.experiments),
+        goexperiment = ",".join(_sdk_experiments(sdk)),
     )
+    return validate_target_identity(ctx, identity, "target SDK identity")
+
+def go_target_mode(ctx):
+    """Compatibility alias for `go_target_identity`."""
+    return go_target_identity(ctx)
 
 def _go_context_data_target(ctx):
     """Returns the context-data target through direct and transitioned attrs."""
@@ -441,29 +563,109 @@ def _go_context_data_target(ctx):
         return context_data[0]
     return context_data
 
-def _stdlib_mode_mismatches(actual, expected):
-    """Returns SDK-key fields whose target values disagree.
+def go_stdlib_source_data(ctx):
+    """Returns the source/oracle/root contract for `arcc_stdlib_map` only.
 
-    The expected value is intentionally a structural record rather than an
-    ArccStdlibMapInfo dependency. This keeps the adapter usable by a different
-    host while still allowing the component emitter to compare the export
-    producer with the authority-map provider before it writes a layout.
+    `srcs` is the SDK source depset, `package_list` is the independent package
+    oracle, `sdk_root` is the execroot-relative `src/` directory used by the
+    layout driver, and `target` is the exact identity stamped into the map.
+    No executable or compiler cache is part of this descriptor. The generic
+    map rule declares only these files and never asks this contract for export
+    data. Component checks use `go_stdlib_export_data` instead.
     """
-    expected_tags = getattr(expected, "build_tags", None)
-    if expected_tags == None:
-        expected_tags = getattr(expected, "tags", None)
-    if expected_tags == None:
-        return ["build_tags"]
+    sdk = _go_sdk_toolchain(ctx)
+    root_file = sdk.root_file
+    source = struct(
+        srcs = sdk.srcs,
+        package_list = sdk.package_list,
+        root_file = root_file,
+        sdk_root = root_file.dirname + "/src" if root_file != None else "",
+        layout_root = _dirname(runfiles_path(ctx, root_file)) + "/src" if root_file != None else "",
+        version = sdk.version,
+        experiments = _sdk_experiments(sdk),
+        target = go_target_identity(ctx),
+    )
+    return validate_sdk_source_data(ctx, source)
 
-    fields = [
-        ("toolchain_version", actual.toolchain_version, expected.toolchain_version),
-        ("goos", actual.goos, expected.goos),
-        ("goarch", actual.goarch, expected.goarch),
-        ("cgo_enabled", actual.cgo_enabled, expected.cgo_enabled),
-        ("build_tags", tuple(actual.tags), tuple(sorted(expected_tags))),
-        ("goexperiment", actual.goexperiment, expected.goexperiment),
+def validate_sdk_source_data(ctx, source):
+    """Fails analysis when source/oracle/root material is incomplete."""
+    missing = []
+    if source == None:
+        missing.append("descriptor")
+    else:
+        if getattr(source, "srcs", None) == None or not source.srcs.to_list():
+            missing.append("SDK sources")
+        if getattr(source, "package_list", None) == None:
+            missing.append("package oracle")
+        if not getattr(source, "sdk_root", ""):
+            missing.append("SDK root")
+        if getattr(source, "target", None) == None:
+            missing.append("target identity")
+    if missing:
+        fail("stdlib map %s: incomplete SDK source descriptor; missing %s" % (
+            ctx.label.name,
+            ", ".join(missing),
+        ))
+    validate_target_identity(ctx, source.target, "SDK source descriptor")
+    return source
+
+def _stdlib_mode_mismatches(actual, expected):
+    """Compatibility alias for the one target-identity comparison."""
+    return target_identity_mismatches(actual, expected)
+
+def validate_sdk_export_data(ctx, descriptor, expected_mode = None):
+    """Validates a host-neutral SDK export descriptor at the rule boundary.
+
+    This validation is also applied to test-only or host-supplied descriptors,
+    so a replacement cannot bypass the target-key check or silently omit the
+    metadata/artifact inputs that `ArccCheck` must declare.
+    """
+    missing = []
+    if descriptor == None:
+        missing.append("descriptor")
+    else:
+        for field in ["metadata", "export_files", "inputs", "target"]:
+            if getattr(descriptor, field, None) == None:
+                missing.append(field)
+    if missing:
+        fail("component %s: incomplete SDK export-data descriptor; missing %s" % (
+            ctx.label.name,
+            ", ".join(missing),
+        ))
+
+    validate_target_identity(ctx, descriptor.target, "SDK export-data descriptor")
+    if expected_mode != None:
+        mismatches = target_identity_mismatches(descriptor.target, expected_mode)
+        if mismatches:
+            fail(("component %s: standard-library export data configuration mismatch " +
+                  "with the selected authority map; mismatched fields: %s") % (
+                ctx.label.name,
+                ", ".join(mismatches),
+            ))
+
+    export_files = descriptor.export_files.to_list()
+    if not export_files:
+        fail("component %s: SDK export-data descriptor has no compiled export artifacts" % ctx.label.name)
+    descriptor_inputs = descriptor.inputs.to_list()
+    forbidden_source_inputs = [
+        file.short_path
+        for file in descriptor_inputs
+        if file.extension == "go" or "/src/" in file.short_path or
+           "/pkg/tool/" in file.short_path or file.short_path.endswith("/bin/go")
     ]
-    return [name for name, actual_value, expected_value in fields if actual_value != expected_value]
+    if forbidden_source_inputs:
+        fail(("component %s: SDK export-data descriptor includes forbidden source material " +
+              "or toolchain binary: %s") % (
+            ctx.label.name,
+            ", ".join(sorted(forbidden_source_inputs)),
+        ))
+    input_paths = {file.path: True for file in descriptor_inputs}
+    required_paths = [descriptor.metadata.path] + [file.path for file in export_files]
+    missing_inputs = [path for path in required_paths if path not in input_paths]
+    if missing_inputs:
+        fail(("component %s: SDK export-data descriptor omits declared material from " +
+              "its inputs: %s") % (ctx.label.name, ", ".join(sorted(missing_inputs))))
+    return descriptor
 
 def go_stdlib_export_data(ctx, expected_mode = None):
     """Returns the host-neutral target stdlib export-data descriptor.
@@ -479,7 +681,8 @@ def go_stdlib_export_data(ctx, expected_mode = None):
                   compiler export artifacts;
       inputs      depset[File] — exactly metadata plus export_files, for a check
                   action to declare without pulling in SDK sources or tools;
-      target      struct — the same target identity returned by go_target_mode.
+      target      struct — the same complete target identity returned by
+                  go_target_identity.
 
     `expected_mode`, when supplied, is any record carrying the SDK-key fields
     (the stdlib-map provider is one such record). The comparison happens during
@@ -487,15 +690,7 @@ def go_stdlib_export_data(ctx, expected_mode = None):
     transitioned component from pairing one target's layout with another
     target's stdlib data. No toolchain executable is returned or run here.
     """
-    target_mode = go_target_mode(ctx)
-    if expected_mode != None:
-        mismatches = _stdlib_mode_mismatches(target_mode, expected_mode)
-        if mismatches:
-            fail(("component %s: standard-library export data configuration mismatch " +
-                  "with the selected authority map; mismatched fields: %s") % (
-                ctx.label.name,
-                ", ".join(mismatches),
-            ))
+    target_mode = go_target_identity(ctx)
 
     context_data = _go_context_data_target(ctx)
     if GoStdLib not in context_data:
@@ -527,9 +722,9 @@ def go_stdlib_export_data(ctx, expected_mode = None):
         fail(("component %s: GoStdLib exposes no compiled standard-library " +
               "export artifacts") % ctx.label.name)
 
-    return struct(
+    return validate_sdk_export_data(ctx, struct(
         metadata = metadata,
         export_files = export_files,
         inputs = depset(direct = [metadata], transitive = [export_files]),
         target = target_mode,
-    )
+    ), expected_mode = expected_mode)

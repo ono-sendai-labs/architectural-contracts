@@ -1,22 +1,24 @@
 """The `arcc_stdlib_map` rule: a hermetic stdlib authority map for one target
 SDK configuration (Step 4, task 06).
 
-The rule invokes the explicit-input generation path of `arcc stdlibmap
-generate` (task 05) as ONE ordinary hermetic action. Its declared inputs are
-exactly the SDK sources, the toolchain-owned stdlib package-list file, the
-analysis-time target-configuration file, and the arcc generator as an
-exec-configuration tool; its single output is the canonical map. No
+The rule consumes the adapter's SDK-source contract and invokes the
+explicit-input generation path of `arcc stdlibmap generate` (task 05) as ONE
+ordinary hermetic action. Its declared inputs are exactly the SDK sources, the
+toolchain-owned stdlib package-list/oracle file, the analysis-time
+target-configuration file, and the arcc generator as an exec-configuration
+tool; its single output is the canonical map. No
 toolchain `go` binary, tool binary, build cache, home path or network is an
 input or requirement: the generator loads the standard library through
 `packagelayout`'s GOPACKAGESDRIVER self-exec driver (arcc re-executing
 itself) and runs Capslock in-process, so the action sets no GOROOT, GOCACHE
 or PATH at all (design I5, Appendix C).
 
-The action blocks network access. Generation is keyed to the target
-configuration — the config file stamps the SDK key (target configuration,
-classifier fingerprint and map format version are carried by the generator)
-— so cross-compilation and build-tag transitions build distinct, correctly
-stamped maps on one execution host.
+The action blocks network access. Generation is keyed to the one adapter target
+identity — the config file stamps the SDK key (target configuration,
+classifier fingerprint and map format version are carried by the generator) —
+so cross-compilation and build-tag transitions build distinct, correctly
+stamped maps on one execution host. The export-data contract belongs only to
+component analysis and is never used here.
 
 A cgo-enabled target configuration is rejected at analysis time, naming the
 target and `--@rules_go//go/config:pure`: hermetic cgo generation needs a
@@ -33,10 +35,10 @@ load("//bazel_rules/go:providers.bzl", "ArccStdlibMapInfo")
 load(":arcc_metadata.bzl", "CLASSIFIER_HASH", "MAP_FORMAT_VERSION")
 load(
     ":go_adapter.bzl",
-    "GO_CONTEXT_DATA_ATTRS",
     "GO_TOOLCHAINS",
-    "go_stdlib_toolchain",
-    "go_target_mode",
+    "go_stdlib_source_data",
+    "merge_private_rule_attrs",
+    "sdk_source_attrs",
 )
 
 # The default stdlib-map target the Step 5 analysis action attaches as
@@ -67,15 +69,16 @@ def _stdlib_map_config_content(mode):
         "goos=" + mode.goos,
         "goarch=" + mode.goarch,
         "cgo_enabled=" + ("true" if mode.cgo_enabled else "false"),
-        "build_tags=" + ",".join(mode.tags),
+        "build_tags=" + ",".join(mode.build_tags),
         "goexperiment=" + mode.goexperiment,
     ]
     return "\n".join(lines) + "\n"
 
 def _arcc_stdlib_map_impl(ctx):
     label = ctx.label
-    toolchain = go_stdlib_toolchain(ctx)
-    mode = go_target_mode(ctx)
+    source = go_stdlib_source_data(ctx)
+    toolchain_version = source.target.toolchain_version
+    mode = source.target
 
     # Fail fast, naming the target, when the toolchain exposes no version, no
     # package list or no target platform (task req 4): the SDK key and the
@@ -83,9 +86,9 @@ def _arcc_stdlib_map_impl(ctx):
     # a mid-generation error.
     if not mode.goos or not mode.goarch:
         fail("stdlib map %s: the toolchain exposes no target GOOS/GOARCH; arcc cannot key the map" % label.name)
-    if mode.toolchain_version == "":
+    if toolchain_version == "":
         fail("stdlib map %s: the toolchain exposes no version; arcc cannot stamp the SDK key" % label.name)
-    if toolchain.package_list == None:
+    if source.package_list == None:
         fail("stdlib map %s: the toolchain provides no stdlib package-list file" % label.name)
 
     # cgo-enabled target configurations are out of scope for hermetic
@@ -103,11 +106,10 @@ def _arcc_stdlib_map_impl(ctx):
 
     output = ctx.actions.declare_file(label.name + ".stdlib-map.json")
 
-    # The SDK root the generator loads the standard library from: rules_go's
-    # ROOT file marks the SDK directory, whose src/ subtree the layout driver
-    # discovers. The path is execroot-relative, the working directory of a
-    # sandboxed action.
-    sdk_root = toolchain.root_file.dirname + "/src"
+    # The SDK root comes from the source contract. It is the execroot-relative
+    # src/ directory the layout driver discovers; it is not a host filesystem
+    # path and does not imply a toolchain executable input.
+    sdk_root = source.sdk_root
 
     # One ordinary hermetic action; no environment is constructed because the
     # generator needs none (no GOROOT, GOCACHE or PATH — design I5). The
@@ -119,13 +121,13 @@ def _arcc_stdlib_map_impl(ctx):
             "stdlibmap",
             "generate",
             "--output=" + output.path,
-            "--package-list=" + toolchain.package_list.path,
+            "--package-list=" + source.package_list.path,
             "--config-file=" + config.path,
             "--sdk-root=" + sdk_root,
         ],
         inputs = depset(
-            direct = [toolchain.package_list, config],
-            transitive = [toolchain.srcs],
+            direct = [source.package_list, config],
+            transitive = [source.srcs],
         ),
         tools = [ctx.executable._arcc],
         outputs = [output],
@@ -143,7 +145,7 @@ def _arcc_stdlib_map_impl(ctx):
             goos = mode.goos,
             goarch = mode.goarch,
             cgo_enabled = mode.cgo_enabled,
-            build_tags = mode.tags,
+            build_tags = mode.build_tags,
             goexperiment = mode.goexperiment,
             # The generator stamps the same values into the map's SDK key
             # (task req 5). Starlark cannot compute the classifier hash, so
@@ -154,17 +156,23 @@ def _arcc_stdlib_map_impl(ctx):
         ),
     ]
 
+_STDLIB_MAP_BASE_ATTRS = {
+    "_arcc": attr.label(
+        default = Label("//go/cmd/arcc-stdlibmap:arcc-stdlibmap"),
+        executable = True,
+        cfg = "exec",
+        doc = "The generation-only binary whose explicit-input path runs. " +
+              "It is deliberately independent of the ordinary check path.",
+    ),
+}
+
 arcc_stdlib_map_rule = rule(
     implementation = _arcc_stdlib_map_impl,
-    attrs = {} | GO_CONTEXT_DATA_ATTRS | {
-        "_arcc": attr.label(
-            default = Label("//go/cmd/arcc-stdlibmap:arcc-stdlibmap"),
-            executable = True,
-            cfg = "exec",
-            doc = "The generation-only binary whose explicit-input path runs. " +
-                  "It is deliberately independent of the ordinary check path.",
-        ),
-    },
+    attrs = merge_private_rule_attrs(
+        _STDLIB_MAP_BASE_ATTRS,
+        sdk_source_attrs(),
+        "sdk-source",
+    ),
     toolchains = GO_TOOLCHAINS,
     provides = [ArccStdlibMapInfo],
     doc = "Builds the stdlib authority map for the target SDK configuration, hermetically.",

@@ -13,13 +13,91 @@ load(
     "GO_TOOLCHAINS",
     "go_attach_infra",
     "go_attached_infra",
+    "go_stdlib_export_data",
+    "validate_sdk_export_data",
 )
 load("//bazel_rules/go/private:paths.bzl", "match_path")
 load("//bazel_rules:providers.bzl", "ArccComponentInfo")
-load("//bazel_rules/go:providers.bzl", "ArccPackageInfo")
+load("//bazel_rules/go:providers.bzl", "ArccPackageInfo", "ArccStdlibMapInfo")
+load("//bazel_rules/go/private:arcc_metadata.bzl", "arcc_sdk_key_fields")
 load("//bazel_rules/go:defs.bzl", "DECLARED", "UNKNOWN", "validate_component_shape")
 
 TestingInfraAttachmentInfo = provider(fields = ["attached_targets"])
+
+TestingStdlibExportDataInfo = provider(
+    fields = ["metadata", "export_files", "inputs", "target"],
+)
+
+def _fake_export_target(key, mismatch_field):
+    values = {
+        "toolchain_version": key.toolchain_version,
+        "goos": key.goos,
+        "goarch": key.goarch,
+        "cgo_enabled": key.cgo_enabled,
+        "build_tags": tuple(key.build_tags),
+        "goexperiment": key.goexperiment,
+    }
+    if mismatch_field:
+        values[mismatch_field] = {
+            "toolchain_version": "go0.0.0",
+            "goos": "darwin",
+            "goarch": "386",
+            "cgo_enabled": not key.cgo_enabled,
+            "build_tags": ("fake_mismatch",),
+            "goexperiment": "fake-mismatch",
+        }[mismatch_field]
+    return struct(**values)
+
+def _fake_stdlib_export_data_impl(ctx):
+    """Publishes sentinel export material for component action-input tests."""
+    export_files = depset(ctx.files.export_files)
+    metadata = ctx.file.metadata
+    extra_inputs = [ctx.file.source_file] if ctx.file.source_file != None else []
+    declared_inputs = depset(direct = [metadata] + extra_inputs, transitive = [export_files])
+    return [
+        DefaultInfo(
+            files = declared_inputs,
+        ),
+        TestingStdlibExportDataInfo(
+            metadata = metadata,
+            export_files = export_files,
+            inputs = declared_inputs,
+            target = _fake_export_target(
+                arcc_sdk_key_fields(ctx.attr.map[ArccStdlibMapInfo]),
+                ctx.attr.mismatch_field,
+            ),
+        ),
+    ]
+
+fake_stdlib_export_data = rule(
+    implementation = _fake_stdlib_export_data_impl,
+    attrs = {
+        "map": attr.label(
+            default = "//:arcc_stdlib_map",
+            providers = [ArccStdlibMapInfo],
+            doc = "Map whose exact target identity the fake descriptor mirrors.",
+        ),
+        "metadata": attr.label(
+            mandatory = True,
+            allow_single_file = True,
+            doc = "Sentinel package-graph metadata file.",
+        ),
+        "export_files": attr.label_list(
+            allow_files = True,
+            doc = "Sentinel compiled export artifacts.",
+        ),
+        "mismatch_field": attr.string(
+            default = "",
+            doc = "Test-only target identity field to alter before validation.",
+        ),
+        "source_file": attr.label(
+            allow_single_file = True,
+            doc = "Test-only forbidden source input for the export contract.",
+        ),
+    },
+    provides = [TestingStdlibExportDataInfo],
+    doc = "Test-only fake SDK export-data descriptor.",
+)
 
 def _test_attach_predicate(roots, entry, package_view = None):
     """Implements attachment modes for fixtures without modifying the host seam."""
@@ -134,11 +212,20 @@ def _testing_extra_runtime_packages(ctx, root_packages):
         packages.extend(target[ArccPackageInfo].packages.to_list())
     return packages
 
+def _testing_stdlib_export_data(ctx, expected_mode = None):
+    """Selects a fake descriptor when a seam test requests one."""
+    fake = ctx.attr.test_stdlib_export_data
+    if fake != None:
+        descriptor = fake[TestingStdlibExportDataInfo]
+        return validate_sdk_export_data(ctx, descriptor, expected_mode = expected_mode)
+    return go_stdlib_export_data(ctx, expected_mode = expected_mode)
+
 def _testing_go_component_impl(ctx):
     return go_component_impl(
         ctx,
         attachment_fn = _testing_attachment_fn,
         runtime_packages_fn = _testing_extra_runtime_packages,
+        stdlib_export_data_fn = _testing_stdlib_export_data,
     )
 
 _TEST_COMPONENT_ATTRS = dict(GO_COMPONENT_ATTRS)
@@ -157,6 +244,10 @@ _TEST_COMPONENT_ATTRS.update({
     "test_runtime_packages": attr.label_list(
         providers = [ArccPackageInfo],
         doc = "Test-only provider records projected as injected runtime packages.",
+    ),
+    "test_stdlib_export_data": attr.label(
+        providers = [TestingStdlibExportDataInfo],
+        doc = "Test-only fake host-neutral SDK export descriptor.",
     ),
 })
 

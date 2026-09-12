@@ -1,0 +1,1 @@
+sentinel export artifact b

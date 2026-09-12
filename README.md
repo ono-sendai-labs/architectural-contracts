@@ -186,16 +186,30 @@ recorded honestly under [Limitations](#limitations-and-scope).
 Everything the rules need from the host's Go rules is funnelled through one file,
 `bazel_rules/go/private/go_adapter.bzl`; the rules above it stay byte-identical
 across hosts. Alongside the provider/importpath/srcs accessors, it carries three
-hooks worth knowing about:
+host-replaceable SDK contracts, plus the runtime hooks:
 
-- **`go_build_platform(target)`** — returns the GOOS/GOARCH/build tags/cgo of the
-  *target* being analyzed, which the rule writes into the layout's `platform`
-  block so arcc filters sources for the right platform instead of for whatever
-  platform the arcc binary was built for. Under rules_go this reads
-  `GoInfo.mode`; `GoSDK.goos` is the **execution** platform and would reproduce
-  the bug this exists to fix. A host whose Go providers expose no platform
-  metadata may return a fixed constant — that is a conforming implementation,
-  not a degraded fallback.
+- **`sdk_source_attrs()` / `go_stdlib_source_data(ctx)`** — the source-backed
+  map contract. It supplies the SDK source depset, the independent package
+  oracle, the SDK `src/` root and the target identity to `arcc_stdlib_map`.
+  These files are never staged into an `ArccCheck` action; a host may add
+  private discovery attrs through `sdk_source_attrs()`.
+- **`sdk_export_data_attrs()` / `go_stdlib_export_data(ctx, expected_mode)`**
+  — the component-check contract. It supplies only target-configured package
+  metadata and compiled export artifacts, plus the exact target identity. The
+  component rule validates the descriptor and declares its `inputs`; it does
+  not name rules_go's `GoStdLib` or read SDK source. A host may replace the
+  private discovery attrs without adding author-facing attributes.
+- **`go_target_identity(ctx)`** — the shared target identity used by the map,
+  layout, export descriptor and surface key. It includes the exact toolchain
+  version, target GOOS/GOARCH, cgo state, sorted build tags and GOEXPERIMENT.
+  It is derived from target configuration, never from execution-host values.
+  `go_build_platform(target)` remains a compatibility projection for package
+  probes; generic component/map consumers use `go_target_identity`.
+
+All adapter-supplied rule-attribute dictionaries are merged with collision
+checks and must contain only private (`_`-prefixed) names. This lets a host add
+provider-specific discovery without changing the generic rule or widening the
+public `go_component`/`arcc_stdlib_map` API.
 - **`INFRA_COMPONENTS`** — a registry of components a toolchain injects into
   every target (an RPC or proto runtime, say), each entry naming a component
   target and optionally the import-path patterns of packages that cannot be named

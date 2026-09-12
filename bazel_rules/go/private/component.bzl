@@ -21,6 +21,13 @@ Injected records enter the same deterministic merge and export-data path as
 ordinary records; the merged view is also available to infra attachment. The
 rule forwards the interface library's Go providers so the component target is
 usable as a `deps` entry.
+
+SDK input ownership is explicit: the source/oracle/root adapter contract is
+used only by `arcc_stdlib_map`; this rule consumes only the target-configured
+compiled stdlib metadata/export descriptor. The target identity passed to the
+layout, ordinary-import projection, export descriptor, and attached map is one
+adapter record, so a host cannot accidentally mix execution-host settings with
+target settings.
 """
 
 load(
@@ -38,19 +45,20 @@ load(":command.bzl", "arcc_check_argv")
 load(
     ":go_adapter.bzl",
     "ARCC_TARGET",
-    "GO_CONTEXT_DATA_ATTRS",
     "GO_PROVIDERS",
     "GO_TOOLCHAINS",
     "extra_runtime_packages",
     "forward_go_providers",
     "go_attached_infra",
-    "go_build_platform",
     "go_importpath",
     "go_library_srcs",
     "go_sdk_root",
     "go_stdlib_export_data",
-    "go_target_mode",
+    "go_target_identity",
+    "merge_private_rule_attrs",
     "runtime_injection_attrs",
+    "sdk_export_data_attrs",
+    "validate_sdk_export_data",
 )
 load(":paths.bzl", "match_path", "runfiles_path")
 load(":stdlib_map.bzl", "stdlib_map_default_attr")
@@ -76,7 +84,7 @@ def _dirname(path):
 def _package_name(importpath):
     """Best guess at a package's Go name, from its import path.
 
-    The Go package clause is not on any provider rules_go exposes, so this
+    The Go package clause is not on any provider the host adapter exposes, so this
     reconstructs the usual case. arcc requires the field to be non-empty but
     type-checks from the package clause in the sources, so a package whose
     name differs from its directory is not misanalysed by a wrong guess here.
@@ -144,7 +152,7 @@ def _manifest_content(ctx, interface_files, component_deps, auto_attached_deps, 
 
     return "\n".join(lines) + "\n"
 
-def _layout_content(ctx, merged, roots, go_sdk_root, platform, target, dependency_bindings, ordinary_import_data = None, stdlib_export_data = None):
+def _layout_content(ctx, merged, roots, go_sdk_root, target, dependency_bindings, ordinary_import_data = None, stdlib_export_data = None):
     root_set = {root: True for root in roots}
     packages = []
     for importpath in sorted(merged.keys()):
@@ -235,17 +243,17 @@ def _layout_content(ctx, merged, roots, go_sdk_root, platform, target, dependenc
                 "toolchain_version": export_target.toolchain_version,
                 "goos": export_target.goos,
                 "goarch": export_target.goarch,
-                "build_tags": sorted(export_target.tags),
+                "build_tags": sorted(export_target.build_tags),
                 "cgo_enabled": export_target.cgo_enabled,
                 "goexperiment": export_target.goexperiment,
             },
         }
-    if platform:
+    if target:
         layout_platform = {
-            "goos": platform.goos,
-            "goarch": platform.goarch,
-            "build_tags": sorted(platform.tags),
-            "cgo_enabled": platform.cgo_enabled,
+            "goos": target.goos,
+            "goarch": target.goarch,
+            "build_tags": sorted(target.build_tags),
+            "cgo_enabled": target.cgo_enabled,
         }
         # Pinning fields (docs/package-layout-schema.md §3): they must be
         # omitted when empty — a present-but-empty toolchain_version is a
@@ -264,24 +272,24 @@ def _layout_content(ctx, merged, roots, go_sdk_root, platform, target, dependenc
         indent = "  ",
     ) + "\n"
 
-def _ordinary_import_graph_action(ctx, merged, roots, platform, target):
+def _ordinary_import_graph_action(ctx, merged, roots, target):
     """Projects exact source imports into a checked-action graph descriptor.
 
-    rules_go's GoArchive direct list contains declared archive dependencies and
+    The host archive projection contains declared archive dependencies and
     intentionally omits implicit SDK imports. The compiler already reads the
     selected source files, but that source-level import list is not exposed in
-    its providers. This small arcc-owned action performs the same lexical
-    projection with the declared target context; it is metadata generation, not
-    component analysis, and executes no toolchain binary.
+    the host-neutral package records. This small arcc-owned action performs the
+    same lexical projection with the declared target context; it is metadata
+    generation, not component analysis, and executes no toolchain binary.
     """
     request = ctx.actions.declare_file(ctx.label.name + ".package-imports.request.json")
     metadata = ctx.actions.declare_file(ctx.label.name + ".package-imports.json")
 
     request_platform = {
-        "goos": platform.goos,
-        "goarch": platform.goarch,
-        "build_tags": sorted(platform.tags),
-        "cgo_enabled": platform.cgo_enabled,
+        "goos": target.goos,
+        "goarch": target.goarch,
+        "build_tags": sorted(target.build_tags),
+        "cgo_enabled": target.cgo_enabled,
     }
     if target.toolchain_version:
         request_platform["toolchain_version"] = target.toolchain_version
@@ -715,7 +723,7 @@ def _checked_analysis_action(ctx, manifest, layout, member_srcs, export_files, o
     source tree, dependency source closure, and provider runfiles are deliberately
     absent: the member-only loader does not read them. The descriptor's `inputs`
     is the complete host-neutral stdlib input set, so the action does not need to
-    know any rules_go provider details.
+    know any host provider details.
 
     No environment at all: the argv and the frame symlinks fully determine
     the action; network access is blocked.
@@ -773,31 +781,14 @@ def _checked_analysis_action(ctx, manifest, layout, member_srcs, export_files, o
     )
     return report, surface
 
-def _merge_private_attrs(base, additions, source):
-    """Merges adapter-owned attrs and rejects public/colliding names."""
-    collisions = sorted([name for name in additions.keys() if name in base])
-    if collisions:
-        fail("component adapter %s collides with existing rule attributes: %s" % (
-            source,
-            ", ".join(collisions),
-        ))
-    public = sorted([name for name in additions.keys() if not name.startswith("_")])
-    if public:
-        fail("component adapter %s may add only private rule attributes: %s" % (
-            source,
-            ", ".join(public),
-        ))
-    merged = dict(base)
-    merged.update(additions)
-    return merged
-
-def go_component_impl(ctx, attachment_fn = go_attached_infra, runtime_packages_fn = extra_runtime_packages):
+def go_component_impl(ctx, attachment_fn = go_attached_infra, runtime_packages_fn = extra_runtime_packages, stdlib_export_data_fn = go_stdlib_export_data):
     """Generates a component using the supplied adapter attachment function.
 
     The default is the production adapter seam. A test-only rule may inject a
-    fixture registry and runtime-package callback without adding test controls
-    to the production macro. The callback's records are merged before infra
-    attachment and all later layout/classification stages.
+    fixture registry, runtime-package callback, or a host-neutral stdlib
+    export descriptor without adding test controls to the production macro.
+    Adapter descriptors are validated here before any layout or action is
+    emitted, so replacement material cannot bypass target-key checks.
     """
     if ctx.attr.authority not in ALL_COMPONENT_AUTHORITIES:
         fail("component %s: unknown authority %r; accepted values are %s" % (
@@ -935,11 +926,14 @@ def go_component_impl(ctx, attachment_fn = go_attached_infra, runtime_packages_f
     map_info = ctx.attr._stdlib_map
     stdlib_export_data = None
     ordinary_import_data = None
+    target_mode = go_target_identity(ctx) if roots else None
     if roots and ctx.attr.authority == DECLARED:
-        stdlib_export_data = go_stdlib_export_data(
+        expected_mode = arcc_sdk_key_fields(map_info[ArccStdlibMapInfo])
+        stdlib_export_data = stdlib_export_data_fn(
             ctx,
-            expected_mode = arcc_sdk_key_fields(map_info[ArccStdlibMapInfo]),
+            expected_mode = expected_mode,
         )
+        validate_sdk_export_data(ctx, stdlib_export_data, expected_mode = expected_mode)
 
     if roots:
         layout = ctx.actions.declare_file(ctx.label.name + ".package-layout.json")
@@ -949,14 +943,11 @@ def go_component_impl(ctx, attachment_fn = go_attached_infra, runtime_packages_f
         # manifest/layout membership contract impossible to validate once
         # the surface consumer uses the manifest's exact member set.
         layout_roots = sorted(list(members))
-        platform = go_build_platform(roots[0])
-        target_mode = go_target_mode(ctx)
         if ctx.attr.authority == DECLARED:
             ordinary_import_data = _ordinary_import_graph_action(
                 ctx,
                 merged = merged,
                 roots = layout_roots,
-                platform = platform,
                 target = target_mode,
             )
         layout_content = _layout_content(
@@ -964,7 +955,6 @@ def go_component_impl(ctx, attachment_fn = go_attached_infra, runtime_packages_f
             merged = merged,
             roots = layout_roots,
             go_sdk_root = go_sdk_root(ctx),
-            platform = platform,
             target = target_mode,
             dependency_bindings = dependency_bindings,
             ordinary_import_data = ordinary_import_data,
@@ -1193,7 +1183,7 @@ _GO_COMPONENT_BASE_ATTRS = {
         default = "strict",
         doc = "Policy for analysis-defeating findings: strict (default) or warn. Only warn is emitted into the manifest.",
     ),
-} | GO_CONTEXT_DATA_ATTRS | {
+} | {
     # The arcc binary the analysis action runs (exec configuration, like the
     # stdlib-map generator: the target is described by declared inputs).
     "_arcc": attr.label(
@@ -1208,11 +1198,17 @@ _GO_COMPONENT_BASE_ATTRS = {
     "_stdlib_map": stdlib_map_default_attr(),
 }
 
-# Runtime injection is the one host-specific component-rule extension. Keep
-# its attrs private and reject collisions so an adapter cannot silently replace
-# generic behavior or widen the author-facing macro (design DR-14).
-GO_COMPONENT_ATTRS = _merge_private_attrs(
+# SDK export discovery and runtime injection are independent private contracts.
+# Both are composed with collision checks so a host cannot silently replace a
+# generic attr or widen the author-facing macro (design DR-14).
+_GO_COMPONENT_WITH_EXPORT_ATTRS = merge_private_rule_attrs(
     _GO_COMPONENT_BASE_ATTRS,
+    sdk_export_data_attrs(),
+    "sdk-export-data",
+)
+
+GO_COMPONENT_ATTRS = merge_private_rule_attrs(
+    _GO_COMPONENT_WITH_EXPORT_ATTRS,
     runtime_injection_attrs(arcc_deps_aspect),
     "runtime_injection_attrs",
 )

@@ -16,6 +16,8 @@ load(
     "go_attach_infra",
     "go_build_platform",
     "go_stdlib_export_data",
+    "sdk_source_attrs",
+    "validate_sdk_source_data",
 )
 
 ArccGoPlatformInfo = provider(
@@ -222,6 +224,28 @@ stdlib_export_data_mismatch_probe = rule(
     },
     toolchains = GO_TOOLCHAINS,
     doc = "Test-only mismatched-stdlib-export-configuration seam.",
+)
+
+def _stdlib_source_data_missing_probe_impl(ctx):
+    validate_sdk_source_data(ctx, struct(
+        srcs = depset([ctx.file.sentinel]),
+        package_list = None,
+        sdk_root = "",
+        target = None,
+    ))
+    return []
+
+stdlib_source_data_missing_probe = rule(
+    implementation = _stdlib_source_data_missing_probe_impl,
+    attrs = sdk_source_attrs() | {
+        "sentinel": attr.label(
+            mandatory = True,
+            allow_single_file = True,
+            doc = "Test-only source descriptor sentinel.",
+        ),
+    },
+    toolchains = GO_TOOLCHAINS,
+    doc = "Test-only incomplete SDK source descriptor seam.",
 )
 
 def _transitioned_checked_map_impl(ctx):

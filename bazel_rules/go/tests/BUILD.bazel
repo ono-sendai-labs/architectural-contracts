@@ -7,11 +7,12 @@ load(":asserted_surface_tests.bzl", "asserted_surface_comparison", "asserted_sur
 load(":component_tests.bzl", "go_component_test_suite")
 load(":layout_shape_tests.bzl", "layout_shape_test_suite")
 load(":pattern_match_test.bzl", "pattern_match_test_suite")
-load(":probe.bzl", "checked_analysis_surface", "stdlib_export_data_mismatch_probe", "stdlib_export_data_missing_probe", "stdlib_export_data_probe", "transitioned_checked_map", "transitioned_checked_surface", "transitioned_component_layout")
+load(":probe.bzl", "checked_analysis_surface", "stdlib_export_data_mismatch_probe", "stdlib_export_data_missing_probe", "stdlib_export_data_probe", "stdlib_source_data_missing_probe", "transitioned_checked_map", "transitioned_checked_surface", "transitioned_component_layout")
 load(":report_assertion_tests.bzl", "report_assertion_test_suite")
 load(":stdlib_map_probe.bzl", "darwin_arm64_stdlib_map", "default_seam_probe", "tagged_stdlib_map")
 load(":stdlib_map_tests.bzl", "stdlib_map_full_test_suite", "stdlib_map_test_suite")
 load(":stdlib_export_data_tests.bzl", "stdlib_export_data_test_suite")
+load(":sdk_adapter_tests.bzl", "sdk_adapter_test_suite")
 load(
     ":runtime_injection_tests.bzl",
     "fake_go_member",
@@ -21,12 +22,16 @@ load(
     "runtime_injection_defaults_probe",
     "runtime_injection_test_suite",
 )
-load(":testing.bzl", "testing_go_component_direct")
+load(":testing.bzl", "fake_stdlib_export_data", "testing_go_component_direct")
 load(":testing.bzl", "testing_infra_attachment_probe")
 
 exports_files([
     "test_export_a.data",
     "test_export_b.data",
+    "test_sdk_export_metadata.json",
+    "test_sdk_export_a.x",
+    "test_sdk_export_b.x",
+    "test_sdk_export_source.go",
 ])
 
 fake_go_member(
@@ -39,6 +44,56 @@ fake_go_member(
 fake_go_member_probe(
     name = "injected_runtime_member_probe",
     target = ":injected_runtime_member",
+)
+
+fake_stdlib_export_data(
+    name = "fake_sdk_export_data",
+    metadata = "test_sdk_export_metadata.json",
+    export_files = [
+        "test_sdk_export_a.x",
+        "test_sdk_export_b.x",
+    ],
+)
+fake_stdlib_export_data(
+    name = "fake_sdk_export_data_missing",
+    metadata = "test_sdk_export_metadata.json",
+)
+fake_stdlib_export_data(
+    name = "fake_sdk_export_data_mismatch",
+    metadata = "test_sdk_export_metadata.json",
+    export_files = ["test_sdk_export_a.x"],
+    mismatch_field = "goos",
+)
+fake_stdlib_export_data(
+    name = "fake_sdk_export_data_with_source",
+    metadata = "test_sdk_export_metadata.json",
+    export_files = ["test_sdk_export_a.x"],
+    source_file = "test_sdk_export_source.go",
+)
+
+testing_go_component_direct(
+    name = "fake_sdk_export_component",
+    interface = "//bazel_rules/go/tests/testdata/api:api",
+    tags = ["manual"],
+    test_stdlib_export_data = ":fake_sdk_export_data",
+)
+testing_go_component_direct(
+    name = "fake_sdk_export_missing_component",
+    interface = "//bazel_rules/go/tests/testdata/api:api",
+    tags = ["manual"],
+    test_stdlib_export_data = ":fake_sdk_export_data_missing",
+)
+testing_go_component_direct(
+    name = "fake_sdk_export_mismatch_component",
+    interface = "//bazel_rules/go/tests/testdata/api:api",
+    tags = ["manual"],
+    test_stdlib_export_data = ":fake_sdk_export_data_mismatch",
+)
+testing_go_component_direct(
+    name = "fake_sdk_export_source_component",
+    interface = "//bazel_rules/go/tests/testdata/api:api",
+    tags = ["manual"],
+    test_stdlib_export_data = ":fake_sdk_export_data_with_source",
 )
 
 testing_infra_attachment_probe(
@@ -55,6 +110,7 @@ config_setting(
 stdlib_map_test_suite(name = "stdlib_map_tests")
 stdlib_map_full_test_suite(name = "stdlib_map_full_tests")
 stdlib_export_data_test_suite(name = "stdlib_export_data_tests")
+sdk_adapter_test_suite(name = "sdk_adapter_tests")
 
 runtime_injection_defaults_probe(name = "runtime_injection_defaults_probe")
 fake_runtime_package(
@@ -179,6 +235,11 @@ stdlib_export_data_missing_probe(
 stdlib_export_data_mismatch_probe(
     name = "stdlib_export_data_mismatch_probe",
     map = "//:arcc_stdlib_map",
+    tags = ["manual"],
+)
+stdlib_source_data_missing_probe(
+    name = "stdlib_source_data_missing_probe",
+    sentinel = "test_export_a.data",
     tags = ["manual"],
 )
 

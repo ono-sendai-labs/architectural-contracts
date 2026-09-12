@@ -79,6 +79,13 @@ def _action_inputs_are_complete_and_minimal_impl(env, target):
         p for p in inputs
         if "/.cache/" in p or "gomodcache" in p or "gopath" in p or (p.endswith(".go") and "/src/" not in p)
     ]).contains_exactly([])
+    # Source/oracle generation has no compiled-export role; those artifacts
+    # belong only to the component export-data contract.
+    env.expect.that_collection([
+        p for p in inputs
+        if p.endswith("stdlib.pkg.json") or p.endswith("/gocache") or
+           p.endswith("/pkg") or "/pkg/tool/" in p
+    ]).contains_exactly([])
     env.expect.that_collection([
         p for p in inputs
         if (p.startswith("go/") and not p.startswith("go/cmd/arcc/arcc_") and not p.startswith("go/cmd/arcc-stdlibmap/arcc-stdlibmap_")) or

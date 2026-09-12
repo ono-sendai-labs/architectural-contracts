@@ -349,6 +349,14 @@ How a surface was produced is established by the producer and the build
 graph — the provider edge and the absence or presence of the report —
 never by a flag inside the file (R8, DR-01).
 
+SDK material has three independent host-adapter seams. `arcc_stdlib_map` uses
+the source/oracle contract only; the component's checked action uses the
+compiled stdlib metadata/export-data contract only. Both are stamped and
+validated with one target SDK identity containing the exact toolchain version,
+GOOS, GOARCH, cgo state, sorted build tags and GOEXPERIMENT. Hosts can extend
+the contracts with private adapter attributes, but SDK source files, Go
+toolchain binaries and host caches never become component-action inputs.
+
 Example:
 
     go_component(

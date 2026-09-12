@@ -1,6 +1,6 @@
 """The `_arcc_deps` aspect: the Go package closure, with edges.
 
-The underlying Go archive provider exposes no public importpath-keyed edge data
+The host's archive provider exposes no public importpath-keyed edge data
 (its only edge data is a private, label-based field), but the package-layout
 JSON arcc consumes is keyed by import path. So this aspect walks the graph
 itself and projects each node's direct archives onto their import paths. The
@@ -57,7 +57,7 @@ def merge_by_importpath(nodes):
     path, so the closure can contain several nodes per package. They are
     unioned rather than overwritten: a keyed dict with last-write-wins is
     order-dependent, and depset iteration order is not something to rely on.
-    The union is safe because rules_go makes the embedder's srcs and direct
+    The union is safe because the host Go rules make the embedder's srcs and direct
     archives a superset of the embedded library's. Export metadata is stricter:
     every contributor must carry exactly one artifact, and all contributors for
     one effective package must name the same file. Selecting a first or last
