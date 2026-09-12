@@ -313,3 +313,81 @@ capabilities their manifests do not declare. Under DR-11 these are correct,
 fail-closed findings; resolving them (policy downgrades / the Step 7
 protobuf-runtime component) is later-step work recorded in the Step 6 task
 escalation.
+
+## Step 13 member-only scaling measurement
+
+Measured after the Step 8 member-only loader landed, on Linux/amd64 with Go
+1.26.4, `CGO_ENABLED=0`, and `golang.org/x/tools v0.48.0`. The command was
+`go test -tags=integration ./internal/goanalysis -run
+'^TestMemberAnalysisScaling_(Primary|DirectTypeSurface)$' -count=1 -v`. Each
+fixture was generated in a fresh temporary module with `go list -json -deps
+-export`; one warm-up load was discarded and three samples were retained for
+each case. The test copied every non-member export archive into the temporary
+layout, removed every non-member source directory, and then used the production
+`LoadPackageFacts` and `ScanReferences` path through `packagelayout.WithDriverEnv`.
+
+The primary member source is one fixed `member/member.go` importing one fixed
+`entry` package and returning `entry.Make()`. The entry package blank-imports a
+layered graph: for depth `d` and width `w`, there are `d*w` node packages plus
+the directly imported entry package, so the expected non-member export-artifact
+count is exactly `1 + d*w`. The measured package-load, scan, and total columns
+below are milliseconds except scan, which is microseconds; `raw` preserves the
+three post-warm-up samples in order and `median` is their robust aggregate.
+
+### Primary depth/width series
+
+| depth | width | package-load raw / median | scan raw / median | total raw / median | unique artifacts | deduplicated bytes |
+| ---: | ---: | --- | --- | --- | ---: | ---: |
+| 1 | 1 | 1.377, 1.226, 1.620 / 1.377 | 7.264, 10.751, 18.576 / 10.751 | 1.414, 1.264, 1.668 / 1.414 | 2 | 4,728 |
+| 1 | 2 | 1.914, 1.753, 1.312 / 1.753 | 9.318, 10.971, 6.412 / 9.318 | 1.958, 1.809, 1.354 / 1.809 | 3 | 5,882 |
+| 1 | 4 | 1.453, 1.436, 1.428 / 1.436 | 10.079, 10.920, 10.540 / 10.540 | 1.525, 1.510, 1.499 / 1.510 | 5 | 8,188 |
+| 4 | 1 | 1.422, 1.706, 2.064 / 1.706 | 7.915, 5.851, 7.594 / 7.594 | 1.485, 1.767, 2.135 / 1.767 | 5 | 8,660 |
+| 4 | 2 | 2.234, 1.921, 1.851 / 1.921 | 13.616, 9.928, 6.973 / 9.928 | 2.332, 2.045, 1.963 / 2.045 | 9 | 15,194 |
+| 4 | 4 | 2.832, 2.765, 1.974 / 2.765 | 7.274, 6.081, 4.779 / 6.081 | 2.976, 3.116, 2.108 / 2.976 | 17 | 32,812 |
+| 16 | 1 | 2.459, 2.672, 2.104 / 2.459 | 6.953, 9.929, 5.410 / 6.953 | 2.609, 2.955, 2.232 / 2.609 | 17 | 31,496 |
+| 16 | 2 | 3.829, 4.152, 3.154 / 3.829 | 8.747, 7.594, 7.554 / 7.594 | 4.315, 4.613, 3.687 / 4.315 | 33 | 81,962 |
+| 16 | 4 | 5.620, 5.512, 5.017 / 5.512 | 11.902, 14.758, 11.061 / 11.902 | 6.210, 6.297, 5.607 / 6.210 | 65 | 258,028 |
+
+The exact structural workload was constant in all nine cases: one member
+package, one selected source file, one syntax file, one `types.Info`, and the
+same `Uses`/`Selections`, import edges, and typed reference edges. Every
+non-member had no syntax, no type info, and no source-file role, while every
+non-member was export-backed with complete types. Artifact counts and bytes
+increased strictly along both the depth axis at each fixed width and the width
+axis at each fixed depth. The scan guard is deliberately broad — median scan
+must stay below `20*baseline + 20ms` — because the exact member workload is the
+strong invariant and microsecond scheduling noise is not a useful threshold.
+
+### Direct type-surface series
+
+The second series fixes depth and width at `(1, 1)` and adds deterministic
+exported type/function signature pairs to the directly imported `entry` package.
+The member source and its typed references remain unchanged. There are always
+exactly two non-member artifacts (entry plus one node); the bytes below are the
+validated, deduplicated values from the same diagnostics path.
+
+| exported type/signature pairs | package-load raw / median (ms) | scan raw / median (µs) | total raw / median (ms) | unique artifacts | deduplicated bytes |
+| ---: | --- | --- | ---: | ---: | ---: |
+| 0 | 1.898, 1.304, 1.402 / 1.402 | 11.652, 5.690, 5.740 / 5.740 | 1.946, 1.330, 1.428 / 1.428 | 2 | 4,748 |
+| 8 | 1.655, 1.370, 1.443 / 1.443 | 7.554, 7.675, 5.911 / 7.554 | 1.688, 1.402, 1.472 / 1.472 | 2 | 25,096 |
+| 32 | 1.823, 1.632, 1.338 / 1.632 | 5.660, 4.328, 6.692 / 5.660 | 1.848, 1.655, 1.368 / 1.655 | 2 | 85,366 |
+| 128 | 1.663, 1.451, 1.753 / 1.663 | 5.310, 4.458, 4.348 / 4.458 | 1.692, 1.472, 1.775 / 1.692 | 2 | 328,702 |
+
+Export bytes grow from 4.7 KiB to 321 KiB while member scanning remains the
+same bounded workload and stays within the same noise-tolerant guard. The
+package-load and total phases are therefore the honest residual cost of decoding
+larger directly imported export data; this suite makes no constant-export-load
+claim. Timings are machine-dependent observations emitted only through test
+logs, never fields in reports, surfaces, facts, or layout artifacts.
+
+The integration test also audits `go list -deps ./internal/goanalysis`: the
+member-only check path links none of `golang.org/x/tools/go/ssa`,
+`golang.org/x/tools/go/callgraph/vta`, or `github.com/google/capslock`. The
+phase observer is package-private and nil by default, so production checks retain
+the same artifact and API contract while the test can attribute package loading,
+reference scanning, and complete `LoadPackageFacts` independently.
+
+Routine validation on this Linux/amd64 host also ran `just ci` with the warm
+Bazel cache after the suite was added. It passed in 15.049 seconds of wall time
+(`real 0m15.049s`, `user 0m35.525s`, `sys 0m5.969s`); this is an observed CI
+feedback result, not a timing assertion in the test.
