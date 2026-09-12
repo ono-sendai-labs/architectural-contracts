@@ -44,6 +44,7 @@ go_test(
         "generate_test.go",
         "inventory_test.go",
         "layoutloader_test.go",
+        "project_export_test.go",
         "sdkkey_test.go",
         "stdlibmap_test.go",
     ],

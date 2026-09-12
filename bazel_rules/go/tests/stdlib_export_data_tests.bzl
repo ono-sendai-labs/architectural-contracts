@@ -8,6 +8,7 @@ load("//bazel_rules/go/tests:probe.bzl", "StdlibExportDataInfo")
 _PROBE = "//bazel_rules/go/tests:stdlib_export_data_probe"
 _MISSING = "//bazel_rules/go/tests:stdlib_export_data_missing_probe"
 _MISMATCH = "//bazel_rules/go/tests:stdlib_export_data_mismatch_probe"
+_UNPROJECTED = "//bazel_rules/go/tests:stdlib_export_data_unprojected_consumer_probe"
 
 def _valid_export_data_test(name):
     analysis_test(
@@ -50,7 +51,7 @@ def _missing_export_data_fails_analysis_impl(env, target):
         matching.str_matches("*stdlib_export_data_missing_probe*"),
     )
     env.expect.that_target(target).failures().contains_predicate(
-        matching.str_matches("*export metadata*"),
+        matching.str_matches("*projected descriptor*"),
     )
 
 def _mismatched_export_data_fails_analysis_test(name):
@@ -60,6 +61,20 @@ def _mismatched_export_data_fails_analysis_test(name):
         impl = _mismatched_export_data_fails_analysis_impl,
         attr_values = {"size": "small"},
         expect_failure = True,
+    )
+
+def _unprojected_consumer_fails_closed_test(name):
+    analysis_test(
+        name = name,
+        target = _UNPROJECTED,
+        impl = _unprojected_consumer_fails_closed_impl,
+        attr_values = {"size": "small"},
+        expect_failure = True,
+    )
+
+def _unprojected_consumer_fails_closed_impl(env, target):
+    env.expect.that_target(target).failures().contains_predicate(
+        matching.str_matches("*projected descriptor*raw rules_go export tree*"),
     )
 
 def _mismatched_export_data_fails_analysis_impl(env, target):
@@ -75,6 +90,7 @@ def stdlib_export_data_test_suite(name):
         _valid_export_data_test,
         _missing_export_data_fails_analysis_test,
         _mismatched_export_data_fails_analysis_test,
+        _unprojected_consumer_fails_closed_test,
     ]
     test_targets = []
     for setup_func in tests:

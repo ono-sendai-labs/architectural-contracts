@@ -705,7 +705,9 @@ def go_stdlib_export_data(ctx, expected_mode = None):
         projected = getattr(candidate[ArccStdlibMapInfo], "export_data", None)
         if projected != None:
             return validate_sdk_export_data(ctx, projected, expected_mode = expected_mode)
-    return go_stdlib_export_data_unprojected(ctx, expected_mode = expected_mode)
+    fail(("component %s: standard-library export data is unavailable as a projected " +
+          "descriptor; the raw rules_go export tree is reserved for the shared " +
+          "stdlib-map projection") % ctx.label.name)
 
 def go_stdlib_export_data_unprojected(ctx, expected_mode = None):
     """Returns the raw rules_go material used by the shared projection.

@@ -60,20 +60,16 @@ func ProjectExportFiles(metadataPath, sourceRoot, outputRoot string) error {
 		}
 		seen[relative] = true
 
-		sourcePath := filepath.Join(sourceRoot, filepath.FromSlash(relative))
-		info, err := os.Stat(sourcePath)
+		sourcePath, mode, err := declaredExportSourcePath(sourceRoot, relative)
 		if err != nil {
-			return fmt.Errorf("standard-library export file %q is not available below declared root %q: %w", record.ExportFile, sourceRoot, err)
-		}
-		if !info.Mode().IsRegular() {
-			return fmt.Errorf("standard-library export file %q below declared root %q is not a regular file", record.ExportFile, sourceRoot)
+			return fmt.Errorf("standard-library export file %q: %w", record.ExportFile, err)
 		}
 
 		destinationPath := filepath.Join(outputRoot, filepath.FromSlash(relative))
 		if err := os.MkdirAll(filepath.Dir(destinationPath), 0o755); err != nil {
 			return fmt.Errorf("creating projected export directory for %q: %w", relative, err)
 		}
-		if err := copyProjectedExport(sourcePath, destinationPath, info.Mode().Perm()); err != nil {
+		if err := copyProjectedExport(sourcePath, destinationPath, mode); err != nil {
 			return fmt.Errorf("projecting standard-library export file %q: %w", record.ExportFile, err)
 		}
 		projected++
@@ -82,6 +78,53 @@ func ProjectExportFiles(metadataPath, sourceRoot, outputRoot string) error {
 		return fmt.Errorf("standard-library export metadata names no compiler export artifacts")
 	}
 	return nil
+}
+
+func declaredExportSourcePath(sourceRoot, relative string) (string, os.FileMode, error) {
+	rootAbs, err := filepath.Abs(sourceRoot)
+	if err != nil {
+		return "", 0, fmt.Errorf("resolving declared export root %q: %w", sourceRoot, err)
+	}
+	rootReal, err := filepath.EvalSymlinks(rootAbs)
+	if err != nil {
+		return "", 0, fmt.Errorf("resolving declared export root %q: %w", sourceRoot, err)
+	}
+	sourcePath := filepath.Join(rootAbs, filepath.FromSlash(relative))
+	entry, err := os.Lstat(sourcePath)
+	if err != nil {
+		return "", 0, fmt.Errorf("is not available below declared root %q: %w", sourceRoot, err)
+	}
+	if !entry.Mode().IsRegular() && entry.Mode()&os.ModeSymlink == 0 {
+		return "", 0, fmt.Errorf("below declared root %q is not a regular file", sourceRoot)
+	}
+	resolved, err := filepath.EvalSymlinks(sourcePath)
+	if err != nil {
+		return "", 0, fmt.Errorf("cannot resolve below declared root %q: %w", sourceRoot, err)
+	}
+	resolved, err = filepath.Abs(resolved)
+	if err != nil {
+		return "", 0, fmt.Errorf("resolving export target below declared root %q: %w", sourceRoot, err)
+	}
+	relativeResolved, err := filepath.Rel(rootReal, resolved)
+	if err != nil || relativeResolved == ".." || strings.HasPrefix(relativeResolved, ".."+string(filepath.Separator)) || filepath.IsAbs(relativeResolved) {
+		// Bazel may materialize a tree-artifact entry as an absolute symlink to
+		// the same declared tree in the execroot outside this action's sandbox.
+		// Permit that representation only when the target preserves the exact
+		// declared logical root and relative export path; an arbitrary symlink
+		// escape still fails closed.
+		logicalExportPath := filepath.ToSlash(filepath.Join(sourceRoot, filepath.FromSlash(relative)))
+		if !strings.HasSuffix(filepath.ToSlash(resolved), "/"+logicalExportPath) {
+			return "", 0, fmt.Errorf("resolves outside declared root %q", sourceRoot)
+		}
+	}
+	resolvedInfo, err := os.Stat(resolved)
+	if err != nil {
+		return "", 0, fmt.Errorf("checking resolved export below declared root %q: %w", sourceRoot, err)
+	}
+	if !resolvedInfo.Mode().IsRegular() {
+		return "", 0, fmt.Errorf("resolved target below declared root %q is not a regular file", sourceRoot)
+	}
+	return resolved, resolvedInfo.Mode().Perm(), nil
 }
 
 func projectedExportRelativePath(value, sourceRoot string) (string, error) {

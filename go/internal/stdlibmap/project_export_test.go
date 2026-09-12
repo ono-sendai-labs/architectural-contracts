@@ -85,6 +85,9 @@ func TestProjectExportFilesRejectsExportOutsideDeclaredRoot(t *testing.T) {
 func TestProjectExportFilesFailsWhenMetadataArtifactIsMissing(t *testing.T) {
 	workspace := t.TempDir()
 	sourceRoot := filepath.Join(workspace, "rules_go", "gocache")
+	if err := os.MkdirAll(sourceRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
 	metadataPath := filepath.Join(workspace, "stdlib.pkg.json")
 	metadata := `{"ID":"missing","ExportFile":"__BAZEL_EXECROOT__/` + filepath.ToSlash(sourceRoot) + `/missing/export-d"}` + "\n"
 	if err := os.WriteFile(metadataPath, []byte(metadata), 0o644); err != nil {
@@ -94,5 +97,35 @@ func TestProjectExportFilesFailsWhenMetadataArtifactIsMissing(t *testing.T) {
 	err := ProjectExportFiles(metadataPath, sourceRoot, filepath.Join(workspace, "projected"))
 	if err == nil || !strings.Contains(err.Error(), "is not available below declared root") {
 		t.Fatalf("ProjectExportFiles() error = %v, want missing-artifact diagnostic", err)
+	}
+}
+
+func TestProjectExportFilesRejectsSymlinkEscape(t *testing.T) {
+	workspace := t.TempDir()
+	sourceRoot := filepath.Join(workspace, "rules_go", "gocache")
+	outsideRoot := filepath.Join(workspace, "outside")
+	if err := os.MkdirAll(sourceRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(outsideRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	outsideFile := filepath.Join(outsideRoot, "export-d")
+	if err := os.WriteFile(outsideFile, []byte("outside"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	symlinkPath := filepath.Join(sourceRoot, "escape-d")
+	if err := os.Symlink(outsideFile, symlinkPath); err != nil {
+		t.Fatal(err)
+	}
+	metadataPath := filepath.Join(workspace, "stdlib.pkg.json")
+	metadata := `{"ID":"escape","ExportFile":"__BAZEL_EXECROOT__/` + filepath.ToSlash(sourceRoot) + `/escape-d"}` + "\n"
+	if err := os.WriteFile(metadataPath, []byte(metadata), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	err := ProjectExportFiles(metadataPath, sourceRoot, filepath.Join(workspace, "projected"))
+	if err == nil || !strings.Contains(err.Error(), "resolves outside declared root") {
+		t.Fatalf("ProjectExportFiles() error = %v, want symlink-escape diagnostic", err)
 	}
 }

@@ -188,6 +188,20 @@ stdlib_export_data_probe = rule(
     doc = "Exposes the host-neutral stdlib export-data adapter contract for analysis tests.",
 )
 
+def _stdlib_export_data_unprojected_consumer_probe_impl(ctx):
+    # The rules_go provider intentionally has export material here, but this
+    # consumer has no projected map descriptor. The public adapter must fail
+    # closed rather than handing the raw cache tree to a caller.
+    go_stdlib_export_data(ctx)
+    return []
+
+stdlib_export_data_unprojected_consumer_probe = rule(
+    implementation = _stdlib_export_data_unprojected_consumer_probe_impl,
+    attrs = {} | GO_CONTEXT_DATA_ATTRS,
+    toolchains = GO_TOOLCHAINS,
+    doc = "Negative probe proving public export consumers cannot receive the raw tree.",
+)
+
 def _stdlib_export_data_missing_probe_impl(ctx):
     go_stdlib_export_data(ctx)
     return []

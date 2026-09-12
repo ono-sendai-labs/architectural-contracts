@@ -8,7 +8,7 @@ load(":component_tests.bzl", "go_component_test_suite")
 load(":producer_chain_tests.bzl", "producer_chain_analysis_tests")
 load(":layout_shape_tests.bzl", "layout_shape_test_suite")
 load(":pattern_match_test.bzl", "pattern_match_test_suite")
-load(":probe.bzl", "checked_analysis_surface", "stdlib_export_data_mismatch_probe", "stdlib_export_data_missing_probe", "stdlib_export_data_probe", "stdlib_source_data_missing_probe", "transitioned_checked_map", "transitioned_checked_surface", "transitioned_component_layout")
+load(":probe.bzl", "checked_analysis_surface", "stdlib_export_data_mismatch_probe", "stdlib_export_data_missing_probe", "stdlib_export_data_probe", "stdlib_export_data_unprojected_consumer_probe", "stdlib_source_data_missing_probe", "transitioned_checked_map", "transitioned_checked_surface", "transitioned_component_layout")
 load(":report_assertion_tests.bzl", "report_assertion_test_suite")
 load(":stdlib_map_probe.bzl", "darwin_arm64_stdlib_map", "default_seam_probe", "linux_stdlib_map", "tagged_stdlib_map")
 load(":stdlib_map_tests.bzl", "stdlib_map_full_test_suite", "stdlib_map_test_suite")
@@ -275,6 +275,11 @@ stdlib_export_data_missing_probe(
 stdlib_export_data_mismatch_probe(
     name = "stdlib_export_data_mismatch_probe",
     map = "//:arcc_stdlib_map",
+    tags = ["manual"],
+)
+
+stdlib_export_data_unprojected_consumer_probe(
+    name = "stdlib_export_data_unprojected_consumer_probe",
     tags = ["manual"],
 )
 stdlib_source_data_missing_probe(
