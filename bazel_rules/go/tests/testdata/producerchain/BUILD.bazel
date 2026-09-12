@@ -1,0 +1,3 @@
+load(":producer_chain.bzl", "producer_chain_scaling_fixtures")
+
+producer_chain_scaling_fixtures()

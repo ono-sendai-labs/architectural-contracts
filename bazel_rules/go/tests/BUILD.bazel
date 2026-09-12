@@ -5,6 +5,7 @@ load(":aspect_tests.bzl", "arcc_deps_aspect_full_test_suite", "arcc_deps_aspect_
 load(":artifact_shape_tests.bzl", "artifact_shape_test_suite")
 load(":asserted_surface_tests.bzl", "asserted_surface_comparison", "asserted_surface_test_suite")
 load(":component_tests.bzl", "go_component_test_suite")
+load(":producer_chain_tests.bzl", "producer_chain_analysis_tests")
 load(":layout_shape_tests.bzl", "layout_shape_test_suite")
 load(":pattern_match_test.bzl", "pattern_match_test_suite")
 load(":probe.bzl", "checked_analysis_surface", "stdlib_export_data_mismatch_probe", "stdlib_export_data_missing_probe", "stdlib_export_data_probe", "stdlib_source_data_missing_probe", "transitioned_checked_map", "transitioned_checked_surface", "transitioned_component_layout")
@@ -429,6 +430,12 @@ arcc_deps_aspect_full_test_suite(name = "arcc_deps_aspect_full_tests")
 arcc_deps_aspect_test_suite(name = "arcc_deps_aspect_tests")
 
 go_component_test_suite(name = "go_component_tests")
+
+# Step 13: every measured component has exactly one action at each producer
+# boundary, and the action inputs retain the source-projection/layout/check
+# role split. Runtime timing and volume checks live in the integration-tagged
+# Go driver; these analysis tests fail before execution if the topology drifts.
+producer_chain_analysis_tests()
 
 asserted_surface_test_suite(name = "asserted_surface_tests")
 
