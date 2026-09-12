@@ -210,6 +210,7 @@ All adapter-supplied rule-attribute dictionaries are merged with collision
 checks and must contain only private (`_`-prefixed) names. This lets a host add
 provider-specific discovery without changing the generic rule or widening the
 public `go_component`/`arcc_stdlib_map` API.
+
 - **`INFRA_COMPONENTS`** — a registry of components a toolchain injects into
   every target (an RPC or proto runtime, say), each entry naming a component
   target and optionally the import-path patterns of packages that cannot be named
