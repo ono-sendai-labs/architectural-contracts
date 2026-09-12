@@ -16,8 +16,14 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ono-sendai-labs/architectural-contracts/go/internal/artifactio"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/facts"
+	"github.com/ono-sendai-labs/architectural-contracts/go/internal/hostpolicy"
+	"github.com/ono-sendai-labs/architectural-contracts/go/internal/manifest"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/packagelayout"
+	"github.com/ono-sendai-labs/architectural-contracts/go/internal/report"
+	"github.com/ono-sendai-labs/architectural-contracts/go/internal/surface"
+	"github.com/ono-sendai-labs/architectural-contracts/go/internal/teststdlibmap"
 	"golang.org/x/tools/go/packages"
 )
 
@@ -42,10 +48,12 @@ type scalingRunCapture struct {
 }
 
 type scalingSample struct {
-	Facts    facts.PackageFacts
-	Graph    scalingGraphSnapshot
-	Workload scalingMemberWorkload
-	Phases   map[analysisPhase][]time.Duration
+	Facts        facts.PackageFacts
+	Graph        scalingGraphSnapshot
+	Workload     scalingMemberWorkload
+	Phases       map[analysisPhase][]time.Duration
+	ReportBytes  []byte
+	SurfaceBytes []byte
 }
 
 type scalingGraphSnapshot struct {
@@ -230,7 +238,7 @@ func measureScalingSample(t *testing.T, fixture scalingFixture) scalingSample {
 	}
 	loadPackages = func(config *packages.Config, patterns ...string) ([]*packages.Package, error) {
 		loaded, err := previousLoader(config, patterns...)
-		if current != nil {
+		if current != nil && current.Packages == nil {
 			current.Packages = loaded
 		}
 		return loaded, err
@@ -241,13 +249,18 @@ func measureScalingSample(t *testing.T, fixture scalingFixture) scalingSample {
 	for iteration := 0; iteration < scalingSampleCount+1; iteration++ {
 		current = &scalingRunCapture{Phases: make(map[analysisPhase][]time.Duration)}
 		var loaded facts.PackageFacts
+		var reportBytes, surfaceBytes []byte
 		err := packagelayout.WithDriverEnv(fixture.LayoutPath, fixture.Workspace, func() error {
 			var err error
 			loaded, err = LoadPackageFacts(LoadRequest{
 				ComponentRoot: fixture.Workspace,
 				Members:       []string{fixture.MemberPath},
 			})
-			return err
+			if err != nil {
+				return err
+			}
+			reportBytes, surfaceBytes = emitScalingArtifacts(t, fixture, loaded)
+			return nil
 		})
 		if err != nil {
 			t.Fatalf("member-only scaling load iteration %d: %v", iteration, err)
@@ -257,11 +270,19 @@ func measureScalingSample(t *testing.T, fixture scalingFixture) scalingSample {
 		}
 		if measured.Phases == nil {
 			measured = scalingSample{
-				Facts:    loaded,
-				Graph:    snapshotScalingGraph(current.Packages, fixture),
-				Workload: snapshotScalingWorkload(t, current.Packages, fixture),
-				Phases:   make(map[analysisPhase][]time.Duration),
+				Facts:        loaded,
+				Graph:        snapshotScalingGraph(current.Packages, fixture),
+				Workload:     snapshotScalingWorkload(t, current.Packages, fixture),
+				Phases:       make(map[analysisPhase][]time.Duration),
+				ReportBytes:  append([]byte(nil), reportBytes...),
+				SurfaceBytes: append([]byte(nil), surfaceBytes...),
 			}
+		}
+		if !bytes.Equal(reportBytes, measured.ReportBytes) {
+			t.Fatalf("sample iteration %d changed canonical report bytes", iteration)
+		}
+		if !bytes.Equal(surfaceBytes, measured.SurfaceBytes) {
+			t.Fatalf("sample iteration %d changed canonical surface bytes", iteration)
 		}
 		encodedFacts, err := json.Marshal(loaded)
 		if err != nil {
@@ -290,6 +311,74 @@ func measureScalingSample(t *testing.T, fixture scalingFixture) scalingSample {
 		t.Fatal("scaling measurement produced no non-warm-up samples")
 	}
 	return measured
+}
+
+// emitScalingArtifacts runs the production surface derivation and canonical
+// artifact encoders against the facts produced by the member-only load. The
+// phase observer is intentionally not an input to either encoder; retained
+// samples therefore prove that observed duration variation cannot contaminate
+// report or surface bytes.
+func emitScalingArtifacts(t *testing.T, fixture scalingFixture, loaded facts.PackageFacts) ([]byte, []byte) {
+	t.Helper()
+	inputs, err := LoadSurfaceInputs(LoadRequest{
+		ComponentName: fixture.MemberPath,
+		ComponentRoot: fixture.Workspace,
+		Members:       []string{fixture.MemberPath},
+	})
+	if err != nil {
+		t.Fatalf("loading surface inputs for artifact determinism: %v", err)
+	}
+	sources := make([]surface.SourceFile, 0, len(inputs.SourcePaths))
+	for _, sourcePath := range inputs.SourcePaths {
+		data, err := os.ReadFile(filepath.Join(fixture.Workspace, filepath.FromSlash(sourcePath)))
+		if err != nil {
+			t.Fatalf("reading surface source %q for artifact determinism: %v", sourcePath, err)
+		}
+		sources = append(sources, surface.SourceFile{Path: sourcePath, Bytes: data})
+	}
+	key, err := teststdlibmap.ExpectedKey()
+	if err != nil {
+		t.Fatalf("deriving scaling surface SDK key: %v", err)
+	}
+	derived, err := surface.Derive(surface.Input{
+		Component:       fixture.MemberPath,
+		Style:           manifest.InterfaceStylePackageSurface,
+		Authority:       manifest.AuthorityDeclaration{Known: true},
+		Namespace:       hostpolicy.NamespaceID,
+		Key:             &key,
+		ProducerVersion: "member-analysis-scaling-test",
+		MemberPackages:  inputs.MemberPackages,
+		Manifest:        []byte("name: \"member-analysis-scaling\"\n"),
+		Sources:         sources,
+	})
+	if err != nil {
+		t.Fatalf("deriving scaling surface artifact: %v", err)
+	}
+	surfaceBytes, err := artifactio.MarshalSurface(derived)
+	if err != nil {
+		t.Fatalf("encoding scaling surface artifact: %v", err)
+	}
+	reportBytes, err := artifactio.MarshalReport(report.ConformanceReport{
+		Component: fixture.MemberPath,
+		Diagnostics: report.Diagnostics{
+			NonMemberExportArtifactCount: loaded.ExportDataDiagnostics.NonMemberExportArtifactCount,
+			NonMemberExportBytes:         loaded.ExportDataDiagnostics.NonMemberExportBytes,
+		},
+	})
+	if err != nil {
+		t.Fatalf("encoding scaling report artifact: %v", err)
+	}
+	return reportBytes, surfaceBytes
+}
+
+func scalingPhasesHaveDistinctDurations(phases map[analysisPhase][]time.Duration) bool {
+	seen := make(map[time.Duration]struct{})
+	for _, durations := range phases {
+		for _, duration := range durations {
+			seen[duration] = struct{}{}
+		}
+	}
+	return len(seen) > 1
 }
 
 func snapshotScalingGraph(pkgs []*packages.Package, fixture scalingFixture) scalingGraphSnapshot {

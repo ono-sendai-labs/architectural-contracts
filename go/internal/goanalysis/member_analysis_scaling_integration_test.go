@@ -156,6 +156,12 @@ func TestMemberAnalysisScaling_RepeatedFactsAreTimingIndependent(t *testing.T) {
 	if len(encoded) == 0 {
 		t.Fatal("marshalled measured facts are empty")
 	}
+	if len(sample.ReportBytes) == 0 || len(sample.SurfaceBytes) == 0 {
+		t.Fatalf("canonical artifacts are empty: report=%d surface=%d", len(sample.ReportBytes), len(sample.SurfaceBytes))
+	}
+	if !scalingPhasesHaveDistinctDurations(sample.Phases) {
+		t.Fatalf("retained phase observations are identical; want natural duration variation to exercise artifact independence")
+	}
 	if len(sample.Phases[analysisPhaseLoadPackageFacts]) != scalingSampleCount || len(sample.Phases[analysisPhaseLoadPackages]) != scalingSampleCount || len(sample.Phases[analysisPhaseScanReferences]) != scalingSampleCount {
 		t.Fatalf("phase observations = %#v, want %d observations for each phase", sample.Phases, scalingSampleCount)
 	}
