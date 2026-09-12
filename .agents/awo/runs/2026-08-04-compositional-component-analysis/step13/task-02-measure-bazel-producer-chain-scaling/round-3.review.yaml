@@ -1,0 +1,105 @@
+review:
+  task_file: .agents/tasks/2026-08-04-compositional-component-analysis/step13/task-02-measure-bazel-producer-chain-scaling.code-task.md
+  change_id: wtwttppxmzzktpsoosxsqqrmqmkuusom
+  reviewed_at: 2026-09-12T08:25:44Z
+  verdict: approved
+  schema_version: 2
+  lsp_coverage: unavailable
+
+merge_request:
+  title: "test: measure Bazel producer-chain scaling [Compositional Analysis: Step 13/Task 02]"
+  body: |
+    Reviews the complete ordered series from qypwlppxqqrkpprkvtxvxryxwywlllul
+    through wtwttppxmzzktpsoosxsqqrmqmkuusom. The initial changes add the
+    deterministic Bazel fixtures, analysis-role tests, and profile/execution-log
+    driver; pozpqxkrzvsvyqtroxompnsopruqqpwv is an empty intermediate marker;
+    soxxlkvupoxvuzxpvpozqlltvsqsrnry fixes checked member scaling;
+    lyrzrptnookptyqtyzmmtxswovrlpxtq restores Task 1 topology; and the final
+    change adds direct entry ownership, report verdict validation, and complete
+    checked-output determinism snapshots.
+
+summary: |
+  The prior critical finding is resolved: the fixture's dependency surfaces now authorize the entry imports, the current root and dependency reports decode as `verdict: pass`, and the integration test rejects failures and `CHECKED_FAIL` provenance. The earlier member-work, Task 1 topology, tool-input accounting, and native-generation findings are also addressed, with focused checks and the recorded `just ci` run passing. No regressions or blocking style/security issues were found; LSP diagnostics were unavailable in this harness.
+
+acceptance_criteria:
+  - text: |
+      **The complete producer topology is measured**
+         - Given each depth/width scaling target
+         - When the integration driver builds its `arcc` output group and reads the profile
+         - Then the result includes projection, layout, check-loader, check-total, and whole-chain timing plus source/export input counts and bytes.
+    status: pass
+    evidence: |
+      `go/internal/goanalysis/producer_chain_scaling_integration_test.go:150-186`
+      builds all 13 variants, reads the profile and execution log, and prints
+      the table. `:348-443` joins root/dependency action, loader, scan,
+      source-volume, export-volume, and chain measurements; the complete rows
+      are recorded at `.agents/planning/2026-08-04-compositional-component-analysis/research/current-analysis-pipeline.md:407-440`.
+  - text: |
+      **Auxiliary source projection remains isolated**
+         - Given a closure containing ordinary dependency source
+         - When all three actions' inputs are inspected
+         - Then that source appears only in `ArccImportGraph`, no source or base-layout input leaks through `ArccLayout` into `ArccCheck`, and the leaf check still receives only the N2 allowlist.
+    status: pass
+    evidence: |
+      `bazel_rules/go/tests/producer_chain_tests.bzl:23-121` runs analysis-time
+      role tests for all 13 measured roots. Runtime checks at
+      `go/internal/goanalysis/producer_chain_scaling_integration_test.go:474-545`
+      apply the role classification to both checked subchains and reject
+      non-member `.go` leakage, auxiliary request/base-layout leakage, and
+      unclassified inputs. The rework role suite passed per `work.log:207-209`.
+  - text: |
+      **Typed member work stays constant**
+         - Given fixed member source across depth and width variants
+         - When action counts and Task 1 scan observations are compared
+         - Then there is one `ArccCheck` and identical member scan work per variant while projection source inputs and export artifacts scale with the synthetic closure.
+    status: pass
+    evidence: |
+      Both root and fixed dependency-wrapper loaders are observed at
+      `go/internal/goanalysis/producer_chain_scaling_integration_test.go:169-180`.
+      `:951-1014` asserts one fixed typed-member workload for each checked
+      subchain and strict root/dependency projection/export growth. The updated
+      workload tokens appear in the research rows at
+      `.agents/planning/2026-08-04-compositional-component-analysis/research/current-analysis-pipeline.md:426-440`,
+      resolving the prior round's important finding.
+  - text: |
+      **Residual closure costs are explicit**
+         - Given the completed scaling table
+         - When depth and width increase
+         - Then ordinary source projection count/bytes and export artifact count/bytes are visible with their elapsed contributions and are not folded into a claim that the entire producer chain is flat.
+    status: pass
+    evidence: |
+      The research table separates root/dependency projection and export
+      volumes, projection/layout/check timing, loader/scan observations, and
+      aggregate producer-chain time at
+      `.agents/planning/2026-08-04-compositional-component-analysis/research/current-analysis-pipeline.md:407-479`.
+      The note explicitly preserves the source-projection exception and calls
+      projection/export decoding residual closure costs.
+  - text: |
+      **Routine map-generation bounds are preserved**
+         - Given the full bounded scaling series in one CI run
+         - When Bazel action mnemonics are counted
+         - Then there are zero native whole-SDK generations and at most one default-configuration `ArccStdlibMap` action.
+    status: pass
+    evidence: |
+      `go/internal/goanalysis/producer_chain_scaling_integration_test.go:158-165`
+      requires exactly one default `//:arcc_stdlib_map` action and validates its
+      hermetic inputs. The driver records native generation as absent by
+      construction at `:1224-1228`, with the same rationale documented at
+      `research/current-analysis-pipeline.md:481-487`.
+  - text: |
+      **The suite is automated and reproducible**
+         - Given a clean checkout on the pinned Linux/amd64 environment
+         - When `just test-integration` or `just ci` runs
+         - Then the Bazel scaling driver executes in an isolated output root, validates structural invariants, and emits a table suitable for comparison with the recorded research result.
+    status: pass
+    evidence: |
+      `go/internal/goanalysis/producer_chain_scaling_integration_test.go:195-240`
+      creates a fresh temporary Bazel output base, profile, and execution log.
+      Report decoding/verdict checks are at `:609-627`, and the repeated-build
+      snapshot now includes both checked components at `:1162-1208`. The
+      current full-suite result is recorded at
+      `.agents/scratchpad/2026-08-04-compositional-component-analysis/step13/task-02-measure-bazel-producer-chain-scaling/work.log:215-222`.
+
+findings: []
+
+ecosystem_reviews: []

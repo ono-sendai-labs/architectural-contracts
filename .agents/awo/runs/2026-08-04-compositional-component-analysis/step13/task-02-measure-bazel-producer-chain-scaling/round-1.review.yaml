@@ -1,0 +1,140 @@
+review:
+  task_file: .agents/tasks/2026-08-04-compositional-component-analysis/step13/task-02-measure-bazel-producer-chain-scaling.code-task.md
+  change_id: soxxlkvupoxvuzxpvpozqlltvsqsrnry
+  reviewed_at: 2026-09-12T06:11:53Z
+  verdict: changes_requested
+  schema_version: 2
+  lsp_coverage: unavailable
+
+merge_request:
+  title: "test: measure Bazel producer-chain scaling [Compositional Analysis: Step 13/Task 02]"
+  body: |
+    Reviews the complete ordered series from qypwlppxqqrkpprkvtxvxryxwywlllul
+    through soxxlkvupoxvuzxpvpozqlltvsqsrnry. The initial changes add the
+    deterministic Bazel fixtures, topology tests, and profile/execution-log
+    driver; the intermediate rework marker pozpqxkrzvsvyqtroxompnsopruqqpwv is
+    empty; the final rework adds fixed root/dependency member observations,
+    dependency metrics, tool-input filtering, and the by-construction native
+    map-generation wording.
+
+summary: |
+  The prior important finding about a growing checked dependency workload is resolved: the dependency now has one fixed entry member, the layered nodes are behind an asserted surface, and both checked subchains are observed and reported. The prior suggestions are also addressed by excluding tool inputs from volume totals and replacing the hard-coded native-generation counter with an explicit by-construction description; focused compilation, vet, and analysis-role checks pass, with the recorded `just ci` run also passing. A new important regression remains because the rework changes the Task 1 graph semantics and moves the direct type-surface series from the directly imported entry package to a transitive node.
+
+acceptance_criteria:
+  - text: |
+      **The complete producer topology is measured**
+         - Given each depth/width scaling target
+         - When the integration driver builds its `arcc` output group and reads the profile
+         - Then the result includes projection, layout, check-loader, check-total, and whole-chain timing plus source/export input counts and bytes.
+    status: pass
+    evidence: |
+      `go/internal/goanalysis/producer_chain_scaling_integration_test.go:150-186`
+      builds all 13 variants, reads both machine-readable observations, and
+      prints the stable table. `:346-435` joins root and dependency action,
+      loader, scan, source-volume, export-volume, and chain measurements; the
+      recorded rows are at
+      `.agents/planning/2026-08-04-compositional-component-analysis/research/current-analysis-pipeline.md:407-438`.
+  - text: |
+      **Auxiliary source projection remains isolated**
+         - Given a closure containing ordinary dependency source
+         - When all three actions' inputs are inspected
+         - Then that source appears only in `ArccImportGraph`, no source or base-layout input leaks through `ArccLayout` into `ArccCheck`, and the leaf check still receives only the N2 allowlist.
+    status: pass
+    evidence: |
+      `bazel_rules/go/tests/producer_chain_tests.bzl:23-121` continues to run
+      one analysis-time role test for every measured root component.
+      `go/internal/goanalysis/producer_chain_scaling_integration_test.go:466-545`
+      applies the same role checks to both root and checked dependency actions,
+      including tool exclusion, auxiliary request/base-layout privacy, and the
+      no-non-member-source leaf invariant. The rework role suite passed as
+      recorded in `work.log:115-117`.
+  - text: |
+      **Typed member work stays constant**
+         - Given fixed member source across depth and width variants
+         - When action counts and Task 1 scan observations are compared
+         - Then there is one `ArccCheck` and identical member scan work per variant while projection source inputs and export artifacts scale with the synthetic closure.
+    status: pass
+    evidence: |
+      The rework observes both the root and checked dependency member-only
+      loaders at `go/internal/goanalysis/producer_chain_scaling_integration_test.go:169-180`.
+      `:893-967` asserts one fixed typed-member workload for each checked
+      subchain, and `:911-1014` asserts root and dependency projection/export
+      volume growth. The corresponding workload tokens and separate dependency
+      observations are recorded at
+      `.agents/planning/2026-08-04-compositional-component-analysis/research/current-analysis-pipeline.md:424-450`.
+      This explicitly resolves the prior round's non-pass AC3 status.
+  - text: |
+      **Residual closure costs are explicit**
+         - Given the completed scaling table
+         - When depth and width increase
+         - Then ordinary source projection count/bytes and export artifact count/bytes are visible with their elapsed contributions and are not folded into a claim that the entire producer chain is flat.
+    status: pass
+    evidence: |
+      The revised research table exposes root and dependency projection/export
+      volumes, root action timings, both loader/scan observations, total chain
+      time, and fixed workload tokens at
+      `.agents/planning/2026-08-04-compositional-component-analysis/research/current-analysis-pipeline.md:407-450`.
+      The source-projection exception and residual-cost interpretation remain
+      explicit at `:452-461`.
+  - text: |
+      **Routine map-generation bounds are preserved**
+         - Given the full bounded scaling series in one CI run
+         - When Bazel action mnemonics are counted
+         - Then there are zero native whole-SDK generations and at most one default-configuration `ArccStdlibMap` action.
+    status: pass
+    evidence: |
+      `go/internal/goanalysis/producer_chain_scaling_integration_test.go:158-165`
+      requires exactly one default `//:arcc_stdlib_map` action and checks its
+      hermetic inputs. The table now states native generation is absent by
+      construction rather than reporting a synthetic counter at `:1141-1145`;
+      the revised wording and one-action observation are recorded at
+      `research/current-analysis-pipeline.md:463-469`. This resolves the prior
+      review suggestion.
+  - text: |
+      **The suite is automated and reproducible**
+         - Given a clean checkout on the pinned Linux/amd64 environment
+         - When `just test-integration` or `just ci` runs
+         - Then the Bazel scaling driver executes in an isolated output root, validates structural invariants, and emits a table suitable for comparison with the recorded research result.
+    status: pass
+    evidence: |
+      `go/internal/goanalysis/producer_chain_scaling_integration_test.go:195-240`
+      creates a fresh temporary Bazel output base, profile, and execution log;
+      `:1064-1125` checks repeated canonical map/surface/report bytes. The
+      rework's recorded full-suite validation at
+      `.agents/scratchpad/2026-08-04-compositional-component-analysis/step13/task-02-measure-bazel-producer-chain-scaling/work.log:111-117`
+      confirms `just ci` and all 13 analysis-role targets passed, while the
+      environment and comparison table are recorded at
+      `.agents/planning/2026-08-04-compositional-component-analysis/research/current-analysis-pipeline.md:395-469`.
+
+findings:
+  - severity: important
+    category: architecture
+    file: bazel_rules/go/tests/testdata/producerchain/producer_chain.bzl
+    line: 80
+    title: "Rework changed the Task 1 graph fixture semantics"
+    details: |
+      The Task 1 fixture puts the width fan-out in the directly imported entry
+      package (`go/internal/goanalysis/member_analysis_scaling_fixture_test.go:496-503`)
+      and emits the growing type/signature surface in that same entry package
+      (`:507-511`). The reworked Bazel fixture instead makes entry import only
+      `node/l00/i00` at lines 74-88, moves the width fan-out to that node at
+      lines 96-101, and emits the type surface on that transitive node at
+      lines 108-116. Therefore the `d01w04` and related rows no longer have the
+      Task 1 import topology/depth semantics, and `s0008`/`s0032`/`s0128` no
+      longer measure a growing surface in the package directly imported by the
+      fixed member. The new assertions prove the altered graph's counts and
+      workloads, but do not prove equivalence to Task 1; the research note
+      explicitly describes the direct series as growing a non-member node at
+      `current-analysis-pipeline.md:447-448`.
+    suggested_action: |
+      Preserve the Task 1 graph edges for the primary rows and keep the direct
+      type/signature pairs in the directly imported entry package, or add a
+      separate Bazel fixture/series that is explicitly equivalent to those Task
+      1 cases. If the fixed dependency-check workload requires the current
+      ownership split, structure the asserted/checked component boundaries so
+      that entry can retain its direct role without making a checked member
+      workload scale; update the role, volume, and research assertions to pin
+      that equivalence.
+    source: built-in
+
+ecosystem_reviews: []

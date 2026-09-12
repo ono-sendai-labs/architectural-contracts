@@ -1,0 +1,139 @@
+review:
+  task_file: .agents/tasks/2026-08-04-compositional-component-analysis/step13/task-02-measure-bazel-producer-chain-scaling.code-task.md
+  change_id: lyrzrptnookptyqtyzmmtxswovrlpxtq
+  reviewed_at: 2026-09-12T07:58:30Z
+  verdict: changes_requested
+  schema_version: 2
+  lsp_coverage: unavailable
+
+merge_request:
+  title: "test: measure Bazel producer-chain scaling [Compositional Analysis: Step 13/Task 02]"
+  body: |
+    Reviews the complete ordered series from qypwlppxqqrkpprkvtxvxryxwywlllul
+    through lyrzrptnookptyqtyzmmtxswovrlpxtq. The initial changes add the
+    deterministic Bazel fixtures, topology tests, and profile/execution-log
+    driver; pozpqxkrzvsvyqtroxompnsopruqqpwv is an empty intermediate rework
+    marker; soxxlkvupoxvuzxpvpozqlltvsqsrnry fixes the checked dependency's
+    member scaling; and the final rework restores the Task 1 graph, adds the
+    fixed dependency wrapper, and adds graph-equivalence assertions.
+
+summary: |
+  The prior important finding is addressed: both checked subchains now observe one fixed typed member, and the primary graph/direct type-surface topology is explicitly checked against Task 1. The prior tool-input and native-generation suggestions remain resolved, and the recorded focused/full validation passes. A new critical finding is that the current Bazel fixtures emit `verdict: fail` reports for both the dependency and root because their direct surfaces do not own the `entry` package; the integration driver does not inspect report verdicts, so CI passes while the purported producer chain is semantically invalid.
+
+acceptance_criteria:
+  - text: |
+      **The complete producer topology is measured**
+         - Given each depth/width scaling target
+         - When the integration driver builds its `arcc` output group and reads the profile
+         - Then the result includes projection, layout, check-loader, check-total, and whole-chain timing plus source/export input counts and bytes.
+    status: pass
+    evidence: |
+      `go/internal/goanalysis/producer_chain_scaling_integration_test.go:150-186`
+      builds all 13 variants, reads the profile and execution log, and prints
+      the table. `:346-435` joins root/dependency action, loader, scan,
+      source-volume, export-volume, and chain measurements; the recorded rows
+      are at `.agents/planning/2026-08-04-compositional-component-analysis/research/current-analysis-pipeline.md:407-440`.
+  - text: |
+      **Auxiliary source projection remains isolated**
+         - Given a closure containing ordinary dependency source
+         - When all three actions' inputs are inspected
+         - Then that source appears only in `ArccImportGraph`, no source or base-layout input leaks through `ArccLayout` into `ArccCheck`, and the leaf check still receives only the N2 allowlist.
+    status: pass
+    evidence: |
+      `bazel_rules/go/tests/producer_chain_tests.bzl:23-121` runs analysis-time
+      role tests for all 13 measured roots. The runtime role classifier at
+      `go/internal/goanalysis/producer_chain_scaling_integration_test.go:466-545`
+      covers both checked subchains, including auxiliary request/base-layout
+      privacy and no non-member `.go` at either leaf. The rework role suite
+      passed as recorded in `work.log:113-115`.
+  - text: |
+      **Typed member work stays constant**
+         - Given fixed member source across depth and width variants
+         - When action counts and Task 1 scan observations are compared
+         - Then there is one `ArccCheck` and identical member scan work per variant while projection source inputs and export artifacts scale with the synthetic closure.
+    status: pass
+    evidence: |
+      The rework observes the root and fixed dependency wrapper at
+      `go/internal/goanalysis/producer_chain_scaling_integration_test.go:169-180`.
+      `:951-1014` enforces fixed typed-member workloads and strict root/dependency
+      projection/export growth. The updated rows carry both fixed workload
+      tokens at `.agents/planning/2026-08-04-compositional-component-analysis/research/current-analysis-pipeline.md:426-440`,
+      resolving the prior round's important member-work finding.
+  - text: |
+      **Residual closure costs are explicit**
+         - Given the completed scaling table
+         - When depth and width increase
+         - Then ordinary source projection count/bytes and export artifact count/bytes are visible with their elapsed contributions and are not folded into a claim that the entire producer chain is flat.
+    status: pass
+    evidence: |
+      The revised table exposes root and dependency projection/export volumes,
+      root action timings, both loader/scan observations, total chain time, and
+      fixed workload tokens at
+      `.agents/planning/2026-08-04-compositional-component-analysis/research/current-analysis-pipeline.md:407-471`.
+      The note still identifies projection/export decoding as residual closure
+      costs and does not claim flat whole-chain time.
+  - text: |
+      **Routine map-generation bounds are preserved**
+         - Given the full bounded scaling series in one CI run
+         - When Bazel action mnemonics are counted
+         - Then there are zero native whole-SDK generations and at most one default-configuration `ArccStdlibMap` action.
+    status: pass
+    evidence: |
+      `go/internal/goanalysis/producer_chain_scaling_integration_test.go:158-165`
+      requires exactly one default `//:arcc_stdlib_map` action and validates
+      its hermetic inputs. The driver now describes native generation as absent
+      by construction at `:1199-1203`, with the same rationale recorded at
+      `research/current-analysis-pipeline.md:473-479`.
+  - text: |
+      **The suite is automated and reproducible**
+         - Given a clean checkout on the pinned Linux/amd64 environment
+         - When `just test-integration` or `just ci` runs
+         - Then the Bazel scaling driver executes in an isolated output root, validates structural invariants, and emits a table suitable for comparison with the recorded research result.
+    status: pass
+    evidence: |
+      `go/internal/goanalysis/producer_chain_scaling_integration_test.go:195-240`
+      creates a fresh temporary Bazel output base, profile, and execution log;
+      `:1138-1191` compares repeated canonical map/surface/report bytes. The
+      current rework records the focused integration, role tests, vet, and
+      `just ci` results in `work.log:104-167`, and the environment/table are
+      recorded at `research/current-analysis-pipeline.md:395-479`.
+
+findings:
+  - severity: critical
+    category: acceptance_criteria
+    file: bazel_rules/go/tests/testdata/producerchain/producer_chain.bzl
+    line: 203
+    title: "Producer-chain fixtures emit failing conformance reports"
+    details: |
+      The fixed dependency wrapper still imports `entry` at
+      `bazel_rules/go/tests/testdata/producerchain/producer_chain.bzl:127-135`,
+      but the dependency component's only direct dependency is
+      `nodes_component`, whose asserted surface contains only node packages at
+      `:192-201`; the dependency surface therefore does not authorize `entry`.
+      The root member also imports `entry` at `:117-125`, while its only direct
+      dependency is the dependency component whose surface contains only the
+      wrapper at `:203-210`, so the root has the same undeclared-package edge.
+      A current Bazel build produced
+      `bazel-out/k8-fastbuild/bin/bazel_rules/go/tests/testdata/producerchain/d01w01_dependency_component.report.json:3,20-47`
+      and `d01w01_component.report.json:3,20-55`, both with `verdict: fail`,
+      `UNDECLARED_DEPENDENCY` for `.../entry`, and dependency/unused warnings.
+      The integration test only snapshots output bytes at
+      `go/internal/goanalysis/producer_chain_scaling_integration_test.go:1138-1191`
+      and never decodes or asserts report verdicts, so its passing result and
+      the recorded `just ci` pass do not establish a valid checked producer
+      chain. This violates Technical Requirement 1's real dependency
+      surface/report path and lets a semantically invalid fixture pass the
+      acceptance suite.
+    suggested_action: |
+      Correct the component ownership and direct-dependency declarations so
+      every member-to-entry import is authorized by the surface attached to
+      that direct edge, while retaining the fixed wrapper member and the
+      Task 1 entry topology. Then decode/assert the generated report for every
+      checked root and dependency in the integration driver (and include those
+      outputs in the determinism snapshot), failing the test on an unexpected
+      `verdict: fail` or `CHECKED_FAIL`. Do not mask the violations by merely
+      accepting failed reports; the synthetic producer-chain rows should run
+      through conforming surface/report edges.
+    source: built-in
+
+ecosystem_reviews: []

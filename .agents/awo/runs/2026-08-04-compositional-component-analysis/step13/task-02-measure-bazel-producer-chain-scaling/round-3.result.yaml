@@ -1,0 +1,97 @@
+result:
+  task_file: .agents/tasks/2026-08-04-compositional-component-analysis/step13/task-02-measure-bazel-producer-chain-scaling.code-task.md
+  change_id: wtwttppxmzzktpsoosxsqqrmqmkuusom
+  status: completed
+  schema_version: 2
+  produced_at: 2026-09-12T08:22:07Z
+
+acceptance_criteria:
+  - text: |
+      **The complete producer topology is measured**
+         - Given each depth/width scaling target
+         - When the integration driver builds its `arcc` output group and reads the profile
+         - Then the result includes projection, layout, check-loader, check-total, and whole-chain timing plus source/export input counts and bytes.
+    addressed: yes
+    evidence: |
+      `go/internal/goanalysis/producer_chain_scaling_integration_test.go:150-186`
+      launches all 13 variants, reads the profile and execution log, and prints
+      one row per variant; `:346-435` joins root/dependency action timing,
+      loader/scanner timing, source volume, and export volume. The updated
+      table is recorded at `research/current-analysis-pipeline.md:426-440`.
+  - text: |
+      **Auxiliary source projection remains isolated**
+         - Given a closure containing ordinary dependency source
+         - When all three actions' inputs are inspected
+         - Then that source appears only in `ArccImportGraph`, no source or base-layout input leaks through `ArccLayout` into `ArccCheck`, and the leaf check still receives only the N2 allowlist.
+    addressed: yes
+    evidence: |
+      `bazel_rules/go/tests/producer_chain_tests.bzl:37-121` adds analysis-time
+      role checks for all 13 measured root components. The execution-log checks
+      in `go/internal/goanalysis/producer_chain_scaling_integration_test.go:470-549`
+      classify every non-tool input for both checked subchains and reject
+      non-member `.go` files at each leaf.
+  - text: |
+      **Typed member work stays constant**
+         - Given fixed member source across depth and width variants
+         - When action counts and Task 1 scan observations are compared
+         - Then there is one `ArccCheck` and identical member scan work per variant while projection source inputs and export artifacts scale with the graph.
+    addressed: yes
+    evidence: |
+      `go/internal/goanalysis/producer_chain_scaling_integration_test.go:169-180`
+      observes both the root member and fixed dependency wrapper. The fixture
+      preserves Task 1's graph and direct entry type surface at
+      `bazel_rules/go/tests/testdata/producerchain/producer_chain.bzl:79-118`;
+      `:975-1035` enforces fixed checked-member work and strict root/dependency
+      projection/export growth. The revised rows are at
+      `research/current-analysis-pipeline.md:428-440`.
+  - text: |
+      **Residual closure costs are explicit**
+         - Given the completed scaling table
+         - When depth and width increase
+         - Then ordinary source projection count/bytes and export artifact count/bytes are visible with their elapsed contributions and are not folded into a claim that the entire producer chain is flat.
+    addressed: yes
+    evidence: |
+      `research/current-analysis-pipeline.md:407-424` defines separate root and
+      dependency projection/export volumes and projection, layout, loader,
+      check, and chain timing columns. `:442-479` documents the deliberate
+      Task 1-equivalent entry topology, direct entry-surface ownership, and
+      report validation; it explicitly identifies projection and export
+      decoding as residual closure costs.
+  - text: |
+      **Routine map-generation bounds are preserved**
+         - Given the full bounded scaling series in one CI run
+         - When Bazel action mnemonics are counted
+         - Then there are zero native whole-SDK generations and at most one default-configuration `ArccStdlibMap` action.
+    addressed: yes
+    evidence: |
+      `go/internal/goanalysis/producer_chain_scaling_integration_test.go:158-165`
+      requires exactly one `//:arcc_stdlib_map` action and validates its hermetic
+      inputs. The table reports `stdlib_map_actions=1` and
+      `native_whole_sdk_generation=none(driver-only-bazel)`; the by-construction
+      guard is documented at `research/current-analysis-pipeline.md:481-487`.
+  - text: |
+      **The suite is automated and reproducible**
+         - Given a clean checkout on the pinned Linux/amd64 environment
+         - When `just test-integration` or `just ci` runs
+         - Then the Bazel scaling driver executes in an isolated output root, validates structural invariants, and emits a table suitable for comparison with the recorded research result.
+    addressed: yes
+    evidence: |
+      `go/internal/goanalysis/producer_chain_scaling_integration_test.go:195-243`
+      creates an isolated Bazel `--output_base`, profile, and execution log, and
+      `:1111-1208` validates profile events, root/dependency report verdicts,
+      and byte-identical repeated outputs including both checked components.
+      `bazel_rules/go/tests/BUILD.bazel:8,438` wires the matching analysis tests;
+      `just ci` completed with the integration driver, and the stable table plus
+      environment are recorded at `research/current-analysis-pipeline.md:395-487`.
+
+artifacts:
+  scratchpad_dir: .agents/scratchpad/2026-08-04-compositional-component-analysis/step13/task-02-measure-bazel-producer-chain-scaling/
+  files:
+    - context.md
+    - plan.md
+    - progress.md
+    - work.log
+    - result.yaml
+
+notes: |
+  Preserved Task 1's primary graph edges and kept direct type/signature pairs in the directly imported `entry` package. Added an asserted entry surface as a direct dependency of both checked components so the fixed wrapper and root member imports are authorized without widening typed member work. The driver now decodes all root/dependency reports, rejects fail verdicts and CHECKED_FAIL provenance, snapshots both checked outputs, and passes focused integration, vet, and `just ci`; fresh commit `wtwttppxmzzktpsoosxsqqrmqmkuusom` leaves an empty `@`.

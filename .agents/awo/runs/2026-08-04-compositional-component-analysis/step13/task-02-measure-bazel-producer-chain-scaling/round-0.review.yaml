@@ -1,0 +1,174 @@
+review:
+  task_file: .agents/tasks/2026-08-04-compositional-component-analysis/step13/task-02-measure-bazel-producer-chain-scaling.code-task.md
+  change_id: vosuwypztnnzomvpnsnzyrvovmuztwsv
+  reviewed_at: 2026-09-12T05:34:02Z
+  verdict: changes_requested
+  schema_version: 2
+  lsp_coverage: unavailable
+
+merge_request:
+  title: "test: measure Bazel producer-chain scaling [Compositional Analysis: Step 13/Task 02]"
+  body: |
+    Reviews the complete ordered series from qypwlppxqqrkpprkvtxvxryxwywlllul
+    through vosuwypztnnzomvpnsnzyrvovmuztwsv. The initial change adds the
+    deterministic Bazel fixtures and per-variant analysis tests; the follow-up
+    adds the isolated Bazel profile/execution-log driver, loader observations,
+    determinism checks, and the producer-chain research table.
+
+summary: |
+  The ordered changes add the requested 13 deterministic fixtures, topology/input-role checks, and an integration driver that records the requested projection, layout, loader, check, export, and chain metrics. The research note correctly documents the accepted ordinary-source projection exception, and the available focused checks plus recorded `just ci` run pass. One important measurement gap remains: the fixture makes the growing dependency graph itself a growing set of checked members, while the driver only observes the fixed root component and folds the dependency check into the chain total.
+
+acceptance_criteria:
+  - text: |
+      **The complete producer topology is measured**
+         - Given each depth/width scaling target
+         - When the integration driver builds its `arcc` output group and reads the profile
+         - Then the result includes projection, layout, check-loader, check-total, and whole-chain timing plus source/export input counts and bytes.
+    status: pass
+    evidence: |
+      `go/internal/goanalysis/producer_chain_scaling_integration_test.go:136-164`
+      builds all 13 variants, reads the profile and execution log, joins the
+      action and loader observations at `:322-393`, and prints the stable table.
+      The recorded rows and separate timing/volume columns are at
+      `.agents/planning/2026-08-04-compositional-component-analysis/research/current-analysis-pipeline.md:407-436`.
+  - text: |
+      **Auxiliary source projection remains isolated**
+         - Given a closure containing ordinary dependency source
+         - When all three actions' inputs are inspected
+         - Then that source appears only in `ArccImportGraph`, no source or base-layout input leaks through `ArccLayout` into `ArccCheck`, and the leaf check still receives only the N2 allowlist.
+    status: pass
+    evidence: |
+      `bazel_rules/go/tests/producer_chain_tests.bzl:23-121` creates one
+      analysis-time role test for each measured component and checks the exact
+      one-action topology and input roles. The execution-log role checks in
+      `go/internal/goanalysis/producer_chain_scaling_integration_test.go:412-488`
+      independently reject member-source leakage, auxiliary request/base-layout
+      leakage, and unclassified non-tool inputs. The recorded aquery evidence is
+      also in `work.log:28-32`.
+  - text: |
+      **Typed member work stays constant**
+         - Given fixed member source across depth and width variants
+         - When action counts and Task 1 scan observations are compared
+         - Then there is one `ArccCheck` and identical member scan work per variant while projection source inputs and export artifacts scale with the synthetic closure.
+    status: partial
+    evidence: |
+      The root component's loader observation is fixed and the assertions at
+      `go/internal/goanalysis/producer_chain_scaling_integration_test.go:834-930`
+      enforce one root action, identical root member workload, and growing root
+      projection/export volumes. However, the fixture declares every graph node
+      and the entry package as members of the dependency component at
+      `bazel_rules/go/tests/testdata/producerchain/producer_chain.bzl:161-168`.
+      The chain total at `:362-372` includes that dependency component's three
+      producer actions, while loader observation at `:754-765` covers only the
+      root member. Thus the complete chain contains a typed dependency check
+      whose member workload grows with `depth*width`, but that work is absent
+      from the fixed-work observation.
+  - text: |
+      **Residual closure costs are explicit**
+         - Given the completed scaling table
+         - When depth and width increase
+         - Then ordinary source projection count/bytes and export artifact count/bytes are visible with their elapsed contributions and are not folded into a claim that the entire producer chain is flat.
+    status: pass
+    evidence: |
+      The research artifact separates projection source count/bytes, projection
+      time, layout time, check-loader time, check total, producer-chain total,
+      and export count/bytes at
+      `.agents/planning/2026-08-04-compositional-component-analysis/research/current-analysis-pipeline.md:407-458`.
+      The note explicitly labels projection and export decoding as residual
+      closure costs rather than a flat whole-chain claim.
+  - text: |
+      **Routine map-generation bounds are preserved**
+         - Given the full bounded scaling series in one CI run
+         - When Bazel action mnemonics are counted
+         - Then there are zero native whole-SDK generations and at most one default-configuration `ArccStdlibMap` action.
+    status: pass
+    evidence: |
+      `go/internal/goanalysis/producer_chain_scaling_integration_test.go:144-151`
+      requires one `ArccStdlibMap` action, requires the default target label, and
+      checks its hermetic inputs. The driver launches only the Bazel producer
+      build, so no native whole-SDK generation is invoked in this path; the
+      resulting `stdlib_map_actions=1 native_whole_sdk_generations=0` observation
+      is recorded in `work.log:38-55` and the research note at `:460-464`.
+  - text: |
+      **The suite is automated and reproducible**
+         - Given a clean checkout on the pinned Linux/amd64 environment
+         - When `just test-integration` or `just ci` runs
+         - Then the Bazel scaling driver executes in an isolated output root, validates structural invariants, and emits a table suitable for comparison with the recorded research result.
+    status: pass
+    evidence: |
+      `go/internal/goanalysis/producer_chain_scaling_integration_test.go:172-218`
+      creates a fresh temporary Bazel `--output_base`, profile, and execution
+      log; `:979-1040` compares repeated map, surface, and report bytes. The
+      recorded full-suite validation at
+      `.agents/scratchpad/2026-08-04-compositional-component-analysis/step13/task-02-measure-bazel-producer-chain-scaling/work.log:83-85`
+      confirms the bounded driver ran through `just ci`, and the environment,
+      stable table, and comparison rows are recorded in the research note at
+      `:395-464`.
+
+findings:
+  - severity: important
+    category: acceptance_criteria
+    file: bazel_rules/go/tests/testdata/producerchain/producer_chain.bzl
+    line: 165
+    title: "Dependency ArccCheck workload scales outside the observation"
+    details: |
+      The graph nodes and entry package are all declared as members of
+      `<variant>_dependency_component` at lines 161-168. Consequently the
+      complete root producer chain contains a dependency `ArccCheck` that
+      parses and scans 1 + depth*width ordinary source packages; an aquery of
+      the current `d16w04_dependency_component` confirms the entry plus its 64
+      generated node `.go` inputs. The integration test observes only the root
+      component's fixed member through `LoadPackageFacts` at
+      `go/internal/goanalysis/producer_chain_scaling_integration_test.go:754-765`
+      and checks only that workload at `:800-858`, but adds the dependency's
+      action durations to `producer_chain_us` at `:362-372`. The table therefore
+      presents a complete-chain time that includes growing typed member work
+      without measuring or exposing it, so the fixed-work portion of AC3 is not
+      established for the complete chain.
+    suggested_action: |
+      Keep the direct dependency's own checked member set fixed (for example,
+      make the entry package its member and leave the layered nodes as its
+      export-backed ordinary closure) while retaining real surface/report
+      production, or separately observe every dependency `ArccCheck` member
+      workload and report it alongside the aggregate chain time. Add an
+      assertion that all checks included in the chain have the intended fixed
+      member workload before claiming that only projection/export volumes grow.
+    source: built-in
+  - severity: suggestion
+    category: tests
+    file: go/internal/goanalysis/producer_chain_scaling_integration_test.go
+    line: 674
+    title: "Exclude tool inputs from projection volume accounting"
+    details: |
+      `producerChainInputVolume` counts every action input whose path matches
+      the callback, without checking `input.IsTool`. The projection call at
+      lines 345-347 therefore counts any future `.go` tool or tool runfile as
+      target-selected ordinary source, even though the role classifier correctly
+      skips tools at lines 427-430. Current Arcc actions use a binary tool, so the
+      recorded rows are unaffected, but the metric is not invariant to a change
+      in tool runfiles.
+    suggested_action: |
+      Pass the complete artifact to the volume predicate or skip `IsTool` inputs
+      inside `producerChainInputVolume` before applying the source/export path
+      classifier.
+    source: built-in
+  - severity: suggestion
+    category: tests
+    file: go/internal/goanalysis/producer_chain_scaling_integration_test.go
+    line: 163
+    title: "Do not hard-code the native-generation count"
+    details: |
+      The output field `native_whole_sdk_generations` is always supplied as the
+      literal `0` at line 163; no observation or assertion computes that value.
+      The Bazel log does verify the single default `ArccStdlibMap` action at
+      lines 144-151, and this driver does not invoke native generation today, so
+      the current run is truthful by construction. Nevertheless, a future native
+      whole-SDK call added to this path would still print zero and the bound would
+      not fail.
+    suggested_action: |
+      Replace the pseudo-counter with an explicit negative guard/instrumented
+      observation of native map generation, or document the zero as a tested
+      by-construction property instead of presenting it as a counted metric.
+    source: built-in
+
+ecosystem_reviews: []
