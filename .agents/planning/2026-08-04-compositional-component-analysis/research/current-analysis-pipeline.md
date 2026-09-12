@@ -505,6 +505,7 @@ invocation is equivalent to:
 ```text
 <absolute-bazel> --output_user_root=<tmp>/bazel-user-root --output_base=<tmp>/bazel-user-root/output-base test
   --repository_cache=<Bazel-info-repository-cache> --nofetch
+  --experimental_convenience_symlinks=ignore
   --spawn_strategy=linux-sandbox --sandbox_default_allow_network=false
   --sandbox_fake_hostname=true --sandbox_writable_path=<tmp>/sandbox-writable
   --sandbox_block_path=<tmp>/poison
@@ -525,9 +526,13 @@ kind, mode, size, modification time, symlink target, and regular-file digest.
 The snapshots remained identical; action inputs, argv, and environments named
 none of the poison paths or native caches. Bazel's repository cache and the
 target-configured `rules_go` `stdlib_` export tree are explicitly distinguished
-from forbidden native Go caches.
+from forbidden native Go caches. The driver also snapshots every repository-root
+`bazel-*` entry (including `bazel-bin`, `bazel-out`, `bazel-testlogs`, and the
+workspace link) and passes `--experimental_convenience_symlinks=ignore`; that
+link state remained unchanged after repository setup, the restricted test, and
+the repeat build.
 
-The combined first run passed in 225.212 seconds on this host and produced
+The combined first run passed in 224.989 seconds on this host and produced
 these arcc action counts in its newline-delimited execution log. The 13
 scaling components, their checked graph dependencies, and the API report /
 surface assertion target all share this one invocation:

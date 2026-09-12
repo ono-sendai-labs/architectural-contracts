@@ -141,6 +141,26 @@ type hermeticityTreeEntry struct {
 	Digest     string
 }
 
+func TestHermeticityBazelArgsSuppressConvenienceSymlinks(t *testing.T) {
+	args := hermeticityBazelArgs(
+		"test",
+		"/tmp/arcc-hermetic-user-root",
+		"/tmp/arcc-hermetic-user-root/output-base",
+		"/tmp/arcc-bazel-repository-cache",
+		"/tmp/arcc-hermetic-writable",
+		"/tmp/arcc-hermetic-poison",
+		"/tmp/arcc-hermetic-execution.json",
+		"",
+		[]string{hermeticityCheckTest},
+	)
+	for _, arg := range args {
+		if arg == "--experimental_convenience_symlinks=ignore" {
+			return
+		}
+	}
+	t.Fatalf("restricted Bazel args omit convenience-symlink suppression: %v", args)
+}
+
 func runHermeticityProducerChainBazelSuite(t *testing.T, variants []producerChainVariant) hermeticityBazelRun {
 	t.Helper()
 	labels := []string{hermeticityCheckTest}
@@ -156,7 +176,12 @@ func runHermeticityBazelSuiteForTargets(t *testing.T, labels []string, withProfi
 	t.Helper()
 	bazelPath := hermeticityBazelPath(t)
 	repoRoot := hermeticityRepoRoot(t)
+	convenienceBefore, err := snapshotHermeticityConvenienceLinks(repoRoot)
+	if err != nil {
+		t.Fatalf("snapshotting repository-root Bazel convenience links before setup: %v", err)
+	}
 	repositoryCache := hermeticityRepositoryCache(t, bazelPath, repoRoot)
+	assertHermeticityConvenienceLinksUnchanged(t, repoRoot, convenienceBefore, "Bazel repository-cache lookup")
 	runDir := t.TempDir()
 	outputUserRoot := filepath.Join(runDir, "bazel-user-root")
 	outputBase := filepath.Join(outputUserRoot, "output-base")
@@ -201,10 +226,12 @@ func runHermeticityBazelSuiteForTargets(t *testing.T, labels []string, withProfi
 		"--output_base=" + outputBase,
 		"fetch",
 		"--repository_cache=" + repositoryCache,
+		"--experimental_convenience_symlinks=ignore",
 		"--noshow_progress",
 	}
 	prefetchArgs = append(prefetchArgs, labels...)
 	prefetchOutput, prefetchErr := runHermeticityBazelCommand(t, bazelPath, repoRoot, hermeticityPrefetchEnvironment(), prefetchArgs...)
+	assertHermeticityConvenienceLinksUnchanged(t, repoRoot, convenienceBefore, "Bazel repository setup")
 	if prefetchErr != nil {
 		t.Fatalf("preparing cached Bazel repositories without network failed: %v\n%s", prefetchErr, prefetchOutput)
 	}
@@ -222,6 +249,7 @@ func runHermeticityBazelSuiteForTargets(t *testing.T, labels []string, withProfi
 	)
 	firstOutput, firstErr := runHermeticityBazelCommand(t, bazelPath, repoRoot, restrictedEnv, firstArgs...)
 	assertHermeticityPoisonUnchanged(t, poisonRoot, poisonBefore, "first Bazel run")
+	assertHermeticityConvenienceLinksUnchanged(t, repoRoot, convenienceBefore, "first Bazel run")
 	if firstErr != nil {
 		t.Fatalf("restricted Bazel test failed (Bazel or linux-sandbox support is required): %v\n%s", firstErr, firstOutput)
 	}
@@ -251,6 +279,7 @@ func runHermeticityBazelSuiteForTargets(t *testing.T, labels []string, withProfi
 	)
 	secondOutput, secondErr := runHermeticityBazelCommand(t, bazelPath, repoRoot, restrictedEnv, secondArgs...)
 	assertHermeticityPoisonUnchanged(t, poisonRoot, poisonBefore, "repeat Bazel run")
+	assertHermeticityConvenienceLinksUnchanged(t, repoRoot, convenienceBefore, "repeat Bazel run")
 	if secondErr != nil {
 		t.Fatalf("restricted repeat Bazel build failed: %v\n%s", secondErr, secondOutput)
 	}
@@ -320,7 +349,7 @@ func hermeticityRepoRoot(t *testing.T) string {
 
 func hermeticityRepositoryCache(t *testing.T, bazelPath, repoRoot string) string {
 	t.Helper()
-	command := exec.Command(bazelPath, "info", "repository_cache")
+	command := exec.Command(bazelPath, "info", "--experimental_convenience_symlinks=ignore", "repository_cache")
 	command.Dir = repoRoot
 	output, err := command.Output()
 	if err != nil {
@@ -351,6 +380,7 @@ func hermeticityBazelArgs(command, outputUserRoot, outputBase, repositoryCache, 
 		command,
 		"--repository_cache=" + repositoryCache,
 		"--nofetch",
+		"--experimental_convenience_symlinks=ignore",
 		"--spawn_strategy=linux-sandbox",
 		"--sandbox_default_allow_network=false",
 		"--sandbox_fake_hostname=true",
@@ -408,6 +438,7 @@ func addHermeticityExecutionInfo(t *testing.T, bazelPath, repoRoot string, envir
 		"aquery",
 		"--repository_cache=" + repositoryCache,
 		"--nofetch",
+		"--experimental_convenience_symlinks=ignore",
 		"--noshow_progress",
 		"--output=jsonproto",
 		"deps(set(" + strings.Join(labels, " ") + "))",
@@ -627,35 +658,17 @@ func createHermeticityPoisonTree(t *testing.T, root string) hermeticityTreeSnaps
 
 func snapshotHermeticityTree(root string) (hermeticityTreeSnapshot, error) {
 	snapshot := make(hermeticityTreeSnapshot)
-	err := filepath.WalkDir(root, func(path string, directoryEntry os.DirEntry, walkErr error) error {
+	err := filepath.WalkDir(root, func(path string, _ os.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
-		}
-		info, err := os.Lstat(path)
-		if err != nil {
-			return err
 		}
 		relative, err := filepath.Rel(root, path)
 		if err != nil {
 			return err
 		}
-		entry := hermeticityTreeEntry{
-			Kind:      uint32(info.Mode().Type()),
-			Mode:      uint32(info.Mode().Perm()),
-			Size:      info.Size(),
-			ModTimeNS: info.ModTime().UnixNano(),
-		}
-		if info.Mode()&os.ModeSymlink != 0 {
-			entry.LinkTarget, err = os.Readlink(path)
-			if err != nil {
-				return err
-			}
-		}
-		if info.Mode().IsRegular() {
-			entry.Digest, err = hermeticityFileDigest(path)
-			if err != nil {
-				return err
-			}
+		entry, err := hermeticityEntryForPath(path)
+		if err != nil {
+			return err
 		}
 		snapshot[filepath.ToSlash(relative)] = entry
 		return nil
@@ -664,6 +677,52 @@ func snapshotHermeticityTree(root string) (hermeticityTreeSnapshot, error) {
 		return nil, fmt.Errorf("snapshotting hermeticity tree %q: %w", root, err)
 	}
 	return snapshot, nil
+}
+
+func snapshotHermeticityConvenienceLinks(repoRoot string) (hermeticityTreeSnapshot, error) {
+	entries, err := os.ReadDir(repoRoot)
+	if err != nil {
+		return nil, fmt.Errorf("reading repository root %q: %w", repoRoot, err)
+	}
+	snapshot := make(hermeticityTreeSnapshot)
+	for _, directoryEntry := range entries {
+		if !strings.HasPrefix(directoryEntry.Name(), "bazel-") {
+			continue
+		}
+		path := filepath.Join(repoRoot, directoryEntry.Name())
+		metadata, err := hermeticityEntryForPath(path)
+		if err != nil {
+			return nil, fmt.Errorf("reading convenience link %q: %w", path, err)
+		}
+		snapshot[directoryEntry.Name()] = metadata
+	}
+	return snapshot, nil
+}
+
+func hermeticityEntryForPath(path string) (hermeticityTreeEntry, error) {
+	info, err := os.Lstat(path)
+	if err != nil {
+		return hermeticityTreeEntry{}, err
+	}
+	entry := hermeticityTreeEntry{
+		Kind:      uint32(info.Mode().Type()),
+		Mode:      uint32(info.Mode().Perm()),
+		Size:      info.Size(),
+		ModTimeNS: info.ModTime().UnixNano(),
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		entry.LinkTarget, err = os.Readlink(path)
+		if err != nil {
+			return hermeticityTreeEntry{}, err
+		}
+	}
+	if info.Mode().IsRegular() {
+		entry.Digest, err = hermeticityFileDigest(path)
+		if err != nil {
+			return hermeticityTreeEntry{}, err
+		}
+	}
+	return entry, nil
 }
 
 func hermeticityFileDigest(path string) (string, error) {
@@ -687,6 +746,17 @@ func assertHermeticityPoisonUnchanged(t *testing.T, root string, before hermetic
 	}
 	if difference := hermeticitySnapshotDifference(before, after); difference != "" {
 		t.Fatalf("poison tree changed during %s: %s", phase, difference)
+	}
+}
+
+func assertHermeticityConvenienceLinksUnchanged(t *testing.T, repoRoot string, before hermeticityTreeSnapshot, phase string) {
+	t.Helper()
+	after, err := snapshotHermeticityConvenienceLinks(repoRoot)
+	if err != nil {
+		t.Fatalf("snapshotting repository-root Bazel convenience links after %s: %v", phase, err)
+	}
+	if difference := hermeticitySnapshotDifference(before, after); difference != "" {
+		t.Fatalf("repository-root Bazel convenience links changed during %s: %s", phase, difference)
 	}
 }
 
