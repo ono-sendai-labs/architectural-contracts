@@ -181,10 +181,10 @@ def extra_runtime_packages(ctx, root_packages):
 #       import_path_patterns = ["example.com/toolchain/runtime/*"],
 #   )
 #
-# Here `component` is the target attached by Step 9, while
+# Here `component` is the target attached by the registry, while
 # `import_path_patterns` identifies the package-surface membership that cannot
 # be named as labels because of visibility. `name`, `component`, and
-# `import_path_patterns` are the fields Step 9 uses to name the attached
+# `import_path_patterns` are the registry fields used to name the attached
 # component and its package-surface membership. Keeping the examples commented
 # means existing upstream components acquire no new dependency until a host
 # supplies a real registry entry.
