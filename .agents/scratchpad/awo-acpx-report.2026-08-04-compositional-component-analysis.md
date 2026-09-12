@@ -5142,3 +5142,42 @@ The review's full-code validation ran `just ci` successfully, including integrat
 selfcheck, Bazel build, and the complete Bazel test suite; standalone `just lint` also passed.
 The final artifact pass validated the review YAML, resolved all three task paths, checked for
 trailing whitespace, and confirmed that `.agents/summary/` was untouched.
+
+---
+
+# Step 14 — Remediation from implementation review 2026-09-12
+
+## Preflight (2026-09-12, resumed run)
+
+**Invocation policy (carried):** prototype/MVP — getting it done beats getting it perfect.
+Decide reversible calls myself and record them; stop only for trapdoor decisions, quota
+depletion, or a user interjection.
+
+**§0 resume point.** No step-14 bookmark existed. The three task files were authored by the
+user's plan-scoped review commit `nswyxtmn` (bookmark
+`pr/plan-scope-implementation-review-2026-08-04-compositional-component-analysis`), together
+with the plan's Step 14 addendum and this work log. Plan checklist: steps 1–13 ticked, 14
+unticked — consistent. **§2 skipped** (tasks exist); I created
+`pr/awo-generate-task-2026-08-04-compositional-component-analysis-step-14` on `nswyxtmn` so §0
+can resume from bookmarks. **Entering Step 14, task 01, §4.1.**
+
+Task inventory (`.agents/tasks/2026-08-04-compositional-component-analysis/step14/`):
+1. `task-01-restore-lint-to-ci-gates.code-task.md`
+2. `task-02-align-final-implementation-documentation.code-task.md`
+3. `task-03-pin-acceptance-fixture-semantics.code-task.md`
+
+**Roles** (from `.agents/awo/acpx-config.yaml`, unchanged): task_generator codex/gpt-5.6-sol/high
+(not used); implementer codex/gpt-5.6-luna/max; reviewer codex/gpt-5.6-luna/xhigh;
+step_reviewer codex/gpt-5.6-sol/high. Context denominator for codex: 807 500 (harness
+`token_count` events, as established earlier in this log).
+
+**Environment.** acpx 0.13.2; producer skills symlinked in `.agents/skills/`;
+`.agents/runs-acpx/` ignored, `.agents/awo/runs/` not ignored. Quota (inherited, 2.3 h old,
+lower bound only): primary 85 %, secondary 36 % — launch. `bazel shutdown` performed (rc 0).
+MemAvailable ~13 GB.
+
+**Work-log tracking deviation.** This log was force-added to tracked history by `nswyxtmn`
+although `.agents/scratchpad/` is ignored, so edits to it dirty `@`. To keep implementer
+commits clean I edit it only with `@` empty at task boundaries and commit it together with the
+§4.7 record (or, for this preflight, as its own `chore(awo)` commit, which becomes task 01's
+unbookmarked but self-explaining base).
