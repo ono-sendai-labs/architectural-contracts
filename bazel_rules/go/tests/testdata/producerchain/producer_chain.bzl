@@ -2,11 +2,14 @@
 
 Each measured component owns one tiny member package and depends on a checked
 PACKAGE_SURFACE component whose one fixed member is a wrapper around the
-ordinary entry package. The entry package directly imports every top-level node
-and owns the optional type/signature surface, matching Task 1's graph edges.
-The layered nodes are covered by a package-level asserted component, so they
-remain export-backed ordinary closure without adding a growing typed check to
-the measured producer chain. Both checked components therefore parse one fixed
+ordinary entry package. The entry package has its own asserted PACKAGE_SURFACE
+component, so the member-to-entry edge is authorized directly; the checked
+dependency also declares that edge while retaining the wrapper as its fixed
+member. The entry package directly imports every top-level node and owns the
+optional type/signature surface, matching Task 1's graph edges. The layered
+nodes are covered by a separate asserted component, so they remain
+export-backed ordinary closure without adding a growing typed check to the
+measured producer chain. Both checked components therefore parse one fixed
 member file while the real aspect and final layouts retain the complete entry
 and node closure; each checked component still produces a real surface/report
 edge.
@@ -190,6 +193,7 @@ def _define_variant(depth, width, type_surface, direct_surface = False):
     )
 
     dependency_name = variant + "_dependency_component"
+    entry_component_name = variant + "_entry_component"
     nodes_component_name = variant + "_nodes_component"
     go_component(
         name = nodes_component_name,
@@ -201,8 +205,17 @@ def _define_variant(depth, width, type_surface, direct_surface = False):
     )
 
     go_component(
+        name = entry_component_name,
+        authority = "UNKNOWN",
+        interface_style = PACKAGE_SURFACE,
+        members = [":" + entry_name],
+        tags = ["manual"],
+        visibility = _VISIBILITY,
+    )
+
+    go_component(
         name = dependency_name,
-        component_deps = [":" + nodes_component_name],
+        component_deps = [":" + entry_component_name, ":" + nodes_component_name],
         interface_style = PACKAGE_SURFACE,
         members = [":" + dependency_member_name],
         tags = ["manual"],
@@ -211,7 +224,7 @@ def _define_variant(depth, width, type_surface, direct_surface = False):
 
     go_component(
         name = variant + "_component",
-        component_deps = [":" + dependency_name],
+        component_deps = [":" + dependency_name, ":" + entry_component_name],
         interface_style = PACKAGE_SURFACE,
         members = [":" + member_name],
         tags = ["manual"],

@@ -19,8 +19,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ono-sendai-labs/architectural-contracts/go/internal/artifactio"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/facts"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/packagelayout"
+	"github.com/ono-sendai-labs/architectural-contracts/go/internal/report"
 	"golang.org/x/tools/go/packages"
 )
 
@@ -361,6 +363,7 @@ func producerChainRowForVariant(t *testing.T, execroot string, indexed map[strin
 	graph := rootActions["ArccImportGraph"]
 	layout := rootActions["ArccLayout"]
 	check := rootActions["ArccCheck"]
+	assertProducerChainReport(t, execroot, check, variant.Name+"_component")
 	assertProducerChainTask1Graph(t, execroot, variant, graph)
 	assertProducerActionHermetic(t, graph)
 	assertProducerActionHermetic(t, layout)
@@ -387,6 +390,7 @@ func producerChainRowForVariant(t *testing.T, execroot string, indexed map[strin
 	dependencyGraph := producerChainActionForTarget(t, indexed, variant.Dependency, "ArccImportGraph", variant.Name)
 	dependencyLayout := producerChainActionForTarget(t, indexed, variant.Dependency, "ArccLayout", variant.Name)
 	dependencyCheck := producerChainActionForTarget(t, indexed, variant.Dependency, "ArccCheck", variant.Name)
+	assertProducerChainReport(t, execroot, dependencyCheck, variant.Name+"_dependency_component")
 	assertProducerActionHermetic(t, dependencyGraph)
 	assertProducerActionHermetic(t, dependencyLayout)
 	assertProducerActionHermetic(t, dependencyCheck)
@@ -600,6 +604,26 @@ func producerChainSourceInput(t *testing.T, execroot string, action producerChai
 	}
 	t.Fatalf("%s %s has no source input named %q", action.TargetLabel, action.Mnemonic, basename)
 	return ""
+}
+
+func assertProducerChainReport(t *testing.T, execroot string, action producerChainAction, component string) {
+	t.Helper()
+	path := producerChainOutputPath(t, execroot, action, ".report.json")
+	persisted, err := artifactio.ReadReportFile(path)
+	if err != nil {
+		t.Fatalf("reading %s report %q: %v", component, path, err)
+	}
+	if persisted.Report.Component != component {
+		t.Fatalf("%s report component = %q, want %q", component, persisted.Report.Component, component)
+	}
+	if persisted.Verdict != report.VerdictPass {
+		t.Fatalf("%s report verdict = %q, want %q; violations=%v warnings=%v", component, persisted.Verdict, report.VerdictPass, persisted.Report.Violations, persisted.Report.Warnings)
+	}
+	for _, dependency := range persisted.Report.Dependencies {
+		if dependency.Provenance == report.DependencyProvenanceCheckedFail {
+			t.Fatalf("%s report contains CHECKED_FAIL dependency %q", component, dependency.Component)
+		}
+	}
 }
 
 type producerChainLayoutWire struct {
@@ -1145,14 +1169,15 @@ func producerChainOutputSnapshot(t *testing.T, build producerChainBazelBuild, va
 		}
 		if action.Mnemonic == "ArccCheck" {
 			for _, variant := range variants {
-				if action.TargetLabel == variant.Component {
+				if action.TargetLabel == variant.Component || action.TargetLabel == variant.Dependency {
 					selected[action.TargetLabel+"\x00"+action.Mnemonic] = true
 				}
 			}
 		}
 	}
-	if len(selected) != len(variants)+1 {
-		t.Fatalf("determinism snapshot selected %d actions, want %d", len(selected), len(variants)+1)
+	wantSelected := 2*len(variants) + 1
+	if len(selected) != wantSelected {
+		t.Fatalf("determinism snapshot selected %d actions, want %d", len(selected), wantSelected)
 	}
 
 	execroot := filepath.Join(build.OutputBase, "execroot", "_main")
