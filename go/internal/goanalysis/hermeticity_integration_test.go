@@ -120,22 +120,14 @@ var hermeticityRemovedVariables = []string{
 }
 
 type hermeticityBazelRun struct {
-	BazelPath       string
-	RepoRoot        string
-	OutputBase      string
-	OutputUserRoot  string
-	Execroot        string
-	ProfilePath     string
-	ExecutionLog    string
-	SecondLog       string
-	RestrictedEnv   []string
-	PoisonRoot      string
-	WritablePath    string
-	PoisonBefore    hermeticityTreeSnapshot
-	FirstActions    []producerChainAction
-	SecondActions   []producerChainAction
-	FirstOutputs    map[string][]byte
-	RepositoryCache string
+	RepoRoot      string
+	OutputBase    string
+	Execroot      string
+	ProfilePath   string
+	ExecutionLog  string
+	PoisonRoot    string
+	FirstActions  []producerChainAction
+	SecondActions []producerChainAction
 }
 
 type hermeticityTreeSnapshot map[string]hermeticityTreeEntry
@@ -275,22 +267,14 @@ func runHermeticityBazelSuiteForTargets(t *testing.T, labels []string, withProfi
 
 	secondActions := readHermeticityExecutionLogIfNonEmpty(t, secondLog)
 	return hermeticityBazelRun{
-		BazelPath:       bazelPath,
-		RepoRoot:        repoRoot,
-		OutputBase:      outputBase,
-		OutputUserRoot:  outputUserRoot,
-		Execroot:        execroot,
-		ProfilePath:     profilePath,
-		ExecutionLog:    executionLog,
-		SecondLog:       secondLog,
-		RestrictedEnv:   restrictedEnv,
-		PoisonRoot:      poisonRoot,
-		WritablePath:    writablePath,
-		PoisonBefore:    poisonBefore,
-		FirstActions:    firstActions,
-		SecondActions:   secondActions,
-		FirstOutputs:    firstOutputs,
-		RepositoryCache: repositoryCache,
+		RepoRoot:      repoRoot,
+		OutputBase:    outputBase,
+		Execroot:      execroot,
+		ProfilePath:   profilePath,
+		ExecutionLog:  executionLog,
+		PoisonRoot:    poisonRoot,
+		FirstActions:  firstActions,
+		SecondActions: secondActions,
 	}
 }
 

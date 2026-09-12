@@ -485,3 +485,78 @@ the same isolated output root reused the action cache and produced byte-identica
 map, surface, and report outputs. These checks keep the routine series within
 the one-generation N5 bound while making the complete producer-chain residuals
 reviewable.
+
+## Step 13 restricted-sandbox hermeticity
+
+The end-to-end hermeticity regression is part of the producer-chain integration
+driver (so the scaling and hermeticity checks share one map generation):
+
+```sh
+CGO_ENABLED=0 go test -tags=integration -run '^TestBazelProducerChainScaling_Integration$' -count=1 ./internal/goanalysis
+```
+
+`runHermeticityProducerChainBazelSuite` resolves Bazel to an absolute executable path,
+creates a temporary `--output_user_root` and `--output_base`, and first runs a
+cached-repository setup for `//bazel_rules/go/tests:checked_api_analysis_test`.
+The setup uses the local Go module proxy only; the acceptance invocation uses
+`--nofetch`, so repository setup cannot fetch over the network. The acceptance
+invocation is equivalent to:
+
+```text
+<absolute-bazel> --output_user_root=<tmp>/bazel-user-root --output_base=<tmp>/bazel-user-root/output-base test
+  --repository_cache=<Bazel-info-repository-cache> --nofetch
+  --spawn_strategy=linux-sandbox --sandbox_default_allow_network=false
+  --sandbox_fake_hostname=true --sandbox_writable_path=<tmp>/sandbox-writable
+  --sandbox_block_path=<tmp>/poison
+  --execution_log_json_file=<tmp>/hermeticity.execution.json
+  --profile=<tmp>/hermeticity.profile.json.gz --noslim_profile
+  --experimental_profile_additional_tasks=action
+  --execution_log_sort --noshow_progress --output_groups=+arcc
+  --test_output=errors //bazel_rules/go/tests:checked_api_analysis_test <13 producer-chain component labels>
+```
+
+The test's child environment has a temporary PATH containing only the shell and
+assertion utilities needed by Bazel tests; `go`, `gcc`, `cc`, `clang`, and the
+other compiler/tool names are absent. `GOROOT`, `GOCACHE`, `GOMODCACHE`,
+`GOPATH`, `HOME`, and `XDG_CACHE_HOME`, `XDG_CONFIG_HOME`, `XDG_DATA_HOME`,
+and `XDG_STATE_HOME` point to separately seeded read-only poison directories.
+Each tree is snapshotted before and after both Bazel invocations with path,
+kind, mode, size, modification time, symlink target, and regular-file digest.
+The snapshots remained identical; action inputs, argv, and environments named
+none of the poison paths or native caches. Bazel's repository cache and the
+target-configured `rules_go` `stdlib_` export tree are explicitly distinguished
+from forbidden native Go caches.
+
+The combined first run passed in 225.212 seconds on this host and produced
+these arcc action counts in its newline-delimited execution log. The 13
+scaling components, their checked graph dependencies, and the API report /
+surface assertion target all share this one invocation:
+
+| mnemonic | count | observed role |
+| --- | ---: | --- |
+| `ArccImportGraph` | 28 | one projection for each of 26 scaling-chain checked components plus `api_component` and `shared_component` |
+| `ArccLayout` | 28 | one final-layout merge for each checked component |
+| `ArccCheck` | 28 | one member-only check for each checked component |
+| `ArccStdlibMap` | 1 | canonical default `//:arcc_stdlib_map` |
+
+The action query `deps(set(<13 producer-chain component labels>
+//bazel_rules/go/tests:checked_api_analysis_test))` with
+`--output=jsonproto` supplies the execution requirements omitted by the
+execution-log wire format; every one of the four arcc mnemonics carries
+`block-network=1` and an empty action environment. `ArccImportGraph` receives
+only its request and ordinary source projection, `ArccLayout` receives only the
+base layout and projection, `ArccCheck` receives member sources plus export
+data, layouts, dependency surfaces/reports and the map, and `ArccStdlibMap`
+receives only SDK source/oracle inputs and its config. The action argv executes
+the arcc binary (or the generation-only `arcc-stdlibmap` binary) and contains no
+native discovery fallback. The checked API test's report/surface assertion
+passed, its SDK key was `go1.26.4/linux/amd64`, cgo-disabled with no tags or
+experiment, and the generated map matched the pinned canonical artifact.
+
+A repeat restricted build reused the generated map and produced byte-identical
+map, surface, and report artifacts. The driver invokes Bazel only, so native
+whole-SDK generation is absent by construction; the single default map action
+keeps the hermetic suite within the N5 one-generation bound. The integration
+test is selected automatically by `just test-integration`, which is a
+dependency of `just ci`; all output/user roots and poison fixtures are under
+the test temporary directory and no developer workspace state is written.

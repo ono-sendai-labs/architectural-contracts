@@ -12,6 +12,8 @@ build:
 test:
 	cd {{go_dir}} && go test -timeout 5m ./...
 
+# Includes the restricted Bazel hermeticity/producer-chain driver; it shares
+# the default map generation across its scaling and assertion labels.
 test-integration:
 	cd {{go_dir}} && go test -timeout 10m -tags=integration ./...
 
