@@ -1,0 +1,232 @@
+review:
+  project: 2026-08-04-compositional-component-analysis
+  plan_path: .agents/planning/2026-08-04-compositional-component-analysis/implementation/plan.md
+  design_path: .agents/planning/2026-08-04-compositional-component-analysis/design/detailed-design.md
+  reviewed_at: 2026-09-12T02:49:12Z
+  schema_version: 1
+  steps_in_scope: [12]
+  commits_in_scope: 10
+  remediation_step: .agents/tasks/2026-08-04-compositional-component-analysis/step12/
+  verdict: remediation_recommended
+
+summary: |
+  Step 12's implementation is architecturally sound: all nine reviewed elements
+  preserve the Step 4, 5, and 8 action boundaries, and the empty upstream runtime
+  hooks leave the existing package and action topology unchanged. The three final
+  task reviews are approved with no unresolved findings, and the focused 49-target
+  Bazel review suite passes. One important documentation gap remains: the public
+  porting guide omits the new runtime-injection hooks and still documents the old
+  attachment callback shape, so one documentation-only remediation task is recommended.
+
+architecture:
+  - element: Infrastructure self-exemption identity
+    expected: |
+      Exclude only the exact infrastructure component target from attaching to
+      itself, using Bazel label identity rather than component or package names.
+    actual: |
+      go_attached_infra compares the consuming ctx.label with each candidate's
+      label before registry lookup or attachment, while package-distinct targets
+      with the same short name remain eligible.
+    status: aligned
+    files:
+      - bazel_rules/go/private/go_adapter.bzl
+      - bazel_rules/go/tests/component_tests.bzl
+    notes: ""
+
+  - element: Runtime-injection rule-attribute hook
+    expected: |
+      runtime_injection_attrs(deps_aspect) supplies only host-owned private rule
+      attributes and defaults to an empty dictionary upstream.
+    actual: |
+      The adapter exposes the empty upstream hook and component.bzl composes it
+      through collision-checked private-attribute merging.
+    status: aligned
+    files:
+      - bazel_rules/go/private/go_adapter.bzl
+      - bazel_rules/go/private/component.bzl
+    notes: ""
+
+  - element: Runtime package projection and canonical package view
+    expected: |
+      extra_runtime_packages(ctx, root_packages) defaults to an empty list and
+      injected records enter the same deterministic merge, cgo validation,
+      layout, classification, import projection, and export staging as ordinary
+      package records.
+    actual: |
+      The component creates a defensive ordinary-package snapshot, appends the
+      adapter result, merges once by import path, and uses that merged view for
+      every downstream phase. The default empty list reduces to the pre-step
+      ordinary package set.
+    status: aligned
+    files:
+      - bazel_rules/go/private/go_adapter.bzl
+      - bazel_rules/go/private/component.bzl
+      - bazel_rules/go/private/aspect.bzl
+    notes: ""
+
+  - element: Existing infra boundary reuse for injected runtimes
+    expected: |
+      Injected packages are visible to the established infra selection before
+      membership classification; attached dependencies retain surface/report
+      bindings and auto_attached provenance without checker special cases.
+    actual: |
+      The merged package view is passed to the attachment predicate, and the
+      existing dependency binding, coverage, manifest, and report paths carry
+      the selected runtime component. End-to-end fixture coverage verifies an
+      ASSERTED/UNKNOWN/BUILD_GRAPH boundary and a passing check.
+    status: aligned
+    files:
+      - bazel_rules/go/private/component.bzl
+      - bazel_rules/go/tests/runtime_injection_tests.bzl
+      - bazel_rules/go/tests/testdata/injected_runtime/BUILD.bazel
+    notes: ""
+
+  - element: SDK source and oracle contract
+    expected: |
+      SDK source files, package oracle, source root, and target identity are
+      obtained through one adapter descriptor used only by arcc_stdlib_map.
+    actual: |
+      stdlib_map.bzl consumes go_stdlib_source_data exclusively and declares
+      only its source/oracle/config files plus the arcc generator; component
+      analysis never consumes that descriptor or its source depset.
+    status: aligned
+    files:
+      - bazel_rules/go/private/go_adapter.bzl
+      - bazel_rules/go/private/stdlib_map.bzl
+    notes: ""
+
+  - element: SDK export-data contract
+    expected: |
+      ArccCheck receives target-configured standard-library graph metadata and
+      compiled export artifacts through a host-neutral adapter descriptor, with
+      no SDK source or toolchain executable in its inputs.
+    actual: |
+      component.bzl consumes and validates the descriptor's metadata,
+      export_files, inputs, and target identity. Both production action-input
+      tests and a sentinel replacement descriptor verify the boundary.
+    status: aligned
+    files:
+      - bazel_rules/go/private/go_adapter.bzl
+      - bazel_rules/go/private/component.bzl
+      - bazel_rules/go/tests/sdk_adapter_tests.bzl
+    notes: ""
+
+  - element: Unified target and SDK-key identity
+    expected: |
+      Toolchain version, target GOOS/GOARCH, cgo state, sorted build tags, and
+      GOEXPERIMENT have one adapter source shared by maps, layouts, export-data
+      validation, and checked or asserted surfaces.
+    actual: |
+      go_target_identity supplies the common record; component analysis rejects
+      disagreement with the selected map before artifact emission, and the
+      export descriptor is checked against the same selected identity.
+    status: aligned
+    files:
+      - bazel_rules/go/private/go_adapter.bzl
+      - bazel_rules/go/private/component.bzl
+      - bazel_rules/go/private/stdlib_map.bzl
+    notes: ""
+
+  - element: Adapter-seam layering and hermetic action boundaries
+    expected: |
+      Ruleset-specific providers and transitions remain confined to
+      go_adapter.bzl; generic map and component rules consume host-neutral
+      values while preserving the single ArccCheck action and I5 input rules.
+    actual: |
+      Only go_adapter.bzl loads the rules_go configuration and stdlib providers.
+      The generic actions retain declared inputs, the arcc-only tool boundary,
+      an empty inherited environment, and blocked network access.
+    status: aligned
+    files:
+      - bazel_rules/go/private/go_adapter.bzl
+      - bazel_rules/go/private/component.bzl
+      - bazel_rules/go/private/stdlib_map.bzl
+    notes: ""
+
+  - element: Upstream inertness of additive hooks
+    expected: |
+      Empty upstream runtime hooks and the rules_go SDK defaults preserve the
+      pre-step rule attributes, effective package graph, actions, inputs,
+      canonical artifacts, and verdicts.
+    actual: |
+      The runtime hooks return {} and []; empty attribute composition adds no
+      rule fields, and appending no runtime records leaves the ordinary merged
+      view unchanged. Existing topology, input, golden, determinism, and
+      self-check coverage remains green; the focused review run passed all 49
+      selected analysis tests.
+    status: aligned
+    files:
+      - bazel_rules/go/private/go_adapter.bzl
+      - bazel_rules/go/private/component.bzl
+      - bazel_rules/go/tests/runtime_injection_tests.bzl
+    notes: |
+      The exact-label self-exemption intentionally changes the formerly
+      incorrect same-short-name collision case; it is not an empty-hook effect.
+
+doc_code_alignment:
+  - artifact: README.md
+    section: Porting the rules to another Go ruleset
+    issue: |
+      The section announces runtime hooks but never documents
+      runtime_injection_attrs or extra_runtime_packages. It also presents
+      go_attach_infra as a two-argument target callback, while the implemented
+      contract receives the complete roots list and optional merged package
+      view used to observe injected packages.
+    suggested_action: update_doc
+    related_finding: F1
+
+findings:
+  - id: F1
+    severity: important
+    category: doc_divergence
+    file: README.md
+    line: 188
+    title: Public porting guide omits the runtime-injection contract
+    details: |
+      Step 12 exists to remove the host's remaining production patches, but the
+      public porting section at README.md:184-224 names only the older
+      INFRA_COMPONENTS and go_attach_infra facilities. The implemented hooks at
+      bazel_rules/go/private/go_adapter.bzl:124-162 are absent, and the guide's
+      go_attach_infra(target, infra) spelling no longer matches the roots,
+      infra, package_view callback at go_adapter.bzl:105-122. A porter following
+      the README therefore cannot discover how to declare hidden runtime attrs,
+      project their package records, or make attachment inspect the effective
+      merged package view.
+    suggested_action: |
+      Update the porting guide to document runtime_injection_attrs and
+      extra_runtime_packages, their empty upstream defaults and private/read-only
+      contracts, the merged-view ordering, and the current go_attach_infra
+      callback shape.
+    source: built-in
+    addressed_by: step12/task-04-document-runtime-injection-adapter-contract.code-task.md
+
+  - id: F2
+    severity: suggestion
+    category: dead_code
+    file: bazel_rules/go/private/go_adapter.bzl
+    line: 371
+    title: Legacy SDK aliases obscure the canonical three-seam surface
+    details: |
+      go_sdk_srcs, go_stdlib_toolchain, go_target_mode, and the private
+      _stdlib_mode_mismatches alias have no in-tree consumers after the SDK
+      refactor. The first three are described as compatibility accessors, so
+      retaining them may be intentional for external users, but the canonical
+      implementations do not delegate through those old names; overriding an
+      old host function therefore does not customize the new generic callers.
+      No remediation task is generated because deleting or formally deprecating
+      externally loadable Starlark symbols is a compatibility-policy choice, not
+      required to restore Step 12 correctness.
+    suggested_action: |
+      Decide whether these aliases are supported public compatibility surface.
+      If not, remove them (and the unused private alias); if so, document their
+      deprecation window and make clear that hosts must implement the new
+      descriptor contracts.
+    source: built-in
+
+remediation_tasks:
+  - path: .agents/tasks/2026-08-04-compositional-component-analysis/step12/task-04-document-runtime-injection-adapter-contract.code-task.md
+    title: Document the Runtime-Injection Adapter Contract
+    addresses_findings: [F1]
+    sequence: 1
+
+ecosystem_reviews: []
