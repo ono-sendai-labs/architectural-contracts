@@ -407,9 +407,11 @@ output group, and collects Bazel's newline-delimited
 The rows below use the same order and parameters as the Task 1 member-only
 series above: nine primary depth/width cases followed by the four direct
 type-surface cases. The `projection_*` and `export_*` columns are reported for
-both the measured root and its checked graph dependency. Root projection/export
-counts are `1 + depth*width` (entry plus nodes); dependency counts are
-`depth*width` (nodes only). `projection_us`, `layout_us`, and `check_total_us`
+both the measured root and its checked graph dependency. Both checked
+subchains expose the same ordinary closure: counts are `1 + depth*width`
+(entry plus nodes). The dependency's fixed wrapper member is excluded from
+those ordinary counts, while entry remains directly imported by the wrapper
+and by the measured member. `projection_us`, `layout_us`, and `check_total_us`
 are the measured root action execution-wall times from the execution log.
 `check_loader_us`/`member_scan_us` and their dependency-prefixed counterparts
 are medians of three post-warm-up observations from every checked component's
@@ -423,19 +425,26 @@ only and are not persisted in reports, surfaces, maps, facts, or layouts.
 
 | variant | depth | width | type surface | import graph actions | layout actions | check actions | root projection source files | root projection source bytes | dependency projection source files | dependency projection source bytes | projection µs | layout µs | root check loader µs | root member scan µs | dependency check loader µs | dependency member scan µs | check total µs | producer chain µs | root export artifacts | root export bytes | dependency export artifacts | dependency export bytes | root member workload | dependency member workload |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- |
-| d01w01 | 1 | 1 | 0 | 1 | 1 | 1 | 2 | 181 | 1 | 12 | 5000 | 11000 | 12211 | 11 | 13076 | 6 | 269000 | 525000 | 2 | 1118 | 1 | 340 | 1:1:1:1:4:0:1:2 | 1:1:1:1:4:0:1:0 |
-| d01w02 | 1 | 2 | 0 | 1 | 1 | 1 | 3 | 263 | 2 | 94 | 9000 | 11000 | 12817 | 12 | 14490 | 7 | 235000 | 499000 | 3 | 1616 | 2 | 760 | 1:1:1:1:4:0:1:2 | 1:1:1:1:4:0:1:0 |
-| d01w04 | 1 | 4 | 0 | 1 | 1 | 1 | 5 | 401 | 4 | 232 | 9000 | 13000 | 13878 | 27 | 14414 | 6 | 251000 | 549000 | 5 | 2612 | 4 | 1598 | 1:1:1:1:4:0:1:2 | 1:1:1:1:4:0:1:0 |
-| d04w01 | 4 | 1 | 0 | 1 | 1 | 1 | 5 | 427 | 4 | 258 | 15000 | 12000 | 13002 | 13 | 13033 | 8 | 261000 | 558000 | 5 | 2786 | 4 | 1792 | 1:1:1:1:4:0:1:2 | 1:1:1:1:4:0:1:0 |
-| d04w02 | 4 | 2 | 0 | 1 | 1 | 1 | 9 | 1084 | 8 | 915 | 16000 | 11000 | 13537 | 25 | 14603 | 6 | 260000 | 513000 | 9 | 5916 | 8 | 4610 | 1:1:1:1:4:0:1:2 | 1:1:1:1:4:0:1:0 |
-| d04w04 | 4 | 4 | 0 | 1 | 1 | 1 | 17 | 3424 | 16 | 3255 | 9000 | 18000 | 13833 | 16 | 14095 | 5 | 275000 | 583000 | 17 | 15286 | 16 | 13300 | 1:1:1:1:4:0:1:2 | 1:1:1:1:4:0:1:0 |
-| d16w01 | 16 | 1 | 0 | 1 | 1 | 1 | 17 | 1411 | 16 | 1242 | 7000 | 13000 | 14349 | 12 | 14174 | 6 | 286000 | 563000 | 17 | 15938 | 16 | 14080 | 1:1:1:1:4:0:1:2 | 1:1:1:1:4:0:1:0 |
-| d16w02 | 16 | 2 | 0 | 1 | 1 | 1 | 33 | 4420 | 32 | 4251 | 11000 | 17000 | 15546 | 16 | 15720 | 12 | 283000 | 664000 | 33 | 50124 | 32 | 47018 | 1:1:1:1:4:0:1:2 | 1:1:1:1:4:0:1:0 |
-| d16w04 | 16 | 4 | 0 | 1 | 1 | 1 | 65 | 15568 | 64 | 15399 | 16000 | 11000 | 17468 | 15 | 17141 | 6 | 265000 | 730000 | 65 | 182566 | 64 | 176692 | 1:1:1:1:4:0:1:2 | 1:1:1:1:4:0:1:0 |
-| s0000 | 1 | 1 | 0 | 1 | 1 | 1 | 2 | 180 | 1 | 12 | 10000 | 12000 | 13098 | 11 | 13669 | 6 | 267000 | 534000 | 2 | 1114 | 1 | 340 | 1:1:1:1:4:0:1:2 | 1:1:1:1:4:0:1:0 |
-| s0008 | 1 | 1 | 8 | 1 | 1 | 1 | 2 | 1108 | 1 | 940 | 15000 | 8000 | 12921 | 13 | 12614 | 6 | 281000 | 541000 | 2 | 3218 | 1 | 2444 | 1:1:1:1:4:0:1:2 | 1:1:1:1:4:0:1:0 |
-| s0032 | 1 | 1 | 32 | 1 | 1 | 1 | 2 | 3892 | 1 | 3724 | 8000 | 11000 | 15086 | 15 | 13534 | 6 | 294000 | 537000 | 2 | 9136 | 1 | 8362 | 1:1:1:1:4:0:1:2 | 1:1:1:1:4:0:1:0 |
-| s0128 | 1 | 1 | 128 | 1 | 1 | 1 | 2 | 15028 | 1 | 14860 | 6000 | 9000 | 12952 | 15 | 12435 | 5 | 277000 | 515000 | 2 | 34562 | 1 | 33788 | 1:1:1:1:4:0:1:2 | 1:1:1:1:4:0:1:0 |
+| d01w01 | 1 | 1 | 0 | 1 | 1 | 1 | 2 | 181 | 2 | 181 | 14000 | 10000 | 12188 | 12 | 13896 | 13 | 223000 | 511000 | 2 | 1118 | 2 | 1118 | 1:1:1:1:4:0:1:2 | 1:1:1:1:4:0:1:2 |
+| d01w02 | 1 | 2 | 0 | 1 | 1 | 1 | 3 | 250 | 3 | 250 | 10000 | 12000 | 13353 | 11 | 14584 | 15 | 242000 | 562000 | 3 | 1536 | 3 | 1536 | 1:1:1:1:4:0:1:2 | 1:1:1:1:4:0:1:2 |
+| d01w04 | 1 | 4 | 0 | 1 | 1 | 1 | 5 | 388 | 5 | 388 | 10000 | 15000 | 13260 | 24 | 14215 | 12 | 237000 | 570000 | 5 | 2374 | 5 | 2374 | 1:1:1:1:4:0:1:2 | 1:1:1:1:4:0:1:2 |
+| d04w01 | 4 | 1 | 0 | 1 | 1 | 1 | 5 | 427 | 5 | 427 | 16000 | 12000 | 13538 | 13 | 14188 | 14 | 228000 | 534000 | 5 | 2786 | 5 | 2786 | 1:1:1:1:4:0:1:2 | 1:1:1:1:4:0:1:2 |
+| d04w02 | 4 | 2 | 0 | 1 | 1 | 1 | 9 | 1084 | 9 | 1084 | 16000 | 13000 | 13626 | 23 | 13807 | 23 | 235000 | 562000 | 9 | 5838 | 9 | 5838 | 1:1:1:1:4:0:1:2 | 1:1:1:1:4:0:1:2 |
+| d04w04 | 4 | 4 | 0 | 1 | 1 | 1 | 17 | 3424 | 17 | 3424 | 6000 | 12000 | 15400 | 13 | 13565 | 22 | 228000 | 569000 | 17 | 15034 | 17 | 15034 | 1:1:1:1:4:0:1:2 | 1:1:1:1:4:0:1:2 |
+| d16w01 | 16 | 1 | 0 | 1 | 1 | 1 | 17 | 1411 | 17 | 1411 | 8000 | 11000 | 13159 | 12 | 14632 | 14 | 232000 | 581000 | 17 | 15938 | 17 | 15938 | 1:1:1:1:4:0:1:2 | 1:1:1:1:4:0:1:2 |
+| d16w02 | 16 | 2 | 0 | 1 | 1 | 1 | 33 | 4420 | 33 | 4420 | 13000 | 14000 | 13941 | 13 | 14096 | 13 | 253000 | 612000 | 33 | 50046 | 33 | 50046 | 1:1:1:1:4:0:1:2 | 1:1:1:1:4:0:1:2 |
+| d16w04 | 16 | 4 | 0 | 1 | 1 | 1 | 65 | 15568 | 65 | 15568 | 12000 | 13000 | 16497 | 12 | 17519 | 12 | 209000 | 700000 | 65 | 182314 | 65 | 182314 | 1:1:1:1:4:0:1:2 | 1:1:1:1:4:0:1:2 |
+| s0000 | 1 | 1 | 0 | 1 | 1 | 1 | 2 | 180 | 2 | 180 | 10000 | 9000 | 12245 | 11 | 13430 | 13 | 251000 | 511000 | 2 | 1114 | 2 | 1114 | 1:1:1:1:4:0:1:2 | 1:1:1:1:4:0:1:2 |
+| s0008 | 1 | 1 | 8 | 1 | 1 | 1 | 2 | 1108 | 2 | 1108 | 6000 | 9000 | 13813 | 12 | 12553 | 13 | 257000 | 496000 | 2 | 3104 | 2 | 3104 | 1:1:1:1:4:0:1:2 | 1:1:1:1:4:0:1:2 |
+| s0032 | 1 | 1 | 32 | 1 | 1 | 1 | 2 | 3892 | 2 | 3892 | 6000 | 11000 | 12897 | 12 | 12499 | 12 | 218000 | 539000 | 2 | 9042 | 2 | 9042 | 1:1:1:1:4:0:1:2 | 1:1:1:1:4:0:1:2 |
+| s0128 | 1 | 1 | 128 | 1 | 1 | 1 | 2 | 15028 | 2 | 15028 | 17000 | 8000 | 13531 | 12 | 12618 | 13 | 236000 | 489000 | 2 | 34488 | 2 | 34488 | 1:1:1:1:4:0:1:2 | 1:1:1:1:4:0:1:2 |
+
+The fixture deliberately preserves Task 1's primary topology: the directly
+imported `entry` package imports every level-0 node, each node imports all
+nodes at the next level, and the direct type/signature pairs are declared in
+`entry`. A separate fixed `dependency_member` wrapper lets the checked graph
+dependency retain a constant typed workload without moving those declarations
+or changing the measured member-to-entry edge.
 
 Every row has exactly one `ArccImportGraph`, one `ArccLayout`, and one
 `ArccCheck` for the measured component, and the checked graph dependency also
@@ -444,10 +453,11 @@ package, one selected source file, one syntax file, one `types.Info`, and the
 same member-workload tokens in every row; all non-members have no source lists,
 syntax, or type info and have complete export-backed types. The projection and
 export counts grow strictly along both primary depth/width axes for both
-checked components, while the direct type-surface series keeps both member
-workloads fixed and grows only the non-member node's source/export volume. The
-broad scan guard remains noise-tolerant because these exact role/work counters
-are the invariant rather than microsecond timing.
+checked components, while the direct type-surface series keeps both wrapper
+member workloads fixed and grows the directly imported entry package's
+source/export volume. The broad scan guard remains noise-tolerant because
+these exact role/work counters are the invariant rather than microsecond
+timing.
 
 The source asymmetry is intentional. `ArccImportGraph` is the single auxiliary
 source-reading exception accepted by N1: pinned `rules_go` does not expose the

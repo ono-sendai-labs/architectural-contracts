@@ -177,7 +177,7 @@ func TestBazelProducerChainScaling_Integration(t *testing.T) {
 			Name:          variant.Name + "_dependency_component",
 			MemberPackage: variant.DependencyMemberPackage,
 		})
-		row := producerChainRowForVariant(t, byTargetAndMnemonic, variant, rootLoader, dependencyLoader)
+		row := producerChainRowForVariant(t, execroot, byTargetAndMnemonic, variant, rootLoader, dependencyLoader)
 		rows = append(rows, row)
 	}
 
@@ -339,11 +339,11 @@ func newProducerChainVariant(depth, width, typeSurface int, directSurface bool) 
 		Component:               "//" + producerChainPackage + ":" + name + "_component",
 		Dependency:              "//" + producerChainPackage + ":" + name + "_dependency_component",
 		MemberPackage:           producerChainImportRoot + "/" + name + "/member",
-		DependencyMemberPackage: producerChainImportRoot + "/" + name + "/entry",
+		DependencyMemberPackage: producerChainImportRoot + "/" + name + "/dependency_member",
 	}
 }
 
-func producerChainRowForVariant(t *testing.T, indexed map[string][]producerChainAction, variant producerChainVariant, rootLoader, dependencyLoader producerChainLoaderObservation) producerChainRow {
+func producerChainRowForVariant(t *testing.T, execroot string, indexed map[string][]producerChainAction, variant producerChainVariant, rootLoader, dependencyLoader producerChainLoaderObservation) producerChainRow {
 	t.Helper()
 	rootActions := make(map[string]producerChainAction, len(producerChainActionMnemonics))
 	for _, mnemonic := range producerChainActionMnemonics {
@@ -361,6 +361,7 @@ func producerChainRowForVariant(t *testing.T, indexed map[string][]producerChain
 	graph := rootActions["ArccImportGraph"]
 	layout := rootActions["ArccLayout"]
 	check := rootActions["ArccCheck"]
+	assertProducerChainTask1Graph(t, execroot, variant, graph)
 	assertProducerActionHermetic(t, graph)
 	assertProducerActionHermetic(t, layout)
 	assertProducerActionHermetic(t, check)
@@ -389,12 +390,15 @@ func producerChainRowForVariant(t *testing.T, indexed map[string][]producerChain
 	assertProducerActionHermetic(t, dependencyGraph)
 	assertProducerActionHermetic(t, dependencyLayout)
 	assertProducerActionHermetic(t, dependencyCheck)
-	assertProducerChainInputRoles(t, variant.Name+"_dependency_component", variant.Name+"_entry.go", dependencyGraph, dependencyLayout, dependencyCheck, false)
+	assertProducerChainInputRoles(t, variant.Name+"_dependency_component", variant.Name+"_dependency_member.go", dependencyGraph, dependencyLayout, dependencyCheck, false)
 	dependencyProjectionFiles, dependencyProjectionBytes := producerChainInputVolume(t, dependencyGraph, func(path string) bool {
 		return strings.HasSuffix(path, ".go")
 	})
 	dependencyExportFiles, dependencyExportBytes := producerChainInputVolume(t, dependencyCheck, isExportArtifactPath)
-	wantDependencyArtifacts := uint64(variant.Depth * variant.Width)
+	// The dependency check owns a fixed wrapper member; entry remains an
+	// ordinary directly imported package, so its closure includes entry plus
+	// every synthetic node just like the measured component's closure.
+	wantDependencyArtifacts := uint64(1 + variant.Depth*variant.Width)
 	if dependencyProjectionFiles != wantDependencyArtifacts || dependencyExportFiles != wantDependencyArtifacts {
 		t.Fatalf("%s dependency source/export counts = %d/%d, want %d", variant.Name, dependencyProjectionFiles, dependencyExportFiles, wantDependencyArtifacts)
 	}
@@ -542,6 +546,60 @@ func assertProducerChainInputRoles(t *testing.T, targetName, memberSource string
 		}
 		t.Errorf("%s ArccCheck has an unclassified input %q", targetName, input.Path)
 	}
+}
+
+func assertProducerChainTask1Graph(t *testing.T, execroot string, variant producerChainVariant, graph producerChainAction) {
+	t.Helper()
+	entryName := variant.Name + "_entry.go"
+	entrySource := producerChainSourceInput(t, execroot, graph, entryName)
+	for index := 0; index < variant.Width; index++ {
+		importPath := fmt.Sprintf("%s/%s/node/l%02d/i%02d", producerChainImportRoot, variant.Name, 0, index)
+		if !strings.Contains(entrySource, "\""+importPath+"\"") {
+			t.Errorf("%s entry source omits Task 1 level-0 edge to %s", variant.Name, importPath)
+		}
+	}
+	for level := 0; level+1 < variant.Depth; level++ {
+		for index := 0; index < variant.Width; index++ {
+			nodeName := fmt.Sprintf("%s_node_l%02d_i%02d.go", variant.Name, level, index)
+			nodeSource := producerChainSourceInput(t, execroot, graph, nodeName)
+			for child := 0; child < variant.Width; child++ {
+				importPath := fmt.Sprintf("%s/%s/node/l%02d/i%02d", producerChainImportRoot, variant.Name, level+1, child)
+				if !strings.Contains(nodeSource, "\""+importPath+"\"") {
+					t.Errorf("%s node level=%d index=%d omits Task 1 edge to %s", variant.Name, level, index, importPath)
+				}
+			}
+		}
+	}
+	if variant.TypeSurface == 0 {
+		return
+	}
+	if !strings.Contains(entrySource, "type PublicType000 struct") || !strings.Contains(entrySource, "func PublicFunc000(") {
+		t.Errorf("%s direct type surface is not declared in the directly imported entry package", variant.Name)
+	}
+	nodeSource := producerChainSourceInput(t, execroot, graph, fmt.Sprintf("%s_node_l00_i00.go", variant.Name))
+	if strings.Contains(nodeSource, "type PublicType000 struct") || strings.Contains(nodeSource, "func PublicFunc000(") {
+		t.Errorf("%s direct type surface leaked into a transitive node", variant.Name)
+	}
+}
+
+func producerChainSourceInput(t *testing.T, execroot string, action producerChainAction, basename string) string {
+	t.Helper()
+	for _, input := range action.Inputs {
+		if input.IsTool || filepath.Base(input.Path) != basename {
+			continue
+		}
+		path := input.Path
+		if !filepath.IsAbs(path) {
+			path = filepath.Join(execroot, filepath.FromSlash(path))
+		}
+		bytes, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("reading %s %s source input %q: %v", action.TargetLabel, action.Mnemonic, path, err)
+		}
+		return string(bytes)
+	}
+	t.Fatalf("%s %s has no source input named %q", action.TargetLabel, action.Mnemonic, basename)
+	return ""
 }
 
 type producerChainLayoutWire struct {
@@ -909,7 +967,7 @@ func assertProducerChainScaling(t *testing.T, rows []producerChainRow) {
 			t.Errorf("%s dependency member workload = %#v, want fixed workload %#v", row.Variant, row.DependencyMemberWorkload, baseline.DependencyMemberWorkload)
 		}
 		wantRootArtifacts := uint64(1 + row.Depth*row.Width)
-		wantDependencyArtifacts := uint64(row.Depth * row.Width)
+		wantDependencyArtifacts := uint64(1 + row.Depth*row.Width)
 		if row.ProjectionSourceFiles != wantRootArtifacts || row.ExportArtifactCount != wantRootArtifacts {
 			t.Errorf("%s root source/export counts = %d/%d, want %d", row.Variant, row.ProjectionSourceFiles, row.ExportArtifactCount, wantRootArtifacts)
 		}
