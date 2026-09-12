@@ -1,0 +1,75 @@
+{
+  "task_file": ".agents/tasks/2026-08-04-compositional-component-analysis/step12/task-03-formalize-sdk-adapter-seams.code-task.md",
+  "planning_slug": "2026-08-04-compositional-component-analysis",
+  "step": 12,
+  "task": 3,
+  "implementer_session": "awo-impl-2026-08-04-compositional-component-analysis-step12-task03",
+  "reviewer_session": "awo-rev-2026-08-04-compositional-component-analysis-step12-task03",
+  "base": {
+    "change_id": "kryuplpzmptsrvytqmrmvzmkswoxqsnn",
+    "bookmark": "pr/awo-record-2026-08-04-compositional-component-analysis-step12-task-02"
+  },
+  "produced_changes": [
+    "tyrvsuvyoqrlponsmrtmprtmsoxlvyur",
+    "pntmwtromuykvxkqpxkkmtvyzkylxpnp",
+    "okmqmruvtnzqmyyuypvmnqxkvlplwrnv"
+  ],
+  "rounds": [
+    {
+      "round": 0,
+      "role": "implementer",
+      "status": "completed",
+      "tokens": {
+        "total": 289865
+      },
+      "wall_s": 1457,
+      "tool_calls": 795,
+      "compacted": false,
+      "window_pct": 35.9
+    },
+    {
+      "round": 0,
+      "role": "reviewer",
+      "verdict": "changes_requested",
+      "findings": 2,
+      "acceptance": "5 pass / 2 partial",
+      "tokens": {
+        "total": 238183
+      },
+      "wall_s": 489,
+      "tool_calls": 341,
+      "compacted": false
+    },
+    {
+      "round": 1,
+      "role": "implementer",
+      "status": "completed",
+      "tokens": {
+        "total": 354106
+      },
+      "wall_s": 527,
+      "tool_calls": 301,
+      "compacted": false,
+      "window_pct": 43.9,
+      "note": "session resumed after a ~2h quota hold; cachedRead grew 287488->353024, continuity intact"
+    },
+    {
+      "round": 1,
+      "role": "reviewer",
+      "verdict": "approved",
+      "findings": 0,
+      "acceptance": "7/7",
+      "tokens": {
+        "total": 327616
+      },
+      "wall_s": 513,
+      "tool_calls": 345,
+      "compacted": false
+    }
+  ],
+  "session_restarts": [],
+  "outcome": {
+    "status": "approved",
+    "rounds": 2
+  }
+}

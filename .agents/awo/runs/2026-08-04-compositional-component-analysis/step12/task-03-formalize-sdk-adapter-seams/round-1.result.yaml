@@ -1,0 +1,114 @@
+result:
+  task_file: .agents/tasks/2026-08-04-compositional-component-analysis/step12/task-03-formalize-sdk-adapter-seams.code-task.md
+  change_id: okmqmruvtnzqmyyuypvmnqxkvlplwrnv
+  status: completed
+  schema_version: 2
+  produced_at: 2026-09-12T02:27:02Z
+
+acceptance_criteria:
+  - text: |
+      1. **SDK sources are scoped to map generation**
+        - Given the default upstream adapter
+        - When `ArccStdlibMap` and `ArccCheck` actions are inspected
+        - Then only the map action receives SDK source/oracle material, and no component check action directly or transitively receives SDK `.go` files.
+    addressed: yes
+    evidence: |
+      `bazel_rules/go/private/stdlib_map.bzl:77-135` consumes the source/oracle
+      descriptor and declares its source depset, while
+      `bazel_rules/go/private/component.bzl:698-774` declares only member,
+      ordinary-export, dependency-artifact, map, and validated stdlib export
+      inputs. `bazel_rules/go/tests/stdlib_map_tests.bzl:63-89` and
+      `bazel_rules/go/tests/sdk_adapter_tests.bzl:28-64` assert the role split.
+  - text: |
+      2. **Alternative export data is honored**
+        - Given a fake adapter descriptor containing sentinel stdlib metadata and compiled export artifacts
+        - When a checked component is analyzed
+        - Then its layout names the alternative descriptor, its `ArccCheck` inputs contain the sentinel set, and replaced upstream export artifacts are not selected merely through hard-coded rules_go access in `component.bzl`.
+    addressed: yes
+    evidence: |
+      `bazel_rules/go/private/component.bzl:784-936` accepts and validates the
+      injected `stdlib_export_data_fn`; `bazel_rules/go/tests/testing.bzl:27-99`
+      defines the fake descriptor and `:215-228` routes it through the test-only
+      seam. `bazel_rules/go/tests/sdk_adapter_tests.bzl:28-64` verifies sentinel
+      metadata/export files in the layout and ArccCheck inputs, with
+      `stdlib.pkg.json`, `gocache`, and `pkg` absent.
+  - text: |
+      3. **Target and SDK-key identity have one source**
+        - Given default and transitioned target configurations
+        - When map providers, layouts, export descriptors, checked surfaces, and asserted surfaces are inspected
+        - Then toolchain version, GOOS, GOARCH, cgo, sorted tags, and GOEXPERIMENT agree exactly for each target and differ where the transition changes them.
+    addressed: yes
+    evidence: |
+      `bazel_rules/go/private/go_adapter.bzl:523-548` defines the complete
+      target identity and `:480-491` compares complete identities;
+      `bazel_rules/go/private/stdlib_map.bzl:77-149` and
+      `bazel_rules/go/private/component.bzl:927-961` consume that identity for
+      map/layout/export validation. The fresh
+      `bazel_rules/go/tests/transitioned_sdk_export_layout_test.sh` checks the
+      transitioned GOOS/GOARCH/sorted tags/cgo/GOEXPERIMENT/toolchain version
+      and sentinel export descriptor, while existing map/surface transition
+      tests remain green.
+  - text: |
+      4. **Incomplete or mismatched adapter data fails early**
+        - Given a source descriptor without an oracle/root, an export descriptor without graph metadata/artifacts, or target identity that disagrees with the selected map
+        - When the relevant rule is analyzed
+        - Then analysis fails before action execution with an actionable diagnostic naming the target and fields/material at fault.
+    addressed: yes
+    evidence: |
+      `go_adapter.bzl:480-503`, `:590-609`, and `:616-664` fail closed on
+      incomplete identity/source/export material and mismatched fields;
+      `component.bzl:932-941` now also fails before emission when the actual
+      component identity disagrees with the selected map.
+      `bazel_rules/go/tests/sdk_adapter_tests.bzl:66-155` covers missing
+      artifacts, mismatched `goos`, missing source oracle/root/identity,
+      forbidden source material, and the transitioned opposite-map diagnostic
+      as analysis failures.
+  - text: |
+      5. **Ruleset-specific knowledge stays in the adapter**
+        - Given the finalized Bazel implementation
+        - When loads and provider accesses are audited
+        - Then only `go_adapter.bzl` names rules_go's `GoStdLib`, `GoConfigInfo`, SDK/provider internals, or export-stdlib transition; generic component/map rules consume host-neutral contracts.
+    addressed: yes
+    evidence: |
+      `bazel_rules/go/private/go_adapter.bzl:28-30,397-417` is the sole
+      production load/access boundary for those ruleset-specific providers and
+      transition. The audit command and result are recorded in
+      `work.log` under `Explore: repository and reference inventory`; generic
+      `component.bzl`, `stdlib_map.bzl`, and `aspect.bzl` load only adapter APIs.
+  - text: |
+      6. **Hermetic action boundaries remain intact**
+        - Given both SDK-backed actions
+        - When their inputs, tools, environment, and execution requirements are inspected
+        - Then they use declared files only, run only the arcc executable appropriate to the action, block network, use no inherited shell environment, and receive no Go/compiler tool or host cache.
+    addressed: yes
+    evidence: |
+      `stdlib_map.bzl:113-139` and `component.bzl:698-778` use declared inputs,
+      the action-specific arcc executable, `use_default_shell_env = False`, and
+      `block-network`. `bazel_rules/go/tests/stdlib_map_tests.bzl` and the
+      existing component action-input/hermeticity tests passed in `just ci`;
+      the full evidence is in `work.log`.
+  - text: |
+      7. **Upstream behavior is unchanged**
+        - Given the default rules_go adapter and all repository components
+        - When canonical layouts/maps/surfaces/reports are rebuilt and `just ci` runs
+        - Then existing bytes and verdicts remain stable apart from deliberate test fixtures, and all self-check, determinism, and target-transition coverage passes.
+    addressed: yes
+    evidence: |
+      The rework `just ci` run recorded in `work.log` passed Go
+      generation/build/unit/integration tests, pinned-map validation,
+      self-check staging and self-check, Bazel build, and all 183 Bazel tests,
+      including determinism and target-transition suites; the final run passed
+      184 Bazel tests including the new transitioned adapter fixtures.
+
+artifacts:
+  scratchpad_dir: .agents/scratchpad/2026-08-04-compositional-component-analysis/step12/task-03-formalize-sdk-adapter-seams/
+  files:
+    - context.md
+    - plan.md
+    - progress.md
+    - review.yaml
+    - work.log
+    - result.yaml
+
+notes: |
+  Review round 1 added an analysis-time comparison between the actual component target identity and the selected authority-map identity, closing the host-supplied descriptor drift gap before any layout, export, checked action, or asserted surface is emitted. Transitioned fake-export coverage now exercises a Darwin/arm64 descriptor and a Linux-opposite-map failure with sentinel material; `just ci` passes all 184 Bazel tests. The fresh child change is okmqmruvtnzqmyyuypvmnqxkvlplwrnv and the working copy is empty.
