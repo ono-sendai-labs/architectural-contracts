@@ -391,3 +391,74 @@ Routine validation on this Linux/amd64 host also ran `just ci` with the warm
 Bazel cache after the suite was added. It passed in 15.049 seconds of wall time
 (`real 0m15.049s`, `user 0m35.525s`, `sys 0m5.969s`); this is an observed CI
 feedback result, not a timing assertion in the test.
+
+## Step 13 complete Bazel producer-chain measurement
+
+Measured after the producer-chain fixture and driver landed, on the same pinned
+Linux/amd64 configuration: Bazel 9.2.0, Go 1.26.4, `CGO_ENABLED=0`,
+`GOEXPERIMENT` empty, and `rules_go`'s default pure target configuration. The
+integration entry point was
+`go test -tags=integration ./internal/goanalysis -run
+'^TestBazelProducerChainScaling_Integration$' -count=1 -v`. It builds all
+thirteen bounded variants in one fresh `--output_base`, requests the `arcc`
+output group, and collects Bazel's newline-delimited
+`--execution_log_json_file` plus its compressed JSON trace `--profile`.
+
+The rows below use the same order and parameters as the Task 1 member-only
+series above: nine primary depth/width cases followed by the four direct
+type-surface cases. `projection_source_*` is the input volume of the measured
+component's `ArccImportGraph`; `export_*` is the deduplicated ordinary `.x`
+archive volume in that component's `ArccCheck` inputs. `projection_us`,
+`layout_us`, and `check_total_us` are the action execution-wall measurements
+from the execution log. `check_loader_us` and `member_scan_us` are medians of
+three post-warm-up observations from the production member-only loader and
+scanner, using Task 1's package-private no-op-by-default phase observer. The
+`producer_chain_us` value is the sum of the measured component's three action
+times and its checked graph dependency's three producer action times; it
+excludes the shared stdlib-map generation so that the one-time producer is not
+charged once to every row. Timings are observations only and are not persisted
+in reports, surfaces, maps, facts, or layouts.
+
+| variant | depth | width | type surface | import graph actions | layout actions | check actions | projection source files | projection source bytes | projection µs | layout µs | check loader µs | member scan µs | check total µs | producer chain µs | export artifacts | export bytes |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| d01w01 | 1 | 1 | 0 | 1 | 1 | 1 | 2 | 181 | 11000 | 15000 | 12199 | 13 | 248000 | 512000 | 2 | 1118 |
+| d01w02 | 1 | 2 | 0 | 1 | 1 | 1 | 3 | 250 | 5000 | 9000 | 13270 | 13 | 234000 | 515000 | 3 | 1536 |
+| d01w04 | 1 | 4 | 0 | 1 | 1 | 1 | 5 | 388 | 13000 | 15000 | 12355 | 22 | 251000 | 537000 | 5 | 2374 |
+| d04w01 | 4 | 1 | 0 | 1 | 1 | 1 | 5 | 427 | 9000 | 13000 | 13876 | 14 | 228000 | 542000 | 5 | 2786 |
+| d04w02 | 4 | 2 | 0 | 1 | 1 | 1 | 9 | 1084 | 9000 | 11000 | 13710 | 29 | 264000 | 575000 | 9 | 5838 |
+| d04w04 | 4 | 4 | 0 | 1 | 1 | 1 | 17 | 3424 | 17000 | 10000 | 15119 | 22 | 236000 | 609000 | 17 | 15034 |
+| d16w01 | 16 | 1 | 0 | 1 | 1 | 1 | 17 | 1411 | 15000 | 16000 | 13480 | 12 | 259000 | 607000 | 17 | 15938 |
+| d16w02 | 16 | 2 | 0 | 1 | 1 | 1 | 33 | 4420 | 14000 | 11000 | 15164 | 15 | 254000 | 645000 | 33 | 50046 |
+| d16w04 | 16 | 4 | 0 | 1 | 1 | 1 | 65 | 15568 | 12000 | 12000 | 18057 | 12 | 232000 | 683000 | 65 | 182314 |
+| s0000 | 1 | 1 | 0 | 1 | 1 | 1 | 2 | 180 | 11000 | 16000 | 13062 | 12 | 232000 | 520000 | 2 | 1114 |
+| s0008 | 1 | 1 | 8 | 1 | 1 | 1 | 2 | 1108 | 15000 | 12000 | 12539 | 12 | 207000 | 544000 | 2 | 3104 |
+| s0032 | 1 | 1 | 32 | 1 | 1 | 1 | 2 | 3892 | 6000 | 11000 | 13997 | 12 | 223000 | 531000 | 2 | 9042 |
+| s0128 | 1 | 1 | 128 | 1 | 1 | 1 | 2 | 15028 | 6000 | 11000 | 13458 | 11 | 231000 | 557000 | 2 | 34488 |
+
+Every row has exactly one `ArccImportGraph`, one `ArccLayout`, and one
+`ArccCheck` for the measured component. The projection and export counts match
+`1 + depth*width` in the primary series and remain two in the direct-surface
+series; both byte totals grow strictly along the depth/width axes, while the
+direct entry export grows from 1,114 to 34,488 bytes. The member workload is
+one source file, one syntax file, one typed package, four `Uses`, and no
+selections/import/reference edge outside the fixed source shape in every row;
+all non-members have no source lists, syntax, or type info and have complete
+export-backed types. The broad scan guard remains noise-tolerant because these
+exact role/work counters are the invariant rather than microsecond timing.
+
+The source asymmetry is intentional. `ArccImportGraph` is the single auxiliary
+source-reading exception accepted by N1: pinned `rules_go` does not expose the
+exact ordinary import graph, so this hermetic cached action lexically scans the
+target-selected ordinary non-member files and emits a descriptor. `ArccLayout`
+consumes only the base layout and that descriptor. `ArccCheck` receives the
+final layout, member source, ordinary export artifacts, dependency
+surface/report, stdlib export trees, and map, with no ordinary non-member `.go`
+input. Thus projection and export decoding are visible residual closure costs,
+not evidence that typed member work or the corrected N1/N2 leaf allowlist
+scales with the closure.
+
+The same run counted one default-configuration `ArccStdlibMap` action and no
+native whole-SDK generation. A second build in the same isolated output root
+reused the action cache and produced byte-identical map, surface, and report
+outputs. These checks keep the routine series within the one-generation N5
+bound while making the complete producer-chain residuals reviewable.

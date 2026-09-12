@@ -93,7 +93,10 @@ def _entry_source(variant, depth, width, type_surface):
     return "\n".join(lines)
 
 def _node_source(variant, depth, width, level, index):
-    lines = ["package node"]
+    # The component layout derives a package name from the final import-path
+    # segment. Keep the generated source clause aligned with that deterministic
+    # adapter fallback rather than relying on a source read during analysis.
+    lines = ["package i" + _padded(index, 2)]
     if level + 1 < depth:
         lines.append("")
         lines.append("import (")
