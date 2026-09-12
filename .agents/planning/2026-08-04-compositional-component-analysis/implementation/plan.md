@@ -4,7 +4,8 @@
 layout-driver map generation and cgo scoping, design I5); 2026-09-08 (Step 5: asserted
 surfaces are package-level, design I6; Step 6/7: foreign-member wrappers and the residual
 `UNANALYZED` decision); 2026-09-09 (Step 6: bounded routine stdlib-map generation and CI
-feedback time, design N5)
+feedback time, design N5); 2026-09-12 (Step 14: remediation from the plan-scoped
+implementation review)
 **Design:** [`../design/detailed-design.md`](../design/detailed-design.md)
 **Decision record:** [`../idea-honing.md`](../idea-honing.md),
 [`../2026-09-02-design-review-response.md`](../2026-09-02-design-review-response.md)
@@ -53,6 +54,7 @@ None of them is tagged, released, or imported; the series is consumed at its end
 - [x] **Step 11** — `authority: UNKNOWN`
 - [x] **Step 12** — Host adapter hooks
 - [x] **Step 13** — Cross-cutting acceptance: scaling, hermeticity, determinism
+- [ ] **Step 14** — Remediation from implementation review 2026-09-12
 
 ---
 
@@ -568,6 +570,47 @@ once here.
 
 ---
 
+## Step 14: Remediation from implementation review 2026-09-12
+
+**Objective.** Close the actionable plan-wide review residue without changing the
+accepted proof-of-concept architecture: restore the documented validation gate, align
+the final implementation documentation with the code and escalation decisions, and pin
+the two remaining user-visible/fixture-intent test semantics.
+
+**Guidance.**
+- Restore `just lint` to the aggregate Go/local CI path so both `just ci` and the
+  GitHub Go job enforce `go vet` and `gofmt`, as AGENTS.md and README.md promise.
+- Clarify that the surface digest describes checked surfaces while asserted `UNKNOWN`
+  surfaces deliberately carry an empty digest; update the generated protobuf comment
+  and reconcile stale final-state comments/status text in the design, host-policy,
+  stdlib-map, and README documentation.
+- Make the two prototype debts selected during implementation explicit handoff items:
+  component-wide `analysis_defeating_policy: WARN` and the closure-shaped lexical
+  `ArccImportGraph` projection are acceptable here but require reconsideration for a
+  production-quality implementation.
+- Add end-to-end coverage that the asserted `UNKNOWN` dependency edge renders
+  `untrusted`, never `certified` or `declared`, and require the full-build determinism
+  fixture's consumer to retain its intended failing verdict and violation kind.
+- Preserve the legacy SDK adapter accessors. They have an external monorepo consumer
+  and remain documented compatibility aliases until that consumer migrates to the
+  canonical three-seam adapter contract.
+- Do not update `.agents/summary/` in this step. The repository owner will refresh that
+  generated knowledge base separately with the dedicated `codebase-summary` skill after
+  the remediation tasks are complete.
+
+**Tests.** `just lint` runs through both aggregate CI entry points; protobuf generation
+is clean; the asserted-boundary rendering and determinism-fixture semantic assertions
+fail on their respective regressions; `just ci` remains green.
+
+**Integration.** No checker, surface, stdlib-map, provider, or adapter behavior changes.
+The compatibility aliases remain available to the external host during migration.
+
+**Demo.** Show `just --dry-run ci-go` including lint, the corrected checked/asserted
+surface digest contract and prototype-debt notes, and the two focused regression tests
+passing before the full `just ci` gate.
+
+---
+
 ## Notes on what is deliberately absent
 
 - **No load-deduplication step.** Superseded by Steps 6–8 (Q17).
@@ -580,3 +623,8 @@ once here.
 - **No multi-architecture full-CI matrix yet.** Step 6 keeps the existing cross-target map
   assertions in an explicit full lane and supports routine CI on Linux/amd64. A follow-up
   must run that lane across execution and target architecture combinations.
+- **No `.agents/summary/` refresh in Step 14.** That generated knowledge base is known to
+  describe the pre-plan architecture and will be refreshed out of band with the dedicated
+  `codebase-summary` skill after remediation completes.
+- **No legacy SDK adapter removal in Step 14.** The compatibility accessors still serve an
+  external monorepo; remove them only after that consumer adopts the canonical adapter seams.

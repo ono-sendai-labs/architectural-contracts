@@ -1,12 +1,30 @@
 # Architectural Contracts MVP (Go)
 
-Architectural Contracts is a Go-based tool (`arcc`) for declaring, checking, and enforcing package structures, dependency boundaries, and ambient authority limits (capabilities) in software systems. 
+Architectural Contracts is a Go-based tool (`arcc`) for declaring, checking, and enforcing package structures, dependency boundaries, and ambient authority limits (capabilities) in software systems.
 
 By defining declarative boundaries on top of your existing code, you gain durable intellectual control over your architecture. For more detailed discussion about the background, design space, and core rationales, please consult the [Rationale and Concepts Guide](docs/rationale-and-concepts.md).
+
+## Implementation Status
+
+This repository contains a proof-of-concept implementation. It is an MVP intended to
+validate the Architectural Contracts model, compositional analysis design, and host
+integration approach. It is expected to inform a permanent, production-quality
+implementation, but it should not itself be treated as production-ready software.
+
+### AI Coding Practices
+
+The implementation was developed by AI coding agents using the repository's
+structured-spec-to-code (SSTC) workflow. The human repository owner collaborated
+interactively with an agent on the design, reviewed the resulting design in detail,
+reviewed the implementation plan at a high level, and considered escalations surfaced
+by the workflow orchestrator during implementation. Neither the implementation code nor
+the workflow task descriptions have been reviewed in detail by the repository owner.
 
 ---
 
 ## Table of Contents
+- [Implementation Status](#implementation-status)
+  - [AI Coding Practices](#ai-coding-practices)
 - [Overview](#overview)
 - [Prerequisites](#prerequisites)
 - [Building and Installation](#building-and-installation)

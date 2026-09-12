@@ -1,0 +1,372 @@
+review:
+  project: 2026-08-04-compositional-component-analysis
+  plan_path: .agents/planning/2026-08-04-compositional-component-analysis/implementation/plan.md
+  design_path: .agents/planning/2026-08-04-compositional-component-analysis/design/detailed-design.md
+  reviewed_at: 2026-09-12T19:33:32Z
+  schema_version: 1
+  steps_in_scope: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13]
+  commits_in_scope: 306
+  remediation_step: .agents/tasks/2026-08-04-compositional-component-analysis/step14/
+  verdict: remediation_recommended
+
+summary: |
+  The completed thirteen-step implementation aligns with the design's major
+  architectural elements, and no critical defect or escalation decision needs
+  reversal. Three focused remediation tasks should restore the documented lint
+  gate, align final schema and handoff documentation, and close two inexpensive
+  acceptance-fixture gaps. The stale .agents/summary knowledge base is recorded
+  as important documentation debt but, by owner decision, will be regenerated
+  separately with the codebase-summary skill after Step 14. Legacy SDK adapter
+  aliases remain intentionally supported while an external monorepo migrates.
+  The remaining carried aspect-test comment concern was re-derived against the
+  current closure behavior and is closed as accurate.
+
+architecture:
+  - element: Persisted schemas, symbol grammar, and authority lattice
+    expected: |
+      One canonical SymbolID grammar and versioned, deterministic schemas for
+      surfaces and standard-library maps, including structural UNKNOWN authority.
+    actual: |
+      Schema-owned capability vocabulary, canonical artifact I/O, exact symbol
+      extraction, and the absorbing UNKNOWN lattice are shared by producers and
+      consumers with fail-closed validation.
+    status: aligned
+    files:
+      - proto/archcontracts/v1/component.proto
+      - proto/archcontracts/v1/surface.proto
+      - proto/archcontracts/v1/stdlibmap.proto
+      - go/internal/schema
+      - go/internal/symbol
+      - go/internal/artifactio
+    notes: |
+      The implementation is aligned. The digest field's prose does not yet
+      distinguish checked surfaces from asserted surfaces; finding F3 addresses
+      that documentation defect without changing the schema or behavior.
+
+  - element: Total standard-library authority map
+    expected: |
+      A total, SDK-keyed, fail-closed authority map generated once per target
+      configuration, with Capslock retained only in the generation path.
+    actual: |
+      The generator inventories every supported package and symbol, preserves
+      UNANALYZED classifications, uses an independently fingerprinted classifier,
+      and supplies native cached and hermetic Bazel artifacts.
+    status: aligned
+    files:
+      - go/internal/stdlibmap
+      - go/internal/stdlibauthority
+      - go/internal/capslockadapter
+      - bazel_rules/go/private/stdlib_map.bzl
+    notes: |
+      I5's layout-driver generation and the deliberate cgo-enabled Bazel
+      rejection are coherent proof-of-concept choices and should not be reverted.
+
+  - element: Member reference analysis and pure checker
+    expected: |
+      Replace check-time SSA, VTA, and Capslock with AST/types.Info reference and
+      import facts over member packages, classified by a pure core.
+    actual: |
+      ScanReferences and ScanAnalysisDefeats operate only on member inputs;
+      checker classification uses exact declaring objects, dependency surfaces,
+      and the StdlibAuthority port with deterministic, fail-closed outcomes.
+    status: aligned
+    files:
+      - go/internal/goanalysis/refscan.go
+      - go/internal/goanalysis/defeatscan.go
+      - go/internal/checker
+      - go/internal/facts
+    notes: ""
+
+  - element: Compositional surfaces and dependency status
+    expected: |
+      Checked and asserted producers publish structurally distinct surfaces;
+      dependents consume surfaces and reports with independent provenance,
+      freshness, and authority axes.
+    actual: |
+      Checked actions publish report/surface pairs, asserted UNKNOWN components
+      publish package-level surfaces with no report, and native/Bazel resolvers
+      validate version, namespace, SDK identity, freshness, and overlap.
+    status: aligned
+    files:
+      - go/internal/surface
+      - go/internal/goanalysis/surface_resolver.go
+      - go/internal/report
+      - bazel_rules/go/private/component.bzl
+      - bazel_rules/providers.bzl
+    notes: |
+      I6's package-level asserted surface is an honest non-analysis claim. The
+      user-visible untrusted rendering has unit/native coverage; finding F4 adds
+      the missing assertion at the persisted Bazel fixture seam.
+
+  - element: Member-only export-data loading and Bazel producer topology
+    expected: |
+      ArccCheck receives only member sources and declared artifact inputs, with
+      non-member types supplied from export data and no toolchain executable.
+    actual: |
+      ArccCheck uses final layouts and projected export artifacts without
+      non-member source or toolchain binaries. A separate hermetic
+      ArccImportGraph action lexically projects exact imports from target-selected
+      ordinary source because the pinned rules_go provider lacks that graph.
+    status: aligned
+    files:
+      - go/internal/packagelayout
+      - go/internal/goanalysis/goanalysis.go
+      - bazel_rules/go/private/aspect.bzl
+      - bazel_rules/go/private/component.bzl
+      - bazel_rules/go/private/go_adapter.bzl
+    notes: |
+      The auxiliary projection was an explicit, measured design amendment. It is
+      acceptable for the MVP but remains a production-handoff item because its
+      source inputs and work are closure-shaped.
+
+  - element: Analysis-defeating policy and UNKNOWN adoption
+    expected: |
+      Analysis-defeating constructs fail closed by default, explicit WARN keeps
+      limitations visible, and unanalysed components remain structurally UNKNOWN.
+    actual: |
+      STRICT is the default; WARN downgrades only AnalysisDefeating findings while
+      retaining sites and evidence. UNKNOWN is package-level, report-free, and
+      rendered untrusted at dependency boundaries.
+    status: aligned
+    files:
+      - proto/archcontracts/v1/component.proto
+      - go/internal/manifest/authority.go
+      - go/internal/checker/aggregate.go
+      - bazel_rules/go/private/component.bzl
+    notes: |
+      Component-wide WARN is a reversible MVP policy carrier, not a classifier
+      override. A production implementation should prefer narrower exceptions or
+      improved classifier coverage when evidence permits.
+
+  - element: Host adapter contract
+    expected: |
+      Host-neutral runtime injection, SDK source, SDK export-data, target identity,
+      and namespace seams with inert upstream defaults.
+    actual: |
+      The canonical seams are isolated in go_adapter.bzl and generic rules consume
+      only their host-neutral descriptors. Runtime injection merges before
+      validation and infra attachment.
+    status: aligned
+    files:
+      - bazel_rules/go/private/go_adapter.bzl
+      - bazel_rules/go/private/component.bzl
+      - go/internal/hostpolicy/hostpolicy.go
+    notes: |
+      Four unused-in-repository legacy accessors remain as documented compatibility
+      aliases. The owner confirmed an external monorepo consumer; they are retained
+      until that consumer migrates to the canonical three-seam SDK contract.
+
+  - element: Hermeticity, scaling, and deterministic acceptance
+    expected: |
+      Exact structural evidence must prove member-only scanning, hermetic action
+      inputs, bounded routine generation, and byte-identical persisted artifacts.
+    actual: |
+      Native and Bazel scaling suites pin scanner-internal work, restricted sandbox
+      tests audit expanded action inputs and cache/network isolation, and independent
+      builds compare report, surface, and map bytes.
+    status: aligned
+    files:
+      - go/internal/goanalysis/member_analysis_scaling_integration_test.go
+      - go/internal/goanalysis/producer_chain_scaling_integration_test.go
+      - go/internal/goanalysis/hermeticity_integration_test.go
+      - go/internal/goanalysis/full_build_determinism_integration_test.go
+      - .agents/planning/2026-08-04-compositional-component-analysis/research/current-analysis-pipeline.md
+    notes: |
+      Finding F6 concerns the semantic intent of one fixture, not the established
+      exact-byte determinism property.
+
+  - element: Routine validation topology
+    expected: |
+      just ci is the complete pre-commit gate and the GitHub Go lane mirrors its Go
+      checks, including generation, lint, build, unit/integration tests, and bounded
+      stdlib-map validation.
+    actual: |
+      The generation, build, test, integration, selfcheck, and Bazel lanes pass, but
+      both just ci and the GitHub Go job reach ci-go without invoking the existing
+      lint recipe.
+    status: partial
+    files:
+      - justfile
+      - .github/workflows/ci.yml
+      - AGENTS.md
+      - README.md
+    notes: |
+      just lint passes independently. Finding F1 restores the promised aggregate
+      gate so future vet or formatting failures cannot bypass both entry points.
+
+doc_code_alignment:
+  - artifact: justfile
+    section: ci-go and ci recipes
+    issue: |
+      The aggregate recipes omit lint although AGENTS.md and README.md describe
+      just ci as the full build/lint/test pre-commit gate; GitHub invokes ci-go and
+      therefore omits it too.
+    suggested_action: update_code
+    related_finding: F1
+
+  - artifact: .agents/summary/index.md
+    section: 60-second orientation and companion knowledge-base documents
+    issue: |
+      The generated summary is explicitly based on revision 7d787d, before this
+      plan, and still describes SSA/VTA/Capslock checking, absorbed dependencies,
+      old component counts, and obsolete interfaces.
+    suggested_action: update_doc
+    related_finding: F2
+
+  - artifact: proto/archcontracts/v1/surface.proto
+    section: SurfaceManifest.digest
+    issue: |
+      The comment describes the checked-surface digest unconditionally even though
+      design I6 and the asserted producer require an empty digest for asserted
+      UNKNOWN surfaces.
+    suggested_action: update_doc
+    related_finding: F3
+
+  - artifact: .agents/planning/2026-08-04-compositional-component-analysis/design/detailed-design.md
+    section: status, overview, and production handoff
+    issue: |
+      The status still says implementation is in progress and some baseline prose
+      reads as current behavior. Final public/source comments also retain completed
+      step placeholders, and README does not collect the WARN and ArccImportGraph
+      trade-offs as production-handoff items.
+    suggested_action: update_doc
+    related_finding: F3
+
+findings:
+  - id: F1
+    severity: important
+    category: consistency
+    file: justfile
+    line: 163
+    title: Aggregate CI no longer runs the documented lint gate
+    details: |
+      ci-go runs gen, build, unit/integration tests, the stdlib-map pin, and the
+      staging test, while ci adds generated-file, selfcheck, and Bazel gates; neither
+      depends on lint. GitHub's Go job calls ci-go, so go vet and gofmt can be skipped
+      by both advertised aggregate entry points even though AGENTS.md requires just ci
+      before every commit and README.md says that command lints. The current tree is
+      clean because just lint passes when invoked separately, but the process guard is
+      absent.
+    suggested_action: |
+      Add lint to the shared aggregate Go recipe so local just ci and GitHub ci-go
+      execute the same vet/format gate, and verify it through dry-run command expansion
+      plus the real validation commands.
+    source: built-in
+    addressed_by: step14/task-01-restore-lint-to-ci-gates.code-task.md
+
+  - id: F2
+    severity: important
+    category: doc_divergence
+    file: .agents/summary/index.md
+    line: 27
+    title: Generated knowledge base describes the removed analysis architecture
+    details: |
+      The summary identifies its old baseline, but its primary orientation and
+      companion documents still teach check-time SSA/VTA/Capslock, absorbed
+      dependencies, old component counts, the former CLI, and obsolete provider/data
+      models. It is therefore unsafe as an implementation knowledge base after a plan
+      that replaced those exact surfaces. The repository owner explicitly excluded
+      this generated artifact from Step 14 and will refresh it out of band with the
+      dedicated codebase-summary skill after remediation completes.
+    suggested_action: |
+      After Step 14, run the codebase-summary skill in update mode and review its
+      architecture, interface, workflow, dependency, data-model, and coding-style
+      output against the final implementation.
+    source: built-in
+
+  - id: F3
+    severity: important
+    category: doc_divergence
+    file: proto/archcontracts/v1/surface.proto
+    line: 78
+    title: Final schema and handoff documentation retain stale contracts
+    details: |
+      SurfaceManifest.digest is documented as a source-derived digest for every
+      surface, while asserted UNKNOWN surfaces intentionally carry no derived content
+      and an empty digest. The detailed design still reports implementation in progress;
+      hostpolicy and stdlib-map comments contain future/step placeholders; PackageEntry
+      describes only internal-package exclusion; and README's limitations omit a
+      concise production handoff for the accepted component-wide WARN policy and
+      closure-shaped ArccImportGraph projection. These do not change correct behavior,
+      but they materially impair using this MVP as the basis of a permanent
+      implementation.
+    suggested_action: |
+      Reconcile the proto/generated comments, design final status and baseline wording,
+      source comments, and README limitations with the implemented checked/asserted
+      semantics. State the two accepted prototype debts without changing either
+      behavior.
+    source: built-in
+    addressed_by: step14/task-02-align-final-implementation-documentation.code-task.md
+
+  - id: F4
+    severity: suggestion
+    category: coverage
+    file: bazel_rules/go/tests/testdata/reportboundary/consumer/BUILD.bazel
+    line: 37
+    title: UNKNOWN boundary fixture checks JSON but not rendered status text
+    details: |
+      The end-to-end Bazel fixture verifies ASSERTED provenance and UNKNOWN authority
+      in persisted JSON, while separate Go-level renderer tests cover the word
+      untrusted. It does not bind those layers by requiring this actual dependency edge
+      to render untrusted and reject certified/declared wording.
+    suggested_action: |
+      Add a focused end-to-end assertion over production-rendered text for this
+      fixture without introducing a second ArccCheck action or changing report
+      production semantics.
+    source: built-in
+    addressed_by: step14/task-03-pin-acceptance-fixture-semantics.code-task.md
+
+  - id: F5
+    severity: suggestion
+    category: dead_code
+    file: bazel_rules/go/private/go_adapter.bzl
+    line: 372
+    title: Legacy SDK accessors remain beside the canonical adapter seams
+    details: |
+      go_sdk_srcs, go_stdlib_toolchain, go_target_mode, and
+      _stdlib_mode_mismatches have no generic or in-repository consumers. They are
+      documented compatibility accessors rather than accidental duplicate logic. The
+      owner confirmed that an external monorepo still uses the legacy adapter and chose
+      to retain it until that consumer adopts this implementation, so removal is not a
+      Step 14 remediation.
+    suggested_action: |
+      After the external monorepo migrates to the canonical source, export-data, and
+      target-identity seams, schedule a separate compatibility cleanup to remove the
+      aliases and any alias-accepting fallback fields.
+    source: built-in
+
+  - id: F6
+    severity: suggestion
+    category: tests
+    file: go/internal/goanalysis/full_build_determinism_integration_test.go
+    line: 301
+    title: Determinism fixture does not pin its intended failing verdict
+    details: |
+      The consumer fixture is intended to persist a failing report with three
+      os.ReadFile authority sites. The semantic audit accepts a matching multi-site
+      finding from violations or warnings and never requires verdict FAIL, so a policy
+      change could make the fixture pass while byte-for-byte determinism remained green.
+      This does not weaken N4, but it weakens the fixture's documented intent.
+    suggested_action: |
+      Require verdict FAIL and the intended multi-site violation kind while retaining
+      the existing exact-byte comparison and dependency-axis assertions.
+    source: built-in
+    addressed_by: step14/task-03-pin-acceptance-fixture-semantics.code-task.md
+
+remediation_tasks:
+  - path: .agents/tasks/2026-08-04-compositional-component-analysis/step14/task-01-restore-lint-to-ci-gates.code-task.md
+    title: Restore Lint to Aggregate CI Gates
+    addresses_findings: [F1]
+    sequence: 1
+
+  - path: .agents/tasks/2026-08-04-compositional-component-analysis/step14/task-02-align-final-implementation-documentation.code-task.md
+    title: Align Final Implementation Documentation
+    addresses_findings: [F3]
+    sequence: 2
+
+  - path: .agents/tasks/2026-08-04-compositional-component-analysis/step14/task-03-pin-acceptance-fixture-semantics.code-task.md
+    title: Pin Acceptance Fixture Semantics
+    addresses_findings: [F4, F6]
+    sequence: 3
+
+ecosystem_reviews: []
