@@ -160,7 +160,7 @@ bazel-test:
 # Go-only leg: everything except selfcheck and bazel-test. Mirrors the
 # ci.yml "Go" job so the three CI jobs can run in parallel on separate
 # runners; selfcheck and bazel-test run as their own CI jobs.
-ci-go: gen build test test-integration stdlibmap-pin-check selfcheck-staging-test
+ci-go: gen lint build test test-integration stdlibmap-pin-check selfcheck-staging-test
 
 ci: gen-is-clean ci-go selfcheck bazel-test
 
