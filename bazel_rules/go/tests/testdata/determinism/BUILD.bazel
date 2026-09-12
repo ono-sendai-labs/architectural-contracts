@@ -3,21 +3,18 @@ load("//bazel_rules/go/tests:determinism.bzl", "pinned_stdlib_map")
 load("//bazel_rules/go/tests:testing.bzl", "testing_go_component")
 load("@rules_go//go:def.bzl", "go_library")
 
-config_setting(
-    name = "use_pinned_map",
-    define_values = {"determinism_map": "pinned"},
-)
-
-_SELECTED_MAP = select({
-    ":use_pinned_map": ":pinned_stdlib_map",
-    "//conditions:default": "//:arcc_stdlib_map",
-})
-
 pinned_stdlib_map(
     name = "pinned_stdlib_map",
     src = "//go/internal/teststdlibmap:testdata/linux_amd64.stdlib-map.json",
     visibility = ["//bazel_rules:__subpackages__"],
 )
+
+# Both isolated determinism builds consume this checked canonical artifact.
+# The shared routine producer-chain invocation separately materializes the
+# real default ArccStdlibMap action, so the test retains one real routine
+# generation while the compared component graph has identical configuration
+# inputs in both output roots.
+_SELECTED_MAP = ":pinned_stdlib_map"
 
 go_library(
     name = "dependency_api",

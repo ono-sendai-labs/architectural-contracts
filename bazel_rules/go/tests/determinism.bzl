@@ -1,11 +1,11 @@
 """Test-only provider for reusing the checked routine stdlib-map artifact.
 
-The routine determinism harness executes the real default ArccStdlibMap once
-in its first isolated output base. Its second output base selects this
-provider, which republishes the checked canonical artifact with the same
-complete SDK-key metadata while rebuilding all component producers. This is
-the bounded-map reuse permitted by design N5; the full lane still executes
-two independent real generations.
+The routine determinism harness executes the real default map once in its
+shared producer-chain invocation. Both isolated determinism output bases then
+consume this checked canonical artifact with the same complete SDK-key
+metadata while rebuilding all component producers. This is the bounded-map
+reuse permitted by design N5; the full lane still executes two independent
+real generations.
 """
 
 load("//bazel_rules/go:providers.bzl", "ArccStdlibMapInfo")

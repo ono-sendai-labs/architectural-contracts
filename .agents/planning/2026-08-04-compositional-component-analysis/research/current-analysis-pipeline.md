@@ -568,9 +568,10 @@ the test temporary directory and no developer workspace state is written.
 
 ## Step 13 final acceptance record
 
-Date: 2026-09-12. Implementation revisions: Jujutsu changes rszlotvp and
-kmrxxumn (the final acceptance child). The measurements below are observations
-on the pinned Linux/amd64 host, not wall-clock assertions embedded in tests.
+Date: 2026-09-12. Implementation revisions: Jujutsu changes rszlotvp,
+kmrxxumn, and wkousqok (the final acceptance child). The measurements below
+are observations on the pinned Linux/amd64 host, not wall-clock assertions
+embedded in tests.
 
 ### Baseline versus final on the same components
 
@@ -594,13 +595,14 @@ The routine integration command is:
 
 It builds the 13 scaling variants, the checked API/shared chain, and the
 determinism fixture in one restricted Bazel output root. That first root
-executes exactly one default ArccStdlibMap action. The determinism check then
-requests the same fixture labels in reverse order in a second isolated output
-root, using the checked canonical map as the explicitly permitted N5 reuse
-path; all component producers in the second root are rebuilt. It collects
-artifacts by decoded logical identity, compares raw bytes without
-normalization, compares SHA-256 over those raw bytes, and reports the first
-different byte plus both logical paths and digests on failure.
+executes exactly one default ArccStdlibMap action; both determinism graph
+invocations use the same checked canonical map input, which is the explicitly
+permitted N5 reuse path. The second invocation requests the same fixture
+labels in reverse order in a separate isolated output root and rebuilds every
+component producer. It collects artifacts by decoded logical identity,
+compares raw bytes without normalization, compares SHA-256 over those raw
+bytes, and reports the first different byte plus both logical paths and
+digests on failure.
 
 The compared logical artifacts and identical SHA-256 digests were:
 
