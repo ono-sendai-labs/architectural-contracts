@@ -5,9 +5,11 @@
 (asserted surfaces are package-level — see I6); 2026-09-09 (bounded routine stdlib-map
 generation and CI feedback time — see N5); 2026-09-10 (Step 7 residual
 AnalysisDefeating policy carrier); 2026-09-11 (accepted auxiliary ordinary-import
-projection; see §Build topology and the Step 8 Task 04 repair)
-**Status:** design complete; implementation series in progress.
-**Baseline:** `dev-exp-go-bazel-mvp` @ `5011b726` (code unchanged through `cca66212`)
+projection; see §Build topology and the Step 8 Task 04 repair); 2026-09-12
+(final implementation documentation alignment)
+**Status:** implementation complete; this document records the final MVP behavior and
+its accepted design decisions.
+**Baseline (historical):** `dev-exp-go-bazel-mvp` @ `5011b726` (code unchanged through `cca66212`)
 **Inputs:** [`../rough-idea.md`](../rough-idea.md), [`../idea-honing.md`](../idea-honing.md),
 [`../research/current-analysis-pipeline.md`](../research/current-analysis-pipeline.md),
 [`../research/host-import-friction.md`](../research/host-import-friction.md),
@@ -20,9 +22,9 @@ projection; see §Build topology and the Step 8 Task 04 repair)
 
 ## Overview
 
-`arcc check` currently answers every question about a component by building a
-whole-program call graph. It loads the component's entire transitive dependency
-closure, builds SSA over it, runs VTA, and then does it a second time inside Capslock —
+At the historical baseline, `arcc check` answered every question about a component by
+building a whole-program call graph. It loaded the component's entire transitive
+dependency closure, built SSA over it, ran VTA, and then did it a second time inside Capslock —
 while separately type-checking each declared dependency from source. Cost scales with
 the closure, not the component: 2.1s for four trivial packages in this repo, ~50s for
 some packages in the second monorepo PoC.
@@ -32,8 +34,8 @@ Two changes that have already landed make that unnecessary. Membership is explic
 transitivity. And capability findings are already **pruned at declared dependency
 boundaries**, so authority behind a boundary is already not attributed to the caller.
 
-What remains is to classify the edges that *leave* a component. That needs no call
-graph. This design replaces the whole-program analysis with three pieces:
+The completed implementation classifies the edges that *leave* a component without a
+call graph. It replaces the whole-program analysis with three pieces:
 
 1. a **reference scan** over member sources, treating references and imports as edges;
 2. a **precomputed standard-library authority map**, generated once per SDK
@@ -235,7 +237,7 @@ future design may add the seam.
 
 ```mermaid
 flowchart LR
-    subgraph Before["Today — work scales with the closure"]
+    subgraph Before["Historical baseline — work scales with the closure"]
         B1[manifest] --> B2[load closure from source]
         B2 --> B3["SSA + VTA<br/>whole closure"]
         B2 --> B4["per-dep source load<br/>./... type-check"]
@@ -243,7 +245,7 @@ flowchart LR
         B4 --> B5
         B5 --> B6[checker.Check]
     end
-    subgraph After["Proposed — component analysis plus cached producer chain"]
+    subgraph After["Implemented — component analysis plus cached producer chain"]
         A0[member sources] --> A2["ArccCheck:<br/>parse + type-check<br/>member packages only"]
         A1[manifest + final layout] --> A2
         A9[(export data:<br/>closure, already built)] --> A2
@@ -262,9 +264,9 @@ flowchart LR
 
 ### Build topology (Bazel)
 
-The current `.check` target is a test rule that only writes a launcher; tests cannot
-publish outputs for other actions to consume. The redesign splits analysis from
-assertion (DR-01):
+Before this implementation, the `.check` target was a test rule that only wrote a
+launcher; tests could not publish outputs for other actions to consume. The implemented
+topology splits analysis from assertion (DR-01):
 
 ```mermaid
 flowchart LR
@@ -292,7 +294,7 @@ flowchart LR
   exactly one `arcc check` action, and that negative and golden tests need no second
   one. Actions that only compute a *declared input* to it — `arcc_stdlib_map`,
   `ArccImportGraph`, and the `ArccLayout` metadata merge — are permitted, subject to
-  I5. In the current pinned rules_go integration, `ArccImportGraph` is one hermetic,
+  I5. With the pinned rules_go integration, `ArccImportGraph` is one hermetic,
   cacheable action per checked component: it reads a declared request and
   target-selected ordinary non-member source, performs the limited lexical projection
   that `GoArchive.direct` cannot provide, and emits the ordinary-import descriptor;
@@ -301,7 +303,7 @@ flowchart LR
   to `ArccCheck`. The analysis action itself may not receive that source (N2).
   (Step 8 task 04 escalation, 2026-09-11.)
 - **The analysis action always exits 0 when analysis ran.** Violations are recorded as
-  the report's verdict; tool errors (exit 2 today) still fail the action. This keeps
+  the report's verdict; tool errors (exit 2) still fail the action. This keeps
   `bazel build` semantics unchanged, needs no second action for negative and golden
   tests, and still makes provenance structural: a consumer receives the dependency's
   surface *and* report through the provider and derives `CHECKED_PASS` only when the
@@ -317,8 +319,9 @@ flowchart LR
   at analysis time from the layout (packages are known) and the provider marks
   `provenance = ASSERTED`. Such a component MUST be `PACKAGE_SURFACE`; a
   declared-interface component cannot be asserted, and the rule fails at analysis time
-  naming the target (I6). During the transition, a `manual`-tagged component takes the
-  same path, preserving the host's current behaviour until the attribute replaces it.
+  naming the target (I6). Before `authority` was introduced, a `manual`-tagged component
+  temporarily took the same path; in the final implementation tags only schedule tests
+  and do not select authority or producer semantics.
 - **Native mode** gets `--report-out` and `--surface-out` on `arcc check`. Dependency
   surfaces are located by convention: `<dependency manifest path>` with its extension
   replaced by `.surface.json`, and the report alongside as `.report.json` if present.
@@ -530,7 +533,8 @@ runtime membership is transitional, not the final component model.
 
 Loses SSA construction, VTA, `scanFuncValueEscapes`, `collectBodilessAbsorbedPackages`,
 pattern-membership resolution, and the implements-closure computation in
-`ResolveDependencyInterface` (steps 9–11, `goanalysis.go:1619-1714`). Gains the
+`ResolveDependencyInterface` (implemented across Steps 6–8; formerly
+`goanalysis.go:1619-1714`). Gains the
 reference scan and the layout closure validation. `ResolveDependencyInterface` collapses
 to reading a surface and report. Load mode drops `NeedDeps`.
 
@@ -720,8 +724,9 @@ Inventory and classification rules (validated by the spike):
   already mirrors `go list std`'s exclusions and the GOROOT `vendor/` resolution — and
   serves it to `go/packages`, and thereby to the `go/types` inventory and to Capslock,
   through the `GOPACKAGESDRIVER` self-exec driver, exactly as the Bazel check loads its
-  closure today. No `go` binary, tool binary, build cache or network is an input of the
-  action. For the layout to be faithful to the *target* configuration, `packagelayout`
+  closure through the same driver. No `go` binary, tool binary, build cache or network
+  is an input of the action. For the layout to be faithful to the *target* configuration,
+  `packagelayout`
   derives **release tags from the pinned toolchain version** and **tool tags from
   GOEXPERIMENT** instead of copying `build.Default`, the layout `platform` block carries
   `goexperiment`, and the driver response reports the **target** GOARCH (which
@@ -788,7 +793,7 @@ produced under another rewrite is a silent mismatch. Therefore:
 | No map for the target SDK key | **Fail closed**, exit 2 | Analysing 1.26 sources against a 1.25 map is unsound with no symptom (N3) |
 | `classifier_hash` / format version mismatch | **Fail closed**, exit 2 | Silent drift between generation and use (I2) |
 | Inventoried package, symbol absent | Tool error, exit 2 | Inventory gap, never purity (R6) |
-| Symbol classified `UNANALYZED` | `AnalysisDefeating` finding → violation unless policy allows/warns | Fail closed; same as today's policy model (DR-11) |
+| Symbol classified `UNANALYZED` | `AnalysisDefeating` finding → violation unless policy allows/warns | Fail closed; same as the established pre-cutover policy model (DR-11) |
 | Surface missing | Tool error, exit 2 | Under I1 it should exist; absence is a build-graph fault |
 | Surface namespace / SDK key / format mismatch | Tool error, exit 2 | Never compare across namespaces or configurations |
 | Layout import graph not transitively closed, or export data missing | Tool error, exit 2 before load | Converts a `go/packages` panic into a diagnosable failure |
@@ -830,7 +835,7 @@ source site (file, line, referenced `SymbolID`) sorted; the text report prints t
 site and the site count; JSON carries all sites, the map's evidence frames for
 `(first site's symbol, capability)`, the map's `SDKKey`, and the class. Boundary findings
 (`CALLS_UNDECLARED_INTERFACE`, `UNDECLARED_DEPENDENCY`) are one per distinct
-`(referent, site)` as today.
+`(referent, site)`, as in the pre-cutover checker.
 
 ---
 
@@ -845,7 +850,7 @@ site and the site count; JSON carries all sites, the map's evidence frames for
    implementation → passes, because `Greeter` is listed (declaring-object rule), not
    because of the deleted workaround (R4).
 4. **Direct concrete call.** Calling `(*dep.impl).Greet` directly where `impl`'s method
-   is unlisted → fails. **Today this wrongly passes** (R4).
+   is unlisted → fails. **At the historical baseline this wrongly passed** (R4).
 5. **Reference-kind table.** Field, var, const, type, alias, embedded/promoted member,
    generic instantiation, pointer vs value selection, duplicate `Uses`/`Selections` —
    each with a pinned outcome for declared-interface and `PACKAGE_SURFACE` deps.
@@ -928,19 +933,21 @@ Hooks land with empty defaults so no existing host is affected (DR-14 shapes the
 - `runtime_injection_attrs(deps_aspect)` / `extra_runtime_packages(ctx, root_packages)`
   (§3) — makes toolchain-injected packages visible so the **existing** infra
   auto-attachment (`component.bzl:217-230`, `checker.go:288-291`) can claim them.
-- **SDK source enumeration** — used only by `arcc_stdlib_map` (today's `go_sdk_srcs`).
+- **SDK source enumeration** — used only by `arcc_stdlib_map`; the legacy `go_sdk_srcs`
+  accessor remains as a compatibility alias.
 - **SDK export-data enumeration** — used by the analysis action for stdlib types
   (rules_go `GoStdLib` upstream).
 - **Target platform and key discovery** — supplies `SDKKey` fields from the toolchain
-  (today's `go_build_platform`, plus GOEXPERIMENT and the exact toolchain version).
+  (the legacy `go_build_platform` compatibility projection, plus GOEXPERIMENT and the
+  exact toolchain version).
 - **Namespace** — `NamespaceID` and `IsCanonicalPath` beside `CanonicalizePath`.
 
 ---
 
 ## Adherence to Established Conventions
 
-No `.agents/summary/coding_style.md` exists; conventions are read from the code and
-`CLAUDE.md`.
+The repository's generated `.agents/summary/coding_style.md` records the primary style
+conventions; the code and `CLAUDE.md` provide the local examples and rationale.
 
 - **Pure core, dependencies point inward.** The scan is shell, `checker` stays pure, and
   the `StdlibAuthority` port is defined core-side and implemented shell-side, mirroring
@@ -960,22 +967,23 @@ No `.agents/summary/coding_style.md` exists; conventions are read from the code 
 
 ## Migration Strategy / Backward Compatibility
 
-The PoC monorepo import has landed on the current version and **no updated import will
-be taken until this work lands** (Q17). This permits a simpler internal path:
+The PoC monorepo import landed on the historical baseline, and **no updated import was
+taken during this implementation series** (Q17). This permitted a simpler internal path:
 
 - **No incremental delivery obligation.** Load deduplication and dependency-surface
   caching are superseded.
 - **No patch-relief obligation.** Friction report §2 is dropped.
 - **`absorbed_dependencies` and pattern membership are removed first.** Pure deletion.
-- **Release constraint (DR-19.6).** Between the deletion step and the step that lands
-  `authority: UNKNOWN`, no revision satisfies I1; none of them is tagged, released, or
-  imported. The series is consumed only at its end.
+- **Release constraint (DR-19.6).** Between the deletion step and the step that landed
+  `authority: UNKNOWN`, no revision satisfied I1; none of them was tagged, released, or
+  imported. The series was consumed only at its end, and the constraint is now lifted.
 
 Compatibility obligations that remain:
 
-- **`authority: UNKNOWN` must exist before the next import** (replaces the host's
-  `manual`-tagging patch; the transitional `manual → asserted` path bridges until then).
-- **All adapter hooks must exist before the next import.**
+- **`authority: UNKNOWN` is available for the next import** and replaces the host's
+  `manual`-tagging patch. The transitional `manual → asserted` path was only a bridge
+  during this implementation series; `manual` no longer selects producer semantics.
+- **All adapter hooks are available for the next import.**
 - **Manifest schema changes** (`authority` added; fields 4, 8, 9 removed) are breaking
   for any manifest in the wild. Acceptable: the only consumer re-imports wholesale.
 
@@ -1024,7 +1032,7 @@ and made byte-stable by canonicalisation; textproto stays for hand-authored mani
 - The closure is loaded and SSA-built twice per run; each dependency is type-checked
   from source a third time.
 - ~110 lines compensate for VTA over-resolving interface calls, and over-correct.
-- Five independent stdlib predicates exist today.
+- Five independent stdlib predicates existed at the historical baseline.
 - The ocap minting-site rule makes a syntactic scan sound (I2) and dictates the
   handle-var rule.
 - Infra auto-attachment exists end to end and answers injected runtimes.
