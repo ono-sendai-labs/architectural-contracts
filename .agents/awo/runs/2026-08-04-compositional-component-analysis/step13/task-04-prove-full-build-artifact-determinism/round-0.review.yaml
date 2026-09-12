@@ -1,0 +1,160 @@
+review:
+  task_file: .agents/tasks/2026-08-04-compositional-component-analysis/step13/task-04-prove-full-build-artifact-determinism.code-task.md
+  change_id: wkousqokttwmkvukyuylkqqyrrrmxpwn
+  reviewed_at: 2026-09-12T12:23:31Z
+  verdict: changes_requested
+  schema_version: 2
+  lsp_coverage: unavailable
+
+merge_request:
+  title: "test(goanalysis): prove full-build artifact determinism [Compositional Analysis: Step 13/Task 04]"
+  body: |
+    Reviews the complete task series: rszlotvp adds the Bazel determinism
+    fixture and isolated producer-chain comparison; kmrxxumn records the final
+    performance and host-import evidence; wkousqok makes both compared graph
+    invocations consume identical checked-map inputs and updates the final
+    research record.
+
+summary: |
+  The producer-chain fixture, map-lane checks, artifact semantics assertions,
+  and final research/checklist evidence cover all criteria except reproducibility
+  criterion 6, whose final routine command omits the module-directory change.
+  No tests were deleted or weakened; the touched Go files are gofmt-clean and
+  the determinism Bazel fixture builds successfully, while LSP diagnostics were
+  unavailable in this harness.
+
+acceptance_criteria:
+  - text: |
+      **Repeated full builds are byte-identical**
+         - Given identical complete source, manifest, namespace, target SDK key, map classifier, dependency artifacts, and producer version inputs
+         - When the artifact graph is built in separate output trees and different request orders
+         - Then every corresponding map, checked/asserted surface, and report has identical bytes and SHA-256 digest.
+    status: pass
+    evidence: |
+      The determinism fixture defines the checked dependency, checked dependent,
+      and UNKNOWN wrapper in bazel_rules/go/tests/testdata/determinism/BUILD.bazel:48-82.
+      The integration call and two-output-root comparison are wired at
+      go/internal/goanalysis/producer_chain_scaling_integration_test.go:158-195
+      and go/internal/goanalysis/full_build_determinism_integration_test.go:54-130;
+      work.log:90-94 records the passing reversed-order run and six matching
+      logical artifacts with matching raw SHA-256 digests.
+  - text: |
+      **The comparison covers meaningful canonical ordering**
+         - Given findings with multiple sites, dependency axes, multi-package/symbol surfaces, and an UNKNOWN asserted wrapper
+         - When artifacts are compared
+         - Then any ordering, duplicate, digest, authority, or provenance drift fails with the logical artifact name and first differing digest/path.
+    status: pass
+    evidence: |
+      The fixture supplies multiple packages/symbols and three os.ReadFile sites
+      at bazel_rules/go/tests/testdata/determinism/BUILD.bazel:48-82 and
+      consumer.go:10-22. Semantic checks for sorted packages/symbols, non-empty
+      checked digests, UNKNOWN surface shape, sorted multi-site findings, and
+      both dependency-boundary axes are in
+      go/internal/goanalysis/full_build_determinism_integration_test.go:247-379.
+      Byte mismatches include the logical artifact, first differing byte, both
+      digests, and both paths at :386-400.
+  - text: |
+      **Timing observations never alter artifacts**
+         - Given two runs with different measured phase/action durations
+         - When their persisted outputs are compared without normalization
+         - Then map, surface, and report bytes remain identical and contain no benchmark timing field.
+    status: pass
+    evidence: |
+      Raw bytes and SHA-256 values are compared without normalization at
+      go/internal/goanalysis/full_build_determinism_integration_test.go:386-400.
+      The recursive JSON-key audit rejects duration, elapsed, profile, wall-time,
+      and timing fields at :358-384; the final digest table is recorded in
+      .agents/planning/2026-08-04-compositional-component-analysis/research/current-analysis-pipeline.md:607-624.
+  - text: |
+      **Routine and full map lanes retain distinct guarantees**
+         - Given routine `just ci` and the explicit full integration/Bazel lanes
+         - When generation actions are counted
+         - Then routine validation performs zero native and at most one default Bazel whole-SDK generation, while the full lane performs and byte-compares two independent real generations plus retained cross-configuration coverage.
+    status: pass
+    evidence: |
+      The routine producer-chain suite includes the fixture while asserting one
+      default map action at go/internal/goanalysis/hermeticity_integration_test.go:168-183
+      and go/internal/goanalysis/producer_chain_scaling_integration_test.go:166-173;
+      the compared graph reuses the checked map at
+      full_build_determinism_integration_test.go:43-130. The native two-generation
+      test remains at go/internal/stdlibmap/generate_integration_test.go:46-205,
+      and justfile:20-24,139-143 retains the explicit full lanes. Passing counts
+      and lane runs are recorded in work.log:90-94.
+  - text: |
+      **Final performance and CI evidence is recorded**
+         - Given the pinned Linux/amd64, cgo-disabled environment
+         - When the final benchmark and warm-cache CI runs complete
+         - Then the research note contains baseline-versus-final results on the same component, both scaling tables, CI wall time below five minutes, generation counts, and clearly labeled machine-dependent observations.
+    status: pass
+    evidence: |
+      The final record provides baseline/final same-component timings at
+      .agents/planning/2026-08-04-compositional-component-analysis/research/current-analysis-pipeline.md:569-588,
+      determinism digests at :607-624, warm-cache CI timing/action counts and
+      full-lane observations at :626-656, and environment/limitations at
+      :658-674. The retained Task 1 and Task 2 scaling tables are identified at
+      :583-588 and their detailed tables precede the final record.
+  - text: |
+      **Hermeticity and determinism evidence is reproducible**
+         - Given a reader following the research note from a clean checkout
+         - When they execute the documented routine and full commands
+         - Then they can reproduce restricted-sandbox checks and exact artifact comparisons without developer caches or untracked workspace outputs.
+    status: partial
+    evidence: |
+      The implementation does isolate the second Bazel output/user roots under
+      t.TempDir and registers shutdown/cleanup at
+      go/internal/goanalysis/full_build_determinism_integration_test.go:63-130;
+      the research note documents the restricted/full procedures at
+      .agents/planning/2026-08-04-compositional-component-analysis/research/current-analysis-pipeline.md:489-567
+      and :590-656. However, the final routine command at :592-594 is written
+      as `go test ./internal/goanalysis` without `cd go &&` or `go -C go`, while
+      the checkout has no root go.mod and the module is rooted at go/go.mod.
+      A reader starting at the documented clean-checkout root cannot execute
+      that command as written.
+  - text: |
+      **The next-host-import checklist is closed honestly**
+         - Given every item in `research/host-import-friction.md`
+         - When it is checked against the final implementation
+         - Then required runtime/SDK hooks and related redesign resolutions cite concrete files/tests, while explicitly deferred items remain labeled deferred.
+    status: pass
+    evidence: |
+      The final checklist walks §1 through §7 with concrete implementation and
+      test references at
+      .agents/planning/2026-08-04-compositional-component-analysis/research/host-import-friction.md:103-131.
+      It explicitly marks the host-supplied testdata BUILD convention deferred
+      at :122 and keeps the broader matrix/UNKNOWN predicate deferred at :129-131.
+  - text: |
+      **Repository-wide validation stays green**
+         - Given all Step 13 additions
+         - When `just ci`, self-check, manifest parity, cache-recovery tests, and the explicit full lane run
+         - Then they pass without weakening existing assertions or adding a bookmark-only dependency.
+    status: pass
+    evidence: |
+      work.log:90-94 records passing targeted, native-full, Bazel-full, and
+      just ci runs, including self-check, manifest parity, canonical-reader,
+      corruption/concurrent-cache recovery, Go, and Bazel coverage. The complete
+      jj range has no deleted test files, and jj status is clean with the task
+      change as the unbookmarked current parent.
+
+findings:
+  - severity: important
+    category: acceptance_criteria
+    file: .agents/planning/2026-08-04-compositional-component-analysis/research/current-analysis-pipeline.md
+    line: 594
+    title: "Routine reproduction command is not runnable from checkout root"
+    details: |
+      The final acceptance record tells a clean-checkout reader to run
+      `CGO_ENABLED=0 go test -tags=integration ./internal/goanalysis ...` at
+      current-analysis-pipeline.md:592-594. The repository root has no go.mod;
+      the Go module is go/go.mod, so this command fails before reaching the
+      integration harness when followed from the checkout root. The work log's
+      successful command correctly starts with `cd go` (work.log:91), which
+      confirms the documented final command is missing required invocation
+      context and leaves acceptance criterion 6 only partial.
+    suggested_action: |
+      Document the command as `cd go && CGO_ENABLED=0 go test ...` or use
+      `CGO_ENABLED=0 go -C go test ...`, and align the earlier restricted-sandbox
+      command at current-analysis-pipeline.md:494-496 so all documented clean-
+      checkout commands are directly runnable.
+    source: built-in
+
+ecosystem_reviews: []

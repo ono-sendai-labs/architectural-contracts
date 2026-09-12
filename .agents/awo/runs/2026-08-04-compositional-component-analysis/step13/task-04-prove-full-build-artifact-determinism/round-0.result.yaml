@@ -1,0 +1,137 @@
+result:
+  task_file: .agents/tasks/2026-08-04-compositional-component-analysis/step13/task-04-prove-full-build-artifact-determinism.code-task.md
+  change_id: wkousqokttwmkvukyuylkqqyrrrmxpwn
+  status: completed
+  schema_version: 2
+  produced_at: 2026-09-12T12:13:45Z
+
+acceptance_criteria:
+  - text: |
+      **Repeated full builds are byte-identical**
+      - Given identical complete source, manifest, namespace, target SDK key, map classifier, dependency artifacts, and producer version inputs
+      - When the artifact graph is built in separate output trees and different request orders
+      - Then every corresponding map, checked/asserted surface, and report has identical bytes and SHA-256 digest.
+    addressed: yes
+    evidence: |
+      The integration producer-chain test invokes the full-build comparison at
+      go/internal/goanalysis/producer_chain_scaling_integration_test.go:158-196.
+      Its two-output-root implementation is
+      go/internal/goanalysis/full_build_determinism_integration_test.go:44-132:
+      it compares the generated map, two checked reports/surfaces, and the
+      asserted surface by logical artifact identity and raw SHA-256. The
+      fixture's checked-canonical-map reuse provider is
+      bazel_rules/go/tests/determinism.bzl:1-46.
+  - text: |
+      **The comparison covers meaningful canonical ordering**
+      - Given findings with multiple sites, dependency axes, multi-package/symbol surfaces, and an UNKNOWN asserted wrapper
+      - When artifacts are compared
+      - Then any ordering, duplicate, digest, authority, or provenance drift fails with the logical artifact name and first differing digest/path.
+    addressed: yes
+    evidence: |
+      bazel_rules/go/tests/testdata/determinism/BUILD.bazel:54-85 defines a
+      multi-package/three-symbol checked dependency, a three-site dependent,
+      and an UNKNOWN package surface. Semantic checks for sorted packages,
+      symbols, sites, digests, authority, and dependency axes are in
+      go/internal/goanalysis/full_build_determinism_integration_test.go:258-349.
+      Byte mismatch diagnostics include logical identity, first differing
+      byte, both SHA-256 digests, and both paths at :397-413.
+  - text: |
+      **Timing observations never alter artifacts**
+      - Given two runs with different measured phase/action durations
+      - When their persisted outputs are compared without normalization
+      - Then map, surface, and report bytes remain identical and contain no benchmark timing field.
+    addressed: yes
+    evidence: |
+      The comparison uses the original file bytes and SHA-256 without
+      normalization in full_build_determinism_integration_test.go:397-413.
+      The recursive persisted-JSON timing/profile-key audit is at
+      :369-395; phase/action measurements remain test logs only. The exact
+      six digest results are recorded in current-analysis-pipeline.md:605-622.
+  - text: |
+      **Routine and full map lanes retain distinct guarantees**
+      - Given routine `just ci` and the explicit full integration/Bazel lanes
+      - When generation actions are counted
+      - Then routine validation performs zero native and at most one default Bazel whole-SDK generation, while the full lane performs and byte-compares two independent real generations plus retained cross-configuration coverage.
+    addressed: yes
+    evidence: |
+      The routine restricted run requires one default ArccStdlibMap and
+      includes the determinism fixture in the shared invocation at
+      go/internal/goanalysis/hermeticity_integration_test.go:164-180 and
+      go/internal/goanalysis/producer_chain_scaling_integration_test.go:158-165;
+      the output records one map and no native generation. The full native
+      two-generation test is
+      go/internal/stdlibmap/generate_integration_test.go:17-21,52-203, and
+      the explicit Bazel lane remains justfile:21-24,139-143 with the
+      distinct replica/cross-configuration map tests.
+  - text: |
+      **Final performance and CI evidence is recorded**
+      - Given the pinned Linux/amd64, cgo-disabled environment
+      - When the final benchmark and warm-cache CI runs complete
+      - Then the research note contains baseline-versus-final results on the same component, both scaling tables, CI wall time below five minutes, generation counts, and clearly labeled machine-dependent observations.
+    addressed: yes
+    evidence: |
+      current-analysis-pipeline.md:569-587 records the same-component
+      baseline/final timings and points to the retained native and Bazel
+      scaling tables. Lines 624-654 record the 294.89-second warm just ci
+      run, one routine map action, the 263.72-second native full lane, the
+      372.32-second just test-integration-full run, and the 231.99-second
+      Bazel full lane. The pinned environment and machine-dependent
+      limitations are at :656-672.
+  - text: |
+      **Hermeticity and determinism evidence is reproducible**
+      - Given a reader following the research note from a clean checkout
+      - When they execute the documented routine and full commands
+      - Then they can reproduce restricted-sandbox checks and exact artifact comparisons without developer caches or untracked workspace outputs.
+    addressed: yes
+    evidence: |
+      The reproducible restricted invocation and exact comparison behavior
+      are documented in current-analysis-pipeline.md:489-567 and :591-603;
+      the final full-lane commands are at :635-654. The integration driver
+      uses t.TempDir output/poison roots and cleanup at
+      go/internal/goanalysis/full_build_determinism_integration_test.go:64-80,
+      while the prior hermeticity driver protects convenience links and
+      poison trees.
+  - text: |
+      **The next-host-import checklist is closed honestly**
+      - Given every item in `research/host-import-friction.md`
+      - When it is checked against the final implementation
+      - Then required runtime/SDK hooks and related redesign resolutions cite concrete files/tests, while explicitly deferred items remain labeled deferred.
+    addressed: yes
+    evidence: |
+      research/host-import-friction.md:103-131 walks §1 through §7 with
+      concrete hook, test, schema, golden, namespace, and UNKNOWN evidence.
+      §6(3)'s host-supplied testdata BUILD convention is explicitly marked
+      Deferred/orthogonal at :122, and the closing paragraph keeps the
+      multi-architecture matrix and UNKNOWN approval/tree predicate deferred.
+  - text: |
+      **Repository-wide validation stays green**
+      - Given all Step 13 additions
+      - When `just ci`, self-check, manifest parity, cache-recovery tests, and the explicit full lane run
+      - Then they pass without weakening existing assertions or adding a bookmark-only dependency.
+    addressed: yes
+    evidence: |
+      The recorded validation in the task work log shows exit 0 for just ci,
+      just test-integration-full, and just bazel-test-full, including
+      self-check, manifest parity, canonical readers, and corruption/
+      concurrent-cache recovery. The implementation is in two ordinary
+      unbookmarked jj changes; jj log -r @- reports the stable task change
+      wkousqokttwmkvukyuylkqqyrrrmxpwn and the working copy is empty.
+
+artifacts:
+  scratchpad_dir: .agents/scratchpad/2026-08-04-compositional-component-analysis/step13/task-04-prove-full-build-artifact-determinism/
+  files:
+    - context.md
+    - plan.md
+    - progress.md
+    - work.log
+    - result.yaml
+
+notes: |
+  Added a real Bazel producer-chain fixture and a restricted two-output-root
+  comparison covering the canonical map, checked dependency/dependent
+  surfaces and reports, and an UNKNOWN asserted surface. The comparison
+  validates meaningful sorted content, dependency status axes, empty versus
+  non-empty digests, and the absence of timing/profile fields while retaining
+  one routine map generation and the explicit full lanes. Final routine,
+  native-full, and Bazel-full validations passed; the stable task change is
+  wkousqokttwmkvukyuylkqqyrrrmxpwn.
