@@ -1,0 +1,243 @@
+review:
+  project: 2026-08-04-compositional-component-analysis
+  plan_path: .agents/planning/2026-08-04-compositional-component-analysis/implementation/plan.md
+  design_path: .agents/planning/2026-08-04-compositional-component-analysis/design/detailed-design.md
+  reviewed_at: 2026-09-12T12:56:44Z
+  schema_version: 1
+  steps_in_scope: [13]
+  commits_in_scope: 16
+  remediation_step: .agents/tasks/2026-08-04-compositional-component-analysis/step13/
+  verdict: remediation_required
+
+summary: |
+  Step 13 adds substantial end-to-end evidence for member-only loading, the
+  complete Bazel producer chain, restricted-sandbox execution, and canonical
+  artifact bytes. Two load-bearing claims are not yet pinned by the tests they
+  cite: the scan counter observes loaded-package shape rather than actual scan
+  visitation, and the hermeticity audit explicitly exempts tool binaries found
+  inside the stdlib export tree supplied to ArccCheck. The latter contradicts
+  design invariant I5 and the N2 input allowlist, so remediation is required
+  before the final step can close. All four task-level reviews are approved and
+  have no unresolved findings; two remediation tasks were generated.
+
+architecture:
+  - element: Member-analysis scaling acceptance
+    expected: |
+      Fixed member source across depth and width 1/4/16 must produce exact
+      evidence that typed reference scanning visits member work only, while
+      export volume and loader cost remain visible residuals.
+    actual: |
+      The integration suite builds the required graph family, removes
+      non-member source, checks export-backed package roles and stable member
+      AST/type-info/output counts, and records separated phase timings. Its
+      exact counters are snapshots of the loaded graph, not counters emitted
+      by the reference scan itself; scan flatness therefore falls back to a
+      factor-20-plus-20ms timing ceiling.
+    status: partial
+    files:
+      - go/internal/goanalysis/member_analysis_scaling_integration_test.go
+      - go/internal/goanalysis/member_analysis_scaling_fixture_test.go
+      - go/internal/goanalysis/producer_chain_scaling_integration_test.go
+    notes: |
+      The current implementation is member-only, but the regression test does
+      not directly fail if future scan code starts performing closure-shaped
+      work that leaves the loaded graph and emitted edges unchanged.
+
+  - element: Complete Bazel producer-chain scaling acceptance
+    expected: |
+      Measure ArccImportGraph, ArccLayout and ArccCheck for matching depth,
+      width and direct-type-surface variants; keep action roles explicit and
+      require conforming checked reports.
+    actual: |
+      Thirteen variants exercise the real producer topology. Action counts,
+      source/export volumes, root and dependency loader observations, input
+      roles, and pass verdicts are checked and recorded separately.
+    status: aligned
+    files:
+      - bazel_rules/go/tests/testdata/producerchain/producer_chain.bzl
+      - bazel_rules/go/tests/producer_chain_tests.bzl
+      - go/internal/goanalysis/producer_chain_scaling_integration_test.go
+    notes: |
+      Task 02's final rework decodes both checked reports, requires PASS, and
+      rejects CHECKED_FAIL dependency provenance, closing the earlier critical
+      snapshot-without-verdict defect.
+
+  - element: Restricted-sandbox hermeticity acceptance
+    expected: |
+      The real ArccImportGraph, ArccLayout, ArccCheck and ArccStdlibMap actions
+      run with no network, no native cache, no host Go tool, and no Go
+      toolchain binary among their declared inputs, as required by I5 and N2.
+    actual: |
+      The suite uses linux-sandbox, network denial, empty action environments,
+      poison cache paths, isolated Bazel roots, execution-log/aquery audits,
+      pass-verdict checks and one real map generation. ArccCheck nevertheless
+      receives rules_go stdlib tree inputs whose expanded contents include
+      pkg/tool entries, and the audit deliberately returns false for every
+      forbidden-tool check beneath /stdlib_/.
+    status: partial
+    files:
+      - bazel_rules/go/private/go_adapter.bzl
+      - bazel_rules/go/private/component.bzl
+      - go/internal/goanalysis/hermeticity_integration_test.go
+    notes: |
+      This may reflect an upstream provider granularity constraint, but it is
+      not the contract the design records. Either the action input must be
+      narrowed to export-only material or an explicit design decision must
+      revise I5/N2; silently exempting the tree is not alignment.
+
+  - element: Full-build artifact determinism acceptance
+    expected: |
+      Independent component-producer builds with identical complete inputs
+      emit byte-identical reports and checked/asserted surfaces, while full
+      lanes compare two real stdlib-map generations.
+    actual: |
+      Two isolated, reverse-order component graph builds compare raw bytes and
+      SHA-256 digests for nontrivial reports and surfaces using the same pinned
+      map input. Separate native and Bazel full lanes retain two independent
+      real map generations and exact-byte comparisons.
+    status: aligned
+    files:
+      - bazel_rules/go/tests/testdata/determinism/BUILD.bazel
+      - go/internal/goanalysis/full_build_determinism_integration_test.go
+      - go/internal/stdlibmap/generate_integration_test.go
+      - justfile
+    notes: |
+      The lane split preserves the one-generation routine budget while still
+      testing real map generation determinism outside routine CI.
+
+  - element: Final acceptance evidence and host-import checklist
+    expected: |
+      Record baseline/final performance, scaling, hermeticity, determinism,
+      routine-CI and full-lane evidence, then walk every next-import item with
+      deferred work stated honestly.
+    actual: |
+      The research notes contain the requested tables, environment, commands,
+      action counts, digests, limitations and item-by-item host-import
+      disposition.
+    status: aligned
+    files:
+      - .agents/planning/2026-08-04-compositional-component-analysis/research/current-analysis-pipeline.md
+      - .agents/planning/2026-08-04-compositional-component-analysis/research/host-import-friction.md
+    notes: ""
+
+doc_code_alignment:
+  - artifact: .agents/planning/2026-08-04-compositional-component-analysis/design/detailed-design.md
+    section: N1 and Testing Strategy / Acceptance matrix — Performance
+    issue: |
+      The design requires the scaling acceptance test to prove typed reference
+      scanning remains member-only. Current exact counters describe package
+      data made available to the scan, not packages or syntax actually visited
+      by the scan implementation.
+    suggested_action: update_code
+    related_finding: F2
+
+  - artifact: .agents/planning/2026-08-04-compositional-component-analysis/design/detailed-design.md
+    section: I5 (hermeticity), N2, and Acceptance matrix — Hermeticity
+    issue: |
+      I5 says tool binaries are never action inputs and N2 limits ArccCheck to
+      export data. The implementation supplies an opaque stdlib tree whose
+      expanded contents include pkg/tool entries, while the acceptance audit
+      explicitly exempts that subtree.
+    suggested_action: update_code
+    related_finding: F1
+
+findings:
+  - id: F1
+    severity: critical
+    category: architecture
+    file: go/internal/goanalysis/hermeticity_integration_test.go
+    line: 1115
+    title: Hermeticity audit exempts tool binaries in ArccCheck inputs
+    details: |
+      Design I5 states that Go/toolchain binaries are never Bazel action
+      inputs, and N2 limits ArccCheck inputs to member source, manifests/layout,
+      export data, dependency artifacts and the authority map. The upstream
+      adapter passes rules_go's cache_dir/libs tree artifacts through
+      go_stdlib_export_data (go_adapter.bzl:717-742) and the component action
+      declares the whole descriptor input set (component.bzl:751-775). The
+      execution-log audit acknowledges that the expanded /stdlib_/ tree
+      contains pkg/tool entries at hermeticity_integration_test.go:1111-1114,
+      then unconditionally exempts every path beneath /stdlib_/ at :1115-1116.
+      Consequently the green hermeticity test proves that those binaries are
+      not selected as Bazel tools or present in argv, but it does not prove the
+      stronger no-toolchain-binary input property claimed by I5. This is the
+      final acceptance step for a load-bearing hermeticity invariant, so the
+      exemption cannot close the plan as written.
+    suggested_action: |
+      Supply ArccCheck with a stdlib descriptor whose declared/expanded inputs
+      contain only package metadata and compiler export artifacts. Add an
+      execution-log assertion that rejects /bin/go and /pkg/tool/ even beneath
+      stdlib trees, and demonstrate that checks still pass with tool entries
+      absent. If rules_go cannot expose such a set directly, add one shared,
+      hermetic export-only projection producer rather than weakening I5.
+    source: built-in
+    addressed_by: .agents/tasks/2026-08-04-compositional-component-analysis/step13/task-05-remediate-stdlib-export-input-hermeticity.code-task.md
+
+  - id: F2
+    severity: important
+    category: coverage
+    file: go/internal/goanalysis/member_analysis_scaling_integration_test.go
+    line: 187
+    title: Scaling counters do not observe reference-scan visitation
+    details: |
+      The suite calls the production loader/scanner, but its exact workload is
+      derived afterward from the packages.Load result
+      (member_analysis_scaling_fixture_test.go:271-307). Those counters show
+      that non-members have nil syntax/type-info and that emitted edges stay
+      constant; they do not count which packages or nodes ScanReferences
+      actually inspects. The only assertion on the scan phase itself is the
+      factor-20-plus-20ms ceiling at
+      member_analysis_scaling_integration_test.go:187-203, repeated for the
+      Bazel observations at producer_chain_scaling_integration_test.go:1011-1019.
+      With current medians in single-digit microseconds, closure-correlated
+      bookkeeping across the bounded 65-package fixture can grow by orders of
+      magnitude and still remain under 20ms. A regression that traverses the
+      closure but leaves outputs unchanged would therefore pass the structural
+      counters and likely pass the timing guard, so N1's no non-member typed
+      scan property is inferred from adjacent state rather than asserted.
+    suggested_action: |
+      Add a package-private, nil-by-default scan observation seam that counts
+      packages presented, member packages entered, syntax/type-info nodes
+      walked, and any non-member scan attempt in ScanReferences (and the
+      companion analysis-defeat scan if it shares the path). Assert exact,
+      identical scan counters for every native and Bazel scaling row, including
+      zero non-member entries. Keep timings observational/noise-tolerant, but
+      make the member-only scaling guarantee depend on exact scan work rather
+      than a permissive elapsed-time ceiling.
+    source: built-in
+    addressed_by: .agents/tasks/2026-08-04-compositional-component-analysis/step13/task-06-remediate-exact-scan-scaling-counters.code-task.md
+
+  - id: F3
+    severity: suggestion
+    category: tests
+    file: go/internal/goanalysis/full_build_determinism_integration_test.go
+    line: 301
+    title: Determinism fixture does not pin its intended failing verdict
+    details: |
+      The determinism fixture documents consumer_component as intentionally
+      failing, and the semantic audit decodes its report, requires a multi-site
+      finding, and checks dependency axes. Unlike dependency_component at
+      lines 297-300, it never asserts consumerReport.Verdict == FAIL. A future
+      policy or severity drift could turn the multi-site violation into a
+      warning and let this deliberately nonconforming fixture pass unnoticed.
+      This does not invalidate the byte-comparison result, but pinning the
+      intended verdict would preserve the semantic strength motivated by Task
+      02's earlier snapshot-without-verdict defect.
+    suggested_action: |
+      Require the consumer report verdict to be FAIL and require the expected
+      multi-site finding to be a violation of the intended kind, rather than
+      accepting a matching warning.
+    source: built-in
+
+remediation_tasks:
+  - path: .agents/tasks/2026-08-04-compositional-component-analysis/step13/task-05-remediate-stdlib-export-input-hermeticity.code-task.md
+    title: Remove Toolchain Binaries from ArccCheck Stdlib Inputs
+    addresses_findings: [F1]
+    sequence: 1
+
+  - path: .agents/tasks/2026-08-04-compositional-component-analysis/step13/task-06-remediate-exact-scan-scaling-counters.code-task.md
+    title: Add Exact Member-Only Scan Work Counters
+    addresses_findings: [F2]
+    sequence: 2
+
+ecosystem_reviews: []
