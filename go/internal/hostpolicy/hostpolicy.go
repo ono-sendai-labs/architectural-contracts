@@ -24,7 +24,6 @@ import (
 // loader's canonical package namespace. The shell routes every path that will
 // be compared by the checker through this hook: package import paths, a
 // package's direct imports, the packages of a resolved dependency interface,
-// membership patterns,
 // and capability-finding package paths.
 //
 // The default is the identity function, which is correct whenever the loader and
@@ -43,10 +42,9 @@ var CanonicalizePath = func(p string) string { return p }
 // NamespaceID is the stable identifier of the package namespace the host's
 // CanonicalizePath produces. It is process configuration: a host sets it once
 // during init, alongside CanonicalizePath, and it must not change afterward.
-// Future surface emitters record it on every emitted surface; future surface
-// consumers compare it exactly (string equality) and reject artifacts from a
-// different namespace with a tool error rather than comparing incompatible
-// symbol paths.
+// Every surface emitter records it on the emitted surface; consumers compare it
+// exactly (string equality) and reject artifacts from a different namespace
+// with a tool error rather than comparing incompatible symbol paths.
 //
 // The default is "upstream": the namespace of paths produced by ordinary Go
 // tooling, which CanonicalizePath leaves untouched. A host that rewrites

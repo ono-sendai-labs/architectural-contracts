@@ -13,6 +13,10 @@ deliberately separate:
   configuration, layouts, export-data validation and surfaces. It describes the
   target, never the execution host.
 
+These are the canonical three SDK seams. The legacy accessors below remain as
+compatibility aliases while an external monorepo migrates to this contract; new
+in-repository adapters and generic consumers must use the canonical seams.
+
 `aspect.bzl`, `component.bzl`, `stdlib_map.bzl`, and the rest of the generic
 rules import only this adapter and consume host-neutral structs, files, depsets,
 and private rule attributes. A host using another Go ruleset ports arcc by
@@ -372,10 +376,12 @@ def go_sdk_root(ctx):
 def go_sdk_srcs(ctx):
     """Compatibility accessor for the source-only SDK contract.
 
-    New generic code should consume `go_stdlib_source_data(ctx)` so the source,
-    oracle, root and target identity remain one descriptor. Component
-    `ArccCheck` actions consume target-configured export data and never stage
-    this depset.
+    The canonical three SDK seams are `go_stdlib_source_data(ctx)`,
+    `go_stdlib_export_data(ctx, expected_mode)` and `go_target_identity(ctx)`;
+    generic code should consume the first so the source, oracle, root and target
+    identity remain one descriptor. This alias remains for an external monorepo
+    migration. Component `ArccCheck` actions consume target-configured export
+    data and never stage this depset.
     """
     return go_stdlib_source_data(ctx).srcs
 
@@ -519,9 +525,10 @@ def validate_target_identity(ctx, identity, material):
 def go_stdlib_toolchain(ctx):
     """Compatibility view of the source contract's toolchain material.
 
-    `go_stdlib_source_data` is the canonical API. This accessor remains for
-    hosts that used the pre-Step-12 adapter name, but generic rules no longer
-    deconstruct the SDK provider themselves.
+    `go_stdlib_source_data`, `go_stdlib_export_data` and `go_target_identity` are
+    the canonical three SDK seams. This accessor remains as a compatibility
+    alias while an external monorepo migrates from the legacy adapter name;
+    generic rules no longer deconstruct the SDK provider themselves.
     """
     source = go_stdlib_source_data(ctx)
     return struct(
@@ -562,7 +569,12 @@ def go_target_identity(ctx):
     return validate_target_identity(ctx, identity, "target SDK identity")
 
 def go_target_mode(ctx):
-    """Compatibility alias for `go_target_identity`."""
+    """Compatibility alias for `go_target_identity` during external migration.
+
+    The canonical SDK seams are `go_stdlib_source_data`,
+    `go_stdlib_export_data` and `go_target_identity`; new adapters use the
+    latter directly.
+    """
     return go_target_identity(ctx)
 
 def _go_context_data_target(ctx):
@@ -624,7 +636,11 @@ def validate_sdk_source_data(ctx, source):
     return source
 
 def _stdlib_mode_mismatches(actual, expected):
-    """Compatibility alias for the one target-identity comparison."""
+    """Compatibility alias for target identity comparison during migration.
+
+    `target_identity_mismatches` is the canonical helper used by the three SDK
+    seams; this name remains for an external monorepo until it migrates.
+    """
     return target_identity_mismatches(actual, expected)
 
 def validate_sdk_export_data(ctx, descriptor, expected_mode = None):

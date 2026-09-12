@@ -28,8 +28,8 @@ map instead would launder cgo-reaching stdlib symbols as analysed (design
 §Explicitly out of scope).
 
 The rule is exposed publicly through `defs.bzl`; this file and the default
-seam helper stay private so Step 5's analysis action can attach the default
-map without changing check execution.
+seam helper stay private so the component analysis action can attach the
+default map without widening the author-facing rule API.
 """
 
 load("//bazel_rules/go:providers.bzl", "ArccStdlibMapInfo")
@@ -44,16 +44,15 @@ load(
 )
 load(":paths.bzl", "runfiles_path")
 
-# The default stdlib-map target the Step 5 analysis action attaches as
+# The default stdlib-map target the component analysis action attaches as
 # `_stdlib_map`. A host with its own pinned SDK overrides this in its adapter.
 DEFAULT_STDLIB_MAP_TARGET = Label("//:arcc_stdlib_map")
 
 def stdlib_map_default_attr(doc = None):
-    """The private default-label attribute for the stdlib map (task req 7).
+    """The private default-label attribute for the component's stdlib map.
 
-    Step 5's analysis action merges this into its attrs as `_stdlib_map`
-    (stdlib_map_default_attr()); until then nothing consumes it, so no
-    analysis action exists and check verdict execution is unchanged.
+    The component analysis action merges this into its attrs as `_stdlib_map`
+    and consumes the target-keyed authority map during every checked analysis.
     """
     return attr.label(
         default = DEFAULT_STDLIB_MAP_TARGET,

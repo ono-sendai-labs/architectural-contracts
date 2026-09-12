@@ -12,8 +12,9 @@
 //   - What it does: Discovers the SDK's standard-library package list behind an
 //     injectable oracle (native `go list std` or an explicit Bazel-supplied
 //     toolchain package list), normalizes it into a total, deduplicated,
-//     canonically sorted PackageEntry list with importable flags (any internal
-//     path segment ⇒ non-importable), reconciles the explicit oracle against
+//     canonically sorted PackageEntry list with importable flags (internal path
+//     segments and target-excluded/no-source packages are non-importable),
+//     reconciles the explicit oracle against
 //     the layout's discovery (ReconcilePackageList), inventories every
 //     externally referencable exported declaration of every importable
 //     package via go/types under the declaring-object rule (including one
@@ -82,8 +83,10 @@ import (
 
 // PackageEntry is one package of the SDK enumeration oracle's total list
 // (design DR-05): its import path and whether it is importable. A package is
-// non-importable exactly when any import-path segment is `internal`; it stays
-// in the total package inventory but has no symbol or init inventory.
+// non-importable when any import-path segment is `internal`, or when the
+// target's build constraints exclude all of its Go sources (including a
+// directory with no Go sources); it stays in the total package inventory but
+// has no symbol or init inventory.
 type PackageEntry struct {
 	// Path is the canonical import path.
 	Path string
