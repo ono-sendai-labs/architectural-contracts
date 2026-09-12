@@ -1,0 +1,85 @@
+load("@rules_arcc//bazel_rules/go:defs.bzl", "PACKAGE_SURFACE", "UNKNOWN")
+load("//bazel_rules/go/tests:determinism.bzl", "pinned_stdlib_map")
+load("//bazel_rules/go/tests:testing.bzl", "testing_go_component")
+load("@rules_go//go:def.bzl", "go_library")
+
+config_setting(
+    name = "use_pinned_map",
+    define_values = {"determinism_map": "pinned"},
+)
+
+_SELECTED_MAP = select({
+    ":use_pinned_map": ":pinned_stdlib_map",
+    "//conditions:default": "//:arcc_stdlib_map",
+})
+
+pinned_stdlib_map(
+    name = "pinned_stdlib_map",
+    src = "//go/internal/teststdlibmap:testdata/linux_amd64.stdlib-map.json",
+    visibility = ["//bazel_rules:__subpackages__"],
+)
+
+go_library(
+    name = "dependency_api",
+    srcs = ["dependency_api.go"],
+    importpath = "example.com/arcc/determinism/dependency",
+    visibility = ["//bazel_rules:__subpackages__"],
+)
+
+go_library(
+    name = "dependency_impl",
+    srcs = ["dependency_impl.go"],
+    importpath = "example.com/arcc/determinism/implementation",
+    visibility = ["//bazel_rules:__subpackages__"],
+)
+
+go_library(
+    name = "unknown",
+    srcs = ["unknown.go"],
+    importpath = "example.com/arcc/determinism/unknown",
+    visibility = ["//bazel_rules:__subpackages__"],
+)
+
+go_library(
+    name = "consumer",
+    srcs = ["consumer.go"],
+    deps = [":dependency_api", ":unknown"],
+    importpath = "example.com/arcc/determinism/consumer",
+    visibility = ["//bazel_rules:__subpackages__"],
+)
+
+# The checked dependency deliberately has multiple member packages and three
+# exported interface symbols. Its surface is therefore meaningful even when
+# its report is passing.
+testing_go_component(
+    name = "dependency_component",
+    interface = ":dependency_api",
+    members = [":dependency_impl"],
+    test_stdlib_map = _SELECTED_MAP,
+    check_tags = ["manual"],
+    visibility = ["//bazel_rules:__subpackages__"],
+)
+
+# This is a package-level assertion, not a derived surface. The second build
+# still selects the same pinned map only so the producer's SDK identity stays
+# equal to the checked graph.
+testing_go_component(
+    name = "unknown_component",
+    authority = UNKNOWN,
+    interface_style = PACKAGE_SURFACE,
+    members = [":unknown"],
+    test_stdlib_map = _SELECTED_MAP,
+    visibility = ["//bazel_rules:__subpackages__"],
+)
+
+# The dependent has three distinct os.ReadFile sites, a checked boundary, and
+# an UNKNOWN asserted boundary. Its report is intentionally failing so the
+# comparison exercises sorted multi-site findings as persisted data.
+testing_go_component(
+    name = "consumer_component",
+    component_deps = [":dependency_component", ":unknown_component"],
+    interface = ":consumer",
+    test_stdlib_map = _SELECTED_MAP,
+    check_tags = ["manual"],
+    visibility = ["//bazel_rules:__subpackages__"],
+)

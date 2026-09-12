@@ -191,6 +191,7 @@ func TestBazelProducerChainScaling_Integration(t *testing.T) {
 
 	assertProducerChainScaling(t, rows)
 	assertProducerChainArtifactsDeterministic(t, build, variants)
+	assertFullBuildArtifactsAreDeterministic(t, build.Hermeticity)
 	printProducerChainTable(rows, len(stdlibMapActions))
 }
 
@@ -198,6 +199,7 @@ type producerChainBazelBuild struct {
 	OutputBase       string
 	ProfilePath      string
 	ExecutionLogPath string
+	Hermeticity      hermeticityBazelRun
 }
 
 func runProducerChainBazelBuild(t *testing.T, variants []producerChainVariant) producerChainBazelBuild {
@@ -208,6 +210,7 @@ func runProducerChainBazelBuild(t *testing.T, variants []producerChainVariant) p
 		OutputBase:       run.OutputBase,
 		ProfilePath:      run.ProfilePath,
 		ExecutionLogPath: run.ExecutionLog,
+		Hermeticity:      run,
 	}
 }
 

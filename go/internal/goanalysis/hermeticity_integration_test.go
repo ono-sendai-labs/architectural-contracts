@@ -120,14 +120,18 @@ var hermeticityRemovedVariables = []string{
 }
 
 type hermeticityBazelRun struct {
-	RepoRoot      string
-	OutputBase    string
-	Execroot      string
-	ProfilePath   string
-	ExecutionLog  string
-	PoisonRoot    string
-	FirstActions  []producerChainAction
-	SecondActions []producerChainAction
+	RepoRoot        string
+	OutputUserRoot  string
+	OutputBase      string
+	Execroot        string
+	RepositoryCache string
+	WritablePath    string
+	RestrictedEnv   []string
+	ProfilePath     string
+	ExecutionLog    string
+	PoisonRoot      string
+	FirstActions    []producerChainAction
+	SecondActions   []producerChainAction
 }
 
 type hermeticityTreeSnapshot map[string]hermeticityTreeEntry
@@ -296,14 +300,18 @@ func runHermeticityBazelSuiteForTargets(t *testing.T, labels []string, withProfi
 
 	secondActions := readHermeticityExecutionLogIfNonEmpty(t, secondLog)
 	return hermeticityBazelRun{
-		RepoRoot:      repoRoot,
-		OutputBase:    outputBase,
-		Execroot:      execroot,
-		ProfilePath:   profilePath,
-		ExecutionLog:  executionLog,
-		PoisonRoot:    poisonRoot,
-		FirstActions:  firstActions,
-		SecondActions: secondActions,
+		RepoRoot:        repoRoot,
+		OutputUserRoot:  outputUserRoot,
+		OutputBase:      outputBase,
+		Execroot:        execroot,
+		RepositoryCache: repositoryCache,
+		WritablePath:    writablePath,
+		RestrictedEnv:   restrictedEnv,
+		ProfilePath:     profilePath,
+		ExecutionLog:    executionLog,
+		PoisonRoot:      poisonRoot,
+		FirstActions:    firstActions,
+		SecondActions:   secondActions,
 	}
 }
 
@@ -401,9 +409,10 @@ func hermeticityBazelArgs(command, outputUserRoot, outputBase, repositoryCache, 
 	if command == "test" {
 		args = append(args, "--test_output=errors")
 	}
-	labelsCopy := append([]string(nil), labels...)
-	sort.Strings(labelsCopy)
-	return append(args, labelsCopy...)
+	// Preserve caller order so determinism tests can deliberately reverse the
+	// requested targets. Bazel's graph is the same set either way; the
+	// scheduling/request-order perturbation is part of the acceptance input.
+	return append(args, labels...)
 }
 
 func runHermeticityBazelCommand(t *testing.T, bazelPath, repoRoot string, environment []string, args ...string) ([]byte, error) {
