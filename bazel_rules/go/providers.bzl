@@ -26,5 +26,6 @@ ArccStdlibMapInfo = provider(
         # surface by //bazel_rules/go/tests:asserted_surface_sdk_key_test.
         "classifier_hash": "string — the classifier fingerprint the generator stamped into the map.",
         "map_format_version": "int — the stdlib-map format version the key is derived for.",
+        "export_data": "struct — one shared projected stdlib export descriptor for this target SDK configuration.",
     },
 )

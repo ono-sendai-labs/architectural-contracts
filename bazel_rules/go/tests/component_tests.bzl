@@ -753,8 +753,7 @@ def _checked_action_inputs_impl(env, target):
     env.expect.that_collection(inputs).contains("shared.x")
     env.expect.that_collection(inputs).contains("stdlib.pkg.json")
     env.expect.that_collection(inputs).contains("api_component.package-imports.json")
-    env.expect.that_collection(inputs).contains("gocache")
-    env.expect.that_collection(inputs).contains("pkg")
+    env.expect.that_collection(inputs).contains("arcc_stdlib_map.stdlib-export")
 
     wrapper = env.expect.that_target(target).action_generating(
         "bazel_rules/go/tests/testdata/api/api_component.arcc-check-wrapper.sh",
@@ -789,8 +788,7 @@ def _checked_action_inputs_impl(env, target):
     expected_basenames["shared_component.report.json"] = True
     expected_basenames["shared_component.surface.json"] = True
     expected_basenames["stdlib.pkg.json"] = True
-    expected_basenames["gocache"] = True
-    expected_basenames["pkg"] = True
+    expected_basenames["arcc_stdlib_map.stdlib-export"] = True
     expected_basenames["api_component.package-imports.json"] = True
 
     unexpected = [
@@ -858,8 +856,7 @@ def _defeat_member_action_inputs_impl(env, target):
             "shared_component.report.json",
             "shared_component.surface.json",
             "stdlib.pkg.json",
-            "gocache",
-            "pkg",
+            "arcc_stdlib_map.stdlib-export",
             "strict_component.package-imports.json",
             "arcc_stdlib_map.stdlib-map.json",
             "arcc",

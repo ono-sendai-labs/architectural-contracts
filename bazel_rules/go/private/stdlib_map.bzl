@@ -17,8 +17,9 @@ The action blocks network access. Generation is keyed to the one adapter target
 identity — the config file stamps the SDK key (target configuration,
 classifier fingerprint and map format version are carried by the generator) —
 so cross-compilation and build-tag transitions build distinct, correctly
-stamped maps on one execution host. The export-data contract belongs only to
-component analysis and is never used here.
+stamped maps on one execution host. The map rule also owns the one shared
+export-only projection consumed by component analysis; it never publishes the
+raw rules_go tree to a component.
 
 A cgo-enabled target configuration is rejected at analysis time, naming the
 target and `--@rules_go//go/config:pure`: hermetic cgo generation needs a
@@ -36,10 +37,12 @@ load(":arcc_metadata.bzl", "CLASSIFIER_HASH", "MAP_FORMAT_VERSION")
 load(
     ":go_adapter.bzl",
     "GO_TOOLCHAINS",
+    "go_stdlib_export_data_unprojected",
     "go_stdlib_source_data",
     "merge_private_rule_attrs",
     "sdk_source_attrs",
 )
+load(":paths.bzl", "runfiles_path")
 
 # The default stdlib-map target the Step 5 analysis action attaches as
 # `_stdlib_map`. A host with its own pinned SDK overrides this in its adapter.
@@ -74,11 +77,60 @@ def _stdlib_map_config_content(mode):
     ]
     return "\n".join(lines) + "\n"
 
+def _project_stdlib_export_data(ctx, descriptor):
+    """Projects metadata-referenced exports into one shared output tree.
+
+    rules_go's `libs` tree is intentionally not passed to components because it
+    contains `pkg/tool`, SDK support files and ordinary archives. The metadata
+    and isolated cache tree are the declared inputs of this one producer; the
+    arcc helper copies only each `ExportFile` named by the metadata. The map
+    target owns this action, so every component in one target SDK configuration
+    consumes the same projected artifact rather than creating a per-component
+    semantic-analysis action (design I5/N2).
+    """
+    source_root = getattr(descriptor, "export_root", None)
+    if source_root == None:
+        fail("stdlib map %s: export-data descriptor has no isolated projection root" % ctx.label.name)
+
+    output = ctx.actions.declare_directory(ctx.label.name + ".stdlib-export")
+    ctx.actions.run(
+        executable = ctx.executable._arcc,
+        arguments = [
+            "stdlibmap",
+            "project",
+            "--metadata=" + descriptor.metadata.path,
+            "--source-root=" + source_root.path,
+            "--output=" + output.path,
+        ],
+        inputs = depset(
+            direct = [descriptor.metadata],
+            transitive = [descriptor.export_files],
+        ),
+        tools = [ctx.executable._arcc],
+        outputs = [output],
+        execution_requirements = {"block-network": "1"},
+        mnemonic = "ArccStdlibExportProjection",
+        progress_message = "Projecting stdlib export data %s" % ctx.label,
+        use_default_shell_env = False,
+    )
+    return struct(
+        metadata = descriptor.metadata,
+        export_files = depset([output]),
+        inputs = depset(direct = [descriptor.metadata, output]),
+        target = descriptor.target,
+        export_roots = [struct(
+            exec_path = source_root.path,
+            runfiles_path = runfiles_path(ctx, output),
+        )],
+    )
+
 def _arcc_stdlib_map_impl(ctx):
     label = ctx.label
     source = go_stdlib_source_data(ctx)
     toolchain_version = source.target.toolchain_version
     mode = source.target
+    export_descriptor = go_stdlib_export_data_unprojected(ctx, expected_mode = mode)
+    projected_export_data = _project_stdlib_export_data(ctx, export_descriptor)
 
     # Fail fast, naming the target, when the toolchain exposes no version, no
     # package list or no target platform (task req 4): the SDK key and the
@@ -153,6 +205,7 @@ def _arcc_stdlib_map_impl(ctx):
             # pinned against the stamped artifact by asserted_surface_sdk_key_test.
             classifier_hash = CLASSIFIER_HASH,
             map_format_version = MAP_FORMAT_VERSION,
+            export_data = projected_export_data,
         ),
     ]
 

@@ -28,6 +28,7 @@ constant instead; that is conforming behavior, not a degraded fallback.
 load("@rules_go//go:def.bzl", "GoArchive", "GoInfo")
 load("@rules_go//go/private:providers.bzl", "GoConfigInfo", "GoStdLib")
 load("//bazel_rules:providers.bzl", "ArccComponentInfo")
+load("//bazel_rules/go:providers.bzl", "ArccStdlibMapInfo")
 load(":paths.bzl", "runfiles_path")
 
 # Providers a Go library target must carry to take part as a component
@@ -681,21 +682,49 @@ def validate_sdk_export_data(ctx, descriptor, expected_mode = None):
     return descriptor
 
 def go_stdlib_export_data(ctx, expected_mode = None):
-    """Returns the host-neutral target stdlib export-data descriptor.
+    """Returns the projected descriptor selected by the target SDK map.
+
+    Component consumers receive the map-owned projection, whose inputs are
+    metadata plus the export-only output tree. The unprojected helper below is
+    reserved for the map rule while it creates that one shared tree and for
+    fail-closed adapter probes that deliberately omit the projection seam.
+    """
+    candidates = []
+    private_map = getattr(ctx.attr, "_stdlib_map", None)
+    if private_map != None:
+        candidates.append(private_map)
+    public_map = getattr(ctx.attr, "map", None)
+    if public_map != None:
+        if type(public_map) == type([]):
+            candidates.extend(public_map)
+        else:
+            candidates.append(public_map)
+    for candidate in candidates:
+        if ArccStdlibMapInfo not in candidate:
+            continue
+        projected = getattr(candidate[ArccStdlibMapInfo], "export_data", None)
+        if projected != None:
+            return validate_sdk_export_data(ctx, projected, expected_mode = expected_mode)
+    return go_stdlib_export_data_unprojected(ctx, expected_mode = expected_mode)
+
+def go_stdlib_export_data_unprojected(ctx, expected_mode = None):
+    """Returns the raw rules_go material used by the shared projection.
 
     The upstream ruleset stores the package graph and each package's direct
     import edges in its generated `_list_json` artifact. With export generation
     enabled, the JSON's `ExportFile` values point into the generated cache and
-    compiled stdlib archive tree. The returned descriptor deliberately exposes
-    only those generated artifacts:
+    compiled stdlib archive tree. This is an internal producer-side descriptor,
+    not an ArccCheck input contract. It exposes only the isolated cache tree
+    needed by the map rule's projection action:
 
       metadata    File — package identities, direct imports, and ExportFile paths;
-      export_files depset[File] — generated cache/archive trees containing those
-                  compiler export artifacts;
-      inputs      depset[File] — exactly metadata plus export_files, for a check
-                  action to declare without pulling in SDK sources or tools;
+      export_files depset[File] — the one rules_go cache tree needed by the
+                  projection action;
+      inputs      depset[File] — metadata plus that raw tree, for the shared
+                  projection only;
       target      struct — the same complete target identity returned by
-                  go_target_identity.
+                  go_target_identity;
+      export_root File — the tree root whose path is embedded in ExportFile.
 
     `expected_mode`, when supplied, is any record carrying the SDK-key fields
     (the stdlib-map provider is one such record). The comparison happens during
@@ -717,20 +746,31 @@ def go_stdlib_export_data(ctx, expected_mode = None):
     stdlib = context_data[GoStdLib]
     metadata = getattr(stdlib, "_list_json", None)
     cache_dir = getattr(stdlib, "cache_dir", None)
-    libs = getattr(stdlib, "libs", None)
     missing = []
     if metadata == None:
         missing.append("package metadata")
-    if cache_dir == None and libs == None:
-        missing.append("compiled export artifacts")
+    if cache_dir == None:
+        missing.append("isolated compiled export-artifact tree")
     if missing:
         fail(("component %s: GoStdLib is missing target-configured export material: %s") % (
             ctx.label.name,
             ", ".join(missing),
         ))
 
-    export_depsets = [artifact for artifact in [cache_dir, libs] if artifact != None]
-    export_files = depset(transitive = export_depsets)
+    # `libs` is a mixed rules_go tree: it contains ordinary archives, compiler
+    # tools and SDK support files. The metadata's ExportFile values point into
+    # cache_dir, which is the only upstream tree admitted to this export-data
+    # seam. The shared stdlib-map projection later selects those exact files so
+    # ArccCheck never receives either tree wholesale (design I5/N2).
+    cache_files = cache_dir.to_list()
+    if len(cache_files) != 1:
+        fail(("component %s: GoStdLib exposes %d isolated export-artifact roots; " +
+              "the shared projection requires exactly one root") % (
+            ctx.label.name,
+            len(cache_files),
+        ))
+    export_root = cache_files[0]
+    export_files = depset(direct = cache_files)
     if not export_files.to_list():
         fail(("component %s: GoStdLib exposes no compiled standard-library " +
               "export artifacts") % ctx.label.name)
@@ -740,4 +780,5 @@ def go_stdlib_export_data(ctx, expected_mode = None):
         export_files = export_files,
         inputs = depset(direct = [metadata], transitive = [export_files]),
         target = target_mode,
+        export_root = export_root,
     ), expected_mode = expected_mode)

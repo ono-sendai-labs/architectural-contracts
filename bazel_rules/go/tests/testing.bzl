@@ -218,6 +218,14 @@ def _testing_stdlib_export_data(ctx, expected_mode = None):
     if fake != None:
         descriptor = fake[TestingStdlibExportDataInfo]
         return validate_sdk_export_data(ctx, descriptor, expected_mode = expected_mode)
+
+    # Test-only map wrappers may republish a pinned map artifact without the
+    # host SDK provider. Component checks must still use the production map's
+    # one shared projected export tree; falling back to the raw rules_go tree
+    # would reintroduce the mixed cache/tool input this task removes.
+    shared = getattr(ctx.attr._stdlib_map[ArccStdlibMapInfo], "export_data", None)
+    if shared != None:
+        return validate_sdk_export_data(ctx, shared, expected_mode = expected_mode)
     return go_stdlib_export_data(ctx, expected_mode = expected_mode)
 
 def _testing_go_component_impl(ctx):

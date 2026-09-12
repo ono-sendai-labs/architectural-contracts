@@ -16,6 +16,7 @@ go_library(
         "layoutloader.go",
         "inventory.go",
         "nativeloader.go",
+        "project_export.go",
         "sdkkey.go",
         "stdlibmap.go",
     ],

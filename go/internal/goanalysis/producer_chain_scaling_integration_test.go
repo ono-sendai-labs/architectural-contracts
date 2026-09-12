@@ -436,7 +436,8 @@ func assertProducerActionHermetic(t *testing.T, action producerChainAction) {
 		path := filepath.ToSlash(input.Path)
 		if strings.Contains(path, "/.cache/") || strings.Contains(path, "/gomodcache/") ||
 			strings.Contains(path, "/gopath/") ||
-			(strings.Contains(path, "/pkg/tool/") && !strings.Contains(path, "/stdlib_/")) ||
+			strings.Contains(path, "/pkg/tool/") ||
+			strings.Contains(path, "/gocache/") ||
 			strings.HasSuffix(path, "/bin/go") {
 			t.Errorf("%s %s has forbidden cache/toolchain input %q", action.TargetLabel, action.Mnemonic, input.Path)
 		}
@@ -513,7 +514,7 @@ func assertProducerChainInputRoles(t *testing.T, targetName, memberSource string
 		}
 		path := filepath.ToSlash(input.Path)
 		base := filepath.Base(path)
-		if strings.Contains(path, "/stdlib_/") || strings.HasSuffix(base, ".component.textproto") ||
+		if hermeticityProjectedStdlibExportPath(path) || strings.HasSuffix(base, "stdlib.pkg.json") || strings.HasSuffix(base, ".component.textproto") ||
 			strings.HasSuffix(base, ".package-layout.json") || strings.HasSuffix(base, ".package-imports.json") ||
 			strings.HasSuffix(base, ".stdlib-map.json") || strings.HasSuffix(base, ".x") ||
 			strings.HasSuffix(base, ".surface.json") || strings.HasSuffix(base, ".report.json") ||

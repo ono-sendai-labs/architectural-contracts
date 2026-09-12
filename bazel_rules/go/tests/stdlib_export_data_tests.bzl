@@ -20,10 +20,9 @@ def _valid_export_data_test(name):
 def _valid_export_data_impl(env, target):
     data = target[StdlibExportDataInfo]
     env.expect.that_collection([data.metadata.basename]).contains_exactly(["stdlib.pkg.json"])
-    env.expect.that_int(len(data.export_files.to_list())).equals(2)
+    env.expect.that_int(len(data.export_files.to_list())).equals(1)
     env.expect.that_collection([f.basename for f in data.inputs.to_list()]).contains_exactly([
-        "gocache",
-        "pkg",
+        "arcc_stdlib_map.stdlib-export",
         "stdlib.pkg.json",
     ])
     env.expect.that_collection([
@@ -31,7 +30,7 @@ def _valid_export_data_impl(env, target):
         for f in data.inputs.to_list()
         if f.short_path.endswith(".go") or "/src/" in f.short_path or
            "/bin/" in f.short_path or "/pkg/tool/" in f.short_path or
-           "/.cache/" in f.short_path
+           "/.cache/" in f.short_path or f.short_path.endswith("/bin/go")
     ]).contains_exactly([])
     env.expect.that_str(data.target.goos).equals("linux")
     env.expect.that_str(data.target.goarch).equals("amd64")

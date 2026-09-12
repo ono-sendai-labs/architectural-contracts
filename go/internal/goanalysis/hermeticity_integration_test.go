@@ -32,6 +32,7 @@ var hermeticityActionMnemonics = []string{
 	"ArccImportGraph",
 	"ArccLayout",
 	"ArccCheck",
+	"ArccStdlibExportProjection",
 	"ArccStdlibMap",
 }
 
@@ -163,6 +164,27 @@ func TestHermeticityBazelArgsSuppressConvenienceSymlinks(t *testing.T) {
 		}
 	}
 	t.Fatalf("restricted Bazel args omit convenience-symlink suppression: %v", args)
+}
+
+func TestHermeticityForbiddenPathsDoNotTrustStdlibParent(t *testing.T) {
+	for _, path := range []string{
+		"/workspace/stdlib_/bin/go",
+		"/workspace/stdlib_/pkg/tool/linux_amd64/compile",
+		"/workspace/stdlib_/pkg/linux_amd64/link",
+		"/workspace/other/pkg/tool/linux_amd64/compile",
+		"/workspace/stdlib_/.cache/go-build/entry",
+		"/workspace/stdlib_/gocache/entry",
+	} {
+		if !hermeticityForbiddenToolPath(path) && !hermeticityForbiddenCachePath(path) {
+			t.Errorf("forbidden stdlib path %q was accepted", path)
+		}
+	}
+	if !hermeticityForbiddenUnclassifiedStdlibPath("/workspace/stdlib_/src/fmt/format.go") {
+		t.Error("SDK source beneath stdlib_ was accepted")
+	}
+	if hermeticityForbiddenToolPath("/workspace/arcc_stdlib_map.stdlib-export/aa/export-d") {
+		t.Error("projected export artifact was classified as a tool")
+	}
 }
 
 func runHermeticityProducerChainBazelSuite(t *testing.T, variants []producerChainVariant) hermeticityBazelRun {
@@ -848,7 +870,7 @@ func assertHermeticityRun(t *testing.T, run hermeticityBazelRun) {
 		if !containsHermeticityAction(action.Mnemonic) {
 			continue
 		}
-		if action.Mnemonic == "ArccStdlibMap" || action.TargetLabel == hermeticityAPIComponent || action.TargetLabel == hermeticitySharedComponent {
+		if action.Mnemonic == "ArccStdlibMap" || action.Mnemonic == "ArccStdlibExportProjection" || action.TargetLabel == hermeticityAPIComponent || action.TargetLabel == hermeticitySharedComponent {
 			assertHermeticityAction(t, action, run.PoisonRoot)
 		} else {
 			assertHermeticityActionContract(t, action, run.PoisonRoot)
@@ -928,6 +950,11 @@ func assertHermeticityAction(t *testing.T, action producerChainAction, poisonRoo
 	case "ArccCheck":
 		assertHermeticityArgs(t, action, args, "check", "--package-layout=", "--stdlib-map=", "--report-out=", "--surface-out=", "--report-verdict-only")
 		assertHermeticityCheckInputs(t, action)
+	case "ArccStdlibExportProjection":
+		assertHermeticityArgs(t, action, args, "stdlibmap", "project", "--metadata=", "--source-root=", "--output=")
+		assertHermeticityInputs(t, action, func(path string) bool {
+			return strings.HasSuffix(filepath.Base(path), "stdlib.pkg.json") || strings.Contains(path, "/stdlib_/gocache")
+		}, "raw stdlib export projection")
 	case "ArccStdlibMap":
 		assertHermeticityArgs(t, action, args, "stdlibmap", "generate", "--output=", "--package-list=", "--config-file=", "--sdk-root=")
 		assertHermeticityInputs(t, action, func(path string) bool {
@@ -977,6 +1004,12 @@ func assertHermeticityActionContract(t *testing.T, action producerChainAction, p
 		if strings.Contains(filepath.ToSlash(value), filepath.ToSlash(poisonRoot)) {
 			t.Errorf("%s %s mentions poison path %q", action.TargetLabel, action.Mnemonic, value)
 		}
+		path := filepath.ToSlash(value)
+		if action.Mnemonic == "ArccStdlibExportProjection" && strings.Contains(path, "/stdlib_/gocache") {
+			// This is the explicitly classified raw input of the one projection
+			// action. Its output is the only stdlib tree allowed at ArccCheck.
+			continue
+		}
 		if hermeticityForbiddenToolPath(value) {
 			t.Errorf("%s %s mentions host Go/compiler tool %q", action.TargetLabel, action.Mnemonic, value)
 		}
@@ -986,7 +1019,7 @@ func assertHermeticityActionContract(t *testing.T, action producerChainAction, p
 	}
 
 	executable := hermeticityActionExecutable(action)
-	if action.Mnemonic == "ArccStdlibMap" {
+	if action.Mnemonic == "ArccStdlibMap" || action.Mnemonic == "ArccStdlibExportProjection" {
 		if !strings.Contains(filepath.ToSlash(executable), "/go/cmd/arcc-stdlibmap/") {
 			t.Errorf("ArccStdlibMap executable = %q, want generation-only arcc-stdlibmap", executable)
 		}
@@ -1006,7 +1039,7 @@ func hermeticityActionExecutable(action producerChainAction) string {
 }
 
 func hermeticityExpectedToolPath(mnemonic, path string) bool {
-	if mnemonic == "ArccStdlibMap" {
+	if mnemonic == "ArccStdlibMap" || mnemonic == "ArccStdlibExportProjection" {
 		return strings.Contains(path, "/go/cmd/arcc-stdlibmap/")
 	}
 	return strings.Contains(path, "/go/cmd/arcc/") || strings.HasSuffix(path, ".arcc-check-wrapper.sh")
@@ -1058,6 +1091,8 @@ func assertHermeticityCheckInputs(t *testing.T, action producerChainAction) {
 		".package-layout.json":  false,
 		".package-imports.json": false,
 		".stdlib-map.json":      false,
+		"stdlib.pkg.json":       false,
+		".stdlib-export":        false,
 	}
 	if action.TargetLabel == hermeticityAPIComponent {
 		required[".surface.json"] = false
@@ -1075,12 +1110,19 @@ func assertHermeticityCheckInputs(t *testing.T, action producerChainAction) {
 			}
 			continue
 		}
-		if strings.Contains(path, "/stdlib_/") {
-			// rules_go's target-configured compiled stdlib tree is an
-			// explicitly controlled Bazel input, not a native Go cache.
+		if hermeticityForbiddenUnclassifiedStdlibPath(path) {
+			t.Errorf("%s ArccCheck received unclassified stdlib input %q", action.TargetLabel, input.Path)
 			continue
 		}
 		allowed := false
+		if strings.HasSuffix(path, "stdlib.pkg.json") {
+			required["stdlib.pkg.json"] = true
+			allowed = true
+		}
+		if hermeticityProjectedStdlibExportPath(path) {
+			required[".stdlib-export"] = true
+			allowed = true
+		}
 		for suffix := range required {
 			if strings.HasSuffix(path, suffix) {
 				required[suffix] = true
@@ -1106,15 +1148,21 @@ func assertHermeticityCheckInputs(t *testing.T, action producerChainAction) {
 	}
 }
 
-func hermeticityForbiddenToolPath(value string) bool {
+func hermeticityProjectedStdlibExportPath(value string) bool {
 	path := filepath.ToSlash(value)
-	// rules_go's compiled stdlib descriptor is a declared tree input. Its
-	// tree contains the SDK's pkg/tool entries even though ArccCheck never
-	// executes them; the action contract is about executable argv/tool inputs,
-	// not recursively filtering the contents of that one export tree.
-	if strings.Contains(path, "/stdlib_/") {
+	return strings.HasSuffix(path, ".stdlib-export") || strings.Contains(path, ".stdlib-export/")
+}
+
+func hermeticityForbiddenUnclassifiedStdlibPath(value string) bool {
+	path := filepath.ToSlash(value)
+	if !strings.Contains(path, "/stdlib_/") {
 		return false
 	}
+	return !strings.HasSuffix(path, "stdlib.pkg.json") && !hermeticityProjectedStdlibExportPath(path)
+}
+
+func hermeticityForbiddenToolPath(value string) bool {
+	path := filepath.ToSlash(value)
 	if strings.Contains(path, "/pkg/tool/") || strings.HasSuffix(path, "/bin/go") {
 		return true
 	}
@@ -1135,7 +1183,7 @@ func hermeticityForbiddenCachePath(value string) bool {
 	if strings.Contains(path, "/pkg/mod/") || strings.Contains(path, "/go-build/") {
 		return true
 	}
-	if strings.Contains(path, "/gocache/") && !strings.Contains(path, "/stdlib_/") {
+	if strings.Contains(path, "/gocache/") {
 		return true
 	}
 	return false

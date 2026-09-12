@@ -16,6 +16,7 @@ load(
     "go_attach_infra",
     "go_build_platform",
     "go_stdlib_export_data",
+    "go_stdlib_export_data_unprojected",
     "sdk_source_attrs",
     "validate_sdk_source_data",
 )
@@ -206,7 +207,7 @@ stdlib_export_data_missing_probe = rule(
 )
 
 def _stdlib_export_data_mismatch_probe_impl(ctx):
-    go_stdlib_export_data(
+    go_stdlib_export_data_unprojected(
         ctx,
         expected_mode = ctx.attr.map[0][ArccStdlibMapInfo],
     )

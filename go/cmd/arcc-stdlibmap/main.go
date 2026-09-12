@@ -25,9 +25,17 @@ import (
 
 func main() {
 	args := os.Args[1:]
-	if len(args) < 2 || args[0] != "stdlibmap" || args[1] != "generate" {
-		fmt.Fprintln(os.Stderr, "error: arcc-stdlibmap requires `stdlibmap generate`")
+	if len(args) < 2 || args[0] != "stdlibmap" {
+		fmt.Fprintln(os.Stderr, "error: arcc-stdlibmap requires `stdlibmap generate` or `stdlibmap project`")
 		os.Exit(2)
 	}
-	os.Exit(stdlibmap.RunGenerateCommand(args[2:], os.Stdout, os.Stderr))
+	switch args[1] {
+	case "generate":
+		os.Exit(stdlibmap.RunGenerateCommand(args[2:], os.Stdout, os.Stderr))
+	case "project":
+		os.Exit(stdlibmap.RunProjectExportCommand(args[2:], os.Stdout, os.Stderr))
+	default:
+		fmt.Fprintf(os.Stderr, "error: unknown stdlibmap command: %s\n", args[1])
+		os.Exit(2)
+	}
 }

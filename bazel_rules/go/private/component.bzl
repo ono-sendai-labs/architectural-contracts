@@ -53,7 +53,6 @@ load(
     "go_importpath",
     "go_library_srcs",
     "go_sdk_root",
-    "go_stdlib_export_data",
     "go_target_identity",
     "merge_private_rule_attrs",
     "runtime_injection_attrs",
@@ -227,18 +226,24 @@ def _layout_content(ctx, merged, roots, go_sdk_root, target, dependency_bindings
         if stdlib_export_data.target == None:
             fail("component %s: standard-library export descriptor has no target identity" % ctx.label.name)
         export_target = stdlib_export_data.target
-        export_files_by_path = {
-            export_file.path: export_file
-            for export_file in stdlib_export_data.export_files.to_list()
-        }
+        export_roots = getattr(stdlib_export_data, "export_roots", None)
+        if export_roots == None:
+            export_files_by_path = {
+                export_file.path: export_file
+                for export_file in stdlib_export_data.export_files.to_list()
+            }
+            export_roots = [struct(
+                exec_path = path,
+                runfiles_path = runfiles_path(ctx, export_files_by_path[path]),
+            ) for path in sorted(export_files_by_path.keys())]
         layout_data["stdlib_export_data"] = {
             "metadata": runfiles_path(ctx, stdlib_export_data.metadata),
             "export_roots": [
                 {
-                    "runfiles_path": runfiles_path(ctx, export_files_by_path[path]),
-                    "exec_path": path,
+                    "runfiles_path": root.runfiles_path,
+                    "exec_path": root.exec_path,
                 }
-                for path in sorted(export_files_by_path.keys())
+                for root in export_roots
             ],
             "target": {
                 "toolchain_version": export_target.toolchain_version,
@@ -782,7 +787,7 @@ def _checked_analysis_action(ctx, manifest, layout, member_srcs, export_files, o
     )
     return report, surface
 
-def go_component_impl(ctx, attachment_fn = go_attached_infra, runtime_packages_fn = extra_runtime_packages, stdlib_export_data_fn = go_stdlib_export_data, stdlib_map_target = None):
+def go_component_impl(ctx, attachment_fn = go_attached_infra, runtime_packages_fn = extra_runtime_packages, stdlib_export_data_fn = None, stdlib_map_target = None):
     """Generates a component using the supplied adapter attachment function.
 
     The default is the production adapter seam. A test-only rule may inject a
@@ -939,10 +944,17 @@ def go_component_impl(ctx, attachment_fn = go_attached_infra, runtime_packages_f
         )
     if roots and ctx.attr.authority == DECLARED:
         expected_mode = selected_sdk_key
-        stdlib_export_data = stdlib_export_data_fn(
-            ctx,
-            expected_mode = expected_mode,
-        )
+        if stdlib_export_data_fn == None:
+            stdlib_export_data = getattr(selected_map_target[ArccStdlibMapInfo], "export_data", None)
+            if stdlib_export_data == None:
+                fail(("component %s: selected stdlib map does not publish the shared " +
+                      "projected export-data descriptor") % ctx.label.name)
+            validate_sdk_export_data(ctx, stdlib_export_data, expected_mode = expected_mode)
+        else:
+            stdlib_export_data = stdlib_export_data_fn(
+                ctx,
+                expected_mode = expected_mode,
+            )
         validate_sdk_export_data(ctx, stdlib_export_data, expected_mode = expected_mode)
 
     if roots:

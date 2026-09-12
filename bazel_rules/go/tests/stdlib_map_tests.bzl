@@ -32,6 +32,12 @@ def _map_action(target):
         fail("expected exactly one ArccStdlibMap action, found %d" % len(actions))
     return actions[0]
 
+def _export_projection_action(target):
+    actions = [a for a in target.actions if a.mnemonic == "ArccStdlibExportProjection"]
+    if len(actions) != 1:
+        fail("expected exactly one ArccStdlibExportProjection action, found %d" % len(actions))
+    return actions[0]
+
 def _declares_a_single_canonical_map_output_test(name):
     analysis_test(
         name = name,
@@ -43,11 +49,26 @@ def _declares_a_single_canonical_map_output_impl(env, target):
     env.expect.that_collection(
         [f.short_path for f in target[DefaultInfo].files.to_list()],
     ).contains_exactly(["arcc_stdlib_map.stdlib-map.json"])
-    # The rule's only execution action is the generation action; the config
-    # file is an analysis-time write with no execution.
+    # The map generation and one shared export projection are the execution
+    # actions; the config file is an analysis-time write with no execution.
     env.expect.that_collection(
         [a.mnemonic for a in target.actions],
-    ).contains_exactly(["FileWrite", "ArccStdlibMap"])
+    ).contains_exactly(["FileWrite", "ArccStdlibMap", "ArccStdlibExportProjection"])
+
+    projection = _export_projection_action(target)
+    env.expect.that_collection([f.basename for f in projection.outputs.to_list()]).contains_exactly([
+        "arcc_stdlib_map.stdlib-export",
+    ])
+    env.expect.that_collection([
+        f.basename
+        for f in projection.inputs.to_list()
+        if f.basename not in ["arcc-stdlibmap", "arcc-stdlibmap.runfiles"]
+    ]).contains_exactly([
+        "gocache",
+        "stdlib.pkg.json",
+    ])
+    env.expect.that_collection(list(projection.argv)[1:2]).contains_exactly(["stdlibmap"])
+    env.expect.that_str(list(projection.argv)[2]).equals("project")
 
 def _action_inputs_are_complete_and_minimal_test(name):
     analysis_test(
@@ -208,6 +229,12 @@ def _provider_and_default_availability_impl(env, target):
     env.expect.that_bool(info.cgo_enabled).equals(False)
     env.expect.that_collection(list(info.build_tags)).contains_exactly([])
     env.expect.that_str(info.map.extension).equals("json")
+    export_data = info.export_data
+    env.expect.that_str(export_data.metadata.basename).equals("stdlib.pkg.json")
+    env.expect.that_collection([f.basename for f in export_data.inputs.to_list()]).contains_exactly([
+        "arcc_stdlib_map.stdlib-export",
+        "stdlib.pkg.json",
+    ])
 
 def _provider_carries_the_complete_sdk_key_metadata_test(name):
     analysis_test(

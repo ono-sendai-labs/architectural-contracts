@@ -152,12 +152,8 @@
     },
     "export_roots": [
       {
-        "runfiles_path": "<STDLIB_RUNFILES_ROOT>/gocache",
+        "runfiles_path": "<STDLIB_RUNFILES_ROOT>/arcc_stdlib_map.stdlib-export",
         "exec_path": "<STDLIB_EXEC_ROOT>/gocache"
-      },
-      {
-        "runfiles_path": "<STDLIB_RUNFILES_ROOT>/pkg",
-        "exec_path": "<STDLIB_EXEC_ROOT>/pkg"
       }
     ]
   }
