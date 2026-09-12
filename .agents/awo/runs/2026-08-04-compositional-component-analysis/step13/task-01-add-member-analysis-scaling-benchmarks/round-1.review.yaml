@@ -1,0 +1,129 @@
+review:
+  task_file: .agents/tasks/2026-08-04-compositional-component-analysis/step13/task-01-add-member-analysis-scaling-benchmarks.code-task.md
+  change_id: tynvkwxywslxvrrwnztlqlumkmpzqpqp
+  reviewed_at: 2026-09-12T03:59:15Z
+  verdict: approved
+  schema_version: 2
+  lsp_coverage: unavailable
+
+merge_request:
+  title: "test(goanalysis): add member-analysis scaling benchmarks [Compositional Analysis: Step 13/Task 01]"
+  body: |
+    The initial implementation change `xrsolzpoonulomvwmwsspuyqmrxvszpm` adds
+    integration-tagged synthetic depth/width and direct type-surface fixtures,
+    phase observation, structural assertions, deterministic fact checks, and
+    the forbidden dependency audit. The follow-up change
+    `tkroknwopxvovzknnpqnzstopxzpxopl` records the raw and median measurements,
+    environment, interpretation, and warm-cache CI result in the required
+    research note. The round-1 rework change
+    `tynvkwxywslxvrrwnztlqlumkmpzqpqp` adds production report/surface encoding
+    and repeated artifact-byte comparisons to close the prior review finding.
+
+summary: |
+  The round-1 rework resolves the prior important finding by comparing canonical
+  report, surface, and facts bytes across retained runs while requiring natural
+  phase-duration variation. All six acceptance criteria now pass, with no test
+  deletion or weakening, clean integration tests, and the required measurements
+  documented. Go vet and gofmt checks pass; no ecosystem-specific reviewer applies,
+  and LSP diagnostics were unavailable in this harness.
+
+acceptance_criteria:
+  - text: |
+      1. **Depth and width do not expand typed scanning**
+         - Given byte-identical member source with dependency depth 1, 4, and 16 and the specified width variants
+         - When each case is loaded and scanned repeatedly
+         - Then member package/syntax/reference work counters are identical, non-members have no syntax or type-info, and scan time remains flat within the documented noise-tolerant bound.
+    status: pass
+    evidence: |
+      `go/internal/goanalysis/member_analysis_scaling_integration_test.go:19-76`
+      runs all nine depth/width cases and compares member workload, typed
+      references, and imports. The fixed member source is generated at
+      `member_analysis_scaling_fixture_test.go:100-112`; package-role and
+      member AST/type-info counters are asserted at `:384-434`, with the
+      selected source and syntax workload captured at `:436-468`. The repeated
+      warm-up/sample and median timing guard are at `:224-314` and
+      `member_analysis_scaling_integration_test.go:187-205`.
+
+  - text: |
+      2. **Residual export-data cost is measured honestly**
+         - Given successively larger dependency closures
+         - When the integration suite records validated inputs and phase timings
+         - Then export artifact count/bytes grow as expected, package-load and total timings are reported separately from scan timing, and no result claims that export-data loading is constant.
+    status: pass
+    evidence: |
+      Exact artifact counts and per-axis monotonic count/byte growth are asserted
+      at `go/internal/goanalysis/member_analysis_scaling_integration_test.go:47-73`
+      and raw/median package-load, scan, and total timings are logged at `:55`.
+      The production `LoadPackageFacts` diagnostics path is used by the fixture;
+      the required raw/median tables, deduplicated volumes, and explicit
+      non-constant export-load interpretation are recorded at
+      `.agents/planning/2026-08-04-compositional-component-analysis/research/current-analysis-pipeline.md:339-359`.
+
+  - text: |
+      3. **Growing direct type surface has its own series**
+         - Given a fixed member reference against directly imported packages with progressively larger exported type/signature data
+         - When the second series runs
+         - Then its type-surface size, export bytes, load/scan/total timings, and bounded member-scan workload are reported and the residual decoding trend is documented.
+    status: pass
+    evidence: |
+      `go/internal/goanalysis/member_analysis_scaling_integration_test.go:79-123`
+      runs type-surface sizes 0, 8, 32, and 128, checks constant artifact count,
+      strictly increasing export bytes, equal member workload/edges, and logs
+      all phase medians. Deterministic public type/signature generation is at
+      `member_analysis_scaling_fixture_test.go:496-512`; the measured residual
+      decoding trend is documented at
+      `.agents/planning/2026-08-04-compositional-component-analysis/research/current-analysis-pipeline.md:361-381`.
+
+  - text: |
+      4. **Forbidden closure analysis is absent by construction**
+         - Given every generated scaling case
+         - When loaded-package roles and the invoked analysis path are inspected
+         - Then only members are parsed/type-checked/scanned, non-members are export-backed, and no SSA, VTA, or Capslock path is invoked.
+    status: pass
+    evidence: |
+      The primary and direct type-surface cases invoke the structural assertions
+      at `go/internal/goanalysis/member_analysis_scaling_integration_test.go:51`
+      and `:93`, requiring zero non-member syntax, type-info, or source-file
+      roles and complete export-backed types at
+      `member_analysis_scaling_fixture_test.go:384-434`. The dependency audit at
+      `member_analysis_scaling_integration_test.go:125-147` rejects SSA, VTA, and
+      Capslock package paths from `go list -deps ./internal/goanalysis`; the
+      production analysis path uses only the typed scan and defeat scan at
+      `go/internal/goanalysis/goanalysis.go:302-332`.
+
+  - text: |
+      5. **Measurements do not contaminate deterministic artifacts**
+         - Given two otherwise identical analysis runs with different observed durations
+         - When their reports and surfaces are emitted
+         - Then artifact bytes remain identical because elapsed values exist only in benchmark/test output.
+    status: pass
+    evidence: |
+      The round-1 rework addressed the prior non-pass criterion and important
+      finding. Each retained run now invokes the production surface-input,
+      derivation, and canonical encoding paths at
+      `go/internal/goanalysis/member_analysis_scaling_fixture_test.go:316-371`;
+      `:281-295` compares report, surface, and facts bytes across all retained
+      runs. `TestMemberAnalysisScaling_RepeatedFactsAreTimingIndependent` at
+      `member_analysis_scaling_integration_test.go:149-167` requires non-empty
+      artifacts, three samples per phase, and naturally distinct observed phase
+      durations. The package-private observer remains nil by default and is not
+      an artifact input (`go/internal/goanalysis/goanalysis.go:47-61`).
+
+  - text: |
+      6. **Routine integration coverage remains bounded**
+         - Given the pinned supported CI configuration
+         - When `just test-integration` and `just ci` run
+         - Then the scaling suite executes without a manual benchmark flag and the warm-cache feedback lane remains within its documented budget.
+    status: pass
+    evidence: |
+      Both scaling files carry the integration build tag at lines 1-3; the
+      existing integration recipe is `justfile:15-16`, and `ci` includes it via
+      `justfile:161-163`. The rework's successful warm-cache `just ci` run took
+      20.642 seconds according to
+      `.agents/scratchpad/2026-08-04-compositional-component-analysis/step13/task-01-add-member-analysis-scaling-benchmarks/work.log:91-99`,
+      well inside the five-minute budget, and the research note records it as a
+      machine-dependent observation at `current-analysis-pipeline.md:390-393`.
+
+findings: []
+
+ecosystem_reviews: []

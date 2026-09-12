@@ -1,0 +1,68 @@
+result:
+  task_file: .agents/tasks/2026-08-04-compositional-component-analysis/step13/task-01-add-member-analysis-scaling-benchmarks.code-task.md
+  change_id: tkroknwopxvovzknnpqnzstopxzpxopl
+  status: completed
+  schema_version: 2
+  produced_at: 2026-09-12T03:39:38Z
+
+acceptance_criteria:
+  - text: |
+      **Depth and width do not expand typed scanning**
+      - Given byte-identical member source with dependency depth 1, 4, and 16 and the specified width variants
+      - When each case is loaded and scanned repeatedly
+      - Then member package/syntax/reference work counters are identical, non-members have no syntax or type-info, and scan time remains flat within the documented noise-tolerant bound.
+    addressed: yes
+    evidence: |
+      `go/internal/goanalysis/member_analysis_scaling_integration_test.go:19-76` covers all depth {1,4,16} and width {1,2,4} cases, compares member workload/import/reference facts, checks exact package-role counters, and applies the repeated-sample scan guard. The fixture and graph assertions are implemented in `go/internal/goanalysis/member_analysis_scaling_fixture_test.go:92-213` and `:295-345`.
+  - text: |
+      **Residual export-data cost is measured honestly**
+      - Given successively larger dependency closures
+      - When the integration suite records validated inputs and phase timings
+      - Then export artifact count/bytes grow as expected, package-load and total timings are reported separately from scan timing, and no result claims that export-data loading is constant.
+    addressed: yes
+    evidence: |
+      `member_analysis_scaling_integration_test.go:47-73` asserts exact artifact counts and monotonic deduplicated count/byte growth, while `member_analysis_scaling_fixture_test.go:216-292` records separate `packages.Load`, `ScanReferences`, and `LoadPackageFacts` samples. The raw/median tables and residual-cost interpretation are documented in `research/current-analysis-pipeline.md:317-359`.
+  - text: |
+      **Growing direct type surface has its own series**
+      - Given a fixed member reference against directly imported packages with progressively larger exported type/signature data
+      - When the second series runs
+      - Then its type-surface size, export bytes, load/scan/total timings, and bounded member-scan workload are reported and the residual decoding trend is documented.
+    addressed: yes
+    evidence: |
+      `member_analysis_scaling_integration_test.go:79-123` runs type-surface sizes 0, 8, 32, and 128 with a fixed graph, exact artifact count, strictly increasing bytes, equal member workload, and separate phase medians. The generated public signatures and the measured residual decoding trend are documented in `research/current-analysis-pipeline.md:361-381`.
+  - text: |
+      **Forbidden closure analysis is absent by construction**
+      - Given every generated scaling case
+      - When loaded-package roles and the invoked analysis path are inspected
+      - Then only members are parsed/type-checked/scanned, non-members are export-backed, and no SSA, VTA, or Capslock path is invoked.
+    addressed: yes
+    evidence: |
+      `member_analysis_scaling_fixture_test.go:295-345` asserts member-only syntax/type-info and export-backed complete-type roles for every generated case. `member_analysis_scaling_integration_test.go:125-147` audits `go list -deps ./internal/goanalysis` and rejects SSA, VTA, and Capslock packages; the production path invokes only the typed scan in `goanalysis.go:319-330`.
+  - text: |
+      **Measurements do not contaminate deterministic artifacts**
+      - Given two otherwise identical analysis runs with different observed durations
+      - When their reports and surfaces are emitted
+      - Then artifact bytes remain identical because elapsed values exist only in benchmark/test output.
+    addressed: yes
+    evidence: |
+      `member_analysis_scaling_fixture_test.go:266-273` compares marshaled `facts.PackageFacts` bytes across all retained runs while durations are held only in the test-local phase map. The package-private nil-default observer is defined in `goanalysis.go:47-61` and is explicitly documented as excluded from facts and persisted artifacts; the research inspection at `current-analysis-pipeline.md:376-388` records that timing observations do not enter reports, surfaces, facts, or layouts.
+  - text: |
+      **Routine integration coverage remains bounded**
+      - Given the pinned supported CI configuration
+      - When `just test-integration` and `just ci` run
+      - Then the scaling suite executes without a manual benchmark flag and the warm-cache feedback lane remains within its documented budget.
+    addressed: yes
+    evidence: |
+      `justfile:15-16` runs all integration-tagged tests, and both scaling files begin with `//go:build integration`. The completed `just ci` run is recorded in `work.log` and measured at 15.049 seconds wall time in `research/current-analysis-pipeline.md:390-393`, well inside the five-minute N5 budget.
+
+artifacts:
+  scratchpad_dir: .agents/scratchpad/2026-08-04-compositional-component-analysis/step13/task-01-add-member-analysis-scaling-benchmarks/
+  files:
+    - context.md
+    - plan.md
+    - progress.md
+    - work.log
+    - result.yaml
+
+notes: |
+  Implemented the integration-tagged member-only scaling suite with deterministic synthetic export layouts, structural package-role assertions, separate phase observation, direct type-surface measurements, and forbidden analyzer dependency auditing. Recorded the Linux/amd64 raw and median measurements plus warm-cache CI result beside the existing Step 1/Step 6 research. The ordered task changes are `xrsolzpo` for the implementation and `tkroknwopxvovzknnpqnzstopxzpxopl` for the research record; the latter is the stable final `@-` change reported here.
