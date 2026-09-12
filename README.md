@@ -225,6 +225,13 @@ contracts:
   `go_build_platform(target)` remains a compatibility projection for package
   probes; generic component/map consumers use `go_target_identity`.
 
+These are the canonical three SDK seams: source/oracle data via
+`go_stdlib_source_data`, compiled export data via `go_stdlib_export_data`, and
+target identity via `go_target_identity`. The legacy accessors
+`go_sdk_srcs`, `go_stdlib_toolchain`, `go_target_mode`, and
+`_stdlib_mode_mismatches` remain as compatibility aliases while an external
+monorepo migrates; new adapters should use the canonical seams.
+
 All adapter-supplied rule-attribute dictionaries are merged with collision
 checks and must contain only private (`_`-prefixed) names. This lets a host add
 provider-specific discovery without changing the generic rule or widening the
@@ -792,6 +799,12 @@ The MVP implementation makes several engineering trade-offs and has known bounda
    unavailable cannot be a member — the loader errors, naming it rather than
    letting silence look like cleanliness. Nothing forces its authority to be
    declared.
+7. **The analysis-defeating WARN policy is component-wide.**
+   `analysis_defeating_policy: WARN` is an accepted MVP trade-off for components
+   with known residual `UNANALYZED` findings: those findings remain visible and
+   measured as `ANALYSIS_LIMITATION` warnings, while real authority still fails
+   closed. A production implementation should narrow or replace this policy
+   using evidence and explicitly revisit it rather than inherit it silently.
 
 ### Membership and boundaries
 
@@ -803,6 +816,14 @@ The MVP implementation makes several engineering trade-offs and has known bounda
 ### Bazel-specific
 
 12. **A component whose closure contains a cgo package cannot be checked under Bazel.** A cgo package compiles from preprocessed sources that do not exist at analysis time, so the rule fails closed rather than emitting a layout naming files that will not be in the sandbox. **The exclusion propagates upward through importers:** a cgo package anywhere in a closure excludes every component above it, not merely the one that names it. Native mode is unaffected, because the go tool preprocesses cgo before `go/packages` sees it, so such a component keeps full native coverage and loses only its Bazel component gate. `bazel test //...` therefore has 16 checked component gates, while `just selfcheck` also stages `capslockadapter` and `cli` natively; `stdlibmap` has dedicated Bazel map-generation tests but no `go_component` check. The two cgo-bearing components are excluded because `capslockadapter` owns capslock as member code, whose closure contains `golang.org/x/sys/unix` built with cgo, and `cli` imports `capslockadapter`. The workaround of patching a third-party build file to claim the package is not cgo is deliberately not taken: buying a green check by falsifying build metadata is the exact failure mode these checks exist to remove.
+13. **The Bazel `ArccImportGraph` projection reads ordinary source.** Pinned
+   rules_go does not expose the exact ordinary import graph, so the MVP uses a
+   cached lexical projection over target-selected ordinary non-member Go source
+   before `ArccCheck`; that source is not passed to the analysis action, but its
+   input volume and scan work remain closure-shaped. This is an accepted,
+   visible and measured MVP trade-off. A production implementation should obtain
+   an exact graph through a host/provider seam or explicitly redesign this step,
+   rather than inherit the source-reading projection silently.
 
 ---
 
