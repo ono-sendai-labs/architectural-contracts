@@ -54,43 +54,12 @@ func assertFullBuildArtifactsAreDeterministic(t *testing.T, baseline hermeticity
 
 func assertFullBuildArtifactsAgainstBaseline(t *testing.T, baseline hermeticityBazelRun) {
 	t.Helper()
-	firstLabels := []string{
-		fullBuildDeterminismConsumer,
-		fullBuildDeterminismUnknown,
-		fullBuildDeterminismDependency,
-	}
-	firstLog := filepath.Join(filepath.Dir(baseline.ExecutionLog), "full-determinism-first.execution.json")
-	firstArgs := hermeticityBazelArgs(
-		"build",
-		baseline.OutputUserRoot,
-		baseline.OutputBase,
-		baseline.RepositoryCache,
-		baseline.WritablePath,
-		baseline.PoisonRoot,
-		firstLog,
-		"",
-		firstLabels,
-	)
-	poisonBefore, err := snapshotHermeticityTree(baseline.PoisonRoot)
-	if err != nil {
-		t.Fatalf("snapshotting baseline poison tree before full determinism build: %v", err)
-	}
-	convenienceBefore, err := snapshotHermeticityConvenienceLinks(baseline.RepoRoot)
-	if err != nil {
-		t.Fatalf("snapshotting baseline convenience links before full determinism build: %v", err)
-	}
-	firstOutput, firstErr := runHermeticityBazelCommand(t, hermeticityBazelPath(t), baseline.RepoRoot, baseline.RestrictedEnv, firstArgs...)
-	assertHermeticityPoisonUnchanged(t, baseline.PoisonRoot, poisonBefore, "first full determinism build")
-	assertHermeticityConvenienceLinksUnchanged(t, baseline.RepoRoot, convenienceBefore, "first full determinism build")
-	if firstErr != nil {
-		t.Fatalf("first full determinism Bazel build failed: %v\n%s", firstErr, firstOutput)
-	}
-	firstActions := readHermeticityExecutionLogIfNonEmpty(t, firstLog)
-	if maps := actionsWithMnemonic(firstActions, "ArccStdlibMap"); len(maps) != 0 {
-		t.Fatalf("first full determinism build regenerated %d stdlib maps after the routine map; want pinned/default reuse", len(maps))
-	}
 	firstArtifacts := collectFullBuildArtifacts(t, baseline.Execroot)
 	assertFullBuildArtifactSemantics(t, firstArtifacts)
+	convenienceBefore, err := snapshotHermeticityConvenienceLinks(baseline.RepoRoot)
+	if err != nil {
+		t.Fatalf("snapshotting convenience links before second full determinism build: %v", err)
+	}
 
 	secondRunDir := t.TempDir()
 	secondOutputUserRoot := filepath.Join(secondRunDir, "bazel-user-root")

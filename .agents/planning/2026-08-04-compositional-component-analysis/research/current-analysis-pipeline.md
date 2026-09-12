@@ -565,3 +565,108 @@ keeps the hermetic suite within the N5 one-generation bound. The integration
 test is selected automatically by `just test-integration`, which is a
 dependency of `just ci`; all output/user roots and poison fixtures are under
 the test temporary directory and no developer workspace state is written.
+
+## Step 13 final acceptance record
+
+Date: 2026-09-12. Implementation revisions: Jujutsu changes rszlotvp and
+kmrxxumn (the final acceptance child). The measurements below are observations
+on the pinned Linux/amd64 host, not wall-clock assertions embedded in tests.
+
+### Baseline versus final on the same components
+
+| component | Step 1 baseline | final member-only check | change |
+| --- | --- | --- | --- |
+| internal/goanalysis (196-package closure) | 3.62 s wall / 13.4 s CPU | 1.46 s wall / 6.28 s CPU | −59% wall / −53% CPU |
+| examples/csvtool/app (69-package closure) | 1.90 s wall / 6.05 s CPU | 0.78 s wall / 2.87 s CPU | −59% wall / −53% CPU |
+
+The final member-only and complete Bazel producer-chain tables above retain
+the Task 1 depth/width and direct type-surface series, and the Task 2
+projection/layout/check/export table. They show constant member workload
+tokens while ordinary source projection and export-data volume grow with the
+closure. The separate values are intentional: export decoding and the
+accepted lexical ArccImportGraph projection remain measurable residual costs.
+
+### Full producer-chain determinism
+
+The routine integration command is:
+
+    CGO_ENABLED=0 go test -tags=integration ./internal/goanalysis -run '^TestBazelProducerChainScaling_Integration$' -count=1 -v
+
+It builds the 13 scaling variants, the checked API/shared chain, and the
+determinism fixture in one restricted Bazel output root. That first root
+executes exactly one default ArccStdlibMap action. The determinism check then
+requests the same fixture labels in reverse order in a second isolated output
+root, using the checked canonical map as the explicitly permitted N5 reuse
+path; all component producers in the second root are rebuilt. It collects
+artifacts by decoded logical identity, compares raw bytes without
+normalization, compares SHA-256 over those raw bytes, and reports the first
+different byte plus both logical paths and digests on failure.
+
+The compared logical artifacts and identical SHA-256 digests were:
+
+| logical artifact | SHA-256 |
+| --- | --- |
+| stdlib-map:go1.26.4/linux/amd64/false///adc198ed82f2ae81de8f2d00e26a0c90a22a1317a19579476ab0d7e33cc52eed/1 | a7b10f4d6f189cc2e89c968ab320cf2834bc45839a3aa808f128f76c195f0637 |
+| surface:consumer_component | 22b380c99d4c574e3d30f708441eca2c146a19ac0d38144583c15d6669b10710 |
+| surface:dependency_component | bc083a04d82c618256728ba3a26b4bd5834767a99fc3b8974b1b2c1c2a8a75a2 |
+| surface:unknown_component | fbfa998018b0ac045cce58efc190dc252e107c7424ce31546e379f80fdedf0f3 |
+| report:consumer_component | 2099a4ccf6f3cc608b1b7add117c1520f2dd676c5f59acf18722648e9015acc3 |
+| report:dependency_component | 9017a5ab2005cd86688b0c67024fcbe2bceea337a79cd49124d51ac682b6330d |
+
+The fixture's dependency surface has two packages and three sorted exported
+symbols with a non-empty checked digest. The dependent report has three
+os.ReadFile authority sites and both CHECKED_PASS/BUILD_GRAPH/DECLARED and
+ASSERTED/BUILD_GRAPH/UNKNOWN dependency axes. The asserted surface has
+package-level UNKNOWN, no symbols, sorted packages, and the required empty
+digest. A recursive JSON-key audit rejects elapsed, duration, timing, profile,
+and wall-time fields in every compared map, surface, and report.
+
+### Routine/full lanes and timing
+
+The warm-cache just ci acceptance run completed successfully in 294.89 s wall
+(41.08 s user, 8.39 s sys), below the five-minute N5 budget. Its integration
+producer-chain output reported stdlib_map_actions=1 and
+native_whole_sdk_generation=none(driver-only-bazel); the restricted producer
+chain therefore has zero native generation and one default-configuration
+Bazel generation. The fresh restricted producer-chain observation was
+291.182 s for the Go integration package and used the same one-map topology;
+no timeout is encoded in the test.
+
+The explicit native full-map command is:
+
+    time -p bash -c "cd go && go test -tags='integration stdlibmap_full' ./internal/stdlibmap -run '^TestGenerateFullStdlibMap$' -count=1 -v"
+
+It performed two real, independent complete map generations and compared
+their canonical bytes and digests. It passed in 263.72 s wall (775.85 s user,
+24.36 s sys). The explicit Bazel lane remains just bazel-test-full: it builds
+the distinct-output arcc_stdlib_map/replica pair and the retained
+Darwin/tag/cgo key tests; stdlib_map_keys_test compares the two genuinely
+executed Linux map actions byte-for-byte. Both full lanes stay outside
+routine CI. Cold full-map generation cost is recorded as an observation only,
+while routine validation uses the checked canonical map on the second
+isolated graph and has no flaky wall-clock timeout.
+
+The final just test-integration-full run passed in 372.32 s wall (the
+goanalysis integration package took 342.491 s) and retained the two native
+full-generation comparisons. The final just bazel-test-full run passed in
+231.99 s wall; its map build executed the distinct Linux replica and the
+Darwin/tagged transition maps, and stdlib_map_keys_test passed the exact-byte
+and digest comparisons.
+
+### Final environment and limitations
+
+Measurements used Go 1.26.4, Bazel 9.2.0, CGO_ENABLED=0, empty GOEXPERIMENT,
+GOOS=linux, GOARCH=amd64, rules_go 0.61.1, and golang.org/x/tools v0.48.0
+on the same 16-core Linux/amd64 machine class used for the Step 1 baseline.
+The restricted driver blocks network access, removes Go/compiler tools from
+PATH, poisons native cache variables, and places every temporary output root
+under the test's temporary directory.
+
+The remaining limitations are deliberate: hermetic cgo-enabled stdlib-map
+generation is out of scope; native freshness is best-effort; lexical
+ordinary-import projection and export-data decoding remain residual
+closure-shaped work; a multi-architecture full-CI matrix and generator
+optimizations are deferred; and the transitive/tree UNKNOWN approval
+predicate remains a governance/deferred design item. These do not weaken the
+routine exact-byte comparison or the existing corruption/concurrent-cache
+recovery tests.

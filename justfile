@@ -21,7 +21,7 @@ test-integration:
 # it retains the real two-generation determinism and cross-configuration
 # assertions with the original semantics.
 test-integration-full:
-	cd {{go_dir}} && go test -timeout 30m -tags='integration stdlibmap_full' ./...
+	cd {{go_dir}} && go test -timeout 30m -count=1 -tags='integration stdlibmap_full' ./...
 
 # The routine lane's version/configuration guard compares both CI Go pins and
 # the Bazel SDK pin with the checked artifact key through the bounded reader.

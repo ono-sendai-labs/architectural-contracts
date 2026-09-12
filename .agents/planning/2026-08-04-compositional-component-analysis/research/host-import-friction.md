@@ -99,3 +99,33 @@ Only two things beyond the redesign itself:
 
 Both additive with empty defaults. Everything else is either deleted by the redesign
 (§2's predicates, §5's tagging patch, a slice of §6) or independent of it.
+
+## Final next-import checklist
+
+Walked against the Step 13 tree on 2026-09-12. The two items identified above
+as mandatory before the next host import are present; the remaining entries
+are either implemented by this redesign, deliberately dropped, or explicitly
+deferred.
+
+| source item | final disposition and concrete evidence |
+| --- | --- |
+| §1 non-Go aspect provider | Landed. The aspect returns an empty ArccPackageInfo for non-Go targets at bazel_rules/go/private/aspect.bzl:27-33; bazel_rules/go/tests/aspect_tests.bzl:302-315 asserts the empty provider. |
+| §2 stdlib through hostpolicy | Dropped as designed. Standard-library membership/classification is owned by the keyed stdlib map and its canonical readers; hostpolicy now supplies namespace/canonical-path hooks, while no IsStdlibPath classifier remains. |
+| §3 runtime-injection attributes | Landed with empty upstream defaults at bazel_rules/go/private/go_adapter.bzl:124-143. The consumer hook at :145-159 is merged into the component rule at bazel_rules/go/private/component.bzl:830-841; runtime injection tests are wired by bazel_rules/go/tests/runtime_injection_tests.bzl:129-170. |
+| §3 injected-runtime classification | Resolved in this design. Existing infra attachment is preserved and receives the merged package view; the injected-runtime analysis/report tests cover the asserted UNKNOWN boundary and checked shared dependency in bazel_rules/go/tests/BUILD.bazel:242-272. |
+| §4 SDK source/oracle attrs | Landed as the source-only adapter contract at bazel_rules/go/private/go_adapter.bzl:371-426 and consumed by bazel_rules/go/private/stdlib_map.bzl:77-169. The map action input tests in bazel_rules/go/tests/stdlib_map_tests.bzl:50-170 keep the contract explicit. |
+| §4 missing SDK root | Landed fail-closed. bazel_rules/go/private/go_adapter.bzl:366-369 rejects an absent adapter root, and go/internal/packagelayout/packagelayout.go:503-522 rejects a missing/non-directory SDK root; the missing-root fixture is go/internal/packagelayout/packagelayout_test.go:508-525. |
+| §5 infra-registry self-exemption | Landed by target identity rather than a package-name literal at bazel_rules/go/private/go_adapter.bzl:236-261; exact-self coverage is wired in bazel_rules/go/tests/BUILD.bazel:131-138 and bazel_rules/go/tests/aspect_tests.bzl. |
+| §5 check tagging | Resolved by the explicit authority axis. bazel_rules/go/defs.bzl:277-291 documents scheduling-only check_tags, while authority UNKNOWN selects the package-level asserted producer; the UNKNOWN shape and no-checked-report tests remain in bazel_rules/go/tests/asserted_surface_tests.bzl and bazel_rules/go/tests/BUILD.bazel:470-481. |
+| §6(1) verdict/layout golden split | Landed. Typed report/surface shape rules live in bazel_rules/go/private/check.bzl:435-560, and layout shapes are a separate rule family at :564-617; the corresponding goldens are under bazel_rules/go/tests/goldens. |
+| §6(2) canonical-path normalization | Landed as the host canonicalization contract. go/internal/hostpolicy/hostpolicy.go:23-98 and go/internal/hostpolicy/namespace_test.go:44-76 pin idempotence and the IsCanonicalPath predicate; surface consumers reject non-canonical paths in go/internal/goanalysis/surface_resolver.go:500-515. |
+| §6(3) host-supplied testdata BUILD convention | Deferred/orthogonal. No upstream host-specific BUILD injection is claimed by this tree; the generic repository testdata BUILD files remain the in-repo fixture convention. |
+| §7 IsCanonicalPath seam | Landed at go/internal/hostpolicy/hostpolicy.go:56-74 with default and override tests in go/internal/hostpolicy/namespace_test.go:44-176. |
+| §7 canonical namespace | Resolved in this design. hostpolicy.NamespaceID and the surface namespace are validated end-to-end; the deterministic fixture compares surfaces under the upstream namespace, and go/internal/goanalysis/surface_resolver.go rejects a mismatched namespace before consumption. |
+
+The next import can therefore consume the runtime-injection and SDK-source
+adapter seams without carrying the old host patches. The only explicitly
+deferred checklist item is the host-supplied testdata BUILD convention; it is
+not silently counted as implemented. Separately, the design's broader
+multi-architecture CI matrix and UNKNOWN approval/tree predicate remain
+deferred and are documented in the final acceptance record.

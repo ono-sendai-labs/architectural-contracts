@@ -171,6 +171,14 @@ func runHermeticityProducerChainBazelSuite(t *testing.T, variants []producerChai
 	for _, variant := range variants {
 		labels = append(labels, variant.Component)
 	}
+	// Build the deterministic artifact fixture in this same isolated routine
+	// invocation. It reuses the one real default map and lets the full-build
+	// comparison take this output tree as its first run.
+	labels = append(labels,
+		fullBuildDeterminismConsumer,
+		fullBuildDeterminismUnknown,
+		fullBuildDeterminismDependency,
+	)
 	run := runHermeticityBazelSuiteForTargets(t, labels, true)
 	assertHermeticityRun(t, run)
 	return run
