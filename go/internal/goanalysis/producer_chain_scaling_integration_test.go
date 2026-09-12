@@ -52,15 +52,21 @@ type producerChainLoadTarget struct {
 }
 
 type producerChainAction struct {
-	CommandArgs   []string                   `json:"commandArgs"`
-	Environment   []producerChainEnvironment `json:"environmentVariables"`
-	Inputs        []producerChainArtifact    `json:"inputs"`
-	ListedOutputs []string                   `json:"listedOutputs"`
-	ActualOutputs []producerChainArtifact    `json:"actualOutputs"`
-	Mnemonic      string                     `json:"mnemonic"`
-	TargetLabel   string                     `json:"targetLabel"`
-	CacheHit      bool                       `json:"cacheHit"`
-	Metrics       producerChainActionMetrics `json:"metrics"`
+	CommandArgs   []string                     `json:"commandArgs"`
+	Environment   []producerChainEnvironment   `json:"environmentVariables"`
+	ExecutionInfo []producerChainExecutionInfo `json:"executionInfo"`
+	Inputs        []producerChainArtifact      `json:"inputs"`
+	ListedOutputs []string                     `json:"listedOutputs"`
+	ActualOutputs []producerChainArtifact      `json:"actualOutputs"`
+	Mnemonic      string                       `json:"mnemonic"`
+	TargetLabel   string                       `json:"targetLabel"`
+	CacheHit      bool                         `json:"cacheHit"`
+	Metrics       producerChainActionMetrics   `json:"metrics"`
+}
+
+type producerChainExecutionInfo struct {
+	Key   string `json:"key"`
+	Value string `json:"value"`
 }
 
 type producerChainEnvironment struct {
@@ -196,49 +202,12 @@ type producerChainBazelBuild struct {
 
 func runProducerChainBazelBuild(t *testing.T, variants []producerChainVariant) producerChainBazelBuild {
 	t.Helper()
-	if _, err := exec.LookPath("bazel"); err != nil {
-		t.Fatalf("locating bazel for producer-chain integration: %v", err)
-	}
-	_, sourceFile, _, ok := runtime.Caller(0)
-	if !ok {
-		t.Fatal("runtime.Caller failed while locating the repository")
-	}
-	repoRoot := filepath.Clean(filepath.Join(filepath.Dir(sourceFile), "../../.."))
-	runDir := t.TempDir()
-	outputBase := filepath.Join(runDir, "output-base")
-	profilePath := filepath.Join(runDir, "producer-chain.profile.json.gz")
-	executionLogPath := filepath.Join(runDir, "producer-chain.execution.json")
-
-	// The server is tied to the temporary output base. Shutting it down before
-	// the test directory is reclaimed prevents an isolated run from leaving a
-	// live Bazel process or state outside the test's declared directory.
-	t.Cleanup(func() {
-		command := exec.Command("bazel", "--output_base="+outputBase, "shutdown")
-		command.Dir = repoRoot
-		_ = command.Run()
-		makeProducerChainTreeWritable(runDir)
-	})
-
-	args := producerChainBazelBuildArgs(outputBase, variants)
-	args = append(args,
-		"--profile="+profilePath,
-		"--execution_log_json_file="+executionLogPath,
-		"--execution_log_sort",
-		"--noslim_profile",
-		"--experimental_profile_additional_tasks=action",
-	)
-	output := runProducerChainBazelCommand(t, repoRoot, args...)
-	if _, err := os.Stat(profilePath); err != nil {
-		t.Fatalf("Bazel profile was not produced: %v\n%s", err, output)
-	}
-	if _, err := os.Stat(executionLogPath); err != nil {
-		t.Fatalf("Bazel execution log was not produced: %v\n%s", err, output)
-	}
+	run := runHermeticityProducerChainBazelSuite(t, variants)
 
 	return producerChainBazelBuild{
-		OutputBase:       outputBase,
-		ProfilePath:      profilePath,
-		ExecutionLogPath: executionLogPath,
+		OutputBase:       run.OutputBase,
+		ProfilePath:      run.ProfilePath,
+		ExecutionLogPath: run.ExecutionLog,
 	}
 }
 
@@ -259,7 +228,7 @@ func producerChainBazelBuildArgs(outputBase string, variants []producerChainVari
 
 func runProducerChainBazelCommand(t *testing.T, repoRoot string, args ...string) []byte {
 	t.Helper()
-	command := exec.Command("bazel", args...)
+	command := exec.Command(hermeticityBazelPath(t), args...)
 	command.Dir = repoRoot
 	command.Env = append(os.Environ(), "GOWORK=off")
 	output, err := command.CombinedOutput()
