@@ -9,6 +9,7 @@ _FAKE_COMPONENT = "//bazel_rules/go/tests:fake_sdk_export_component"
 _MISSING_COMPONENT = "//bazel_rules/go/tests:fake_sdk_export_missing_component"
 _MISMATCH_COMPONENT = "//bazel_rules/go/tests:fake_sdk_export_mismatch_component"
 _SOURCE_COMPONENT = "//bazel_rules/go/tests:fake_sdk_export_source_component"
+_OPPOSITE_MAP_LAYOUT = "//bazel_rules/go/tests:fake_sdk_export_opposite_map_component_layout"
 _MISSING_SOURCE = "//bazel_rules/go/tests:stdlib_source_data_missing_probe"
 
 def _action(target, mnemonic):
@@ -136,6 +137,23 @@ def _source_in_export_descriptor_impl(env, target):
         matching.str_matches("*source material*"),
     )
 
+def _opposite_map_transition_test(name):
+    analysis_test(
+        name = name,
+        target = _OPPOSITE_MAP_LAYOUT,
+        impl = _opposite_map_transition_impl,
+        attr_values = {"size": "small"},
+        expect_failure = True,
+    )
+
+def _opposite_map_transition_impl(env, target):
+    env.expect.that_target(target).failures().contains_predicate(
+        matching.str_matches("*component target and selected authority map mismatch*"),
+    )
+    env.expect.that_target(target).failures().contains_predicate(
+        matching.str_matches("*mismatched fields: goos, goarch*"),
+    )
+
 def sdk_adapter_test_suite(name):
     tests = [
         _fake_export_descriptor_controls_check_inputs_test,
@@ -143,6 +161,7 @@ def sdk_adapter_test_suite(name):
         _mismatched_export_descriptor_test,
         _incomplete_source_descriptor_test,
         _source_in_export_descriptor_test,
+        _opposite_map_transition_test,
     ]
     test_targets = []
     for setup_func in tests:

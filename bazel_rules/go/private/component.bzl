@@ -58,6 +58,7 @@ load(
     "merge_private_rule_attrs",
     "runtime_injection_attrs",
     "sdk_export_data_attrs",
+    "validate_target_identity_match",
     "validate_sdk_export_data",
 )
 load(":paths.bzl", "match_path", "runfiles_path")
@@ -695,7 +696,7 @@ def _frame_symlink_commands(files, workspace_name, preferred_files = []):
         ))
     return commands
 
-def _checked_analysis_action(ctx, manifest, layout, member_srcs, export_files, ordinary_import_data, stdlib_export_data, dep_artifacts):
+def _checked_analysis_action(ctx, manifest, layout, member_srcs, export_files, ordinary_import_data, stdlib_export_data, dep_artifacts, stdlib_map_info):
     """The checked-component analysis action (design R8, task reqs 1/3/5/6).
 
     One ordinary action running `command.bzl`'s analysis argv — the exact
@@ -732,7 +733,7 @@ def _checked_analysis_action(ctx, manifest, layout, member_srcs, export_files, o
     surface = ctx.actions.declare_file(ctx.label.name + ".surface.json")
 
     wrapper = ctx.actions.declare_file(ctx.label.name + ".arcc-check-wrapper.sh")
-    map_file = ctx.attr._stdlib_map[ArccStdlibMapInfo].map
+    map_file = stdlib_map_info.map
     argv = arcc_check_argv(
         arcc = ctx.executable._arcc.path,
         manifest = manifest.path,
@@ -781,7 +782,7 @@ def _checked_analysis_action(ctx, manifest, layout, member_srcs, export_files, o
     )
     return report, surface
 
-def go_component_impl(ctx, attachment_fn = go_attached_infra, runtime_packages_fn = extra_runtime_packages, stdlib_export_data_fn = go_stdlib_export_data):
+def go_component_impl(ctx, attachment_fn = go_attached_infra, runtime_packages_fn = extra_runtime_packages, stdlib_export_data_fn = go_stdlib_export_data, stdlib_map_target = None):
     """Generates a component using the supplied adapter attachment function.
 
     The default is the production adapter seam. A test-only rule may inject a
@@ -923,12 +924,21 @@ def go_component_impl(ctx, attachment_fn = go_attached_infra, runtime_packages_f
 
     manifest = ctx.actions.declare_file(ctx.label.name + ".component.textproto")
 
-    map_info = ctx.attr._stdlib_map
+    selected_map_target = stdlib_map_target or ctx.attr._stdlib_map
+    map_info = selected_map_target[ArccStdlibMapInfo]
     stdlib_export_data = None
     ordinary_import_data = None
     target_mode = go_target_identity(ctx) if roots else None
+    selected_sdk_key = arcc_sdk_key_fields(map_info)
+    if target_mode != None:
+        validate_target_identity_match(
+            ctx,
+            actual = target_mode,
+            expected = selected_sdk_key,
+            material = "component target and selected authority map",
+        )
     if roots and ctx.attr.authority == DECLARED:
-        expected_mode = arcc_sdk_key_fields(map_info[ArccStdlibMapInfo])
+        expected_mode = selected_sdk_key
         stdlib_export_data = stdlib_export_data_fn(
             ctx,
             expected_mode = expected_mode,
@@ -1061,7 +1071,7 @@ def go_component_impl(ctx, attachment_fn = go_attached_infra, runtime_packages_f
             content = _asserted_surface_content(
                 component_name = ctx.label.name,
                 packages = members,
-                key = arcc_sdk_key_fields(map_info[ArccStdlibMapInfo]),
+                key = selected_sdk_key,
             ),
         )
         provenance = "asserted"
@@ -1077,6 +1087,7 @@ def go_component_impl(ctx, attachment_fn = go_attached_infra, runtime_packages_f
             ordinary_import_data = ordinary_import_data,
             stdlib_export_data = stdlib_export_data,
             dep_artifacts = dep_artifacts,
+            stdlib_map_info = map_info,
         )
         provenance = "checked"
 

@@ -16,7 +16,7 @@ load("//bazel_rules/go:providers.bzl", "ArccStdlibMapInfo")
 load("//bazel_rules/go/private:stdlib_map.bzl", "stdlib_map_default_attr")
 
 TransitionedStdlibMapInfo = provider(
-    fields = ["toolchain_version", "goos", "goarch", "cgo_enabled", "build_tags", "goexperiment", "map"],
+    fields = ["toolchain_version", "goos", "goarch", "cgo_enabled", "build_tags", "goexperiment", "classifier_hash", "map_format_version", "map"],
 )
 
 def _republish_impl(ctx):
@@ -32,6 +32,17 @@ def _republish_impl(ctx):
             files = depset([published]),
             runfiles = ctx.runfiles(files = [published]),
         ),
+        ArccStdlibMapInfo(
+            map = published,
+            toolchain_version = info.toolchain_version,
+            goos = info.goos,
+            goarch = info.goarch,
+            cgo_enabled = info.cgo_enabled,
+            build_tags = info.build_tags,
+            goexperiment = info.goexperiment,
+            classifier_hash = info.classifier_hash,
+            map_format_version = info.map_format_version,
+        ),
         TransitionedStdlibMapInfo(
             toolchain_version = info.toolchain_version,
             goos = info.goos,
@@ -39,6 +50,8 @@ def _republish_impl(ctx):
             cgo_enabled = info.cgo_enabled,
             build_tags = info.build_tags,
             goexperiment = info.goexperiment,
+            classifier_hash = info.classifier_hash,
+            map_format_version = info.map_format_version,
             map = published,
         ),
     ]
@@ -53,6 +66,18 @@ def _platforms_transition_impl(settings, attr):
 
 _platforms_transition = transition(
     implementation = _platforms_transition_impl,
+    inputs = [],
+    outputs = ["//command_line_option:platforms"],
+)
+
+def _default_platform_transition_impl(settings, attr):
+    _ = settings, attr
+    return {
+        "//command_line_option:platforms": [],
+    }
+
+_default_platform_transition = transition(
+    implementation = _default_platform_transition_impl,
     inputs = [],
     outputs = ["//command_line_option:platforms"],
 )
@@ -82,6 +107,7 @@ def _map_wrapper(transition, extra_attrs):
     )
 
 darwin_arm64_stdlib_map = _map_wrapper(_platforms_transition, {})
+linux_stdlib_map = _map_wrapper(_default_platform_transition, {})
 tagged_stdlib_map = _map_wrapper(_tagged_transition, {
     "tag": attr.string(
         mandatory = True,

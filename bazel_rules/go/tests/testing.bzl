@@ -226,6 +226,7 @@ def _testing_go_component_impl(ctx):
         attachment_fn = _testing_attachment_fn,
         runtime_packages_fn = _testing_extra_runtime_packages,
         stdlib_export_data_fn = _testing_stdlib_export_data,
+        stdlib_map_target = ctx.attr.test_stdlib_map,
     )
 
 _TEST_COMPONENT_ATTRS = dict(GO_COMPONENT_ATTRS)
@@ -248,6 +249,10 @@ _TEST_COMPONENT_ATTRS.update({
     "test_stdlib_export_data": attr.label(
         providers = [TestingStdlibExportDataInfo],
         doc = "Test-only fake host-neutral SDK export descriptor.",
+    ),
+    "test_stdlib_map": attr.label(
+        providers = [ArccStdlibMapInfo],
+        doc = "Test-only selected authority map override.",
     ),
 })
 

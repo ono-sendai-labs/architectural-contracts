@@ -9,7 +9,7 @@ load(":layout_shape_tests.bzl", "layout_shape_test_suite")
 load(":pattern_match_test.bzl", "pattern_match_test_suite")
 load(":probe.bzl", "checked_analysis_surface", "stdlib_export_data_mismatch_probe", "stdlib_export_data_missing_probe", "stdlib_export_data_probe", "stdlib_source_data_missing_probe", "transitioned_checked_map", "transitioned_checked_surface", "transitioned_component_layout")
 load(":report_assertion_tests.bzl", "report_assertion_test_suite")
-load(":stdlib_map_probe.bzl", "darwin_arm64_stdlib_map", "default_seam_probe", "tagged_stdlib_map")
+load(":stdlib_map_probe.bzl", "darwin_arm64_stdlib_map", "default_seam_probe", "linux_stdlib_map", "tagged_stdlib_map")
 load(":stdlib_map_tests.bzl", "stdlib_map_full_test_suite", "stdlib_map_test_suite")
 load(":stdlib_export_data_tests.bzl", "stdlib_export_data_test_suite")
 load(":sdk_adapter_tests.bzl", "sdk_adapter_test_suite")
@@ -70,6 +70,15 @@ fake_stdlib_export_data(
     export_files = ["test_sdk_export_a.x"],
     source_file = "test_sdk_export_source.go",
 )
+fake_stdlib_export_data(
+    name = "fake_sdk_export_data_linux",
+    map = ":linux_stdlib_map",
+    metadata = "test_sdk_export_metadata.json",
+    export_files = [
+        "test_sdk_export_a.x",
+        "test_sdk_export_b.x",
+    ],
+)
 
 testing_go_component_direct(
     name = "fake_sdk_export_component",
@@ -95,6 +104,31 @@ testing_go_component_direct(
     tags = ["manual"],
     test_stdlib_export_data = ":fake_sdk_export_data_with_source",
 )
+testing_go_component_direct(
+    name = "fake_sdk_export_opposite_map_component",
+    interface = "//bazel_rules/go/tests/testdata/api:api",
+    tags = ["manual"],
+    test_stdlib_export_data = ":fake_sdk_export_data_linux",
+    test_stdlib_map = ":linux_stdlib_map",
+)
+transitioned_component_layout(
+    name = "fake_sdk_export_component_darwin_layout",
+    component = ":fake_sdk_export_component",
+    tags = ["manual"],
+)
+transitioned_component_layout(
+    name = "fake_sdk_export_opposite_map_component_layout",
+    component = ":fake_sdk_export_opposite_map_component",
+    tags = ["manual"],
+)
+sh_test(
+    name = "transitioned_sdk_export_layout_test",
+    srcs = ["transitioned_sdk_export_layout_test.sh"],
+    args = ["$(rootpath :fake_sdk_export_component_darwin_layout)"],
+    data = [":fake_sdk_export_component_darwin_layout"],
+    size = "small",
+    tags = ["manual"],
+)
 
 testing_infra_attachment_probe(
     name = "exact_self_infra_attachment_probe",
@@ -105,6 +139,11 @@ testing_infra_attachment_probe(
 config_setting(
     name = "stdlibmap_full",
     define_values = {"stdlibmap_full": "true"},
+)
+
+linux_stdlib_map(
+    name = "linux_stdlib_map",
+    map = "//:arcc_stdlib_map",
 )
 
 stdlib_map_test_suite(name = "stdlib_map_tests")

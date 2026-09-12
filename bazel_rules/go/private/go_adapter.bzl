@@ -477,6 +477,19 @@ def target_identity_mismatches(actual, expected):
     ]
     return [name for name, actual_value, expected_value in fields if actual_value != expected_value]
 
+def validate_target_identity_match(ctx, actual, expected, material):
+    """Fails analysis when two complete target identities disagree."""
+    validate_target_identity(ctx, actual, material + " actual target")
+    validate_target_identity(ctx, expected, material + " selected target")
+    mismatches = target_identity_mismatches(actual, expected)
+    if mismatches:
+        fail(("component %s: %s mismatch; mismatched fields: %s") % (
+            ctx.label.name,
+            material,
+            ", ".join(mismatches),
+        ))
+    return actual
+
 def validate_target_identity(ctx, identity, material):
     """Fails analysis if `identity` is incomplete or not canonically sorted."""
     missing = []
