@@ -125,7 +125,10 @@ func scanPackage(
 	observer scanObservationObserver,
 ) error {
 	fromPkg := hostpolicy.CanonicalizePath(p.PkgPath)
-	member := members.Contains(fromPkg)
+	member := false
+	if observer != nil {
+		member = members.Contains(fromPkg)
+	}
 	notifyScanObserver(observer, scanObserverEvent{
 		Scanner:   scanObserverReferences,
 		Operation: scanObserverPackageEntered,
@@ -144,7 +147,9 @@ func scanPackage(
 
 	uses := 0
 	for ident, obj := range p.TypesInfo.Uses {
-		uses++
+		if observer != nil {
+			uses++
+		}
 		if !externalObject(obj, members) {
 			continue
 		}
@@ -168,7 +173,9 @@ func scanPackage(
 
 	selections := 0
 	for sel, selection := range p.TypesInfo.Selections {
-		selections++
+		if observer != nil {
+			selections++
+		}
 		obj := selection.Obj()
 		if !externalObject(obj, members) {
 			continue
@@ -198,7 +205,9 @@ func scanPackage(
 	canonicalImports := make(map[string]*packages.Package, len(p.Imports))
 	importPackages := 0
 	for impPath, imp := range p.Imports {
-		importPackages++
+		if observer != nil {
+			importPackages++
+		}
 		canonicalImports[hostpolicy.CanonicalizePath(impPath)] = imp
 	}
 	notifyScanObserver(observer, scanObserverEvent{
@@ -218,17 +227,25 @@ func scanPackage(
 		if file == nil {
 			continue
 		}
-		syntaxFiles++
-		astFiles++
+		if observer != nil {
+			syntaxFiles++
+			astFiles++
+		}
 		for _, decl := range file.Decls {
-			astDeclarations++
+			if observer != nil {
+				astDeclarations++
+			}
 			genDecl, ok := decl.(*ast.GenDecl)
 			if !ok || genDecl.Tok != token.IMPORT {
 				continue
 			}
-			importDeclarations++
+			if observer != nil {
+				importDeclarations++
+			}
 			for _, spec := range genDecl.Specs {
-				importSpecs++
+				if observer != nil {
+					importSpecs++
+				}
 				importSpec, ok := spec.(*ast.ImportSpec)
 				if !ok || importSpec.Path == nil {
 					return fmt.Errorf("scanning imports of %s: malformed import declaration", fromPkg)

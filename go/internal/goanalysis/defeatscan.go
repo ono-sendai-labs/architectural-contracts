@@ -266,7 +266,9 @@ func scanBypassSourceFile(
 		if tok == token.EOF {
 			break
 		}
-		sourceTokens++
+		if observer != nil {
+			sourceTokens++
+		}
 		if scanErr != nil {
 			return fmt.Errorf("scan analysis defeats: member file %q does not lex as Go source: %w", file, scanErr)
 		}
@@ -376,8 +378,10 @@ func scanBypassSyntax(
 	commentGroups := 0
 	comments := 0
 	for _, cg := range f.Comments {
-		commentGroups++
-		comments += len(cg.List)
+		if observer != nil {
+			commentGroups++
+			comments += len(cg.List)
+		}
 		for _, c := range cg.List {
 			if !isLinknameDirective(c.Text) {
 				continue
@@ -405,14 +409,20 @@ func scanBypassSyntax(
 	importDeclarations := 0
 	importSpecs := 0
 	for _, decl := range f.Decls {
-		astDeclarations++
+		if observer != nil {
+			astDeclarations++
+		}
 		genDecl, ok := decl.(*ast.GenDecl)
 		if !ok || genDecl.Tok != token.IMPORT {
 			continue
 		}
-		importDeclarations++
+		if observer != nil {
+			importDeclarations++
+		}
 		for _, spec := range genDecl.Specs {
-			importSpecs++
+			if observer != nil {
+				importSpecs++
+			}
 			importSpec, ok := spec.(*ast.ImportSpec)
 			if !ok || importSpec.Path == nil || importSpec.Path.Value != `"C"` {
 				continue

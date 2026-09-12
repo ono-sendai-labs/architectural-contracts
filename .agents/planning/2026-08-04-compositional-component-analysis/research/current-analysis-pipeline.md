@@ -348,15 +348,25 @@ three post-warm-up samples in order and `median` is their robust aggregate.
 | 16 | 2 | 3.829, 4.152, 3.154 / 3.829 | 8.747, 7.594, 7.554 / 7.594 | 4.315, 4.613, 3.687 / 4.315 | 33 | 81,962 |
 | 16 | 4 | 5.620, 5.512, 5.017 / 5.512 | 11.902, 14.758, 11.061 / 11.902 | 6.210, 6.297, 5.607 / 6.210 | 65 | 258,028 |
 
-The exact structural workload was constant in all nine cases: one member
-package, one selected source file, one syntax file, one `types.Info`, and the
-same `Uses`/`Selections`, import edges, and typed reference edges. Every
-non-member had no syntax, no type info, and no source-file role, while every
-non-member was export-backed with complete types. Artifact counts and bytes
-increased strictly along both the depth axis at each fixed width and the width
-axis at each fixed depth. The scan guard is deliberately broad — median scan
-must stay below `20*baseline + 20ms` — because the exact member workload is the
-strong invariant and microsecond scheduling noise is not a useful threshold.
+The exact structural **loaded-package** workload was constant in all nine
+cases: one member package, one selected source file, one syntax file, one
+`types.Info`, and the same `Uses`/`Selections`, import edges, and typed
+reference edges. Every non-member had no syntax, no type info, and no
+source-file role, while every non-member was export-backed with complete types.
+Those counters describe data made available by the loader; they do not prove
+which package or node the scanners entered. The package-private scan observer
+now supplies that second measurement at the actual scanner boundaries. For
+each row, each scanner was presented one root package, entered exactly that
+one declared member, and entered zero non-members. The exact member counter
+order is `syntax_files,type_info_packages,Uses,Selections,import_packages,AST_files,AST_comment_groups,AST_comments,AST_declarations,import_declarations,import_specs,declared_files,assembly_files,go_source_files,parsed_syntax_files,lexed_source_files,lexed_source_bytes,source_tokens,other`:
+`ScanReferences` was `[1,1,4,0,1,1,0,0,2,1,1,0,0,0,0,0,0,0,0]`, with a
+zero non-member vector; `ScanAnalysisDefeats` was
+`[0,0,0,0,0,1,0,0,2,1,1,1,0,1,1,0,0,0,0]`, also with a zero non-member
+vector. Artifact counts and bytes increased strictly along both the depth
+axis at each fixed width and the width axis at each fixed depth. The scan
+guard remains deliberately broad — median scan must stay below
+`20*baseline + 20ms` — but exact scanner counters and edges, rather than
+elapsed time, are now the member-only invariant.
 
 ### Direct type-surface series
 
@@ -383,9 +393,11 @@ logs, never fields in reports, surfaces, facts, or layout artifacts.
 The integration test also audits `go list -deps ./internal/goanalysis`: the
 member-only check path links none of `golang.org/x/tools/go/ssa`,
 `golang.org/x/tools/go/callgraph/vta`, or `github.com/google/capslock`. The
-phase observer is package-private and nil by default, so production checks retain
-the same artifact and API contract while the test can attribute package loading,
-reference scanning, and complete `LoadPackageFacts` independently.
+phase observer and scan observer are package-private and nil by default, so
+production checks retain the same artifact and API contract while the test can
+attribute package loading, scanner-internal work, and complete
+`LoadPackageFacts` independently. A disabled/enabled observer comparison also
+produced byte-identical facts, reports, and surfaces.
 
 Routine validation on this Linux/amd64 host also ran `just ci` with the warm
 Bazel cache after the suite was added. It passed in 15.049 seconds of wall time
@@ -416,8 +428,19 @@ are the measured root action execution-wall times from the execution log.
 `check_loader_us`/`member_scan_us` and their dependency-prefixed counterparts
 are medians of three post-warm-up observations from every checked component's
 production member-only loader and scanner, using Task 1's package-private
-no-op-by-default phase observer. Workload tokens use the stable order
+no-op-by-default phase observer. The loaded-package workload tokens use the stable order
 `packages:sources:syntax:types_info:uses:selections:imports:references`.
+The scanner-internal tokens are captured independently at both scanner
+boundaries: every root and checked dependency subchain row presented one
+package, entered one member package, and entered zero non-members. Their
+member vectors use the counter order documented in the native section above:
+the typed-reference vector is `[1,1,4,0,1,1,0,0,2,1,1,0,0,0,0,0,0,0,0]` and
+the analysis-defeat vector is
+`[0,0,0,0,0,1,0,0,2,1,1,1,0,1,1,0,0,0,0]`; every non-member vector is all
+zero. These exact vectors are equal across all 13 rows and between each row's
+root and checked dependency subchain; the typed edge sets are equal after the
+fixture's intentional variant-name path normalization. The observer is test
+only and its fields never reach a persisted artifact.
 `producer_chain_us` is the sum of the root and checked dependency's six
 producer-action times; it excludes the shared stdlib-map generation so that the
 one-time producer is not charged once to every row. Timings are observations

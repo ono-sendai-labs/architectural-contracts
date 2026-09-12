@@ -43,14 +43,16 @@ type scalingFixture struct {
 }
 
 type scalingRunCapture struct {
-	Packages []*packages.Package
-	Phases   map[analysisPhase][]time.Duration
+	Packages   []*packages.Package
+	Phases     map[analysisPhase][]time.Duration
+	ScanEvents []scanObserverEvent
 }
 
 type scalingSample struct {
 	Facts        facts.PackageFacts
 	Graph        scalingGraphSnapshot
 	Workload     scalingMemberWorkload
+	ScanWork     scanObservationSnapshot
 	Phases       map[analysisPhase][]time.Duration
 	ReportBytes  []byte
 	SurfaceBytes []byte
@@ -225,9 +227,11 @@ func measureScalingSample(t *testing.T, fixture scalingFixture) scalingSample {
 	t.Helper()
 	previousObserver := phaseObserver
 	previousLoader := loadPackages
+	previousScanObserver := scanObserver
 	defer func() {
 		phaseObserver = previousObserver
 		loadPackages = previousLoader
+		scanObserver = previousScanObserver
 	}()
 
 	var current *scalingRunCapture
@@ -242,6 +246,11 @@ func measureScalingSample(t *testing.T, fixture scalingFixture) scalingSample {
 			current.Packages = loaded
 		}
 		return loaded, err
+	}
+	scanObserver = func(event scanObserverEvent) {
+		if current != nil {
+			current.ScanEvents = append(current.ScanEvents, event)
+		}
 	}
 
 	var measured scalingSample
@@ -273,6 +282,7 @@ func measureScalingSample(t *testing.T, fixture scalingFixture) scalingSample {
 				Facts:        loaded,
 				Graph:        snapshotScalingGraph(current.Packages, fixture),
 				Workload:     snapshotScalingWorkload(t, current.Packages, fixture),
+				ScanWork:     snapshotScanObserver(current.ScanEvents),
 				Phases:       make(map[analysisPhase][]time.Duration),
 				ReportBytes:  append([]byte(nil), reportBytes...),
 				SurfaceBytes: append([]byte(nil), surfaceBytes...),
@@ -302,6 +312,12 @@ func measureScalingSample(t *testing.T, fixture scalingFixture) scalingSample {
 		}
 		if !reflect.DeepEqual(loaded.References, measured.Facts.References) || !reflect.DeepEqual(loaded.Imports, measured.Facts.Imports) {
 			t.Fatalf("repeated scaling sample %d changed typed workload", iteration)
+		}
+		if !reflect.DeepEqual(loaded.Bypasses, measured.Facts.Bypasses) {
+			t.Fatalf("repeated scaling sample %d changed analysis-defeat workload", iteration)
+		}
+		if got := snapshotScanObserver(current.ScanEvents); !reflect.DeepEqual(got, measured.ScanWork) {
+			t.Fatalf("repeated scaling sample %d changed scanner observation: got %#v, want %#v", iteration, got, measured.ScanWork)
 		}
 		if got := snapshotScalingWorkload(t, current.Packages, fixture); !reflect.DeepEqual(got, measured.Workload) {
 			t.Fatalf("repeated scaling sample %d changed member load workload: got %#v, want %#v", iteration, got, measured.Workload)
@@ -369,6 +385,32 @@ func emitScalingArtifacts(t *testing.T, fixture scalingFixture, loaded facts.Pac
 		t.Fatalf("encoding scaling report artifact: %v", err)
 	}
 	return reportBytes, surfaceBytes
+}
+
+func loadScalingArtifactsWithScanObserver(t *testing.T, fixture scalingFixture, observer scanObservationObserver) (facts.PackageFacts, []byte, []byte) {
+	t.Helper()
+	previous := scanObserver
+	scanObserver = observer
+	defer func() { scanObserver = previous }()
+
+	var loaded facts.PackageFacts
+	var reportBytes, surfaceBytes []byte
+	err := packagelayout.WithDriverEnv(fixture.LayoutPath, fixture.Workspace, func() error {
+		var err error
+		loaded, err = LoadPackageFacts(LoadRequest{
+			ComponentRoot: fixture.Workspace,
+			Members:       []string{fixture.MemberPath},
+		})
+		if err != nil {
+			return err
+		}
+		reportBytes, surfaceBytes = emitScalingArtifacts(t, fixture, loaded)
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("member-only artifact load: %v", err)
+	}
+	return loaded, reportBytes, surfaceBytes
 }
 
 func scalingPhasesHaveDistinctDurations(phases map[analysisPhase][]time.Duration) bool {

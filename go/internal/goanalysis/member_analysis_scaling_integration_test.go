@@ -3,7 +3,9 @@
 package goanalysis
 
 import (
+	"bytes"
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -37,11 +39,17 @@ func TestMemberAnalysisScaling_Primary(t *testing.T) {
 				if !reflect.DeepEqual(sample.Workload, baseline.Workload) {
 					t.Errorf("depth=%d width=%d member workload = %#v, want %#v", depth, width, sample.Workload, baseline.Workload)
 				}
+				if !sameScanObservationWork(sample.ScanWork, baseline.ScanWork) {
+					t.Errorf("depth=%d width=%d scanner work changed: got %#v, want %#v", depth, width, sample.ScanWork, baseline.ScanWork)
+				}
 				if !reflect.DeepEqual(sample.Facts.References, baseline.Facts.References) {
 					t.Errorf("depth=%d width=%d typed references changed: got %#v, want %#v", depth, width, sample.Facts.References, baseline.Facts.References)
 				}
 				if !reflect.DeepEqual(sample.Facts.Imports, baseline.Facts.Imports) {
 					t.Errorf("depth=%d width=%d imports changed: got %#v, want %#v", depth, width, sample.Facts.Imports, baseline.Facts.Imports)
+				}
+				if !reflect.DeepEqual(sample.Facts.Bypasses, baseline.Facts.Bypasses) {
+					t.Errorf("depth=%d width=%d analysis-defeat observations changed: got %#v, want %#v", depth, width, sample.Facts.Bypasses, baseline.Facts.Bypasses)
 				}
 			}
 			wantArtifacts := uint64(1 + depth*width)
@@ -49,10 +57,11 @@ func TestMemberAnalysisScaling_Primary(t *testing.T) {
 				t.Errorf("depth=%d width=%d export artifact count = %d, want exact count %d", depth, width, got, wantArtifacts)
 			}
 			assertScalingGraph(t, sample.Graph, fixture)
+			assertScanObservationMemberOnly(t, fmt.Sprintf("depth=%d width=%d", depth, width), sample.ScanWork, fixture.MemberPath, 1)
 			byDepth[depth][width] = sample
 			byWidth[width] = ensureScalingSamples(byWidth[width])
 			byWidth[width][depth] = sample
-			t.Logf("primary depth=%d width=%d raw=%s median=%s artifacts=%d bytes=%d", depth, width, formatScalingSamples(sample.Phases), formatScalingPhases(sample.Phases), sample.Facts.ExportDataDiagnostics.NonMemberExportArtifactCount, sample.Facts.ExportDataDiagnostics.NonMemberExportBytes)
+			t.Logf("primary depth=%d width=%d raw=%s median=%s scan_work=%s artifacts=%d bytes=%d", depth, width, formatScalingSamples(sample.Phases), formatScalingPhases(sample.Phases), scanObservationWorkToken(sample.ScanWork), sample.Facts.ExportDataDiagnostics.NonMemberExportArtifactCount, sample.Facts.ExportDataDiagnostics.NonMemberExportBytes)
 		}
 	}
 
@@ -91,6 +100,7 @@ func TestMemberAnalysisScaling_DirectTypeSurface(t *testing.T) {
 			t.Errorf("type surface=%d export artifact count = %d, want exact count %d", typeSurface, got, want)
 		}
 		assertScalingGraph(t, sample.Graph, fixture)
+		assertScanObservationMemberOnly(t, fmt.Sprintf("type surface=%d", typeSurface), sample.ScanWork, fixture.MemberPath, 1)
 		if baseline == nil {
 			baseline = &sample
 		} else {
@@ -102,6 +112,12 @@ func TestMemberAnalysisScaling_DirectTypeSurface(t *testing.T) {
 			}
 			if !reflect.DeepEqual(sample.Facts.Imports, baseline.Facts.Imports) {
 				t.Errorf("type surface=%d imports changed: got %#v, want %#v", typeSurface, sample.Facts.Imports, baseline.Facts.Imports)
+			}
+			if !sameScanObservationWork(sample.ScanWork, baseline.ScanWork) {
+				t.Errorf("type surface=%d scanner work changed: got %#v, want %#v", typeSurface, sample.ScanWork, baseline.ScanWork)
+			}
+			if !reflect.DeepEqual(sample.Facts.Bypasses, baseline.Facts.Bypasses) {
+				t.Errorf("type surface=%d analysis-defeat observations changed: got %#v, want %#v", typeSurface, sample.Facts.Bypasses, baseline.Facts.Bypasses)
 			}
 			if sample.Facts.ExportDataDiagnostics.NonMemberExportBytes <= previous.NonMemberExportBytes {
 				t.Errorf("type surface=%d export bytes = %d, want growth beyond %d", typeSurface, sample.Facts.ExportDataDiagnostics.NonMemberExportBytes, previous.NonMemberExportBytes)
@@ -115,7 +131,7 @@ func TestMemberAnalysisScaling_DirectTypeSurface(t *testing.T) {
 				t.Errorf("direct type-surface scan median for %d declarations = %s, want no more than %s", typeSurface, got, bound)
 			}
 		}
-		t.Logf("direct type surface=%d raw=%s median=%s artifacts=%d bytes=%d", typeSurface, formatScalingSamples(sample.Phases), formatScalingPhases(sample.Phases), previous.NonMemberExportArtifactCount, previous.NonMemberExportBytes)
+		t.Logf("direct type surface=%d raw=%s median=%s scan_work=%s artifacts=%d bytes=%d", typeSurface, formatScalingSamples(sample.Phases), formatScalingPhases(sample.Phases), scanObservationWorkToken(sample.ScanWork), previous.NonMemberExportArtifactCount, previous.NonMemberExportBytes)
 	}
 	if baseline == nil {
 		t.Fatal("direct type-surface series produced no baseline sample")
@@ -164,6 +180,34 @@ func TestMemberAnalysisScaling_RepeatedFactsAreTimingIndependent(t *testing.T) {
 	}
 	if len(sample.Phases[analysisPhaseLoadPackageFacts]) != scalingSampleCount || len(sample.Phases[analysisPhaseLoadPackages]) != scalingSampleCount || len(sample.Phases[analysisPhaseScanReferences]) != scalingSampleCount {
 		t.Fatalf("phase observations = %#v, want %d observations for each phase", sample.Phases, scalingSampleCount)
+	}
+}
+
+func TestMemberAnalysisScaling_ScanObserverDoesNotChangeArtifacts(t *testing.T) {
+	fixture := buildScalingFixture(t, scalingFixtureParameters{Depth: 4, Width: 2})
+	disabledFacts, disabledReport, disabledSurface := loadScalingArtifactsWithScanObserver(t, fixture, nil)
+	capture := &scanObserverCapture{}
+	enabledFacts, enabledReport, enabledSurface := loadScalingArtifactsWithScanObserver(t, fixture, capture.observe)
+	if len(capture.events) == 0 {
+		t.Fatal("enabled scan observer captured no events")
+	}
+
+	disabledFactsBytes, err := json.Marshal(disabledFacts)
+	if err != nil {
+		t.Fatalf("marshalling facts with observer disabled: %v", err)
+	}
+	enabledFactsBytes, err := json.Marshal(enabledFacts)
+	if err != nil {
+		t.Fatalf("marshalling facts with observer enabled: %v", err)
+	}
+	if !bytes.Equal(disabledFactsBytes, enabledFactsBytes) {
+		t.Fatalf("observer changed facts bytes")
+	}
+	if !bytes.Equal(disabledReport, enabledReport) {
+		t.Fatalf("observer changed report bytes")
+	}
+	if !bytes.Equal(disabledSurface, enabledSurface) {
+		t.Fatalf("observer changed surface bytes")
 	}
 }
 

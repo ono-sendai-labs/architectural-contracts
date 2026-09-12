@@ -8,12 +8,228 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"sort"
+	"strconv"
+	"strings"
 	"testing"
 
 	"golang.org/x/tools/go/packages"
 
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/facts"
 )
+
+type scanObserverCapture struct {
+	events []scanObserverEvent
+}
+
+func (capture *scanObserverCapture) observe(event scanObserverEvent) {
+	capture.events = append(capture.events, event)
+}
+
+type scanObservationSnapshot struct {
+	References      scanWorkSnapshot
+	AnalysisDefeats scanWorkSnapshot
+}
+
+type scanWorkSnapshot struct {
+	ConsideredPackages       []string
+	MemberEnteredPackages    []string
+	NonMemberEnteredPackages []string
+	Member                   scanWorkCounts
+	NonMember                scanWorkCounts
+}
+
+type scanWorkCounts struct {
+	SyntaxFiles        int
+	TypeInfoPackages   int
+	Uses               int
+	Selections         int
+	ImportPackages     int
+	ASTFiles           int
+	ASTCommentGroups   int
+	ASTComments        int
+	ASTDeclarations    int
+	ImportDeclarations int
+	ImportSpecs        int
+	DeclaredFiles      int
+	AssemblyFiles      int
+	GoSourceFiles      int
+	ParsedSyntaxFiles  int
+	LexedSourceFiles   int
+	LexedSourceBytes   int
+	SourceTokens       int
+	Other              int
+}
+
+func snapshotScanObserver(events []scanObserverEvent) scanObservationSnapshot {
+	return scanObservationSnapshot{
+		References:      snapshotScanObserverScanner(events, scanObserverReferences),
+		AnalysisDefeats: snapshotScanObserverScanner(events, scanObserverAnalysisDefeats),
+	}
+}
+
+func snapshotScanObserverScanner(events []scanObserverEvent, scanner scanObserverScanner) scanWorkSnapshot {
+	var snapshot scanWorkSnapshot
+	for _, event := range events {
+		if event.Scanner != scanner {
+			continue
+		}
+		switch event.Operation {
+		case scanObserverPackageConsidered:
+			appendScanObserverPackages(&snapshot.ConsideredPackages, event.Package, event.Count)
+		case scanObserverPackageEntered:
+			if event.Member {
+				appendScanObserverPackages(&snapshot.MemberEnteredPackages, event.Package, event.Count)
+			} else {
+				appendScanObserverPackages(&snapshot.NonMemberEnteredPackages, event.Package, event.Count)
+			}
+		default:
+			if event.Member {
+				snapshot.Member.add(event)
+			} else {
+				snapshot.NonMember.add(event)
+			}
+		}
+	}
+	sort.Strings(snapshot.ConsideredPackages)
+	sort.Strings(snapshot.MemberEnteredPackages)
+	sort.Strings(snapshot.NonMemberEnteredPackages)
+	return snapshot
+}
+
+func appendScanObserverPackages(packages *[]string, packagePath string, count int) {
+	for i := 0; i < count; i++ {
+		*packages = append(*packages, packagePath)
+	}
+}
+
+func (counts *scanWorkCounts) add(event scanObserverEvent) {
+	switch event.Operation {
+	case scanObserverSyntaxFiles:
+		counts.SyntaxFiles += event.Count
+	case scanObserverTypeInfoPackages:
+		counts.TypeInfoPackages += event.Count
+	case scanObserverUses:
+		counts.Uses += event.Count
+	case scanObserverSelections:
+		counts.Selections += event.Count
+	case scanObserverImportPackages:
+		counts.ImportPackages += event.Count
+	case scanObserverASTFiles:
+		counts.ASTFiles += event.Count
+	case scanObserverASTCommentGroups:
+		counts.ASTCommentGroups += event.Count
+	case scanObserverASTComments:
+		counts.ASTComments += event.Count
+	case scanObserverASTDeclarations:
+		counts.ASTDeclarations += event.Count
+	case scanObserverImportDeclarations:
+		counts.ImportDeclarations += event.Count
+	case scanObserverImportSpecs:
+		counts.ImportSpecs += event.Count
+	case scanObserverDeclaredFiles:
+		counts.DeclaredFiles += event.Count
+	case scanObserverAssemblyFiles:
+		counts.AssemblyFiles += event.Count
+	case scanObserverGoSourceFiles:
+		counts.GoSourceFiles += event.Count
+	case scanObserverParsedSyntaxFiles:
+		counts.ParsedSyntaxFiles += event.Count
+	case scanObserverLexedSourceFiles:
+		counts.LexedSourceFiles += event.Count
+	case scanObserverLexedSourceBytes:
+		counts.LexedSourceBytes += event.Count
+	case scanObserverSourceTokens:
+		counts.SourceTokens += event.Count
+	default:
+		counts.Other += event.Count
+	}
+}
+
+func sameScanObservationWork(left, right scanObservationSnapshot) bool {
+	return sameScanWork(left.References, right.References) && sameScanWork(left.AnalysisDefeats, right.AnalysisDefeats)
+}
+
+func sameScanWork(left, right scanWorkSnapshot) bool {
+	return reflect.DeepEqual(left.Member, right.Member) &&
+		reflect.DeepEqual(left.NonMember, right.NonMember) &&
+		len(left.MemberEnteredPackages) == len(right.MemberEnteredPackages) &&
+		len(left.NonMemberEnteredPackages) == len(right.NonMemberEnteredPackages)
+}
+
+func scanObservationWorkToken(observation scanObservationSnapshot) string {
+	return scanWorkSnapshotToken(observation.References) + ";" + scanWorkSnapshotToken(observation.AnalysisDefeats)
+}
+
+func scanWorkSnapshotToken(snapshot scanWorkSnapshot) string {
+	return strings.Join([]string{
+		strconv.Itoa(len(snapshot.ConsideredPackages)),
+		strconv.Itoa(len(snapshot.MemberEnteredPackages)),
+		strconv.Itoa(len(snapshot.NonMemberEnteredPackages)),
+		scanWorkCountsToken(snapshot.Member),
+		scanWorkCountsToken(snapshot.NonMember),
+	}, ":")
+}
+
+func scanWorkCountsToken(counts scanWorkCounts) string {
+	values := []int{
+		counts.SyntaxFiles,
+		counts.TypeInfoPackages,
+		counts.Uses,
+		counts.Selections,
+		counts.ImportPackages,
+		counts.ASTFiles,
+		counts.ASTCommentGroups,
+		counts.ASTComments,
+		counts.ASTDeclarations,
+		counts.ImportDeclarations,
+		counts.ImportSpecs,
+		counts.DeclaredFiles,
+		counts.AssemblyFiles,
+		counts.GoSourceFiles,
+		counts.ParsedSyntaxFiles,
+		counts.LexedSourceFiles,
+		counts.LexedSourceBytes,
+		counts.SourceTokens,
+		counts.Other,
+	}
+	text := make([]string, len(values))
+	for i, value := range values {
+		text[i] = strconv.Itoa(value)
+	}
+	return strings.Join(text, ",")
+}
+
+func assertScanObservationMemberOnly(t testing.TB, label string, observation scanObservationSnapshot, memberPath string, wantConsidered int) {
+	t.Helper()
+	assertScanWorkMemberOnly(t, label+" typed", observation.References, memberPath, wantConsidered)
+	assertScanWorkMemberOnly(t, label+" analysis-defeat", observation.AnalysisDefeats, memberPath, wantConsidered)
+	if observation.References.Member.TypeInfoPackages != 1 || observation.References.Member.SyntaxFiles == 0 {
+		t.Errorf("%s typed member syntax/type-info work = %#v, want one typed member and syntax", label, observation.References.Member)
+	}
+	if observation.References.Member.ImportPackages == 0 || observation.References.Member.ImportSpecs == 0 {
+		t.Errorf("%s typed member import work = %#v, want at least one import package/spec", label, observation.References.Member)
+	}
+	if observation.AnalysisDefeats.Member.DeclaredFiles == 0 || observation.AnalysisDefeats.Member.GoSourceFiles == 0 || observation.AnalysisDefeats.Member.ASTFiles == 0 {
+		t.Errorf("%s analysis-defeat member work = %#v, want declared Go AST work", label, observation.AnalysisDefeats.Member)
+	}
+}
+
+func assertScanWorkMemberOnly(t testing.TB, label string, work scanWorkSnapshot, memberPath string, wantConsidered int) {
+	t.Helper()
+	if len(work.ConsideredPackages) != wantConsidered {
+		t.Errorf("%s considered packages = %d, want %d", label, len(work.ConsideredPackages), wantConsidered)
+	}
+	if !reflect.DeepEqual(work.MemberEnteredPackages, []string{memberPath}) {
+		t.Errorf("%s member entries = %v, want [%q]", label, work.MemberEnteredPackages, memberPath)
+	}
+	if len(work.NonMemberEnteredPackages) != 0 {
+		t.Errorf("%s non-member entries = %v, want none", label, work.NonMemberEnteredPackages)
+	}
+	if work.NonMember != (scanWorkCounts{}) {
+		t.Errorf("%s non-member work = %#v, want zero", label, work.NonMember)
+	}
+}
 
 func TestScanObserver_ReportsMemberOnlyWorkForBothScanners(t *testing.T) {
 	pkgs, members, root := syntheticScanObserverPackages(t)
@@ -76,6 +292,60 @@ func TestScanObserver_ReportsMemberOnlyWorkForBothScanners(t *testing.T) {
 	assertScanObserverCount(t, observed, scanObserverAnalysisDefeats, scanObserverImportDeclarations, "example.com/member", true, 1)
 	assertScanObserverCount(t, observed, scanObserverAnalysisDefeats, scanObserverImportSpecs, "example.com/member", true, 1)
 	assertNoNonMemberScanWork(t, observed, scanObserverAnalysisDefeats)
+
+	ordered := snapshotScanObserver(observed)
+	observed = nil
+	if _, _, err := ScanReferences([]*packages.Package{pkgs[1], pkgs[0]}, members, root); err != nil {
+		t.Fatalf("unexpected reordered observed reference scan error: %v", err)
+	}
+	if _, err := ScanAnalysisDefeats([]*packages.Package{pkgs[1], pkgs[0]}, members, root); err != nil {
+		t.Fatalf("unexpected reordered observed analysis-defeat scan error: %v", err)
+	}
+	if got := snapshotScanObserver(observed); !reflect.DeepEqual(got, ordered) {
+		t.Fatalf("reordering presented packages changed scan observation: got %#v, want %#v", got, ordered)
+	}
+}
+
+func TestScanObserver_ReportsIgnoredMemberSourceWork(t *testing.T) {
+	root := t.TempDir()
+	memberPath := "example.com/member"
+	closurePath := "example.com/closure"
+	memberFile := filepath.Join(root, "member_ignored.go")
+	closureFile := filepath.Join(root, "closure_ignored.go")
+	memberSource := "package member\n\n//go:linkname hidden example.com/other.hidden\nfunc hidden()\n"
+	closureSource := "package closure\n\n//go:linkname hidden example.com/other.hidden\nfunc hidden()\n"
+	if err := os.WriteFile(memberFile, []byte(memberSource), 0o644); err != nil {
+		t.Fatalf("writing ignored member fixture: %v", err)
+	}
+	if err := os.WriteFile(closureFile, []byte(closureSource), 0o644); err != nil {
+		t.Fatalf("writing ignored non-member fixture: %v", err)
+	}
+
+	members, err := facts.NewMemberSet(memberPath)
+	if err != nil {
+		t.Fatalf("creating ignored-source member set: %v", err)
+	}
+	packages := []*packages.Package{
+		{PkgPath: closurePath, IgnoredFiles: []string{closureFile}},
+		{PkgPath: memberPath, IgnoredFiles: []string{memberFile}},
+	}
+	capture := &scanObserverCapture{}
+	previous := scanObserver
+	scanObserver = capture.observe
+	defer func() { scanObserver = previous }()
+
+	bypasses, err := ScanAnalysisDefeats(packages, members, root)
+	if err != nil {
+		t.Fatalf("unexpected ignored-source analysis-defeat scan error: %v", err)
+	}
+	if len(bypasses) != 1 || bypasses[0].Kind != facts.BypassLinkname || bypasses[0].Site.File != "member_ignored.go" {
+		t.Fatalf("ignored-source bypasses = %+v, want one member linkname observation", bypasses)
+	}
+	snapshot := snapshotScanObserver(capture.events).AnalysisDefeats
+	assertScanWorkMemberOnly(t, "ignored-source analysis-defeat", snapshot, memberPath, 2)
+	if snapshot.Member.DeclaredFiles != 1 || snapshot.Member.GoSourceFiles != 1 || snapshot.Member.LexedSourceFiles != 1 || snapshot.Member.LexedSourceBytes != len(memberSource) || snapshot.Member.SourceTokens == 0 {
+		t.Errorf("ignored-source lexical work = %#v, want one member source with bytes and tokens", snapshot.Member)
+	}
 }
 
 func scanReferencesWithoutObserver(pkgs []*packages.Package, members facts.MemberSet, root string) ([]facts.ReferenceEdge, []facts.ImportEdge, error) {

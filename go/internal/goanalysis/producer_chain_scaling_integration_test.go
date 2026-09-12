@@ -123,6 +123,10 @@ type producerChainWorkload struct {
 type producerChainLoaderObservation struct {
 	Workload      producerChainWorkload
 	Diagnostics   facts.ExportDataDiagnostics
+	References    []facts.ReferenceEdge
+	Imports       []facts.ImportEdge
+	Bypasses      []facts.BypassObservation
+	ScanWork      scanObservationSnapshot
 	LoadDurations []time.Duration
 	ScanDurations []time.Duration
 }
@@ -151,8 +155,18 @@ type producerChainRow struct {
 	ExportArtifactBytes             uint64
 	DependencyExportArtifactCount   uint64
 	DependencyExportArtifactBytes   uint64
+	MemberPackage                   string
+	DependencyMemberPackage         string
 	MemberWorkload                  producerChainWorkload
 	DependencyMemberWorkload        producerChainWorkload
+	MemberScanWork                  scanObservationSnapshot
+	DependencyScanWork              scanObservationSnapshot
+	MemberReferences                []facts.ReferenceEdge
+	MemberImports                   []facts.ImportEdge
+	MemberBypasses                  []facts.BypassObservation
+	DependencyReferences            []facts.ReferenceEdge
+	DependencyImports               []facts.ImportEdge
+	DependencyBypasses              []facts.BypassObservation
 }
 
 func TestBazelProducerChainScaling_Integration(t *testing.T) {
@@ -341,6 +355,7 @@ func producerChainRowForVariant(t *testing.T, execroot string, indexed map[strin
 	assertProducerActionHermetic(t, layout)
 	assertProducerActionHermetic(t, check)
 	assertProducerChainInputRoles(t, variant.Name+"_component", variant.Name+"_member.go", graph, layout, check, true)
+	assertScanObservationMemberOnly(t, variant.Name+" root", rootLoader.ScanWork, variant.MemberPackage, 1)
 
 	projectionFiles, projectionBytes := producerChainInputVolume(t, graph, func(path string) bool {
 		return strings.HasSuffix(path, ".go")
@@ -367,6 +382,7 @@ func producerChainRowForVariant(t *testing.T, execroot string, indexed map[strin
 	assertProducerActionHermetic(t, dependencyLayout)
 	assertProducerActionHermetic(t, dependencyCheck)
 	assertProducerChainInputRoles(t, variant.Name+"_dependency_component", variant.Name+"_dependency_member.go", dependencyGraph, dependencyLayout, dependencyCheck, false)
+	assertScanObservationMemberOnly(t, variant.Name+" dependency", dependencyLoader.ScanWork, variant.DependencyMemberPackage, 1)
 	dependencyProjectionFiles, dependencyProjectionBytes := producerChainInputVolume(t, dependencyGraph, func(path string) bool {
 		return strings.HasSuffix(path, ".go")
 	})
@@ -410,8 +426,18 @@ func producerChainRowForVariant(t *testing.T, execroot string, indexed map[strin
 		ExportArtifactBytes:             exportBytes,
 		DependencyExportArtifactCount:   dependencyExportFiles,
 		DependencyExportArtifactBytes:   dependencyExportBytes,
+		MemberPackage:                   variant.MemberPackage,
+		DependencyMemberPackage:         variant.DependencyMemberPackage,
 		MemberWorkload:                  rootLoader.Workload,
 		DependencyMemberWorkload:        dependencyLoader.Workload,
+		MemberScanWork:                  rootLoader.ScanWork,
+		DependencyScanWork:              dependencyLoader.ScanWork,
+		MemberReferences:                append([]facts.ReferenceEdge(nil), rootLoader.References...),
+		MemberImports:                   append([]facts.ImportEdge(nil), rootLoader.Imports...),
+		MemberBypasses:                  append([]facts.BypassObservation{}, rootLoader.Bypasses...),
+		DependencyReferences:            append([]facts.ReferenceEdge(nil), dependencyLoader.References...),
+		DependencyImports:               append([]facts.ImportEdge(nil), dependencyLoader.Imports...),
+		DependencyBypasses:              append([]facts.BypassObservation{}, dependencyLoader.Bypasses...),
 	}
 }
 
@@ -841,14 +867,17 @@ func measureProducerChainLoader(t *testing.T, execroot string, indexed map[strin
 	t.Helper()
 	previousObserver := phaseObserver
 	previousLoader := loadPackages
+	previousScanObserver := scanObserver
 	defer func() {
 		phaseObserver = previousObserver
 		loadPackages = previousLoader
+		scanObserver = previousScanObserver
 	}()
 
 	type capture struct {
-		Packages []*packages.Package
-		Phases   map[analysisPhase]time.Duration
+		Packages   []*packages.Package
+		Phases     map[analysisPhase]time.Duration
+		ScanEvents []scanObserverEvent
 	}
 	var current *capture
 	phaseObserver = func(phase analysisPhase, duration time.Duration) {
@@ -862,6 +891,11 @@ func measureProducerChainLoader(t *testing.T, execroot string, indexed map[strin
 			current.Packages = loaded
 		}
 		return loaded, err
+	}
+	scanObserver = func(event scanObserverEvent) {
+		if current != nil {
+			current.ScanEvents = append(current.ScanEvents, event)
+		}
 	}
 
 	var measured producerChainLoaderObservation
@@ -894,13 +928,22 @@ func measureProducerChainLoader(t *testing.T, execroot string, indexed map[strin
 			t.Fatalf("%s loader observation %d has no ScanReferences duration", target.Name, iteration)
 		}
 		workload := snapshotProducerChainWorkload(current.Packages, target.MemberPackage, loaded)
+		scanWork := snapshotScanObserver(current.ScanEvents)
 		if iteration == 1 {
 			measured.Workload = workload
 			measured.Diagnostics = loaded.ExportDataDiagnostics
+			measured.References = append([]facts.ReferenceEdge(nil), loaded.References...)
+			measured.Imports = append([]facts.ImportEdge(nil), loaded.Imports...)
+			measured.Bypasses = append([]facts.BypassObservation{}, loaded.Bypasses...)
+			measured.ScanWork = scanWork
 		} else if workload != measured.Workload {
 			t.Fatalf("%s member workload changed across observations: got %#v, want %#v", target.Name, workload, measured.Workload)
 		} else if loaded.ExportDataDiagnostics != measured.Diagnostics {
 			t.Fatalf("%s export diagnostics changed across observations: got %#v, want %#v", target.Name, loaded.ExportDataDiagnostics, measured.Diagnostics)
+		} else if !reflect.DeepEqual(loaded.References, measured.References) || !reflect.DeepEqual(loaded.Imports, measured.Imports) || !reflect.DeepEqual(loaded.Bypasses, measured.Bypasses) {
+			t.Fatalf("%s typed facts changed across observations: refs=%#v/%#v imports=%#v/%#v bypasses=%#v/%#v", target.Name, loaded.References, measured.References, loaded.Imports, measured.Imports, loaded.Bypasses, measured.Bypasses)
+		} else if !reflect.DeepEqual(scanWork, measured.ScanWork) {
+			t.Fatalf("%s scanner observation changed across observations: got %#v, want %#v", target.Name, scanWork, measured.ScanWork)
 		}
 		measured.LoadDurations = append(measured.LoadDurations, loadDuration)
 		measured.ScanDurations = append(measured.ScanDurations, scanDuration)
@@ -957,6 +1000,25 @@ func assertProducerChainScaling(t *testing.T, rows []producerChainRow) {
 		}
 		assertProducerChainWorkload(t, row.Variant+" root", row.MemberWorkload)
 		assertProducerChainWorkload(t, row.Variant+" dependency", row.DependencyMemberWorkload)
+		if !sameScanObservationWork(row.MemberScanWork, baseline.MemberScanWork) {
+			t.Errorf("%s root scanner work = %#v, want fixed work %#v", row.Variant, row.MemberScanWork, baseline.MemberScanWork)
+		}
+		if !sameScanObservationWork(row.DependencyScanWork, baseline.DependencyScanWork) {
+			t.Errorf("%s dependency scanner work = %#v, want fixed work %#v", row.Variant, row.DependencyScanWork, baseline.DependencyScanWork)
+		}
+		if !sameScanObservationWork(row.MemberScanWork, row.DependencyScanWork) {
+			t.Errorf("%s root/dependency scanner work differs: root=%#v dependency=%#v", row.Variant, row.MemberScanWork, row.DependencyScanWork)
+		}
+		if !sameProducerChainReferences(row.MemberReferences, row.Variant, baseline.MemberReferences, baseline.Variant) ||
+			!sameProducerChainImports(row.MemberImports, row.Variant, baseline.MemberImports, baseline.Variant) ||
+			!sameProducerChainBypasses(row.MemberBypasses, row.Variant, baseline.MemberBypasses, baseline.Variant) {
+			t.Errorf("%s root typed facts changed from baseline", row.Variant)
+		}
+		if !sameProducerChainReferences(row.DependencyReferences, row.Variant, baseline.DependencyReferences, baseline.Variant) ||
+			!sameProducerChainImports(row.DependencyImports, row.Variant, baseline.DependencyImports, baseline.Variant) ||
+			!sameProducerChainBypasses(row.DependencyBypasses, row.Variant, baseline.DependencyBypasses, baseline.Variant) {
+			t.Errorf("%s dependency typed facts changed from baseline", row.Variant)
+		}
 		if !sameProducerChainMemberWorkload(row.MemberWorkload, baseline.MemberWorkload) {
 			t.Errorf("%s member workload = %#v, want fixed workload %#v", row.Variant, row.MemberWorkload, baseline.MemberWorkload)
 		}
@@ -1006,6 +1068,22 @@ func assertProducerChainScaling(t *testing.T, rows []producerChainRow) {
 		if !sameProducerChainMemberWorkload(current.DependencyMemberWorkload, previous.DependencyMemberWorkload) {
 			t.Errorf("direct type surface %d dependency member workload = %#v, want %#v", current.TypeSurface, current.DependencyMemberWorkload, previous.DependencyMemberWorkload)
 		}
+		if !sameScanObservationWork(current.MemberScanWork, previous.MemberScanWork) {
+			t.Errorf("direct type surface %d member scanner work = %#v, want %#v", current.TypeSurface, current.MemberScanWork, previous.MemberScanWork)
+		}
+		if !sameScanObservationWork(current.DependencyScanWork, previous.DependencyScanWork) {
+			t.Errorf("direct type surface %d dependency scanner work = %#v, want %#v", current.TypeSurface, current.DependencyScanWork, previous.DependencyScanWork)
+		}
+		if !sameProducerChainReferences(current.MemberReferences, current.Variant, previous.MemberReferences, previous.Variant) ||
+			!sameProducerChainImports(current.MemberImports, current.Variant, previous.MemberImports, previous.Variant) ||
+			!sameProducerChainBypasses(current.MemberBypasses, current.Variant, previous.MemberBypasses, previous.Variant) {
+			t.Errorf("direct type surface %d member typed facts changed", current.TypeSurface)
+		}
+		if !sameProducerChainReferences(current.DependencyReferences, current.Variant, previous.DependencyReferences, previous.Variant) ||
+			!sameProducerChainImports(current.DependencyImports, current.Variant, previous.DependencyImports, previous.Variant) ||
+			!sameProducerChainBypasses(current.DependencyBypasses, current.Variant, previous.DependencyBypasses, previous.Variant) {
+			t.Errorf("direct type surface %d dependency typed facts changed", current.TypeSurface)
+		}
 		previous = current
 	}
 
@@ -1040,6 +1118,51 @@ func sameProducerChainMemberWorkload(left, right producerChainWorkload) bool {
 		left.MemberSelections == right.MemberSelections &&
 		left.MemberImportEdges == right.MemberImportEdges &&
 		left.MemberReferenceEdges == right.MemberReferenceEdges
+}
+
+func sameProducerChainReferences(left []facts.ReferenceEdge, leftVariant string, right []facts.ReferenceEdge, rightVariant string) bool {
+	return reflect.DeepEqual(normalizeProducerChainReferences(left, leftVariant), normalizeProducerChainReferences(right, rightVariant))
+}
+
+func normalizeProducerChainReferences(edges []facts.ReferenceEdge, variant string) []facts.ReferenceEdge {
+	out := append([]facts.ReferenceEdge{}, edges...)
+	for i := range out {
+		out[i].FromPackage = normalizeProducerChainPath(out[i].FromPackage, variant)
+		out[i].ReferentPackage = normalizeProducerChainPath(out[i].ReferentPackage, variant)
+		out[i].Referent = facts.SymbolID(normalizeProducerChainPath(string(out[i].Referent), variant))
+		out[i].Site.File = normalizeProducerChainPath(out[i].Site.File, variant)
+	}
+	return facts.SortReferenceEdges(out)
+}
+
+func sameProducerChainImports(left []facts.ImportEdge, leftVariant string, right []facts.ImportEdge, rightVariant string) bool {
+	return reflect.DeepEqual(normalizeProducerChainImports(left, leftVariant), normalizeProducerChainImports(right, rightVariant))
+}
+
+func normalizeProducerChainImports(edges []facts.ImportEdge, variant string) []facts.ImportEdge {
+	out := append([]facts.ImportEdge{}, edges...)
+	for i := range out {
+		out[i].ImportingPackage = normalizeProducerChainPath(out[i].ImportingPackage, variant)
+		out[i].ImportPath = normalizeProducerChainPath(out[i].ImportPath, variant)
+		out[i].Site.File = normalizeProducerChainPath(out[i].Site.File, variant)
+	}
+	return facts.SortImportEdges(out)
+}
+
+func sameProducerChainBypasses(left []facts.BypassObservation, leftVariant string, right []facts.BypassObservation, rightVariant string) bool {
+	return reflect.DeepEqual(normalizeProducerChainBypasses(left, leftVariant), normalizeProducerChainBypasses(right, rightVariant))
+}
+
+func normalizeProducerChainBypasses(observations []facts.BypassObservation, variant string) []facts.BypassObservation {
+	out := append([]facts.BypassObservation{}, observations...)
+	for i := range out {
+		out[i].Site.File = normalizeProducerChainPath(out[i].Site.File, variant)
+	}
+	return facts.SortBypassObservations(out)
+}
+
+func normalizeProducerChainPath(path, variant string) string {
+	return strings.ReplaceAll(path, variant, "{variant}")
 }
 
 func primaryRow(t *testing.T, rows []producerChainRow, depth, width int) producerChainRow {
@@ -1198,7 +1321,7 @@ func printProducerChainTable(rows []producerChainRow, stdlibMapActions int) {
 	// This driver invokes only Bazel; native stdlib-map generation is therefore
 	// absent by construction rather than a synthetic execution-log counter.
 	fmt.Printf("producer-chain-scaling-v1 stdlib_map_actions=%d native_whole_sdk_generation=none(driver-only-bazel)\n", stdlibMapActions)
-	fmt.Println("variant depth width type_surface import_graph_actions layout_actions check_actions projection_source_files projection_source_bytes dependency_projection_source_files dependency_projection_source_bytes projection_us layout_us check_loader_us member_scan_us dependency_check_loader_us dependency_member_scan_us check_total_us producer_chain_us export_artifacts export_bytes dependency_export_artifacts dependency_export_bytes root_member_workload dependency_member_workload")
+	fmt.Println("variant depth width type_surface import_graph_actions layout_actions check_actions projection_source_files projection_source_bytes dependency_projection_source_files dependency_projection_source_bytes projection_us layout_us check_loader_us member_scan_us dependency_check_loader_us dependency_member_scan_us check_total_us producer_chain_us export_artifacts export_bytes dependency_export_artifacts dependency_export_bytes root_member_workload dependency_member_workload root_scan_work dependency_scan_work")
 	for _, row := range rows {
 		values := []string{
 			row.Variant,
@@ -1226,6 +1349,8 @@ func printProducerChainTable(rows []producerChainRow, stdlibMapActions int) {
 			strconv.FormatUint(row.DependencyExportArtifactBytes, 10),
 			producerChainMemberWorkloadToken(row.MemberWorkload),
 			producerChainMemberWorkloadToken(row.DependencyMemberWorkload),
+			scanObservationWorkToken(row.MemberScanWork),
+			scanObservationWorkToken(row.DependencyScanWork),
 		}
 		fmt.Println(strings.Join(values, " "))
 	}
