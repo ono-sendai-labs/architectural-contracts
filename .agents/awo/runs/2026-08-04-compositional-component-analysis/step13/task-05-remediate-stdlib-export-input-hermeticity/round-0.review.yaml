@@ -1,0 +1,154 @@
+review:
+  task_file: .agents/tasks/2026-08-04-compositional-component-analysis/step13/task-05-remediate-stdlib-export-input-hermeticity.code-task.md
+  change_id: ptsrrxpzzptrmllxmmqvuqpvkvouxvom
+  reviewed_at: "2026-09-12T14:23:45Z"
+  verdict: changes_requested
+  schema_version: 2
+  lsp_coverage: unavailable
+
+merge_request:
+  title: "feat(stdlib): narrow ArccCheck export inputs [Compositional Analysis: Step 13/Task 05]"
+  body: |
+    Reviews the initial `zmwzvuxkzypnpuwqrltrzvprnssluosz` implementation and
+    the follow-up `ptsrrxpzzptrmllxmmqvuqpvkvouxvom` acceptance-evidence change.
+    The series adds a shared metadata-driven export projection, routes the
+    production component action through it, tightens hermeticity assertions,
+    and records a fresh restricted run.
+
+summary: |
+  The production pinned-rules_go chain now uses one shared metadata-driven projection, and the fresh restricted run demonstrates export-only ArccCheck inputs, toolchain-free PASS reports, and bounded producer topology. Three important issues remain: the public adapter still has a raw-tree fallback, the projection follows source symlinks, and its new unit test is omitted from the Bazel go_test target. Focused Go and Bazel tests pass; LSP diagnostics were unavailable in this harness.
+
+acceptance_criteria:
+  - text: |
+      **ArccCheck receives export-only stdlib material**
+      - Given the real pinned rules_go target configuration
+      - When an `ArccCheck` action's declared inputs are expanded from the execution log
+      - Then they contain only stdlib package metadata and compiler export artifacts, with no `bin/go`, `pkg/tool`, SDK source, native cache, or unrelated tree content.
+    status: pass
+    evidence: |
+      The shared projection is created by `bazel_rules/go/private/stdlib_map.bzl:80-125`
+      and published through `ArccStdlibMapInfo` at `bazel_rules/go/private/stdlib_map.bzl:192-209`.
+      The production check action consumes only the descriptor inputs at
+      `bazel_rules/go/private/component.bzl:752-787`; the exact input assertions are
+      in `bazel_rules/go/tests/component_tests.bzl:735-812` and the restricted execution
+      audit in `go/internal/goanalysis/hermeticity_integration_test.go:1078-1148`.
+      The recorded fresh aquery/input evidence is at
+      `.agents/planning/2026-08-04-compositional-component-analysis/research/current-analysis-pipeline.md:527-535`.
+  - text: |
+      **Toolchain-free loading remains functional**
+      - Given the narrowed stdlib inputs and a PATH with no Go/compiler tools
+      - When a checked component with a checked direct dependency runs in linux-sandbox
+      - Then both reports decode with PASS verdicts and all non-member types load from declared export data.
+    status: pass
+    evidence: |
+      The fresh restricted producer-chain test is wired through
+      `go/internal/goanalysis/hermeticity_integration_test.go:190-205` and validates
+      the reports and surfaces at `:866-880` and `:1192-1232`. The member-only loader
+      retains source-free non-member assertions in
+      `go/internal/goanalysis/producer_chain_scaling_integration_test.go:914-945`.
+      The task `work.log` records the restricted integration run and PASS results.
+  - text: |
+      **Hermeticity assertion has no path exemption**
+      - Given any forbidden tool/cache/source path beneath a directory named `stdlib_`
+      - When the hermeticity input classifier evaluates it
+      - Then the test rejects it exactly as it would reject the same path elsewhere.
+    status: pass
+    evidence: |
+      `TestHermeticityForbiddenPathsDoNotTrustStdlibParent` covers nested tool,
+      compiler, cache, and source paths at
+      `go/internal/goanalysis/hermeticity_integration_test.go:169-187`.
+      The classifier has no `/stdlib_/` bypass at `:1156-1189`, and the execution-log
+      check rejects unclassified stdlib inputs at `:1101-1148`.
+  - text: |
+      **Producer topology remains bounded**
+      - Given all routine scaling and hermeticity targets
+      - When their actions are counted
+      - Then each component still has one `ArccCheck`, no per-component toolchain/export-analysis action is introduced, and at most one default `ArccStdlibMap` action executes.
+    status: pass
+    evidence: |
+      The map analysis test requires exactly one `ArccStdlibMap` and one shared
+      `ArccStdlibExportProjection` action at
+      `bazel_rules/go/tests/stdlib_map_tests.bzl:48-71`. The restricted execution
+      audit requires one default map and one ImportGraph/Layout/Check chain per
+      checked component at `go/internal/goanalysis/hermeticity_integration_test.go:900-928`.
+      The fresh measured counts are recorded at
+      `.agents/planning/2026-08-04-compositional-component-analysis/research/current-analysis-pipeline.md:542-553`.
+  - text: |
+      **Fail-closed export validation is preserved**
+      - Given missing, incomplete, or target-mismatched projected stdlib export data
+      - When component analysis is requested
+      - Then Bazel analysis or `ArccCheck` fails with an actionable error rather than falling back to native discovery.
+    status: pass
+    evidence: |
+      Descriptor validation remains fail-closed at
+      `bazel_rules/go/private/go_adapter.bzl:630-682`; the adapter analysis tests
+      cover missing and mismatched material at
+      `bazel_rules/go/tests/stdlib_export_data_tests.bzl:39-71` and
+      `bazel_rules/go/tests/sdk_adapter_tests.bzl:67-155`. The projection unit tests
+      cover outside-root and missing-artifact diagnostics at
+      `go/internal/stdlibmap/project_export_test.go:70-98`, while the implementation
+      rejects malformed/empty metadata at `go/internal/stdlibmap/project_export.go:40-84`.
+
+findings:
+  - severity: important
+    category: architecture
+    file: bazel_rules/go/private/go_adapter.bzl
+    line: 708
+    title: "Public export adapter still falls back to the raw tree"
+    details: |
+      `go_stdlib_export_data` returns the projected descriptor only when a candidate
+      map carries `ArccStdlibMapInfo.export_data`; otherwise
+      `bazel_rules/go/private/go_adapter.bzl:708` falls through to
+      `go_stdlib_export_data_unprojected`. That helper constructs
+      `inputs = metadata + cache_dir` at `:778-783`, so a caller using the public
+      adapter without a projection can still pass the opaque `gocache` tree to an
+      ArccCheck action. This contradicts the adapter's projected-contract
+      documentation at `:684-690` and Technical Requirement 1, even though the
+      current default component path bypasses the fallback through
+      `component.bzl:947-958`.
+    suggested_action: |
+      Make the public `go_stdlib_export_data` seam fail closed when no projected
+      descriptor is available, and reserve `go_stdlib_export_data_unprojected` for
+      the stdlib-map projection producer. Add an adapter probe asserting that an
+      unprojected consumer cannot receive the raw tree.
+    source: built-in
+  - severity: important
+    category: tests
+    file: go/internal/stdlibmap/BUILD.bazel
+    line: 41
+    title: "Bazel stdlibmap test omits projection coverage"
+    details: |
+      The new projection tests are in
+      `go/internal/stdlibmap/project_export_test.go:12-98`, but the explicit
+      `go_test.srcs` list at `go/internal/stdlibmap/BUILD.bazel:41-49` still names
+      only the pre-existing test files. `bazel query --output=build
+      //go/internal/stdlibmap:stdlibmap_test` confirms the omission, and the Bazel
+      target therefore passed without compiling or running the new projection
+      tests; the separate module `go test` leg does discover them.
+    suggested_action: |
+      Add `project_export_test.go` to the `stdlibmap_test` source list and rerun
+      the targeted Bazel test and CI so the projection tests are covered by both
+      Go test surfaces.
+    source: built-in
+  - severity: important
+    category: security
+    file: go/internal/stdlibmap/project_export.go
+    line: 64
+    title: "Projection follows symlinks outside the declared tree"
+    details: |
+      The projection checks the referenced source with `os.Stat` at
+      `go/internal/stdlibmap/project_export.go:64-70` and then opens the same path
+      at `:107-114`. Both operations follow symlinks, so a referenced entry in the
+      declared tree can point outside `sourceRoot` and cause the action to read
+      undeclared host/input data into the projected output. That weakens the
+      hermetic declared-input boundary for a malformed or replacement rules_go
+      tree; the current tests cover lexical outside-root paths and missing files,
+      but not symlink escape.
+    suggested_action: |
+      Reject symlinked/non-regular entries with `os.Lstat`, or resolve and verify
+      the target remains within the declared root before opening it. Add a test
+      with a symlinked export entry targeting a file outside the source root and
+      require a fail-closed diagnostic.
+    source: built-in
+
+ecosystem_reviews: []

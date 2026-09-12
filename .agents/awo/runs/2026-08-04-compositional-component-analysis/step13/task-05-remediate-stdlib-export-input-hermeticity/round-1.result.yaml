@@ -1,0 +1,94 @@
+result:
+  task_file: .agents/tasks/2026-08-04-compositional-component-analysis/step13/task-05-remediate-stdlib-export-input-hermeticity.code-task.md
+  change_id: wwupvpktlpxqrwlkuslnspmotytttzsz
+  status: completed
+  schema_version: 2
+  produced_at: 2026-09-12T14:13:42Z
+
+acceptance_criteria:
+  - text: |
+      ArccCheck receives export-only stdlib material
+      - Given the real pinned rules_go target configuration
+      - When an ArccCheck action's declared inputs are expanded from the execution log
+      - Then they contain only stdlib package metadata and compiler export artifacts, with no bin/go, pkg/tool, SDK source, native cache, or unrelated tree content.
+    addressed: yes
+    evidence: |
+      `bazel_rules/go/private/stdlib_map.bzl:80-125` creates the single
+      metadata-driven projection and `component.bzl:758-780` declares its
+      projected descriptor. `bazel_rules/go/tests/component_tests.bzl:758-804`
+      and the recorded aquery in work.log show ArccCheck receives
+      `stdlib.pkg.json` plus `arcc_stdlib_map.stdlib-export`, with no raw
+      gocache/pkg tree. The fresh restricted execution-log audit is covered by
+      `go/internal/goanalysis/hermeticity_integration_test.go`.
+  - text: |
+      Toolchain-free loading remains functional
+      - Given the narrowed stdlib inputs and a PATH with no Go/compiler tools
+      - When a checked component with a checked direct dependency runs in linux-sandbox
+      - Then both reports decode with PASS verdicts and all non-member types load from declared export data.
+    addressed: yes
+    evidence: |
+      `TestBazelProducerChainScaling_Integration` passed in the fresh restricted
+      run; `assertHermeticityReportsAndSurfaces` in
+      `go/internal/goanalysis/hermeticity_integration_test.go` requires PASS
+      reports and SDK-key validation while the restricted environment removes
+      Go/compiler tools and poisons native caches.
+  - text: |
+      Hermeticity assertion has no path exemption
+      - Given any forbidden tool/cache/source path beneath a directory named stdlib_
+      - When the hermeticity input classifier evaluates it
+      - Then the test rejects it exactly as it would reject the same path elsewhere.
+    addressed: yes
+    evidence: |
+      `TestHermeticityForbiddenPathsDoNotTrustStdlibParent` and
+      `hermeticityForbiddenToolPath`, `hermeticityForbiddenCachePath`, and
+      `hermeticityForbiddenUnclassifiedStdlibPath` in
+      `go/internal/goanalysis/hermeticity_integration_test.go` cover nested
+      bin/go, pkg/tool, compiler, cache, and SDK-source paths. The old
+      `/stdlib_/` blanket branches are absent, and the fresh restricted run
+      passed the expanded-input audit.
+  - text: |
+      Producer topology remains bounded
+      - Given all routine scaling and hermeticity targets
+      - When their actions are counted
+      - Then each component still has one ArccCheck, no per-component toolchain/export-analysis action is introduced, and at most one default ArccStdlibMap action executes.
+    addressed: yes
+    evidence: |
+      `bazel_rules/go/tests/stdlib_map_tests.bzl:49-71` pins one shared
+      `ArccStdlibExportProjection`, while
+      `go/internal/goanalysis/hermeticity_integration_test.go:900-928`
+      requires one default map and one ImportGraph/Layout/Check chain per
+      checked component. The fresh restricted evidence records 28 each for
+      ImportGraph/Layout/Check, one projection, and one ArccStdlibMap.
+  - text: |
+      Fail-closed export validation is preserved
+      - Given missing, incomplete, or target-mismatched projected stdlib export data
+      - When component analysis is requested
+      - Then Bazel analysis or ArccCheck fails with an actionable error rather than falling back to native discovery.
+    addressed: yes
+    evidence: |
+      `bazel_rules/go/tests/stdlib_export_data_tests.bzl` and
+      `bazel_rules/go/tests/sdk_adapter_tests.bzl` pass the missing,
+      incomplete, forbidden-source, and target-mismatch analysis cases;
+      `stdlib_export_data_unprojected_consumer_probe` proves the public adapter
+      fails closed instead of returning the raw tree;
+      `go/internal/stdlibmap/project_export_test.go:78-112` verifies
+      outside-root, missing-artifact, and symlink-escape projection errors. The adapter keeps
+      target validation in `go_adapter.bzl:629-758`, and no native fallback is
+      present in the projection command.
+
+artifacts:
+  scratchpad_dir: .agents/scratchpad/2026-08-04-compositional-component-analysis/step13/task-05-remediate-stdlib-export-input-hermeticity/
+  files:
+    - context.md
+    - plan.md
+    - progress.md
+    - work.log
+    - result.yaml
+
+notes: |
+  Rework round 1 addressed all three important findings: the public adapter now
+  fails closed without a projected descriptor, Bazel compiles and runs the new
+  projection tests, and symlink targets are contained within the declared
+  logical tree while preserving Bazel sandbox materialization. Focused tests,
+  the full `just ci`, and the fresh Bazel projection chain passed. The fresh
+  child change is reported at @- and the working copy is empty.
