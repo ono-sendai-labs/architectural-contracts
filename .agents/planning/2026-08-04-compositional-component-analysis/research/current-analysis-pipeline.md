@@ -524,15 +524,22 @@ and `XDG_STATE_HOME` point to separately seeded read-only poison directories.
 Each tree is snapshotted before and after both Bazel invocations with path,
 kind, mode, size, modification time, symlink target, and regular-file digest.
 The snapshots remained identical; action inputs, argv, and environments named
-none of the poison paths or native caches. Bazel's repository cache and the
-target-configured `rules_go` `stdlib_` export tree are explicitly distinguished
-from forbidden native Go caches. The driver also snapshots every repository-root
+none of the poison paths or native caches. The shared
+`ArccStdlibExportProjection` action is the only producer allowed to receive the
+declared rules_go export-cache tree: it reads the package metadata's
+`ExportFile` paths and copies exactly those compiler export artifacts into one
+target-configured output tree. `ArccCheck` receives that projected tree and the
+metadata file, never the raw `stdlib_` tree; its expanded execution-log inputs
+therefore contain no `bin/go`, `pkg/tool`, compiler/linker executable, SDK
+source, native cache, or unrelated stdlib-tree content. The driver rejects
+those paths even when they are beneath a directory named `stdlib_`. The
+driver also snapshots every repository-root
 `bazel-*` entry (including `bazel-bin`, `bazel-out`, `bazel-testlogs`, and the
 workspace link) and passes `--experimental_convenience_symlinks=ignore`; that
 link state remained unchanged after repository setup, the restricted test, and
 the repeat build.
 
-The combined first run passed in 224.989 seconds on this host and produced
+The fresh restricted run passed in 273.974 seconds on this host and produced
 these arcc action counts in its newline-delimited execution log. The 13
 scaling components, their checked graph dependencies, and the API report /
 surface assertion target all share this one invocation:
@@ -542,21 +549,24 @@ surface assertion target all share this one invocation:
 | `ArccImportGraph` | 28 | one projection for each of 26 scaling-chain checked components plus `api_component` and `shared_component` |
 | `ArccLayout` | 28 | one final-layout merge for each checked component |
 | `ArccCheck` | 28 | one member-only check for each checked component |
+| `ArccStdlibExportProjection` | 1 | one shared metadata-referenced export tree for the default SDK configuration |
 | `ArccStdlibMap` | 1 | canonical default `//:arcc_stdlib_map` |
 
 The action query `deps(set(<13 producer-chain component labels>
 //bazel_rules/go/tests:checked_api_analysis_test))` with
 `--output=jsonproto` supplies the execution requirements omitted by the
-execution-log wire format; every one of the four arcc mnemonics carries
+execution-log wire format; every one of the five arcc mnemonics carries
 `block-network=1` and an empty action environment. `ArccImportGraph` receives
 only its request and ordinary source projection, `ArccLayout` receives only the
-base layout and projection, `ArccCheck` receives member sources plus export
-data, layouts, dependency surfaces/reports and the map, and `ArccStdlibMap`
-receives only SDK source/oracle inputs and its config. The action argv executes
-the arcc binary (or the generation-only `arcc-stdlibmap` binary) and contains no
-native discovery fallback. The checked API test's report/surface assertion
-passed, its SDK key was `go1.26.4/linux/amd64`, cgo-disabled with no tags or
-experiment, and the generated map matched the pinned canonical artifact.
+base layout and projection, `ArccStdlibExportProjection` receives metadata plus
+the raw declared export tree and emits only metadata-referenced artifacts,
+`ArccCheck` receives member sources plus the projected export tree, metadata,
+layouts, dependency surfaces/reports and the map, and `ArccStdlibMap` receives
+only SDK source/oracle inputs and its config. The action argv executes the arcc
+binary (or the generation-only `arcc-stdlibmap` binary) and contains no native
+discovery fallback. The checked API test's report/surface assertion passed, its
+SDK key was `go1.26.4/linux/amd64`, cgo-disabled with no tags or experiment,
+and the generated map matched the pinned canonical artifact.
 
 A repeat restricted build reused the generated map and produced byte-identical
 map, surface, and report artifacts. The driver invokes Bazel only, so native
@@ -569,7 +579,8 @@ the test temporary directory and no developer workspace state is written.
 ## Step 13 final acceptance record
 
 Date: 2026-09-12. Implementation revisions: Jujutsu changes rszlotvp,
-kmrxxumn, and wkousqok (the final acceptance child). The measurements below
+kmrxxumn, wkousqok, and zmwzvuxkzypnpuwqrltrzvprnssluosz (the export-input
+remediation child). The measurements below
 are observations on the pinned Linux/amd64 host, not wall-clock assertions
 embedded in tests.
 
