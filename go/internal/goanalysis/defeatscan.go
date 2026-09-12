@@ -40,14 +40,24 @@ func ScanAnalysisDefeats(
 	root string,
 ) ([]facts.BypassObservation, error) {
 	obs := make(map[facts.BypassKey]struct{})
+	observer := scanObserver
 	for _, p := range pkgs {
 		if p == nil {
 			continue
 		}
-		if !members.Contains(hostpolicy.CanonicalizePath(p.PkgPath)) {
+		packagePath := hostpolicy.CanonicalizePath(p.PkgPath)
+		member := members.Contains(packagePath)
+		notifyScanObserver(observer, scanObserverEvent{
+			Scanner:   scanObserverAnalysisDefeats,
+			Operation: scanObserverPackageConsidered,
+			Package:   packagePath,
+			Member:    member,
+			Count:     1,
+		})
+		if !member {
 			continue
 		}
-		if err := scanBypassPackage(p, root, obs); err != nil {
+		if err := scanBypassPackage(p, root, obs, member, observer); err != nil {
 			return nil, err
 		}
 	}
@@ -67,10 +77,35 @@ func scanBypassPackage(
 	p *packages.Package,
 	root string,
 	obs map[facts.BypassKey]struct{},
+	member bool,
+	observer scanObservationObserver,
 ) error {
+	packagePath := hostpolicy.CanonicalizePath(p.PkgPath)
+	notifyScanObserver(observer, scanObserverEvent{
+		Scanner:   scanObserverAnalysisDefeats,
+		Operation: scanObserverPackageEntered,
+		Package:   packagePath,
+		Member:    member,
+		Count:     1,
+	})
+
 	for _, file := range allDeclaredFiles(p) {
+		notifyScanObserver(observer, scanObserverEvent{
+			Scanner:   scanObserverAnalysisDefeats,
+			Operation: scanObserverDeclaredFiles,
+			Package:   packagePath,
+			Member:    member,
+			Count:     1,
+		})
 		switch {
 		case isAssemblyFile(file):
+			notifyScanObserver(observer, scanObserverEvent{
+				Scanner:   scanObserverAnalysisDefeats,
+				Operation: scanObserverAssemblyFiles,
+				Package:   packagePath,
+				Member:    member,
+				Count:     1,
+			})
 			if err := addBypassSite(p, root, file, 0, facts.BypassAssembly, obs); err != nil {
 				return err
 			}
@@ -78,9 +113,16 @@ func scanBypassPackage(
 		case !isGoSourceFile(file):
 			continue
 		}
+		notifyScanObserver(observer, scanObserverEvent{
+			Scanner:   scanObserverAnalysisDefeats,
+			Operation: scanObserverGoSourceFiles,
+			Package:   packagePath,
+			Member:    member,
+			Count:     1,
+		})
 		syntax := syntaxForFile(p, file)
 		if syntax.file == nil {
-			if err := scanBypassSourceFile(p, root, file, obs); err != nil {
+			if err := scanBypassSourceFile(p, root, file, obs, member, observer); err != nil {
 				return err
 			}
 			continue
@@ -89,7 +131,14 @@ func scanBypassPackage(
 		if syntax.fset != nil {
 			fset = syntax.fset
 		}
-		if err := scanBypassSyntax(fset, p, root, file, syntax.file, obs); err != nil {
+		notifyScanObserver(observer, scanObserverEvent{
+			Scanner:   scanObserverAnalysisDefeats,
+			Operation: scanObserverParsedSyntaxFiles,
+			Package:   packagePath,
+			Member:    member,
+			Count:     1,
+		})
+		if err := scanBypassSyntax(fset, p, root, file, syntax.file, obs, member, observer); err != nil {
 			return err
 		}
 	}
@@ -173,11 +222,28 @@ func scanBypassSourceFile(
 	root string,
 	file string,
 	obs map[facts.BypassKey]struct{},
+	member bool,
+	observer scanObservationObserver,
 ) error {
 	src, err := os.ReadFile(file)
 	if err != nil {
 		return fmt.Errorf("scan analysis defeats: read member file %q: %w", file, err)
 	}
+	packagePath := hostpolicy.CanonicalizePath(p.PkgPath)
+	notifyScanObserver(observer, scanObserverEvent{
+		Scanner:   scanObserverAnalysisDefeats,
+		Operation: scanObserverLexedSourceFiles,
+		Package:   packagePath,
+		Member:    member,
+		Count:     1,
+	})
+	notifyScanObserver(observer, scanObserverEvent{
+		Scanner:   scanObserverAnalysisDefeats,
+		Operation: scanObserverLexedSourceBytes,
+		Package:   packagePath,
+		Member:    member,
+		Count:     len(src),
+	})
 	fset := token.NewFileSet()
 	tokenFile := fset.AddFile(file, -1, len(src))
 
@@ -194,11 +260,13 @@ func scanBypassSourceFile(
 	inImport := false
 	sawPackage := false
 	expectingPackageName := false
+	sourceTokens := 0
 	for {
 		pos, tok, literal := sourceScanner.Scan()
 		if tok == token.EOF {
 			break
 		}
+		sourceTokens++
 		if scanErr != nil {
 			return fmt.Errorf("scan analysis defeats: member file %q does not lex as Go source: %w", file, scanErr)
 		}
@@ -258,6 +326,13 @@ func scanBypassSourceFile(
 	if len(delimiters) > 0 {
 		return fmt.Errorf("scan analysis defeats: member file %q has an unclosed delimiter", file)
 	}
+	notifyScanObserver(observer, scanObserverEvent{
+		Scanner:   scanObserverAnalysisDefeats,
+		Operation: scanObserverSourceTokens,
+		Package:   packagePath,
+		Member:    member,
+		Count:     sourceTokens,
+	})
 	return nil
 }
 
@@ -284,11 +359,25 @@ func scanBypassSyntax(
 	file string,
 	f *ast.File,
 	obs map[facts.BypassKey]struct{},
+	member bool,
+	observer scanObservationObserver,
 ) error {
 	if fset == nil {
 		fset = p.Fset
 	}
+	packagePath := hostpolicy.CanonicalizePath(p.PkgPath)
+	notifyScanObserver(observer, scanObserverEvent{
+		Scanner:   scanObserverAnalysisDefeats,
+		Operation: scanObserverASTFiles,
+		Package:   packagePath,
+		Member:    member,
+		Count:     1,
+	})
+	commentGroups := 0
+	comments := 0
 	for _, cg := range f.Comments {
+		commentGroups++
+		comments += len(cg.List)
 		for _, c := range cg.List {
 			if !isLinknameDirective(c.Text) {
 				continue
@@ -298,12 +387,32 @@ func scanBypassSyntax(
 			}
 		}
 	}
+	notifyScanObserver(observer, scanObserverEvent{
+		Scanner:   scanObserverAnalysisDefeats,
+		Operation: scanObserverASTCommentGroups,
+		Package:   packagePath,
+		Member:    member,
+		Count:     commentGroups,
+	})
+	notifyScanObserver(observer, scanObserverEvent{
+		Scanner:   scanObserverAnalysisDefeats,
+		Operation: scanObserverASTComments,
+		Package:   packagePath,
+		Member:    member,
+		Count:     comments,
+	})
+	astDeclarations := 0
+	importDeclarations := 0
+	importSpecs := 0
 	for _, decl := range f.Decls {
+		astDeclarations++
 		genDecl, ok := decl.(*ast.GenDecl)
 		if !ok || genDecl.Tok != token.IMPORT {
 			continue
 		}
+		importDeclarations++
 		for _, spec := range genDecl.Specs {
+			importSpecs++
 			importSpec, ok := spec.(*ast.ImportSpec)
 			if !ok || importSpec.Path == nil || importSpec.Path.Value != `"C"` {
 				continue
@@ -313,6 +422,27 @@ func scanBypassSyntax(
 			}
 		}
 	}
+	notifyScanObserver(observer, scanObserverEvent{
+		Scanner:   scanObserverAnalysisDefeats,
+		Operation: scanObserverASTDeclarations,
+		Package:   packagePath,
+		Member:    member,
+		Count:     astDeclarations,
+	})
+	notifyScanObserver(observer, scanObserverEvent{
+		Scanner:   scanObserverAnalysisDefeats,
+		Operation: scanObserverImportDeclarations,
+		Package:   packagePath,
+		Member:    member,
+		Count:     importDeclarations,
+	})
+	notifyScanObserver(observer, scanObserverEvent{
+		Scanner:   scanObserverAnalysisDefeats,
+		Operation: scanObserverImportSpecs,
+		Package:   packagePath,
+		Member:    member,
+		Count:     importSpecs,
+	})
 	return nil
 }
 

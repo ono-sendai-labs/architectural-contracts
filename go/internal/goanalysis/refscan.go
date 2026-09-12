@@ -55,12 +55,22 @@ func ScanReferences(
 ) ([]facts.ReferenceEdge, []facts.ImportEdge, error) {
 	refs := make(map[facts.ReferenceKey]struct{})
 	imports := make(map[facts.ImportKey]struct{})
+	observer := scanObserver
 
 	for _, p := range pkgs {
 		if p == nil {
 			continue
 		}
-		if !members.Contains(hostpolicy.CanonicalizePath(p.PkgPath)) {
+		packagePath := hostpolicy.CanonicalizePath(p.PkgPath)
+		member := members.Contains(packagePath)
+		notifyScanObserver(observer, scanObserverEvent{
+			Scanner:   scanObserverReferences,
+			Operation: scanObserverPackageConsidered,
+			Package:   packagePath,
+			Member:    member,
+			Count:     1,
+		})
+		if !member {
 			continue
 		}
 		// Incomplete member data is a fail-closed tool error, not a silent
@@ -73,7 +83,7 @@ func ScanReferences(
 			p.Fset == nil || p.Syntax == nil || p.Imports == nil {
 			return nil, nil, fmt.Errorf("scanning references: member package %q has incomplete type, syntax or import data", p.PkgPath)
 		}
-		if err := scanPackage(p, members, root, refs, imports); err != nil {
+		if err := scanPackage(p, members, root, refs, imports, observer); err != nil {
 			return nil, nil, err
 		}
 	}
@@ -112,10 +122,29 @@ func scanPackage(
 	root string,
 	refs map[facts.ReferenceKey]struct{},
 	imports map[facts.ImportKey]struct{},
+	observer scanObservationObserver,
 ) error {
 	fromPkg := hostpolicy.CanonicalizePath(p.PkgPath)
+	member := members.Contains(fromPkg)
+	notifyScanObserver(observer, scanObserverEvent{
+		Scanner:   scanObserverReferences,
+		Operation: scanObserverPackageEntered,
+		Package:   fromPkg,
+		Member:    member,
+		Count:     1,
+	})
 
+	notifyScanObserver(observer, scanObserverEvent{
+		Scanner:   scanObserverReferences,
+		Operation: scanObserverTypeInfoPackages,
+		Package:   fromPkg,
+		Member:    member,
+		Count:     1,
+	})
+
+	uses := 0
 	for ident, obj := range p.TypesInfo.Uses {
+		uses++
 		if !externalObject(obj, members) {
 			continue
 		}
@@ -129,8 +158,17 @@ func scanPackage(
 		}
 		refs[siteKey(kind, fromPkg, id, site)] = struct{}{}
 	}
+	notifyScanObserver(observer, scanObserverEvent{
+		Scanner:   scanObserverReferences,
+		Operation: scanObserverUses,
+		Package:   fromPkg,
+		Member:    member,
+		Count:     uses,
+	})
 
+	selections := 0
 	for sel, selection := range p.TypesInfo.Selections {
+		selections++
 		obj := selection.Obj()
 		if !externalObject(obj, members) {
 			continue
@@ -145,26 +183,52 @@ func scanPackage(
 		}
 		refs[siteKey(kind, fromPkg, id, site)] = struct{}{}
 	}
+	notifyScanObserver(observer, scanObserverEvent{
+		Scanner:   scanObserverReferences,
+		Operation: scanObserverSelections,
+		Package:   fromPkg,
+		Member:    member,
+		Count:     selections,
+	})
 
 	// Import resolution is keyed by the canonical path: the loader's import
 	// map may be spelled in a different form than the source literal, and a
 	// host that rewrites paths must still see the import resolved (and a nil
 	// entry preserved as missing type data).
 	canonicalImports := make(map[string]*packages.Package, len(p.Imports))
+	importPackages := 0
 	for impPath, imp := range p.Imports {
+		importPackages++
 		canonicalImports[hostpolicy.CanonicalizePath(impPath)] = imp
 	}
+	notifyScanObserver(observer, scanObserverEvent{
+		Scanner:   scanObserverReferences,
+		Operation: scanObserverImportPackages,
+		Package:   fromPkg,
+		Member:    member,
+		Count:     importPackages,
+	})
 
+	syntaxFiles := 0
+	astFiles := 0
+	astDeclarations := 0
+	importDeclarations := 0
+	importSpecs := 0
 	for _, file := range p.Syntax {
 		if file == nil {
 			continue
 		}
+		syntaxFiles++
+		astFiles++
 		for _, decl := range file.Decls {
+			astDeclarations++
 			genDecl, ok := decl.(*ast.GenDecl)
 			if !ok || genDecl.Tok != token.IMPORT {
 				continue
 			}
+			importDeclarations++
 			for _, spec := range genDecl.Specs {
+				importSpecs++
 				importSpec, ok := spec.(*ast.ImportSpec)
 				if !ok || importSpec.Path == nil {
 					return fmt.Errorf("scanning imports of %s: malformed import declaration", fromPkg)
@@ -198,6 +262,41 @@ func scanPackage(
 			}
 		}
 	}
+	notifyScanObserver(observer, scanObserverEvent{
+		Scanner:   scanObserverReferences,
+		Operation: scanObserverSyntaxFiles,
+		Package:   fromPkg,
+		Member:    member,
+		Count:     syntaxFiles,
+	})
+	notifyScanObserver(observer, scanObserverEvent{
+		Scanner:   scanObserverReferences,
+		Operation: scanObserverASTFiles,
+		Package:   fromPkg,
+		Member:    member,
+		Count:     astFiles,
+	})
+	notifyScanObserver(observer, scanObserverEvent{
+		Scanner:   scanObserverReferences,
+		Operation: scanObserverASTDeclarations,
+		Package:   fromPkg,
+		Member:    member,
+		Count:     astDeclarations,
+	})
+	notifyScanObserver(observer, scanObserverEvent{
+		Scanner:   scanObserverReferences,
+		Operation: scanObserverImportDeclarations,
+		Package:   fromPkg,
+		Member:    member,
+		Count:     importDeclarations,
+	})
+	notifyScanObserver(observer, scanObserverEvent{
+		Scanner:   scanObserverReferences,
+		Operation: scanObserverImportSpecs,
+		Package:   fromPkg,
+		Member:    member,
+		Count:     importSpecs,
+	})
 	return nil
 }
 

@@ -13,6 +13,7 @@ go_library(
         "defeatscan.go",
         "goanalysis.go",
         "refscan.go",
+        "scanobserver.go",
         "surface_resolver.go",
         "surfaceinputs.go",
     ],
