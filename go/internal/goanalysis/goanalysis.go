@@ -25,6 +25,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/facts"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/hostpolicy"
@@ -43,7 +44,21 @@ var (
 	// provenance. Production loads use go/packages directly; integration tests
 	// can model a rewriting host without replacing the package analysis graph.
 	loadPackages = packages.Load
+	// phaseObserver is deliberately nil in production. Integration tests can
+	// install a same-package observer to measure the production loader's phase
+	// boundaries without adding timing data to facts or persisted artifacts.
+	phaseObserver analysisPhaseObserver
 )
+
+type analysisPhase string
+
+const (
+	analysisPhaseLoadPackageFacts analysisPhase = "LoadPackageFacts"
+	analysisPhaseLoadPackages     analysisPhase = "packages.Load"
+	analysisPhaseScanReferences   analysisPhase = "ScanReferences"
+)
+
+type analysisPhaseObserver func(analysisPhase, time.Duration)
 
 // componentLoadMode is the narrow type-loading contract for component checks.
 // Roots receive syntax and TypesInfo; reachable non-roots are loaded from their
@@ -90,6 +105,15 @@ func SerializeChecks(fn func()) {
 // go list -export path, so this operation may execute the host toolchain; layout
 // mode instead uses the declared self-exec driver and artifacts.
 func LoadPackageFacts(req LoadRequest) (facts.PackageFacts, error) {
+	observer := phaseObserver
+	var analysisStarted time.Time
+	if observer != nil {
+		analysisStarted = time.Now()
+		defer func() {
+			observer(analysisPhaseLoadPackageFacts, time.Since(analysisStarted))
+		}()
+	}
+
 	componentRoot := req.ComponentRoot
 	var dir string
 	var patterns []string
@@ -117,7 +141,14 @@ func LoadPackageFacts(req LoadRequest) (facts.PackageFacts, error) {
 		Dir:  dir,
 	}
 
+	var loadStarted time.Time
+	if observer != nil {
+		loadStarted = time.Now()
+	}
 	pkgs, err := loadPackages(cfg, patterns...)
+	if observer != nil {
+		observer(analysisPhaseLoadPackages, time.Since(loadStarted))
+	}
 	if err != nil {
 		if len(req.Members) > 0 && !packagelayout.IsLayoutMode() {
 			return facts.PackageFacts{}, fmt.Errorf("failed to load declared members %v: %w", req.Members, err)
@@ -285,7 +316,14 @@ func LoadPackageFacts(req LoadRequest) (facts.PackageFacts, error) {
 	if err != nil {
 		return facts.PackageFacts{}, fmt.Errorf("building the member set: %w", err)
 	}
+	var scanStarted time.Time
+	if observer != nil {
+		scanStarted = time.Now()
+	}
 	referenceEdges, importEdges, err := ScanReferences(pkgs, members, analysisRoot)
+	if observer != nil {
+		observer(analysisPhaseScanReferences, time.Since(scanStarted))
+	}
 	if err != nil {
 		return facts.PackageFacts{}, err
 	}
