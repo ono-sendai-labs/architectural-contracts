@@ -492,7 +492,7 @@ The end-to-end hermeticity regression is part of the producer-chain integration
 driver (so the scaling and hermeticity checks share one map generation):
 
 ```sh
-CGO_ENABLED=0 go test -tags=integration -run '^TestBazelProducerChainScaling_Integration$' -count=1 ./internal/goanalysis
+cd go && CGO_ENABLED=0 go test -tags=integration -run '^TestBazelProducerChainScaling_Integration$' -count=1 ./internal/goanalysis
 ```
 
 `runHermeticityProducerChainBazelSuite` resolves Bazel to an absolute executable path,
@@ -591,7 +591,7 @@ accepted lexical ArccImportGraph projection remain measurable residual costs.
 
 The routine integration command is:
 
-    CGO_ENABLED=0 go test -tags=integration ./internal/goanalysis -run '^TestBazelProducerChainScaling_Integration$' -count=1 -v
+    cd go && CGO_ENABLED=0 go test -tags=integration ./internal/goanalysis -run '^TestBazelProducerChainScaling_Integration$' -count=1 -v
 
 It builds the 13 scaling variants, the checked API/shared chain, and the
 determinism fixture in one restricted Bazel output root. That first root
