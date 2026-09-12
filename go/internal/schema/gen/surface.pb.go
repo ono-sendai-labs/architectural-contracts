@@ -82,9 +82,13 @@ type SurfaceManifest struct {
 	SdkKey *SDKKey `protobuf:"bytes,8,opt,name=sdk_key,json=sdkKey,proto3" json:"sdk_key,omitempty"`
 	// Version of the producer that emitted this surface; audit information.
 	ProducerVersion string `protobuf:"bytes,9,opt,name=producer_version,json=producerVersion,proto3" json:"producer_version,omitempty"`
-	// SHA-256 digest over member source bytes (sorted by path), manifest bytes,
-	// format version, namespace, SDK key and producer version (DR-03). Audit +
-	// native freshness only; not a provenance claim.
+	// Checked surfaces carry a SHA-256 digest over member source bytes (sorted by
+	// path), manifest bytes, format version, namespace, SDK key and producer
+	// version (DR-03). An asserted UNKNOWN surface is a package-level assertion,
+	// never a derivation from component code; it carries the empty digest because
+	// no component content was loaded, type-checked, or hashed. The empty value
+	// is not a content claim (I6). In both cases the digest is for audit and
+	// native freshness only, not a provenance claim.
 	Digest        string `protobuf:"bytes,10,opt,name=digest,proto3" json:"digest,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
