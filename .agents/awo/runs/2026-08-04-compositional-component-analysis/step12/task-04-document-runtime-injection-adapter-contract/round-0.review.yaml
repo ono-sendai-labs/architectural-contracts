@@ -1,0 +1,94 @@
+review:
+  task_file: .agents/tasks/2026-08-04-compositional-component-analysis/step12/task-04-document-runtime-injection-adapter-contract.code-task.md
+  change_id: mqtsmwoqrlvqkuttmrwvrynlqpvmpvvm
+  reviewed_at: 2026-09-12T03:05:44Z
+  verdict: approved
+  schema_version: 2
+  lsp_coverage: unavailable
+
+merge_request:
+  title: "docs(bazel): document runtime injection adapter contract [Compositional Analysis: Step 12/Task 04]"
+  body: |
+    Reviews the complete task series from base change
+    pwnoqzxsvpkqrpwtmtmyurwmmylltkzs through the initial README documentation
+    change wypqoxwzumrnqnxxxnrylupwkrywsruy and the follow-up adapter-comment
+    cleanup mqtsmwoqrlvqkuttmrwvrynlqpvmpvvm.
+
+summary: |
+  The README now documents both runtime-injection hooks, their empty upstream
+  defaults, canonical merge ordering, and the roots/package_view attachment
+  contract. The adjacent adapter comments no longer contain stale Step 9
+  wording, and `just ci` passes with no test or implementation behavior changed.
+  All acceptance criteria pass; no security or style findings were identified.
+
+acceptance_criteria:
+  - text: |
+      **Both runtime-injection hooks are discoverable**
+        - Given README.md's Go-ruleset porting section
+        - When a host integrator reads the documented adapter surface
+        - Then `runtime_injection_attrs(deps_aspect)` and `extra_runtime_packages(ctx, root_packages)` are named with their inputs, outputs, and empty upstream defaults.
+    status: pass
+    evidence: |
+      README.md:215-227 names `runtime_injection_attrs(deps_aspect)` and
+      `extra_runtime_packages(ctx, root_packages)`, gives their inputs and
+      outputs, and records the upstream `{}` and `[]` defaults. The private
+      attribute and dependency-aspect purpose are described at README.md:215-220;
+      the package-record shape, read-only input, and deterministic-output
+      requirement are described at README.md:221-227.
+  - text: |
+      **The ordering and boundary reuse are accurate**
+        - Given the public description of injected package handling
+        - When it is compared with `component.bzl`
+        - Then it states that ordinary and injected records share one deterministic merge before validation, infra selection, membership/layout construction, and export staging, and that the existing auto-attached component boundary is reused.
+    status: pass
+    evidence: |
+      README.md:229-234 states that ordinary and injected records undergo one
+      deterministic import-path merge before cgo validation, infrastructure
+      attachment, membership classification, layout/import projection, and
+      export staging, and identifies participation in the existing infrastructure
+      boundary. The implementation performs that merge and passes the resulting
+      view to attachment at bazel_rules/go/private/component.bzl:830-858; the
+      established attachment path marks selected dependencies auto-attached at
+      bazel_rules/go/private/component.bzl:859-875.
+  - text: |
+      **The attachment callback matches the implementation**
+        - Given the README and adapter documentation
+        - When `go_attach_infra` is described
+        - Then the roots collection and optional merged package view match the implemented callback, with no remaining two-argument single-target description.
+    status: pass
+    evidence: |
+      README.md:240-251 documents
+      `go_attach_infra(roots, infra, package_view = None)`, defines `roots` as
+      the interface-plus-members collection, and describes the optional merged
+      package view. The adapter signature and semantics match at
+      bazel_rules/go/private/go_adapter.bzl:105-122. The stale
+      `go_attach_infra(target, infra)` wording is absent from README.md and the
+      adjacent adapter documentation; the rework also removes stale Step 9
+      attachment wording at bazel_rules/go/private/go_adapter.bzl:184-187.
+  - text: |
+      **Upstream inertness is explicit**
+        - Given the default upstream adapter
+        - When the documentation describes the empty runtime hooks
+        - Then it makes clear that they add no author-facing attributes, package records, actions, action inputs, artifacts, or verdict changes upstream.
+    status: pass
+    evidence: |
+      README.md:253-256 explicitly states that the empty defaults add no
+      author-facing attributes, package records, analysis actions, action inputs,
+      artifacts, or verdict changes, and that upstream behavior remains inert.
+  - text: |
+      **The remediation is documentation-only and internally consistent**
+        - Given the completed change
+        - When its diff and repository validation are inspected
+        - Then no implementation or test behavior changed, the relevant symbol/signature searches find no stale public wording, and `just ci` passes.
+    status: pass
+    evidence: |
+      The complete base-to-current jj diff contains only README.md and the
+      adjacent comment-only change in bazel_rules/go/private/go_adapter.bzl;
+      no test files are touched. Repository-wide searches found no stale public
+      `go_attach_infra(target, infra)` wording or superseded runtime-hook names.
+      A fresh `just ci` run completed successfully with exit code 0, and the
+      working copy remained clean afterward.
+
+findings: []
+
+ecosystem_reviews: []

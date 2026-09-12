@@ -1,0 +1,49 @@
+{
+  "task_file": ".agents/tasks/2026-08-04-compositional-component-analysis/step12/task-04-document-runtime-injection-adapter-contract.code-task.md",
+  "planning_slug": "2026-08-04-compositional-component-analysis",
+  "step": 12,
+  "task": 4,
+  "remediation_for": "step12 review F1 (important, doc_divergence)",
+  "implementer_session": "awo-impl-2026-08-04-compositional-component-analysis-step12-task04",
+  "reviewer_session": "awo-rev-2026-08-04-compositional-component-analysis-step12-task04",
+  "base": {
+    "change_id": "pwnoqzxsvpkqrpwtmtmyurwmmylltkzs",
+    "bookmark": "pr/awo-step-review-2026-08-04-compositional-component-analysis-step-12"
+  },
+  "produced_changes": [
+    "wypqoxwzumrnqnxxxnrylupwkrywsruy",
+    "mqtsmwoqrlvqkuttmrwvrynlqpvmpvvm"
+  ],
+  "rounds": [
+    {
+      "round": 0,
+      "role": "implementer",
+      "status": "completed",
+      "tokens": {
+        "total": 160678
+      },
+      "wall_s": 529,
+      "tool_calls": 678,
+      "compacted": false,
+      "window_pct": 19.9
+    },
+    {
+      "round": 0,
+      "role": "reviewer",
+      "verdict": "approved",
+      "findings": 0,
+      "acceptance": "5/5",
+      "tokens": {
+        "total": 104497
+      },
+      "wall_s": 240,
+      "tool_calls": 242,
+      "compacted": false
+    }
+  ],
+  "session_restarts": [],
+  "outcome": {
+    "status": "approved",
+    "rounds": 1
+  }
+}
