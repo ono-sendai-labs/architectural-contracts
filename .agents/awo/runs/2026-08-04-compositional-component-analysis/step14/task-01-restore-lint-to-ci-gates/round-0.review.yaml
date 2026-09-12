@@ -1,0 +1,101 @@
+review:
+  task_file: .agents/tasks/2026-08-04-compositional-component-analysis/step14/task-01-restore-lint-to-ci-gates.code-task.md
+  change_id: wwtrmnzsmnwonrksqqrnzopywllzqprq
+  reviewed_at: 2026-09-12T22:56:44Z
+  verdict: changes_requested
+  schema_version: 2
+  lsp_coverage: unavailable
+
+merge_request:
+  title: "fix(ci): restore aggregate lint gates [Compositional Analysis: Step 14/Task 01]"
+  body: |
+    Reviews the complete task change series from base change
+    snxxzpkpulrnostnzkkrnsqrvroouurv through the initial implementation
+    wwtrmnzsmnwonrksqqrnzopywllzqprq. The implementation adds the existing lint
+    recipe to ci-go, preserving the local generated-file split, GitHub's shared
+    recipe invocation, and the routine/full validation topology. No rework
+    changes were supplied.
+
+summary: |
+  The implementation correctly adds the existing lint recipe to ci-go, so both
+  ci-go and full ci expand to go vet and the gofmt cleanliness check while the
+  generated-file split and three GitHub lanes remain intact. The recorded full
+  validation passes, including 198 Bazel tests, and the current just lint run
+  succeeds. AC1 remains partial because no test scenario exercises the required
+  failure path when gofmt -l emits a Go file.
+
+acceptance_criteria:
+  - text: |
+      1. **Local aggregate CI includes lint**
+         - Given the repository's Just recipes
+         - When `just ci` is expanded or executed
+         - Then it runs `go vet ./...` and fails when `gofmt -l .` reports a Go file.
+    status: partial
+    evidence: |
+      The dependency graph is correct: `justfile:31-33` defines the existing
+      lint recipe and `justfile:163-165` routes both ci-go and ci through it.
+      The post-change dry-run and successful aggregate execution are recorded
+      at `work.log:170-181` and `work.log:402-407`, with the final run exiting
+      successfully at `work.log:723`. Those checks exercise the clean path and
+      show the `test -z "$(gofmt -l .)"` command, but no committed test creates
+      an unformatted Go file and asserts that the aggregate exits non-zero.
+  - text: |
+      2. **GitHub's Go entry point includes the same lint gate**
+         - Given `.github/workflows/ci.yml` continues to invoke `just ci-go`
+         - When `just ci-go` is expanded or executed
+         - Then it reaches the shared `lint` recipe without duplicating vet/gofmt shell commands in the workflow.
+    status: pass
+    evidence: |
+      `justfile:163` adds the shared lint dependency, and the post-change
+      `ci-go` expansion contains both lint commands at `work.log:104-115`.
+      `.github/workflows/ci.yml:36-37` still invokes `CGO_ENABLED=0 just ci-go`;
+      the artifact inspection at `work.log:391-397` confirms all three lanes
+      remain present and the workflow contains no copied vet/gofmt commands.
+  - text: |
+      3. **Generated-file policy remains intentionally split**
+         - Given the local and GitHub aggregate recipes
+         - When their dependency graphs are inspected
+         - Then `gen-is-clean` remains part of full local `just ci`, while `ci-go` does not acquire a Jujutsu dependency.
+    status: pass
+    evidence: |
+      `justfile:163` keeps ci-go free of `gen-is-clean` and `jj`, while
+      `justfile:165` retains `ci: gen-is-clean ci-go selfcheck bazel-test`.
+      The post-change expansion and explicit checks at `work.log:170-181` and
+      `work.log:385-390` show the `jj diff` generated-file check only in the
+      full ci graph.
+  - text: |
+      4. **Existing validation topology is preserved**
+         - Given the completed recipe change
+         - When `just ci` runs
+         - Then generation, build, unit/integration tests, stdlib-map pin validation, staging, selfcheck, and Bazel tests still pass with the restored lint gate.
+    status: pass
+    evidence: |
+      The recipe boundaries at `justfile:139-165` and the three workflow lanes
+      at `.github/workflows/ci.yml:11`, `:39`, and `:58` are unchanged except
+      for the shared lint dependency. The full `just ci` execution recorded at
+      `work.log:402-407` includes lint before the existing gates; it completed
+      with 198 Bazel tests passing at `work.log:716` and exit status 0 at
+      `work.log:723`.
+
+findings:
+  - severity: important
+    category: tests
+    file: justfile
+    line: 163
+    title: No test proves format failures fail aggregate CI
+    details: |
+      AC1 explicitly requires the aggregate gate to fail when `gofmt -l .`
+      reports a Go file. The change and its dry-run prove that the existing
+      `test -z "$(gofmt -l .)"` command is reached, and `just ci` proves the
+      clean path, but the supplied change touches no test and the work log has
+      no scenario with an intentionally unformatted Go file and a non-zero
+      aggregate result. Under-coverage leaves the failure behavior unverified,
+      so AC1 is partial.
+    suggested_action: |
+      Add a focused disposable-fixture or recipe-level test that introduces an
+      unformatted Go file in an isolated temporary checkout, runs the shared
+      lint/aggregate path, and asserts a non-zero exit; retain the existing
+      clean-path validation and ensure the fixture is cleaned up.
+    source: built-in
+
+ecosystem_reviews: []

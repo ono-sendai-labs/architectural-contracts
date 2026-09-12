@@ -1,0 +1,95 @@
+review:
+  task_file: .agents/tasks/2026-08-04-compositional-component-analysis/step14/task-01-restore-lint-to-ci-gates.code-task.md
+  change_id: muokzpnrslxwvtuqkokzwuumxklklmkm
+  reviewed_at: 2026-09-12T23:23:04Z
+  verdict: approved
+  schema_version: 2
+  lsp_coverage: unavailable
+
+merge_request:
+  title: "fix(ci): restore aggregate lint gates [Compositional Analysis: Step 14/Task 01]"
+  body: |
+    Reviews the complete ordered change series from base change
+    snxxzpkpulrnostnzkkrnsqrvroouurv through the initial implementation and
+    both rework changes. The initial change wwtrmnzsmnwonrksqqrnzopywllzqprq
+    restored lint in ci-go; nkmxvmsnnknwmpwupomlsqutkwmllkwr added the
+    disposable lint-gate fixture and recipe; and muokzpnrslxwvtuqkokzwuumxklklmkm
+    refined it to exercise the actual aggregate just ci graph with generation
+    and Jujutsu stubs. The prior important finding and partial AC1 status are
+    resolved, with no regressions found.
+
+summary: |
+  The prior important finding is resolved: the rework adds an intentionally
+  unformatted Go fixture and a disposable regression harness that runs the
+  actual aggregate just ci and observes its non-zero lint failure. All four
+  acceptance criteria now pass, and the complete validation remains green with
+  198 Bazel tests passing while the generated-file split, GitHub lanes, and
+  routine/full stdlib-map topology are preserved. No new security or style
+  defects were found; LSP diagnostics were unavailable in the review harness.
+
+acceptance_criteria:
+  - text: |
+      1. **Local aggregate CI includes lint**
+         - Given the repository's Just recipes
+         - When `just ci` is expanded or executed
+         - Then it runs `go vet ./...` and fails when `gofmt -l .` reports a Go file.
+    status: pass
+    evidence: |
+      The prior round's partial AC1 is addressed by the rework changes:
+      `justfile:31-36` retains the shared lint recipe and registers the
+      regression recipe, while `justfile:166-168` routes ci-go and ci through
+      it. `scripts/testdata/lint-gate/main.go:1-3` is intentionally
+      unformatted; `scripts/test-lint-gate.sh:20-29` confirms gofmt reports
+      it and runs the actual aggregate `just ci`, asserting that it exits
+      non-zero. The dry-run assertions at `scripts/test-lint-gate.sh:31-33`
+      cover both required lint commands. The focused test passed in the
+      review run, and the full aggregate run recorded at `work.log:1359-1367`
+      reached the new test and continued successfully after it rejected the
+      disposable fixture.
+  - text: |
+      2. **GitHub's Go entry point includes the same lint gate**
+         - Given `.github/workflows/ci.yml` continues to invoke `just ci-go`
+         - When `just ci-go` is expanded or executed
+         - Then it reaches the shared `lint` recipe without duplicating vet/gofmt shell commands in the workflow.
+    status: pass
+    evidence: |
+      `justfile:166` routes ci-go through the existing shared lint recipe and
+      the regression recipe; the current ci-go expansion at
+      `work.log:1293-1304` contains `cd go && go vet ./...` and the gofmt
+      cleanliness command. `.github/workflows/ci.yml:36-37` still invokes
+      `CGO_ENABLED=0 just ci-go`, and the artifact inspection at
+      `work.log:1351-1358` confirms all three workflow lanes remain present
+      with no copied vet/gofmt commands.
+  - text: |
+      3. **Generated-file policy remains intentionally split**
+         - Given the local and GitHub aggregate recipes
+         - When their dependency graphs are inspected
+         - Then `gen-is-clean` remains part of full local `just ci`, while `ci-go` does not acquire a Jujutsu dependency.
+    status: pass
+    evidence: |
+      `justfile:166` contains no `gen-is-clean` or direct `jj` dependency,
+      while `justfile:168` retains `ci: gen-is-clean ci-go selfcheck
+      bazel-test`. The post-rework expansions at `work.log:1293-1350` show
+      `jj diff` only in the full ci graph. The new regression harness stubs
+      Jujutsu only inside its disposable nested checkout at
+      `scripts/test-lint-gate.sh:14-18`; this does not add Jujutsu to the
+      ci-go dependency graph.
+  - text: |
+      4. **Existing validation topology is preserved**
+         - Given the completed recipe change
+         - When `just ci` runs
+         - Then generation, build, unit/integration tests, stdlib-map pin validation, staging, selfcheck, and Bazel tests still pass with the restored lint gate.
+    status: pass
+    evidence: |
+      `justfile:142-168` preserves the routine/full Bazel and aggregate recipe
+      boundaries, and `.github/workflows/ci.yml:11`, `:39`, and `:58` retain
+      the ci-go, selfcheck, and bazel lanes. The N5 routine/full stdlib-map
+      boundaries remain unchanged in the touched recipe. The refined full
+      `just ci` run at `work.log:1359-1671` completed generation, lint, build,
+      unit/integration tests, pin validation, staging, selfcheck, and Bazel
+      validation, including 198 passing Bazel tests at `work.log:1664` and
+      successful completion at `work.log:1671`.
+
+findings: []
+
+ecosystem_reviews: []

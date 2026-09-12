@@ -5181,3 +5181,24 @@ although `.agents/scratchpad/` is ignored, so edits to it dirty `@`. To keep imp
 commits clean I edit it only with `@` empty at task boundaries and commit it together with the
 §4.7 record (or, for this preflight, as its own `chore(awo)` commit, which becomes task 01's
 unbookmarked but self-explaining base).
+
+### Task 01 — `restore-lint-to-ci-gates` — approved, 2 rounds, 4/4
+
+| Round | Role | Wall | Tools | totalTokens | % | Verdict |
+|---|---|---|---|---|---|---|
+| 0 | implementer | 613 s | 66 | 84 737 | 10.5 % | completed (`wwtrmnzs`, `justfile` only) |
+| 0 | reviewer | 245 s | 90 | 85 913 | 10.6 % | changes_requested, 1 important |
+| 1 | implementer | 1312 s | 145 | 168 588 | 20.9 % | completed (`nkmxvmsn`, `muokzpnr`) |
+| 1 | reviewer | 230 s | 90 | 141 629 | 17.5 % | approved |
+
+No compaction. Quota before round 1: primary 87 %, secondary 36 %. Round 0's finding: no test
+proved a gofmt failure fails aggregate CI (AC1 partial). I took the round rather than defer —
+cheap, and the AC names the failure path explicitly. The rework **was slower than round 0**
+(1312 s vs 613 s): it was new test machinery (a disposable-copy harness running the real `just ci`
+graph with stubs), i.e. execution rather than re-orientation, consistent with the skill's
+account of when rework is fast. Diff check: round 1 touched `justfile` (the finding's file) plus
+new `scripts/test-lint-gate.sh` and fixture. Implementer context retained (no re-exploration).
+
+§4.6: MR described on `wwtrmnzs`; title tag matched sibling (`[Compositional Analysis: Step 14/Task
+01]`), body rewritten from reviewer voice (15/15 tasks now). Bookmark on `muokzpnr`. Both sessions
+closed. §E.0 did not fire.

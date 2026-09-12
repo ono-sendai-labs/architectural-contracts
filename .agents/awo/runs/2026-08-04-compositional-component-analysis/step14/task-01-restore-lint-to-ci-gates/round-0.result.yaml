@@ -1,0 +1,72 @@
+result:
+  task_file: .agents/tasks/2026-08-04-compositional-component-analysis/step14/task-01-restore-lint-to-ci-gates.code-task.md
+  change_id: wwtrmnzsmnwonrksqqrnzopywllzqprq
+  status: completed
+  schema_version: 2
+  produced_at: 2026-09-12T22:52:22Z
+
+acceptance_criteria:
+  - text: |
+      **Local aggregate CI includes lint**
+        - Given the repository's Just recipes
+        - When `just ci` is expanded or executed
+        - Then it runs `go vet ./...` and fails when `gofmt -l .` reports a Go file.
+    addressed: yes
+    evidence: |
+      `justfile:31-33` defines the existing lint recipe, and `justfile:163`
+      adds it to ci-go, which is included by `justfile:165` ci. The GREEN
+      dry-run assertions and the successful full `just ci` run are recorded in
+      `work.log` under the shared aggregate lint and existing validation
+      topology sections.
+  - text: |
+      **GitHub's Go entry point includes the same lint gate**
+        - Given `.github/workflows/ci.yml` continues to invoke `just ci-go`
+        - When `just ci-go` is expanded or executed
+        - Then it reaches the shared `lint` recipe without duplicating vet/gofmt shell commands in the workflow.
+    addressed: yes
+    evidence: |
+      `justfile:163` routes ci-go through the shared lint recipe; its recorded
+      dry-run contains both `cd go && go vet ./...` and the `gofmt -l .`
+      cleanliness check. `.github/workflows/ci.yml:36-37` still invokes
+      `CGO_ENABLED=0 just ci-go`, while the artifact inspection in `work.log`
+      confirms the workflow contains no copied vet/gofmt commands.
+  - text: |
+      **Generated-file policy remains intentionally split**
+        - Given the local and GitHub aggregate recipes
+        - When their dependency graphs are inspected
+        - Then `gen-is-clean` remains part of full local `just ci`, while `ci-go` does not acquire a Jujutsu dependency.
+    addressed: yes
+    evidence: |
+      `justfile:163` contains no `gen-is-clean` or `jj` dependency, and
+      `justfile:165` retains `ci: gen-is-clean ci-go selfcheck bazel-test`.
+      The post-change dry-run inspection in `work.log` verifies that
+      `gen-is-clean` and its `jj diff` check appear only in the full ci graph.
+  - text: |
+      **Existing validation topology is preserved**
+        - Given the completed recipe change
+        - When `just ci` runs
+        - Then generation, build, unit/integration tests, stdlib-map pin validation, staging, selfcheck, and Bazel tests still pass with the restored lint gate.
+    addressed: yes
+    evidence: |
+      `justfile:139-165` retains the routine/full Bazel and aggregate recipe
+      boundaries, and `.github/workflows/ci.yml:11`, `:39`, and `:58` retain
+      the three ci-go, selfcheck, and bazel jobs. The completed `just ci` run
+      is recorded in `work.log`, including 198 passing Bazel tests and the
+      successful validation scripts.
+
+artifacts:
+  scratchpad_dir: .agents/scratchpad/2026-08-04-compositional-component-analysis/step14/task-01-restore-lint-to-ci-gates/
+  files:
+    - context.md
+    - plan.md
+    - progress.md
+    - work.log
+    - result.yaml
+
+notes: |
+  Restored the existing lint recipe as a dependency of ci-go, so both GitHub's
+  Go lane and full local ci execute go vet and the gofmt cleanliness gate. The
+  generated-file split, three GitHub lanes, and routine/full validation topology
+  remain unchanged. RED/GREEN evidence, artifact inspections, `just lint`, and a
+  successful full `just ci` run are recorded in work.log; the fresh task change
+  is wwtrmnzsmnwonrksqqrnzopywllzqprq with an empty working-copy @.
