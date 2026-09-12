@@ -186,7 +186,8 @@ recorded honestly under [Limitations](#limitations-and-scope).
 Everything the rules need from the host's Go rules is funnelled through one file,
 `bazel_rules/go/private/go_adapter.bzl`; the rules above it stay byte-identical
 across hosts. Alongside the provider/importpath/srcs accessors, it carries three
-host-replaceable SDK contracts, plus the runtime hooks:
+host-replaceable SDK contracts, plus the runtime-injection and infrastructure
+contracts:
 
 - **`sdk_source_attrs()` / `go_stdlib_source_data(ctx)`** — the source-backed
   map contract. It supplies the SDK source depset, the independent package
@@ -211,17 +212,48 @@ checks and must contain only private (`_`-prefixed) names. This lets a host add
 provider-specific discovery without changing the generic rule or widening the
 public `go_component`/`arcc_stdlib_map` API.
 
+- **`runtime_injection_attrs(deps_aspect)`** — returns private rule attributes
+  for host-injected runtime targets. The upstream default is `{}`. A host
+  replacement may return, for example, a private label list whose `aspects`
+  contains the supplied dependency aspect, which projects those targets into
+  host-neutral package records. The attributes are collision-checked when
+  composed into `go_component` and never become author-facing macro attributes.
+- **`extra_runtime_packages(ctx, root_packages)`** — returns the injected
+  package records visible to the component rule; the upstream default is `[]`.
+  Records use the same host-neutral shape as ordinary package projections:
+  `importpath`, `srcs`, `deps`, `cgo`, `export_file`, and `label`.
+  `root_packages` is a read-only snapshot of the ordinary root projection and
+  must not be mutated. Host output must be deterministic, or contain only
+  metadata that the canonical merge can deterministically validate.
+
+The component concatenates ordinary and injected records and performs one
+deterministic merge by import path. That merged package view is reused before
+cgo validation, infrastructure attachment, membership classification,
+layout/import projection, and export staging, so a hidden runtime participates
+in the existing infrastructure boundary without a patch to the generic
+component rule.
+
 - **`INFRA_COMPONENTS`** — a registry of components a toolchain injects into
   every target (an RPC or proto runtime, say), each entry naming a component
   target and optionally the import-path patterns of packages that cannot be named
   as labels. Empty upstream, because upstream injects nothing.
-- **`go_attach_infra(target, infra)`** — whether to attach a registry entry to a
-  given target. The rule adds each attached entry as a `component_dep` marked
+- **`go_attach_infra(roots, infra, package_view = None)`** — whether to attach a
+  registry entry to a component. `roots` is the complete root-target collection:
+  the interface target, if present, plus every declared member. `infra` is one
+  registry entry. The optional `package_view` is the canonical merged
+  `importpath -> package-record` view, including injected runtime records, so a
+  host predicate can inspect the effective package set and select a hidden
+  runtime. The rule adds each attached entry as a `component_dep` marked
   `auto_attached`. Returning `True` unconditionally is conforming: checking at a
-  package boundary is a no-op unless that package is reached, and a component's own
-  authority is charged regardless because its packages are roots. A host whose
-  analysis-phase closure does not show toolchain-injected packages cannot
-  evaluate a closure test at all.
+  package boundary is a no-op unless that package is reached, and a component's
+  own authority is charged regardless because its packages are roots. A host
+  whose analysis-phase closure does not show toolchain-injected packages can
+  use the empty upstream default or a host-specific predicate.
+
+With the upstream empty defaults, these hooks add no author-facing attributes,
+package records, analysis actions, action inputs, artifacts, or verdict changes.
+They are additive seams for a host ruleset; upstream component behavior remains
+inert until a host supplies runtime data.
 
 The layout the rules emit is documented for emitter authors in
 [the package-layout schema guide](docs/package-layout-schema.md) — required
