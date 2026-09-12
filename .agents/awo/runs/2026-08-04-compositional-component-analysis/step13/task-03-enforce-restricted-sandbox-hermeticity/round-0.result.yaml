@@ -1,0 +1,68 @@
+result:
+  task_file: .agents/tasks/2026-08-04-compositional-component-analysis/step13/task-03-enforce-restricted-sandbox-hermeticity.code-task.md
+  change_id: xyxtloutkyqsyzuznmwzzrvwnkpkkvzu
+  status: completed
+  schema_version: 2
+  produced_at: 2026-09-12T10:01:11Z
+
+acceptance_criteria:
+  - text: |-
+      **Checks run without a host toolchain**
+      - Given a sandbox environment whose `PATH` cannot resolve `go` and whose `GOROOT`/Go cache variables do not expose a toolchain
+      - When a dependent component's analysis and assertion targets run
+      - Then `ArccImportGraph`, `ArccLayout`, and `ArccCheck` succeed using declared metadata, export data, surfaces/reports, and map inputs only.
+    addressed: yes
+    evidence: |
+      `go/internal/goanalysis/hermeticity_integration_test.go:144-152` adds the restricted producer-chain driver and includes the checked API assertion target with its direct shared dependency. `TestBazelProducerChainScaling_Integration` in `go/internal/goanalysis/producer_chain_scaling_integration_test.go:158-194` passed in `just ci`; the action-role checks reject non-member source and native-tool inputs.
+  - text: |-
+      **Map generation is hermetic**
+      - Given the same restricted environment and cgo-disabled target configuration
+      - When the default `ArccStdlibMap` action executes
+      - Then it succeeds through the layout driver using declared SDK source/oracle files, invokes no Go/toolchain executable, uses no native cache, and performs no network access.
+    addressed: yes
+    evidence: |
+      `hermeticity_integration_test.go:347-376` supplies linux-sandbox, network denial, and explicit input-only map argv; `:1098-1133` requires an uncached `//:arcc_stdlib_map`, decodes its cgo-disabled Linux/amd64 key, and byte-compares it with the pinned canonical artifact. The action contract checks at `:870-940` require the generation-only arcc binary and reject native discovery/toolchain paths.
+  - text: |-
+      **Undeclared caches remain untouched**
+      - Given read-only poison native cache directories with recorded sentinels
+      - When the restricted suite completes
+      - Then their trees and metadata are unchanged and no undeclared cache path appears in an arcc action's inputs, environment, or command line.
+    addressed: yes
+    evidence: |
+      `hermeticity_integration_test.go:608-705` seeds read-only sentinels and snapshots path, type, mode, size, modification time, symlink target, and file digest before/after both runs. `:174-192` and `:347-359` isolate output roots, block the poison root, and restrict sandbox writability; `:870-909` rejects poison/cache paths and non-empty action environments. The focused and `just ci` runs passed with unchanged snapshots.
+  - text: |-
+      **Action contracts are observed at execution time**
+      - Given the restricted run's machine-readable execution log
+      - When commands and inputs are classified
+      - Then each arcc mnemonic executes only its intended arcc tool with controlled environment/network settings and its documented declared-input role set.
+    addressed: yes
+    evidence: |
+      `hermeticity_integration_test.go:387-455` performs a Bazel `aquery --output=jsonproto` inspection to attach execution requirements omitted by the execution log. `:841-1020` validates `block-network=1`, empty environments, arcc tools, explicit argv, and role-specific inputs for `ArccImportGraph`, `ArccLayout`, `ArccCheck`, and `ArccStdlibMap`.
+  - text: |-
+      **Generation remains bounded**
+      - Given all selected hermeticity targets in one run
+      - When stdlib-map actions are counted
+      - Then the run performs zero native whole-SDK generations and no more than one default Bazel whole-SDK generation.
+    addressed: yes
+    evidence: |
+      `hermeticity_integration_test.go:144-152` runs the 13 scaling components and report/surface assertion together; `:807-839` requires exactly one default map action, and `:241-268` repeats the build in the same isolated output root while comparing outputs without a second execution. The recorded result is one `ArccStdlibMap` action and no native invocation; the documented measurement is at `research/current-analysis-pipeline.md:530-559`.
+  - text: |-
+      **Hermeticity is a routine regression test**
+      - Given the pinned CI host with Bazel sandbox support
+      - When `just test-integration` and `just ci` run
+      - Then the restricted-sandbox test executes automatically, fails on unsupported/missing prerequisites, and records no state in the developer workspace.
+    addressed: yes
+    evidence: |
+      `justfile:15-18` keeps the integration-tagged driver in `test-integration`, which is a dependency of `ci`; missing Bazel is a fatal error at `hermeticity_integration_test.go:291-309`, and sandbox/Bazel command failures are fatal at `:223-226`. The reproducible invocation, restrictions, counts, output-root isolation, and passing `just ci` result are recorded in `research/current-analysis-pipeline.md:489-562`.
+
+artifacts:
+  scratchpad_dir: .agents/scratchpad/2026-08-04-compositional-component-analysis/step13/task-03-enforce-restricted-sandbox-hermeticity/
+  files:
+    - context.md
+    - plan.md
+    - progress.md
+    - work.log
+    - result.yaml
+
+notes: |
+  Added a restricted Bazel producer-chain driver with hostile Go environment variables, read-only poison trees, sandbox/network enforcement, action-log/aquery contract checks, and deterministic output validation. The driver is folded into the existing scaling run so all selected targets share one default stdlib-map generation, and the exact invocation and measured result are documented. The final task change is `xyxtloutkyqsyzuznmwzzrvwnkpkkvzu`; `just ci` passed and the working copy is empty.

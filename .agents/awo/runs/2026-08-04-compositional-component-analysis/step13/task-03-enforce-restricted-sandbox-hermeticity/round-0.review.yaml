@@ -1,0 +1,151 @@
+review:
+  task_file: .agents/tasks/2026-08-04-compositional-component-analysis/step13/task-03-enforce-restricted-sandbox-hermeticity.code-task.md
+  change_id: xyxtloutkyqsyzuznmwzzrvwnkpkkvzu
+  reviewed_at: 2026-09-12T10:11:16Z
+  verdict: changes_requested
+  schema_version: 2
+  lsp_coverage: unavailable
+
+merge_request:
+  title: "test: enforce restricted sandbox hermeticity [Compositional Analysis: Step 13/Task 03]"
+  body: |
+    Reviews the complete ordered series from the Step 13 Task 02 bookkeeping
+    change through the initial hermeticity implementation and its rework. The
+    initial change added the restricted Bazel integration driver, poison-tree
+    snapshots, execution-log checks, and deterministic output validation. The
+    rework shared that run with the producer-chain scaling test, added aquery
+    execution-contract inspection, and documented the invocation and measured
+    evidence. One workspace-hygiene issue remains: the Bazel invocations do
+    not suppress convenience symlinks.
+
+summary: |
+  The ordered changes provide a passing restricted Bazel run covering the four
+  arcc mnemonics, poisoned Go cache variables, action-contract inspection,
+  report/surface assertions, and deterministic map/report/surface outputs.
+  Five acceptance criteria pass with focused integration and routine-CI
+  evidence. AC6 is partial because the test runs from the repository root
+  without disabling Bazel convenience symlinks, so the isolated run can leave
+  bazel-* links in the developer workspace; gofmt and go vet passed, but no LSP
+  diagnostic tool was available in this harness.
+
+acceptance_criteria:
+  - text: |-
+      **Checks run without a host toolchain**
+      - Given a sandbox environment whose `PATH` cannot resolve `go` and whose `GOROOT`/Go cache variables do not expose a toolchain
+      - When a dependent component's analysis and assertion targets run
+      - Then `ArccImportGraph`, `ArccLayout`, and `ArccCheck` succeed using declared metadata, export data, surfaces/reports, and map inputs only.
+    status: pass
+    evidence: |
+      `go/internal/goanalysis/hermeticity_integration_test.go:144-152` includes
+      the checked API analysis test and its direct shared component in the
+      restricted run. `:507-556` constructs a PATH containing only selected
+      utilities, poisons the Go environment variables, and checks the action
+      executable/input contracts. The existing producer-chain assertions in
+      `go/internal/goanalysis/producer_chain_scaling_integration_test.go:443-522`
+      cover the projection, layout, and member-only check roles. The focused
+      integration run and `just ci` passed according to `work.log`.
+  - text: |-
+      **Map generation is hermetic**
+      - Given the same restricted environment and cgo-disabled target configuration
+      - When the default `ArccStdlibMap` action executes
+      - Then it succeeds through the layout driver using declared SDK source/oracle files, invokes no Go/toolchain executable, uses no native cache, and performs no network access.
+    status: pass
+    evidence: |
+      `go/internal/goanalysis/hermeticity_integration_test.go:347-376` applies
+      linux-sandbox, network denial, `--nofetch`, and the isolated output/user
+      roots. `:825-850` requires the generation-only arcc-stdlibmap command and
+      SDK source/oracle input role, while `:854-909` checks empty environments,
+      `block-network=1`, and absence of native tool/cache paths. `:1098-1133`
+      requires an uncached canonical default map, checks its cgo-disabled
+      Linux/amd64 key, and compares it byte-for-byte with the pinned artifact.
+  - text: |-
+      **Undeclared caches remain untouched**
+      - Given read-only poison native cache directories with recorded sentinels
+      - When the restricted suite completes
+      - Then their trees and metadata are unchanged and no undeclared cache path appears in an arcc action's inputs, environment, or command line.
+    status: pass
+    evidence: |
+      `go/internal/goanalysis/hermeticity_integration_test.go:592-705` seeds
+      read-only poison trees and snapshots path kind, permissions, size,
+      modification time, symlink target, and regular-file digest. The snapshots
+      are compared after both Bazel runs at `:223-224` and `:252-253`, and
+      `:854-899` rejects poison/cache paths and non-empty action environments.
+      The focused run and `just ci` evidence in `work.log` recorded unchanged
+      poison trees.
+  - text: |-
+      **Action contracts are observed at execution time**
+      - Given the restricted run's machine-readable execution log
+      - When commands and inputs are classified
+      - Then each arcc mnemonic executes only its intended arcc tool with controlled environment/network settings and its documented declared-input role set.
+    status: pass
+    evidence: |
+      `go/internal/goanalysis/hermeticity_integration_test.go:387-455` runs a
+      machine-readable Bazel aquery and attaches execution requirements to the
+      execution-log action records. `:757-851` checks all four mnemonics, and
+      `:854-925` validates empty environments, `block-network=1`, intended arcc
+      tool inputs/executables, explicit argv, and no native fallback/cache
+      references. The producer-chain role checks at
+      `go/internal/goanalysis/producer_chain_scaling_integration_test.go:443-522`
+      cover the scaling actions as well.
+  - text: |-
+      **Generation remains bounded**
+      - Given all selected hermeticity targets in one run
+      - When stdlib-map actions are counted
+      - Then the run performs zero native whole-SDK generations and no more than one default Bazel whole-SDK generation.
+    status: pass
+    evidence: |
+      `go/internal/goanalysis/hermeticity_integration_test.go:144-152` combines
+      the 13 producer-chain components with the checked API assertion target,
+      while `:791-823` requires exactly one default `ArccStdlibMap` action.
+      `:241-268` repeats the build in the same isolated output root and checks
+      output identity without requiring another map execution; `:773-778`
+      verifies any recorded repeat map action is a cache hit. The measured
+      action counts and driver-only Bazel/native-generation bound are recorded
+      in `.agents/planning/2026-08-04-compositional-component-analysis/research/current-analysis-pipeline.md:530-559`.
+  - text: |-
+      **Hermeticity is a routine regression test**
+      - Given the pinned CI host with Bazel sandbox support
+      - When `just test-integration` and `just ci` run
+      - Then the restricted-sandbox test executes automatically, fails on unsupported/missing prerequisites, and records no state in the developer workspace.
+    status: partial
+    evidence: |
+      `justfile:15-18` runs the integration-tagged suite, and `justfile:163-165`
+      places it in `just ci`. Missing Bazel and failed sandboxed commands are
+      fatal at `go/internal/goanalysis/hermeticity_integration_test.go:291-309`
+      and `:223-226`. However, `:347-376` does not pass
+      `--experimental_convenience_symlinks=ignore` or an equivalent
+      `--symlink_prefix=/`, while `:379-384` runs Bazel with the repository root
+      as its working directory. Bazel's default convenience-symlink behavior
+      can therefore create/update `bazel-*` links outside the isolated output
+      root; the cleanup only shuts down Bazel and makes the temporary tree
+      writable (`:181-192`). The research note's no-workspace-state claim at
+      `:556-562` is consequently not established.
+
+findings:
+  - severity: important
+    category: acceptance_criteria
+    file: go/internal/goanalysis/hermeticity_integration_test.go
+    line: 348
+    title: Restricted Bazel run leaves convenience symlinks in workspace
+    details: |
+      AC6 requires that the routine hermeticity run record no state in the
+      developer workspace. `hermeticityBazelArgs` at
+      `go/internal/goanalysis/hermeticity_integration_test.go:347-376` isolates
+      `--output_user_root` and `--output_base` but does not disable Bazel's
+      convenience symlinks. The commands run with `command.Dir = repoRoot` at
+      `:379-384`; with Bazel's default `experimental_convenience_symlinks=normal`,
+      a build/test can create or retarget `bazel-bin`, `bazel-out`,
+      `bazel-testlogs`, and the workspace symlink. The cleanup at `:181-192`
+      does not restore or remove those links, so they can become dangling links
+      into the deleted test temporary directory. This contradicts the
+      documented no-workspace-state result in
+      `.agents/planning/2026-08-04-compositional-component-analysis/research/current-analysis-pipeline.md:556-562`.
+    suggested_action: |
+      Add `--experimental_convenience_symlinks=ignore` (or the supported
+      equivalent `--symlink_prefix=/`) to the isolated Bazel build/test
+      arguments, and include a regression check that the repository-root
+      convenience-link state is unchanged after the run. Update the research
+      invocation/evidence if the selected Bazel option changes the command.
+    source: built-in
+
+ecosystem_reviews: []
