@@ -32,6 +32,9 @@ lint:
 	cd {{go_dir}} && go vet ./...
 	cd {{go_dir}} && test -z "$(gofmt -l .)"
 
+lint-gate-test:
+	bash scripts/test-lint-gate.sh
+
 fmt:
 	cd {{go_dir}} && go fmt ./...
 
@@ -160,7 +163,7 @@ bazel-test:
 # Go-only leg: everything except selfcheck and bazel-test. Mirrors the
 # ci.yml "Go" job so the three CI jobs can run in parallel on separate
 # runners; selfcheck and bazel-test run as their own CI jobs.
-ci-go: gen lint build test test-integration stdlibmap-pin-check selfcheck-staging-test
+ci-go: gen lint lint-gate-test build test test-integration stdlibmap-pin-check selfcheck-staging-test
 
 ci: gen-is-clean ci-go selfcheck bazel-test
 
