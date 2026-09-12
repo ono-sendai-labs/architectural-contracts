@@ -33,12 +33,19 @@ const (
 var producerChainActionMnemonics = []string{"ArccImportGraph", "ArccLayout", "ArccCheck"}
 
 type producerChainVariant struct {
+	Name                    string
+	Depth                   int
+	Width                   int
+	TypeSurface             int
+	Component               string
+	Dependency              string
+	MemberPackage           string
+	DependencyMemberPackage string
+}
+
+type producerChainLoadTarget struct {
+	Label         string
 	Name          string
-	Depth         int
-	Width         int
-	TypeSurface   int
-	Component     string
-	Dependency    string
 	MemberPackage string
 }
 
@@ -113,24 +120,31 @@ type producerChainLoaderObservation struct {
 }
 
 type producerChainRow struct {
-	Variant               string
-	Depth                 int
-	Width                 int
-	TypeSurface           int
-	ImportGraphActions    int
-	LayoutActions         int
-	CheckActions          int
-	ProjectionSourceFiles uint64
-	ProjectionSourceBytes uint64
-	ProjectionElapsed     time.Duration
-	LayoutElapsed         time.Duration
-	CheckLoaderElapsed    time.Duration
-	MemberScanElapsed     time.Duration
-	CheckTotalElapsed     time.Duration
-	ProducerChainElapsed  time.Duration
-	ExportArtifactCount   uint64
-	ExportArtifactBytes   uint64
-	MemberWorkload        producerChainWorkload
+	Variant                         string
+	Depth                           int
+	Width                           int
+	TypeSurface                     int
+	ImportGraphActions              int
+	LayoutActions                   int
+	CheckActions                    int
+	ProjectionSourceFiles           uint64
+	ProjectionSourceBytes           uint64
+	DependencyProjectionSourceFiles uint64
+	DependencyProjectionSourceBytes uint64
+	ProjectionElapsed               time.Duration
+	LayoutElapsed                   time.Duration
+	CheckLoaderElapsed              time.Duration
+	MemberScanElapsed               time.Duration
+	DependencyCheckLoaderElapsed    time.Duration
+	DependencyMemberScanElapsed     time.Duration
+	CheckTotalElapsed               time.Duration
+	ProducerChainElapsed            time.Duration
+	ExportArtifactCount             uint64
+	ExportArtifactBytes             uint64
+	DependencyExportArtifactCount   uint64
+	DependencyExportArtifactBytes   uint64
+	MemberWorkload                  producerChainWorkload
+	DependencyMemberWorkload        producerChainWorkload
 }
 
 func TestBazelProducerChainScaling_Integration(t *testing.T) {
@@ -153,14 +167,23 @@ func TestBazelProducerChainScaling_Integration(t *testing.T) {
 	execroot := filepath.Join(build.OutputBase, "execroot", "_main")
 	rows := make([]producerChainRow, 0, len(variants))
 	for _, variant := range variants {
-		loader := measureProducerChainLoader(t, execroot, byTargetAndMnemonic, variant)
-		row := producerChainRowForVariant(t, byTargetAndMnemonic, variant, loader)
+		rootLoader := measureProducerChainLoader(t, execroot, byTargetAndMnemonic, producerChainLoadTarget{
+			Label:         variant.Component,
+			Name:          variant.Name + "_component",
+			MemberPackage: variant.MemberPackage,
+		})
+		dependencyLoader := measureProducerChainLoader(t, execroot, byTargetAndMnemonic, producerChainLoadTarget{
+			Label:         variant.Dependency,
+			Name:          variant.Name + "_dependency_component",
+			MemberPackage: variant.DependencyMemberPackage,
+		})
+		row := producerChainRowForVariant(t, byTargetAndMnemonic, variant, rootLoader, dependencyLoader)
 		rows = append(rows, row)
 	}
 
 	assertProducerChainScaling(t, rows)
 	assertProducerChainArtifactsDeterministic(t, build, variants)
-	printProducerChainTable(rows, len(stdlibMapActions), 0)
+	printProducerChainTable(rows, len(stdlibMapActions))
 }
 
 type producerChainBazelBuild struct {
@@ -309,17 +332,18 @@ func newProducerChainVariant(depth, width, typeSurface int, directSurface bool) 
 		name = fmt.Sprintf("s%04d", typeSurface)
 	}
 	return producerChainVariant{
-		Name:          name,
-		Depth:         depth,
-		Width:         width,
-		TypeSurface:   typeSurface,
-		Component:     "//" + producerChainPackage + ":" + name + "_component",
-		Dependency:    "//" + producerChainPackage + ":" + name + "_dependency_component",
-		MemberPackage: producerChainImportRoot + "/" + name + "/member",
+		Name:                    name,
+		Depth:                   depth,
+		Width:                   width,
+		TypeSurface:             typeSurface,
+		Component:               "//" + producerChainPackage + ":" + name + "_component",
+		Dependency:              "//" + producerChainPackage + ":" + name + "_dependency_component",
+		MemberPackage:           producerChainImportRoot + "/" + name + "/member",
+		DependencyMemberPackage: producerChainImportRoot + "/" + name + "/entry",
 	}
 }
 
-func producerChainRowForVariant(t *testing.T, indexed map[string][]producerChainAction, variant producerChainVariant, loader producerChainLoaderObservation) producerChainRow {
+func producerChainRowForVariant(t *testing.T, indexed map[string][]producerChainAction, variant producerChainVariant, rootLoader, dependencyLoader producerChainLoaderObservation) producerChainRow {
 	t.Helper()
 	rootActions := make(map[string]producerChainAction, len(producerChainActionMnemonics))
 	for _, mnemonic := range producerChainActionMnemonics {
@@ -340,57 +364,87 @@ func producerChainRowForVariant(t *testing.T, indexed map[string][]producerChain
 	assertProducerActionHermetic(t, graph)
 	assertProducerActionHermetic(t, layout)
 	assertProducerActionHermetic(t, check)
-	assertProducerChainInputRoles(t, variant, graph, layout, check)
+	assertProducerChainInputRoles(t, variant.Name+"_component", variant.Name+"_member.go", graph, layout, check, true)
 
 	projectionFiles, projectionBytes := producerChainInputVolume(t, graph, func(path string) bool {
 		return strings.HasSuffix(path, ".go")
 	})
 	exportFiles, exportBytes := producerChainInputVolume(t, check, isExportArtifactPath)
-	if exportFiles != uint64(1+variant.Depth*variant.Width) {
-		t.Fatalf("%s ArccCheck export artifact count = %d, want %d", variant.Name, exportFiles, 1+variant.Depth*variant.Width)
+	wantRootArtifacts := uint64(1 + variant.Depth*variant.Width)
+	if exportFiles != wantRootArtifacts {
+		t.Fatalf("%s ArccCheck export artifact count = %d, want %d", variant.Name, exportFiles, wantRootArtifacts)
 	}
-	if loader.Diagnostics.NonMemberExportArtifactCount != exportFiles || loader.Diagnostics.NonMemberExportBytes != exportBytes {
-		t.Fatalf("%s export metrics disagree: action=%d/%d loader=%d/%d", variant.Name, exportFiles, exportBytes, loader.Diagnostics.NonMemberExportArtifactCount, loader.Diagnostics.NonMemberExportBytes)
+	if rootLoader.Diagnostics.NonMemberExportArtifactCount != exportFiles || rootLoader.Diagnostics.NonMemberExportBytes != exportBytes {
+		t.Fatalf("%s root export metrics disagree: action=%d/%d loader=%d/%d", variant.Name, exportFiles, exportBytes, rootLoader.Diagnostics.NonMemberExportArtifactCount, rootLoader.Diagnostics.NonMemberExportBytes)
 	}
 
 	projectionElapsed := producerChainActionElapsed(t, graph)
 	layoutElapsed := producerChainActionElapsed(t, layout)
 	checkTotalElapsed := producerChainActionElapsed(t, check)
-	checkLoaderElapsed := medianProducerChainDuration(loader.LoadDurations)
-	memberScanElapsed := medianProducerChainDuration(loader.ScanDurations)
+	checkLoaderElapsed := medianProducerChainDuration(rootLoader.LoadDurations)
+	memberScanElapsed := medianProducerChainDuration(rootLoader.ScanDurations)
+	dependencyGraph := producerChainActionForTarget(t, indexed, variant.Dependency, "ArccImportGraph", variant.Name)
+	dependencyLayout := producerChainActionForTarget(t, indexed, variant.Dependency, "ArccLayout", variant.Name)
+	dependencyCheck := producerChainActionForTarget(t, indexed, variant.Dependency, "ArccCheck", variant.Name)
+	assertProducerActionHermetic(t, dependencyGraph)
+	assertProducerActionHermetic(t, dependencyLayout)
+	assertProducerActionHermetic(t, dependencyCheck)
+	assertProducerChainInputRoles(t, variant.Name+"_dependency_component", variant.Name+"_entry.go", dependencyGraph, dependencyLayout, dependencyCheck, false)
+	dependencyProjectionFiles, dependencyProjectionBytes := producerChainInputVolume(t, dependencyGraph, func(path string) bool {
+		return strings.HasSuffix(path, ".go")
+	})
+	dependencyExportFiles, dependencyExportBytes := producerChainInputVolume(t, dependencyCheck, isExportArtifactPath)
+	wantDependencyArtifacts := uint64(variant.Depth * variant.Width)
+	if dependencyProjectionFiles != wantDependencyArtifacts || dependencyExportFiles != wantDependencyArtifacts {
+		t.Fatalf("%s dependency source/export counts = %d/%d, want %d", variant.Name, dependencyProjectionFiles, dependencyExportFiles, wantDependencyArtifacts)
+	}
+	if dependencyLoader.Diagnostics.NonMemberExportArtifactCount != dependencyExportFiles || dependencyLoader.Diagnostics.NonMemberExportBytes != dependencyExportBytes {
+		t.Fatalf("%s dependency export metrics disagree: action=%d/%d loader=%d/%d", variant.Name, dependencyExportFiles, dependencyExportBytes, dependencyLoader.Diagnostics.NonMemberExportArtifactCount, dependencyLoader.Diagnostics.NonMemberExportBytes)
+	}
 	chainElapsed := projectionElapsed + layoutElapsed + checkTotalElapsed
-	for _, mnemonic := range producerChainActionMnemonics {
-		key := variant.Dependency + "\x00" + mnemonic
-		matches := indexed[key]
-		if len(matches) != 1 {
-			t.Fatalf("%s dependency %s actions = %d for %s, want exactly one", variant.Name, mnemonic, len(matches), mnemonic)
-		}
-		if matches[0].CacheHit {
-			t.Fatalf("%s dependency %s unexpectedly came from the action cache", variant.Name, mnemonic)
-		}
-		chainElapsed += producerChainActionElapsed(t, matches[0])
+	for _, action := range []producerChainAction{dependencyGraph, dependencyLayout, dependencyCheck} {
+		chainElapsed += producerChainActionElapsed(t, action)
 	}
 
 	return producerChainRow{
-		Variant:               variant.Name,
-		Depth:                 variant.Depth,
-		Width:                 variant.Width,
-		TypeSurface:           variant.TypeSurface,
-		ImportGraphActions:    1,
-		LayoutActions:         1,
-		CheckActions:          1,
-		ProjectionSourceFiles: projectionFiles,
-		ProjectionSourceBytes: projectionBytes,
-		ProjectionElapsed:     projectionElapsed,
-		LayoutElapsed:         layoutElapsed,
-		CheckLoaderElapsed:    checkLoaderElapsed,
-		MemberScanElapsed:     memberScanElapsed,
-		CheckTotalElapsed:     checkTotalElapsed,
-		ProducerChainElapsed:  chainElapsed,
-		ExportArtifactCount:   exportFiles,
-		ExportArtifactBytes:   exportBytes,
-		MemberWorkload:        loader.Workload,
+		Variant:                         variant.Name,
+		Depth:                           variant.Depth,
+		Width:                           variant.Width,
+		TypeSurface:                     variant.TypeSurface,
+		ImportGraphActions:              1,
+		LayoutActions:                   1,
+		CheckActions:                    1,
+		ProjectionSourceFiles:           projectionFiles,
+		ProjectionSourceBytes:           projectionBytes,
+		DependencyProjectionSourceFiles: dependencyProjectionFiles,
+		DependencyProjectionSourceBytes: dependencyProjectionBytes,
+		ProjectionElapsed:               projectionElapsed,
+		LayoutElapsed:                   layoutElapsed,
+		CheckLoaderElapsed:              checkLoaderElapsed,
+		MemberScanElapsed:               memberScanElapsed,
+		DependencyCheckLoaderElapsed:    medianProducerChainDuration(dependencyLoader.LoadDurations),
+		DependencyMemberScanElapsed:     medianProducerChainDuration(dependencyLoader.ScanDurations),
+		CheckTotalElapsed:               checkTotalElapsed,
+		ProducerChainElapsed:            chainElapsed,
+		ExportArtifactCount:             exportFiles,
+		ExportArtifactBytes:             exportBytes,
+		DependencyExportArtifactCount:   dependencyExportFiles,
+		DependencyExportArtifactBytes:   dependencyExportBytes,
+		MemberWorkload:                  rootLoader.Workload,
+		DependencyMemberWorkload:        dependencyLoader.Workload,
 	}
+}
+
+func producerChainActionForTarget(t *testing.T, indexed map[string][]producerChainAction, target, mnemonic, variant string) producerChainAction {
+	t.Helper()
+	matches := indexed[target+"\x00"+mnemonic]
+	if len(matches) != 1 {
+		t.Fatalf("%s dependency %s actions = %d, want exactly one", variant, mnemonic, len(matches))
+	}
+	if matches[0].CacheHit {
+		t.Fatalf("%s dependency %s unexpectedly came from the action cache", variant, mnemonic)
+	}
+	return matches[0]
 }
 
 func assertProducerActionHermetic(t *testing.T, action producerChainAction) {
@@ -409,20 +463,19 @@ func assertProducerActionHermetic(t *testing.T, action producerChainAction) {
 	}
 }
 
-func assertProducerChainInputRoles(t *testing.T, variant producerChainVariant, graph, layout, check producerChainAction) {
+func assertProducerChainInputRoles(t *testing.T, targetName, memberSource string, graph, layout, check producerChainAction, requireDependencyReport bool) {
 	t.Helper()
 	graphPaths := producerChainInputPaths(graph)
 	layoutPaths := producerChainInputPaths(layout)
 	checkPaths := producerChainInputPaths(check)
-	memberSource := variant.Name + "_member.go"
 
 	if !producerChainHasSuffix(graphPaths, ".package-imports.request.json") || !producerChainHasSuffix(graphPaths, ".go") {
-		t.Errorf("%s ArccImportGraph inputs = %v, want request and ordinary Go source", variant.Name, graphPaths)
+		t.Errorf("%s ArccImportGraph inputs = %v, want request and ordinary Go source", targetName, graphPaths)
 	}
 	if producerChainHasSuffix(graphPaths, ".package-layout.base.json") || producerChainHasSuffix(graphPaths, ".x") ||
 		producerChainHasSuffix(graphPaths, ".surface.json") || producerChainHasSuffix(graphPaths, ".report.json") ||
 		producerChainHasSuffix(graphPaths, ".stdlib-map.json") {
-		t.Errorf("%s ArccImportGraph received a non-projection input: %v", variant.Name, graphPaths)
+		t.Errorf("%s ArccImportGraph received a non-projection input: %v", targetName, graphPaths)
 	}
 	for _, input := range graph.Inputs {
 		if input.IsTool {
@@ -430,22 +483,22 @@ func assertProducerChainInputRoles(t *testing.T, variant producerChainVariant, g
 		}
 		path := filepath.ToSlash(input.Path)
 		if !strings.HasSuffix(path, ".package-imports.request.json") && !strings.HasSuffix(path, ".go") {
-			t.Errorf("%s ArccImportGraph has an unclassified input %q", variant.Name, input.Path)
+			t.Errorf("%s ArccImportGraph has an unclassified input %q", targetName, input.Path)
 		}
 	}
 	for _, path := range graphPaths {
 		if strings.HasSuffix(path, ".go") && filepath.Base(path) == memberSource {
-			t.Errorf("%s member source leaked into ArccImportGraph: %q", variant.Name, path)
+			t.Errorf("%s member source leaked into ArccImportGraph: %q", targetName, path)
 		}
 	}
 
 	if !producerChainHasSuffix(layoutPaths, ".package-imports.json") || !producerChainHasSuffix(layoutPaths, ".package-layout.base.json") {
-		t.Errorf("%s ArccLayout inputs = %v, want projection descriptor and base layout", variant.Name, layoutPaths)
+		t.Errorf("%s ArccLayout inputs = %v, want projection descriptor and base layout", targetName, layoutPaths)
 	}
 	if producerChainHasSuffix(layoutPaths, ".package-imports.request.json") || producerChainHasSuffix(layoutPaths, ".go") ||
 		producerChainHasSuffix(layoutPaths, ".x") || producerChainHasSuffix(layoutPaths, ".surface.json") ||
 		producerChainHasSuffix(layoutPaths, ".report.json") || producerChainHasSuffix(layoutPaths, ".stdlib-map.json") {
-		t.Errorf("%s ArccLayout received a non-merge input: %v", variant.Name, layoutPaths)
+		t.Errorf("%s ArccLayout received a non-merge input: %v", targetName, layoutPaths)
 	}
 	for _, input := range layout.Inputs {
 		if input.IsTool {
@@ -453,21 +506,25 @@ func assertProducerChainInputRoles(t *testing.T, variant producerChainVariant, g
 		}
 		path := filepath.ToSlash(input.Path)
 		if !strings.HasSuffix(path, ".package-imports.json") && !strings.HasSuffix(path, ".package-layout.base.json") {
-			t.Errorf("%s ArccLayout has an unclassified input %q", variant.Name, input.Path)
+			t.Errorf("%s ArccLayout has an unclassified input %q", targetName, input.Path)
 		}
 	}
 
-	for _, required := range []string{".package-layout.json", ".package-imports.json", ".stdlib-map.json", ".x", ".surface.json", ".report.json", memberSource} {
+	required := []string{".package-layout.json", ".package-imports.json", ".stdlib-map.json", ".x", ".surface.json", memberSource}
+	if requireDependencyReport {
+		required = append(required, ".report.json")
+	}
+	for _, required := range required {
 		if !producerChainHasSuffix(checkPaths, required) {
-			t.Errorf("%s ArccCheck is missing %s input: %v", variant.Name, required, checkPaths)
+			t.Errorf("%s ArccCheck is missing %s input: %v", targetName, required, checkPaths)
 		}
 	}
 	if producerChainHasSuffix(checkPaths, ".package-layout.base.json") || producerChainHasSuffix(checkPaths, ".package-imports.request.json") {
-		t.Errorf("%s ArccCheck received private auxiliary input: %v", variant.Name, checkPaths)
+		t.Errorf("%s ArccCheck received private auxiliary input: %v", targetName, checkPaths)
 	}
 	for _, path := range checkPaths {
 		if strings.HasSuffix(path, ".go") && filepath.Base(path) != memberSource {
-			t.Errorf("%s non-member source leaked into ArccCheck: %q", variant.Name, path)
+			t.Errorf("%s non-member source leaked into ArccCheck: %q", targetName, path)
 		}
 	}
 	for _, input := range check.Inputs {
@@ -483,7 +540,7 @@ func assertProducerChainInputRoles(t *testing.T, variant producerChainVariant, g
 			base == memberSource {
 			continue
 		}
-		t.Errorf("%s ArccCheck has an unclassified input %q", variant.Name, input.Path)
+		t.Errorf("%s ArccCheck has an unclassified input %q", targetName, input.Path)
 	}
 }
 
@@ -520,27 +577,27 @@ type producerChainBindingWire struct {
 	Report  string `json:"report"`
 }
 
-func producerChainLoaderFrame(t *testing.T, execroot string, indexed map[string][]producerChainAction, variant producerChainVariant) string {
+func producerChainLoaderFrame(t *testing.T, execroot string, indexed map[string][]producerChainAction, target producerChainLoadTarget) string {
 	t.Helper()
 	lookup := func(mnemonic string) producerChainAction {
-		matches := indexed[variant.Component+"\x00"+mnemonic]
+		matches := indexed[target.Label+"\x00"+mnemonic]
 		if len(matches) != 1 {
-			t.Fatalf("%s %s action count = %d while preparing loader frame", variant.Name, mnemonic, len(matches))
+			t.Fatalf("%s %s action count = %d while preparing loader frame", target.Name, mnemonic, len(matches))
 		}
 		return matches[0]
 	}
 	graph := lookup("ArccImportGraph")
 	layout := lookup("ArccLayout")
 	check := lookup("ArccCheck")
-	layoutOutput := producerChainOutputPath(t, execroot, layout, variant.Name+"_component.package-layout.json")
-	graphOutput := producerChainOutputPath(t, execroot, graph, variant.Name+"_component.package-imports.json")
+	layoutOutput := producerChainOutputPath(t, execroot, layout, target.Name+".package-layout.json")
+	graphOutput := producerChainOutputPath(t, execroot, graph, target.Name+".package-imports.json")
 	layoutBytes, err := os.ReadFile(layoutOutput)
 	if err != nil {
-		t.Fatalf("reading %s final layout %q: %v", variant.Name, layoutOutput, err)
+		t.Fatalf("reading %s final layout %q: %v", target.Name, layoutOutput, err)
 	}
 	var wire producerChainLayoutWire
 	if err := json.Unmarshal(layoutBytes, &wire); err != nil {
-		t.Fatalf("decoding %s final layout %q: %v", variant.Name, layoutOutput, err)
+		t.Fatalf("decoding %s final layout %q: %v", target.Name, layoutOutput, err)
 	}
 
 	frameDir := t.TempDir()
@@ -549,14 +606,14 @@ func producerChainLoaderFrame(t *testing.T, execroot string, indexed map[string]
 			return
 		}
 		if filepath.IsAbs(logical) {
-			t.Fatalf("%s loader frame logical path %q is absolute", variant.Name, logical)
+			t.Fatalf("%s loader frame logical path %q is absolute", target.Name, logical)
 		}
-		target := filepath.Join(frameDir, filepath.FromSlash(logical))
-		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
-			t.Fatalf("creating loader frame for %s: %v", variant.Name, err)
+		linkPath := filepath.Join(frameDir, filepath.FromSlash(logical))
+		if err := os.MkdirAll(filepath.Dir(linkPath), 0o755); err != nil {
+			t.Fatalf("creating loader frame for %s: %v", target.Name, err)
 		}
-		if err := os.Symlink(physical, target); err != nil {
-			t.Fatalf("linking loader frame path %q to %q: %v", target, physical, err)
+		if err := os.Symlink(physical, linkPath); err != nil {
+			t.Fatalf("linking loader frame path %q to %q: %v", linkPath, physical, err)
 		}
 	}
 	link(filepath.Base(layoutOutput), layoutOutput)
@@ -575,14 +632,14 @@ func producerChainLoaderFrame(t *testing.T, execroot string, indexed map[string]
 			link(logical, physical)
 			return
 		}
-		t.Fatalf("%s loader frame has no physical input for logical path %q", variant.Name, logical)
+		t.Fatalf("%s loader frame has no physical input for logical path %q", target.Name, logical)
 	}
 	linkByTree := func(logical string, inputs []producerChainArtifact) {
-		linkProducerChainTree(t, variant, execroot, logical, inputs, link)
+		linkProducerChainTree(t, target, execroot, logical, inputs, link)
 	}
 
 	for _, pkg := range wire.Packages {
-		if pkg.ID == variant.MemberPackage {
+		if pkg.ID == target.MemberPackage {
 			seen := make(map[string]bool)
 			for _, file := range append(append([]string{}, pkg.GoFiles...), pkg.CompiledGoFiles...) {
 				if seen[file] {
@@ -602,21 +659,23 @@ func producerChainLoaderFrame(t *testing.T, execroot string, indexed map[string]
 	}
 	for _, binding := range wire.DependencyArtifactBindings {
 		linkByBase(binding.Surface, check.Inputs)
-		linkByBase(binding.Report, check.Inputs)
+		if binding.Report != "" {
+			linkByBase(binding.Report, check.Inputs)
+		}
 	}
 
 	if wire.GoSDKRoot != "" {
 		repository := strings.Split(filepath.ToSlash(wire.GoSDKRoot), "/")[0]
 		physical := filepath.Join(execroot, "external", filepath.FromSlash(repository))
 		if _, err := os.Stat(physical); err != nil {
-			t.Fatalf("%s loader frame SDK root %q: %v", variant.Name, physical, err)
+			t.Fatalf("%s loader frame SDK root %q: %v", target.Name, physical, err)
 		}
 		link(repository, physical)
 	}
 	return frameDir
 }
 
-func linkProducerChainTree(t *testing.T, variant producerChainVariant, execroot, logical string, inputs []producerChainArtifact, link func(string, string)) {
+func linkProducerChainTree(t *testing.T, target producerChainLoadTarget, execroot, logical string, inputs []producerChainArtifact, link func(string, string)) {
 	t.Helper()
 	base := filepath.Base(filepath.FromSlash(logical))
 	marker := "/" + base + "/"
@@ -637,7 +696,7 @@ func linkProducerChainTree(t *testing.T, variant producerChainVariant, execroot,
 		link(logical, physical)
 		return
 	}
-	t.Fatalf("%s loader frame has no physical tree input for logical path %q", variant.Name, logical)
+	t.Fatalf("%s loader frame has no physical tree input for logical path %q", target.Name, logical)
 }
 
 func producerChainOutputPath(t *testing.T, execroot string, action producerChainAction, suffix string) string {
@@ -675,7 +734,7 @@ func producerChainInputVolume(t *testing.T, action producerChainAction, include 
 	t.Helper()
 	var count, total uint64
 	for _, input := range action.Inputs {
-		if !include(filepath.ToSlash(input.Path)) {
+		if input.IsTool || !include(filepath.ToSlash(input.Path)) {
 			continue
 		}
 		size, err := producerChainArtifactSize(input)
@@ -723,7 +782,7 @@ func producerChainActionElapsed(t *testing.T, action producerChainAction) time.D
 	return duration
 }
 
-func measureProducerChainLoader(t *testing.T, execroot string, indexed map[string][]producerChainAction, variant producerChainVariant) producerChainLoaderObservation {
+func measureProducerChainLoader(t *testing.T, execroot string, indexed map[string][]producerChainAction, target producerChainLoadTarget) producerChainLoaderObservation {
 	t.Helper()
 	previousObserver := phaseObserver
 	previousLoader := loadPackages
@@ -751,48 +810,48 @@ func measureProducerChainLoader(t *testing.T, execroot string, indexed map[strin
 	}
 
 	var measured producerChainLoaderObservation
-	frameDir := producerChainLoaderFrame(t, execroot, indexed, variant)
-	layoutPath := filepath.Join(frameDir, variant.Name+"_component.package-layout.json")
+	frameDir := producerChainLoaderFrame(t, execroot, indexed, target)
+	layoutPath := filepath.Join(frameDir, target.Name+".package-layout.json")
 	for iteration := 0; iteration < producerChainSampleCount+1; iteration++ {
 		current = &capture{Phases: make(map[analysisPhase]time.Duration)}
 		var loaded facts.PackageFacts
 		err := packagelayout.WithDriverEnv(layoutPath, frameDir, func() error {
 			var err error
 			loaded, err = LoadPackageFacts(LoadRequest{
-				ComponentName: variant.Name + "_component",
+				ComponentName: target.Name,
 				ComponentRoot: frameDir,
-				Members:       []string{variant.MemberPackage},
+				Members:       []string{target.MemberPackage},
 			})
 			return err
 		})
 		if err != nil {
-			t.Fatalf("%s member-only loader observation %d: %v", variant.Name, iteration, err)
+			t.Fatalf("%s member-only loader observation %d: %v", target.Name, iteration, err)
 		}
 		if iteration == 0 {
 			continue
 		}
 		loadDuration, ok := current.Phases[analysisPhaseLoadPackages]
 		if !ok {
-			t.Fatalf("%s loader observation %d has no packages.Load duration", variant.Name, iteration)
+			t.Fatalf("%s loader observation %d has no packages.Load duration", target.Name, iteration)
 		}
 		scanDuration, ok := current.Phases[analysisPhaseScanReferences]
 		if !ok {
-			t.Fatalf("%s loader observation %d has no ScanReferences duration", variant.Name, iteration)
+			t.Fatalf("%s loader observation %d has no ScanReferences duration", target.Name, iteration)
 		}
-		workload := snapshotProducerChainWorkload(current.Packages, variant.MemberPackage, loaded)
+		workload := snapshotProducerChainWorkload(current.Packages, target.MemberPackage, loaded)
 		if iteration == 1 {
 			measured.Workload = workload
 			measured.Diagnostics = loaded.ExportDataDiagnostics
 		} else if workload != measured.Workload {
-			t.Fatalf("%s member workload changed across observations: got %#v, want %#v", variant.Name, workload, measured.Workload)
+			t.Fatalf("%s member workload changed across observations: got %#v, want %#v", target.Name, workload, measured.Workload)
 		} else if loaded.ExportDataDiagnostics != measured.Diagnostics {
-			t.Fatalf("%s export diagnostics changed across observations: got %#v, want %#v", variant.Name, loaded.ExportDataDiagnostics, measured.Diagnostics)
+			t.Fatalf("%s export diagnostics changed across observations: got %#v, want %#v", target.Name, loaded.ExportDataDiagnostics, measured.Diagnostics)
 		}
 		measured.LoadDurations = append(measured.LoadDurations, loadDuration)
 		measured.ScanDurations = append(measured.ScanDurations, scanDuration)
 	}
 	if len(measured.LoadDurations) != producerChainSampleCount || len(measured.ScanDurations) != producerChainSampleCount {
-		t.Fatalf("%s retained loader observations = %d/%d, want %d/%d", variant.Name, len(measured.LoadDurations), len(measured.ScanDurations), producerChainSampleCount, producerChainSampleCount)
+		t.Fatalf("%s retained loader observations = %d/%d, want %d/%d", target.Name, len(measured.LoadDurations), len(measured.ScanDurations), producerChainSampleCount, producerChainSampleCount)
 	}
 	return measured
 }
@@ -841,18 +900,21 @@ func assertProducerChainScaling(t *testing.T, rows []producerChainRow) {
 		if row.ImportGraphActions != 1 || row.LayoutActions != 1 || row.CheckActions != 1 {
 			t.Errorf("%s action counts = %d/%d/%d, want one of each", row.Variant, row.ImportGraphActions, row.LayoutActions, row.CheckActions)
 		}
-		if row.MemberWorkload.MemberPackages != 1 || row.MemberWorkload.MemberSourceFiles != 1 ||
-			row.MemberWorkload.MemberSyntaxFiles != 1 || row.MemberWorkload.MemberTypeInfoPackages != 1 ||
-			row.MemberWorkload.NonMemberSourceFiles != 0 || row.MemberWorkload.NonMemberSyntaxFiles != 0 ||
-			row.MemberWorkload.NonMemberTypeInfoPackages != 0 || row.MemberWorkload.NonMemberIncompleteTypes != 0 {
-			t.Errorf("%s member/non-member workload = %#v, want one typed member and source-free complete non-members", row.Variant, row.MemberWorkload)
-		}
+		assertProducerChainWorkload(t, row.Variant+" root", row.MemberWorkload)
+		assertProducerChainWorkload(t, row.Variant+" dependency", row.DependencyMemberWorkload)
 		if !sameProducerChainMemberWorkload(row.MemberWorkload, baseline.MemberWorkload) {
 			t.Errorf("%s member workload = %#v, want fixed workload %#v", row.Variant, row.MemberWorkload, baseline.MemberWorkload)
 		}
-		wantArtifacts := uint64(1 + row.Depth*row.Width)
-		if row.ProjectionSourceFiles != wantArtifacts || row.ExportArtifactCount != wantArtifacts {
-			t.Errorf("%s source/export counts = %d/%d, want %d", row.Variant, row.ProjectionSourceFiles, row.ExportArtifactCount, wantArtifacts)
+		if !sameProducerChainMemberWorkload(row.DependencyMemberWorkload, baseline.DependencyMemberWorkload) {
+			t.Errorf("%s dependency member workload = %#v, want fixed workload %#v", row.Variant, row.DependencyMemberWorkload, baseline.DependencyMemberWorkload)
+		}
+		wantRootArtifacts := uint64(1 + row.Depth*row.Width)
+		wantDependencyArtifacts := uint64(row.Depth * row.Width)
+		if row.ProjectionSourceFiles != wantRootArtifacts || row.ExportArtifactCount != wantRootArtifacts {
+			t.Errorf("%s root source/export counts = %d/%d, want %d", row.Variant, row.ProjectionSourceFiles, row.ExportArtifactCount, wantRootArtifacts)
+		}
+		if row.DependencyProjectionSourceFiles != wantDependencyArtifacts || row.DependencyExportArtifactCount != wantDependencyArtifacts {
+			t.Errorf("%s dependency source/export counts = %d/%d, want %d", row.Variant, row.DependencyProjectionSourceFiles, row.DependencyExportArtifactCount, wantDependencyArtifacts)
 		}
 	}
 
@@ -886,14 +948,31 @@ func assertProducerChainScaling(t *testing.T, rows []producerChainRow) {
 		if !sameProducerChainMemberWorkload(current.MemberWorkload, previous.MemberWorkload) {
 			t.Errorf("direct type surface %d member workload = %#v, want %#v", current.TypeSurface, current.MemberWorkload, previous.MemberWorkload)
 		}
+		if !sameProducerChainMemberWorkload(current.DependencyMemberWorkload, previous.DependencyMemberWorkload) {
+			t.Errorf("direct type surface %d dependency member workload = %#v, want %#v", current.TypeSurface, current.DependencyMemberWorkload, previous.DependencyMemberWorkload)
+		}
 		previous = current
 	}
 
 	minimumScan := baseline.MemberScanElapsed
+	minimumDependencyScan := baseline.DependencyMemberScanElapsed
 	for _, row := range rows {
 		if row.MemberScanElapsed > minimumScan*20+20*time.Millisecond {
 			t.Errorf("%s member scan median = %s, exceeds flatness bound %s", row.Variant, row.MemberScanElapsed, minimumScan*20+20*time.Millisecond)
 		}
+		if row.DependencyMemberScanElapsed > minimumDependencyScan*20+20*time.Millisecond {
+			t.Errorf("%s dependency member scan median = %s, exceeds flatness bound %s", row.Variant, row.DependencyMemberScanElapsed, minimumDependencyScan*20+20*time.Millisecond)
+		}
+	}
+}
+
+func assertProducerChainWorkload(t *testing.T, label string, workload producerChainWorkload) {
+	t.Helper()
+	if workload.MemberPackages != 1 || workload.MemberSourceFiles != 1 ||
+		workload.MemberSyntaxFiles != 1 || workload.MemberTypeInfoPackages != 1 ||
+		workload.NonMemberSourceFiles != 0 || workload.NonMemberSyntaxFiles != 0 ||
+		workload.NonMemberTypeInfoPackages != 0 || workload.NonMemberIncompleteTypes != 0 {
+		t.Errorf("%s workload = %#v, want one typed member and source-free complete non-members", label, workload)
 	}
 }
 
@@ -926,6 +1005,12 @@ func assertProducerChainVolumeGrowth(t *testing.T, axis string, fixed, value int
 	}
 	if current.ExportArtifactCount <= previous.ExportArtifactCount || current.ExportArtifactBytes <= previous.ExportArtifactBytes {
 		t.Errorf("%s fixed=%d value=%d export volume = %d/%d, want growth beyond %d/%d", axis, fixed, value, current.ExportArtifactCount, current.ExportArtifactBytes, previous.ExportArtifactCount, previous.ExportArtifactBytes)
+	}
+	if current.DependencyProjectionSourceFiles <= previous.DependencyProjectionSourceFiles || current.DependencyProjectionSourceBytes <= previous.DependencyProjectionSourceBytes {
+		t.Errorf("%s fixed=%d value=%d dependency projection volume = %d/%d, want growth beyond %d/%d", axis, fixed, value, current.DependencyProjectionSourceFiles, current.DependencyProjectionSourceBytes, previous.DependencyProjectionSourceFiles, previous.DependencyProjectionSourceBytes)
+	}
+	if current.DependencyExportArtifactCount <= previous.DependencyExportArtifactCount || current.DependencyExportArtifactBytes <= previous.DependencyExportArtifactBytes {
+		t.Errorf("%s fixed=%d value=%d dependency export volume = %d/%d, want growth beyond %d/%d", axis, fixed, value, current.DependencyExportArtifactCount, current.DependencyExportArtifactBytes, previous.DependencyExportArtifactCount, previous.DependencyExportArtifactBytes)
 	}
 }
 
@@ -1053,9 +1138,11 @@ func makeProducerChainTreeWritable(root string) {
 	})
 }
 
-func printProducerChainTable(rows []producerChainRow, stdlibMapActions, nativeWholeSDKGenerations int) {
-	fmt.Printf("producer-chain-scaling-v1 stdlib_map_actions=%d native_whole_sdk_generations=%d\n", stdlibMapActions, nativeWholeSDKGenerations)
-	fmt.Println("variant depth width type_surface import_graph_actions layout_actions check_actions projection_source_files projection_source_bytes projection_us layout_us check_loader_us member_scan_us check_total_us producer_chain_us export_artifacts export_bytes")
+func printProducerChainTable(rows []producerChainRow, stdlibMapActions int) {
+	// This driver invokes only Bazel; native stdlib-map generation is therefore
+	// absent by construction rather than a synthetic execution-log counter.
+	fmt.Printf("producer-chain-scaling-v1 stdlib_map_actions=%d native_whole_sdk_generation=none(driver-only-bazel)\n", stdlibMapActions)
+	fmt.Println("variant depth width type_surface import_graph_actions layout_actions check_actions projection_source_files projection_source_bytes dependency_projection_source_files dependency_projection_source_bytes projection_us layout_us check_loader_us member_scan_us dependency_check_loader_us dependency_member_scan_us check_total_us producer_chain_us export_artifacts export_bytes dependency_export_artifacts dependency_export_bytes root_member_workload dependency_member_workload")
 	for _, row := range rows {
 		values := []string{
 			row.Variant,
@@ -1067,15 +1154,37 @@ func printProducerChainTable(rows []producerChainRow, stdlibMapActions, nativeWh
 			strconv.Itoa(row.CheckActions),
 			strconv.FormatUint(row.ProjectionSourceFiles, 10),
 			strconv.FormatUint(row.ProjectionSourceBytes, 10),
+			strconv.FormatUint(row.DependencyProjectionSourceFiles, 10),
+			strconv.FormatUint(row.DependencyProjectionSourceBytes, 10),
 			strconv.FormatInt(row.ProjectionElapsed.Microseconds(), 10),
 			strconv.FormatInt(row.LayoutElapsed.Microseconds(), 10),
 			strconv.FormatInt(row.CheckLoaderElapsed.Microseconds(), 10),
 			strconv.FormatInt(row.MemberScanElapsed.Microseconds(), 10),
+			strconv.FormatInt(row.DependencyCheckLoaderElapsed.Microseconds(), 10),
+			strconv.FormatInt(row.DependencyMemberScanElapsed.Microseconds(), 10),
 			strconv.FormatInt(row.CheckTotalElapsed.Microseconds(), 10),
 			strconv.FormatInt(row.ProducerChainElapsed.Microseconds(), 10),
 			strconv.FormatUint(row.ExportArtifactCount, 10),
 			strconv.FormatUint(row.ExportArtifactBytes, 10),
+			strconv.FormatUint(row.DependencyExportArtifactCount, 10),
+			strconv.FormatUint(row.DependencyExportArtifactBytes, 10),
+			producerChainMemberWorkloadToken(row.MemberWorkload),
+			producerChainMemberWorkloadToken(row.DependencyMemberWorkload),
 		}
 		fmt.Println(strings.Join(values, " "))
 	}
+}
+
+func producerChainMemberWorkloadToken(workload producerChainWorkload) string {
+	values := []string{
+		strconv.Itoa(workload.MemberPackages),
+		strconv.Itoa(workload.MemberSourceFiles),
+		strconv.Itoa(workload.MemberSyntaxFiles),
+		strconv.Itoa(workload.MemberTypeInfoPackages),
+		strconv.Itoa(workload.MemberUses),
+		strconv.Itoa(workload.MemberSelections),
+		strconv.Itoa(workload.MemberImportEdges),
+		strconv.Itoa(workload.MemberReferenceEdges),
+	}
+	return strings.Join(values, ":")
 }

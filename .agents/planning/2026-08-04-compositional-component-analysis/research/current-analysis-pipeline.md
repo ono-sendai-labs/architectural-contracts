@@ -406,45 +406,48 @@ output group, and collects Bazel's newline-delimited
 
 The rows below use the same order and parameters as the Task 1 member-only
 series above: nine primary depth/width cases followed by the four direct
-type-surface cases. `projection_source_*` is the input volume of the measured
-component's `ArccImportGraph`; `export_*` is the deduplicated ordinary `.x`
-archive volume in that component's `ArccCheck` inputs. `projection_us`,
-`layout_us`, and `check_total_us` are the action execution-wall measurements
-from the execution log. `check_loader_us` and `member_scan_us` are medians of
-three post-warm-up observations from the production member-only loader and
-scanner, using Task 1's package-private no-op-by-default phase observer. The
-`producer_chain_us` value is the sum of the measured component's three action
-times and its checked graph dependency's three producer action times; it
-excludes the shared stdlib-map generation so that the one-time producer is not
-charged once to every row. Timings are observations only and are not persisted
-in reports, surfaces, maps, facts, or layouts.
+type-surface cases. The `projection_*` and `export_*` columns are reported for
+both the measured root and its checked graph dependency. Root projection/export
+counts are `1 + depth*width` (entry plus nodes); dependency counts are
+`depth*width` (nodes only). `projection_us`, `layout_us`, and `check_total_us`
+are the measured root action execution-wall times from the execution log.
+`check_loader_us`/`member_scan_us` and their dependency-prefixed counterparts
+are medians of three post-warm-up observations from every checked component's
+production member-only loader and scanner, using Task 1's package-private
+no-op-by-default phase observer. Workload tokens use the stable order
+`packages:sources:syntax:types_info:uses:selections:imports:references`.
+`producer_chain_us` is the sum of the root and checked dependency's six
+producer-action times; it excludes the shared stdlib-map generation so that the
+one-time producer is not charged once to every row. Timings are observations
+only and are not persisted in reports, surfaces, maps, facts, or layouts.
 
-| variant | depth | width | type surface | import graph actions | layout actions | check actions | projection source files | projection source bytes | projection µs | layout µs | check loader µs | member scan µs | check total µs | producer chain µs | export artifacts | export bytes |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| d01w01 | 1 | 1 | 0 | 1 | 1 | 1 | 2 | 181 | 11000 | 15000 | 12199 | 13 | 248000 | 512000 | 2 | 1118 |
-| d01w02 | 1 | 2 | 0 | 1 | 1 | 1 | 3 | 250 | 5000 | 9000 | 13270 | 13 | 234000 | 515000 | 3 | 1536 |
-| d01w04 | 1 | 4 | 0 | 1 | 1 | 1 | 5 | 388 | 13000 | 15000 | 12355 | 22 | 251000 | 537000 | 5 | 2374 |
-| d04w01 | 4 | 1 | 0 | 1 | 1 | 1 | 5 | 427 | 9000 | 13000 | 13876 | 14 | 228000 | 542000 | 5 | 2786 |
-| d04w02 | 4 | 2 | 0 | 1 | 1 | 1 | 9 | 1084 | 9000 | 11000 | 13710 | 29 | 264000 | 575000 | 9 | 5838 |
-| d04w04 | 4 | 4 | 0 | 1 | 1 | 1 | 17 | 3424 | 17000 | 10000 | 15119 | 22 | 236000 | 609000 | 17 | 15034 |
-| d16w01 | 16 | 1 | 0 | 1 | 1 | 1 | 17 | 1411 | 15000 | 16000 | 13480 | 12 | 259000 | 607000 | 17 | 15938 |
-| d16w02 | 16 | 2 | 0 | 1 | 1 | 1 | 33 | 4420 | 14000 | 11000 | 15164 | 15 | 254000 | 645000 | 33 | 50046 |
-| d16w04 | 16 | 4 | 0 | 1 | 1 | 1 | 65 | 15568 | 12000 | 12000 | 18057 | 12 | 232000 | 683000 | 65 | 182314 |
-| s0000 | 1 | 1 | 0 | 1 | 1 | 1 | 2 | 180 | 11000 | 16000 | 13062 | 12 | 232000 | 520000 | 2 | 1114 |
-| s0008 | 1 | 1 | 8 | 1 | 1 | 1 | 2 | 1108 | 15000 | 12000 | 12539 | 12 | 207000 | 544000 | 2 | 3104 |
-| s0032 | 1 | 1 | 32 | 1 | 1 | 1 | 2 | 3892 | 6000 | 11000 | 13997 | 12 | 223000 | 531000 | 2 | 9042 |
-| s0128 | 1 | 1 | 128 | 1 | 1 | 1 | 2 | 15028 | 6000 | 11000 | 13458 | 11 | 231000 | 557000 | 2 | 34488 |
+| variant | depth | width | type surface | import graph actions | layout actions | check actions | root projection source files | root projection source bytes | dependency projection source files | dependency projection source bytes | projection µs | layout µs | root check loader µs | root member scan µs | dependency check loader µs | dependency member scan µs | check total µs | producer chain µs | root export artifacts | root export bytes | dependency export artifacts | dependency export bytes | root member workload | dependency member workload |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- |
+| d01w01 | 1 | 1 | 0 | 1 | 1 | 1 | 2 | 181 | 1 | 12 | 5000 | 11000 | 12211 | 11 | 13076 | 6 | 269000 | 525000 | 2 | 1118 | 1 | 340 | 1:1:1:1:4:0:1:2 | 1:1:1:1:4:0:1:0 |
+| d01w02 | 1 | 2 | 0 | 1 | 1 | 1 | 3 | 263 | 2 | 94 | 9000 | 11000 | 12817 | 12 | 14490 | 7 | 235000 | 499000 | 3 | 1616 | 2 | 760 | 1:1:1:1:4:0:1:2 | 1:1:1:1:4:0:1:0 |
+| d01w04 | 1 | 4 | 0 | 1 | 1 | 1 | 5 | 401 | 4 | 232 | 9000 | 13000 | 13878 | 27 | 14414 | 6 | 251000 | 549000 | 5 | 2612 | 4 | 1598 | 1:1:1:1:4:0:1:2 | 1:1:1:1:4:0:1:0 |
+| d04w01 | 4 | 1 | 0 | 1 | 1 | 1 | 5 | 427 | 4 | 258 | 15000 | 12000 | 13002 | 13 | 13033 | 8 | 261000 | 558000 | 5 | 2786 | 4 | 1792 | 1:1:1:1:4:0:1:2 | 1:1:1:1:4:0:1:0 |
+| d04w02 | 4 | 2 | 0 | 1 | 1 | 1 | 9 | 1084 | 8 | 915 | 16000 | 11000 | 13537 | 25 | 14603 | 6 | 260000 | 513000 | 9 | 5916 | 8 | 4610 | 1:1:1:1:4:0:1:2 | 1:1:1:1:4:0:1:0 |
+| d04w04 | 4 | 4 | 0 | 1 | 1 | 1 | 17 | 3424 | 16 | 3255 | 9000 | 18000 | 13833 | 16 | 14095 | 5 | 275000 | 583000 | 17 | 15286 | 16 | 13300 | 1:1:1:1:4:0:1:2 | 1:1:1:1:4:0:1:0 |
+| d16w01 | 16 | 1 | 0 | 1 | 1 | 1 | 17 | 1411 | 16 | 1242 | 7000 | 13000 | 14349 | 12 | 14174 | 6 | 286000 | 563000 | 17 | 15938 | 16 | 14080 | 1:1:1:1:4:0:1:2 | 1:1:1:1:4:0:1:0 |
+| d16w02 | 16 | 2 | 0 | 1 | 1 | 1 | 33 | 4420 | 32 | 4251 | 11000 | 17000 | 15546 | 16 | 15720 | 12 | 283000 | 664000 | 33 | 50124 | 32 | 47018 | 1:1:1:1:4:0:1:2 | 1:1:1:1:4:0:1:0 |
+| d16w04 | 16 | 4 | 0 | 1 | 1 | 1 | 65 | 15568 | 64 | 15399 | 16000 | 11000 | 17468 | 15 | 17141 | 6 | 265000 | 730000 | 65 | 182566 | 64 | 176692 | 1:1:1:1:4:0:1:2 | 1:1:1:1:4:0:1:0 |
+| s0000 | 1 | 1 | 0 | 1 | 1 | 1 | 2 | 180 | 1 | 12 | 10000 | 12000 | 13098 | 11 | 13669 | 6 | 267000 | 534000 | 2 | 1114 | 1 | 340 | 1:1:1:1:4:0:1:2 | 1:1:1:1:4:0:1:0 |
+| s0008 | 1 | 1 | 8 | 1 | 1 | 1 | 2 | 1108 | 1 | 940 | 15000 | 8000 | 12921 | 13 | 12614 | 6 | 281000 | 541000 | 2 | 3218 | 1 | 2444 | 1:1:1:1:4:0:1:2 | 1:1:1:1:4:0:1:0 |
+| s0032 | 1 | 1 | 32 | 1 | 1 | 1 | 2 | 3892 | 1 | 3724 | 8000 | 11000 | 15086 | 15 | 13534 | 6 | 294000 | 537000 | 2 | 9136 | 1 | 8362 | 1:1:1:1:4:0:1:2 | 1:1:1:1:4:0:1:0 |
+| s0128 | 1 | 1 | 128 | 1 | 1 | 1 | 2 | 15028 | 1 | 14860 | 6000 | 9000 | 12952 | 15 | 12435 | 5 | 277000 | 515000 | 2 | 34562 | 1 | 33788 | 1:1:1:1:4:0:1:2 | 1:1:1:1:4:0:1:0 |
 
 Every row has exactly one `ArccImportGraph`, one `ArccLayout`, and one
-`ArccCheck` for the measured component. The projection and export counts match
-`1 + depth*width` in the primary series and remain two in the direct-surface
-series; both byte totals grow strictly along the depth/width axes, while the
-direct entry export grows from 1,114 to 34,488 bytes. The member workload is
-one source file, one syntax file, one typed package, four `Uses`, and no
-selections/import/reference edge outside the fixed source shape in every row;
-all non-members have no source lists, syntax, or type info and have complete
-export-backed types. The broad scan guard remains noise-tolerant because these
-exact role/work counters are the invariant rather than microsecond timing.
+`ArccCheck` for the measured component, and the checked graph dependency also
+has exactly one of each. Both checked components have one fixed typed member
+package, one selected source file, one syntax file, one `types.Info`, and the
+same member-workload tokens in every row; all non-members have no source lists,
+syntax, or type info and have complete export-backed types. The projection and
+export counts grow strictly along both primary depth/width axes for both
+checked components, while the direct type-surface series keeps both member
+workloads fixed and grows only the non-member node's source/export volume. The
+broad scan guard remains noise-tolerant because these exact role/work counters
+are the invariant rather than microsecond timing.
 
 The source asymmetry is intentional. `ArccImportGraph` is the single auxiliary
 source-reading exception accepted by N1: pinned `rules_go` does not expose the
@@ -457,8 +460,10 @@ input. Thus projection and export decoding are visible residual closure costs,
 not evidence that typed member work or the corrected N1/N2 leaf allowlist
 scales with the closure.
 
-The same run counted one default-configuration `ArccStdlibMap` action and no
-native whole-SDK generation. A second build in the same isolated output root
-reused the action cache and produced byte-identical map, surface, and report
-outputs. These checks keep the routine series within the one-generation N5
-bound while making the complete producer-chain residuals reviewable.
+The same run counted one default-configuration `ArccStdlibMap` action. The
+driver invokes Bazel only, so native whole-SDK generation is absent by
+construction rather than represented as a pseudo-counter. A second build in
+the same isolated output root reused the action cache and produced byte-identical
+map, surface, and report outputs. These checks keep the routine series within
+the one-generation N5 bound while making the complete producer-chain residuals
+reviewable.
