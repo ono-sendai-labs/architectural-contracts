@@ -1,0 +1,89 @@
+result:
+  task_file: .agents/tasks/2026-08-04-compositional-component-analysis/step14/task-03-pin-acceptance-fixture-semantics.code-task.md
+  change_id: prwtnlrlkovrlltnkytunstzzvuqqvwt
+  status: completed
+  schema_version: 2
+  produced_at: 2026-09-13T00:35:06Z
+
+acceptance_criteria:
+  - text: |
+      **The real UNKNOWN edge renders untrusted**
+      - Given the checked reportboundary consumer depending on the asserted UNKNOWN manual component
+      - When its persisted report is rendered through production text-rendering code
+      - Then that dependency line contains `asserted` and `untrusted` and does not contain `certified` or declared-authority wording.
+    addressed: yes
+    evidence: |
+      go/internal/goanalysis/hermeticity_integration_test.go:1247-1270 reads the
+      canonical report with artifactio.ReadReportFile, calls report.RenderText,
+      selects the manual_component boundary, and asserts the required and
+      forbidden status words.
+  - text: |
+      **Structural UNKNOWN coverage remains intact**
+      - Given the same reportboundary fixture
+      - When its canonical JSON report is inspected
+      - Then it still asserts `provenance: ASSERTED` and `authority: UNKNOWN` through the existing producer chain.
+    addressed: yes
+    evidence: |
+      bazel_rules/go/tests/testdata/reportboundary/consumer/BUILD.bazel:38-45
+      retains consumer_unknown_boundary_status_test with fixed-string checks
+      for `"provenance": "ASSERTED"` and `"authority": "UNKNOWN"`.
+  - text: |
+      **No duplicate analysis action is introduced**
+      - Given the reportboundary component and its assertion targets
+      - When Bazel actions are inspected
+      - Then the component has exactly one `ArccCheck` producer and report rendering/assertion does not rerun component analysis.
+    addressed: yes
+    evidence: |
+      go/internal/goanalysis/hermeticity_integration_test.go:1237-1247 requires
+      exactly one reportboundary ArccCheck action and reads its output directly;
+      bazel_rules/go/private/check.bzl:318-334 documents and implements the
+      existing report-only grep assertion without an `arcc check` invocation.
+  - text: |
+      **The determinism consumer remains intentionally failing**
+      - Given either isolated full-build artifact set
+      - When `consumer_component`'s canonical report is decoded
+      - Then its verdict is FAIL and it contains an `UNDECLARED_AUTHORITY` violation for `FILES` with at least the three intended sorted `os.ReadFile` sites.
+    addressed: yes
+    evidence: |
+      go/internal/goanalysis/full_build_determinism_integration_test.go:315-371
+      calls assertDeterminismConsumerSemantic for each isolated artifact set;
+      the helper requires report.VerdictFail, the TrueAuthority
+      UNDECLARED_AUTHORITY FILES finding, at least three sorted sites, and the
+      os.ReadFile symbol on every site.
+  - text: |
+      **Determinism remains an exact-byte property**
+      - Given the tightened semantic assertions
+      - When the two isolated producer graphs build with identical complete inputs in reverse label order
+      - Then map, checked/asserted surface, and report bytes/digests remain identical and no timing field is persisted.
+    addressed: yes
+    evidence: |
+      go/internal/goanalysis/full_build_determinism_integration_test.go:161-204
+      keeps the scoped map/surface/report collection and timing-field audit;
+      lines 428-437 retain byte and digest comparison, while lines 321-332
+      retain checked/asserted dependency-axis assertions. The integration test
+      passed with the reversed-label second build.
+  - text: |
+      **Focused and aggregate validation pass**
+      - Given the completed fixture changes
+      - When the focused reportboundary Bazel target, the producer-chain integration test, and `just ci` run
+      - Then all pass with no production checker, provider, or artifact behavior change.
+    addressed: yes
+    evidence: |
+      work.log records passing runs of
+      `bazel test --test_output=errors //bazel_rules/go/tests/testdata/reportboundary/consumer:consumer_unknown_boundary_status_test`,
+      `go test -tags=integration ./internal/goanalysis -run
+      '^TestBazelProducerChainScaling_Integration$' -count=1 -timeout 60m`,
+      and `just ci`. The two produced jj changes touch only fixture/test
+      integration code and a fixture comment.
+
+artifacts:
+  scratchpad_dir: .agents/scratchpad/2026-08-04-compositional-component-analysis/step14/task-03-pin-acceptance-fixture-semantics/
+  files:
+    - context.md
+    - plan.md
+    - progress.md
+    - work.log
+    - result.yaml
+
+notes: |
+  Added a persisted-report assertion that exercises the production text renderer for the real reportboundary UNKNOWN edge while preserving the existing JSON checks and one-ArccCheck topology. Tightened the isolated determinism audit to require the intentional FAIL/FILES violation and sorted os.ReadFile sites, retaining all byte, digest, axis, map, and timing checks. Validation passed, and the final implementation change is prwtnlrlkovrlltnkytunstzzvuqqvwt with an empty working copy.

@@ -5219,3 +5219,16 @@ deliverable; no `.code-task.md` or `plan.md` touched. Approval cites `file:line`
 §4.6: implementer titles already carried the correct tag; MR title from the review
 (`docs: align final MVP implementation documentation [...]`, tag equal to sibling) used, body
 rewritten from reviewer voice. MR on `nnnnpuxs`, bookmark on `mlnrlupq`. Sessions closed.
+
+### Task 03 — `pin-acceptance-fixture-semantics` — approved, 1 round, 6/6
+
+| Round | Role | Wall | Tools | totalTokens | % | Verdict |
+|---|---|---|---|---|---|---|
+| 0 | implementer | 2131 s | 253 | 215 174 | 26.6 % | completed (2 changes) |
+| 0 | reviewer | 241 s | 107 | 115 647 | 14.3 % | approved, 0 findings |
+
+No compaction; quota at launch primary 13 %, secondary 39 %. One check-in at ~20 min: WORKING,
+172 tool events. Produced `pplqyrvk` (reportboundary BUILD + three integration tests) and
+`prwtnlrl` (determinism/hermeticity tests); only modified existing test files, so no
+missing-`srcs` risk. §E.0 did not fire. MR title from review (tag equal to sibling), body
+rewritten; MR on `pplqyrvk`, bookmark on `prwtnlrl`. Sessions closed.
