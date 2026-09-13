@@ -1249,17 +1249,18 @@ func assertReportBoundaryUnknownText(t *testing.T, run hermeticityBazelRun) {
 		t.Fatalf("reading %s report %q: %v", hermeticityReportBoundaryConsumer, reportPath, err)
 	}
 
+	rendered := report.RenderText(persisted.Report)
 	var manualBoundary string
-	for _, line := range strings.Split(report.RenderText(persisted.Report), "\n") {
+	for _, line := range strings.Split(rendered, "\n") {
 		if strings.HasPrefix(line, "- manual_component") {
 			if manualBoundary != "" {
-				t.Fatalf("rendered report contains multiple manual_component boundaries: %q", report.RenderText(persisted.Report))
+				t.Fatalf("rendered report contains multiple manual_component boundaries: %q", rendered)
 			}
 			manualBoundary = line
 		}
 	}
 	if manualBoundary == "" {
-		t.Fatalf("rendered report omits the manual_component boundary:\n%s", report.RenderText(persisted.Report))
+		t.Fatalf("rendered report omits the manual_component boundary:\n%s", rendered)
 	}
 	if !strings.Contains(manualBoundary, "asserted") || !strings.Contains(manualBoundary, "untrusted") {
 		t.Errorf("manual_component boundary = %q, want asserted and untrusted status words", manualBoundary)

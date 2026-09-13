@@ -313,26 +313,7 @@ func assertFullBuildArtifactSemantics(t *testing.T, artifacts map[string]fullBui
 		t.Fatalf("dependency report verdict = %q, want pass", dependencyReport.Verdict)
 	}
 	consumerReport := decodeFullBuildReport(t, artifacts["report:consumer_component"])
-	var multiSite bool
-	for _, finding := range append(append([]report.Finding{}, consumerReport.Report.Violations...), consumerReport.Report.Warnings...) {
-		if len(finding.Sites) >= 3 {
-			multiSite = true
-			if !sort.SliceIsSorted(finding.Sites, func(i, j int) bool {
-				if finding.Sites[i].File != finding.Sites[j].File {
-					return finding.Sites[i].File < finding.Sites[j].File
-				}
-				if finding.Sites[i].Line != finding.Sites[j].Line {
-					return finding.Sites[i].Line < finding.Sites[j].Line
-				}
-				return finding.Sites[i].Symbol < finding.Sites[j].Symbol
-			}) {
-				t.Fatalf("consumer multi-site finding is not sorted: %#v", finding.Sites)
-			}
-		}
-	}
-	if !multiSite {
-		t.Fatalf("consumer report has no sorted multi-site finding: violations=%#v warnings=%#v", consumerReport.Report.Violations, consumerReport.Report.Warnings)
-	}
+	assertDeterminismConsumerSemantic(t, consumerReport)
 	statusByComponent := make(map[string]report.DependencyBoundary, len(consumerReport.Report.Dependencies))
 	for _, dependency := range consumerReport.Report.Dependencies {
 		statusByComponent[dependency.Component] = dependency
@@ -348,6 +329,47 @@ func assertFullBuildArtifactSemantics(t *testing.T, artifacts map[string]fullBui
 		asserted.Freshness != report.DependencyFreshnessBuildGraph ||
 		asserted.Authority != report.DependencyAuthorityUnknown {
 		t.Fatalf("asserted dependency axes = %#v, want ASSERTED/BUILD_GRAPH/UNKNOWN", asserted)
+	}
+}
+
+func assertDeterminismConsumerSemantic(t *testing.T, persisted artifactio.PersistedReport) {
+	t.Helper()
+	if persisted.Verdict != report.VerdictFail {
+		t.Fatalf("consumer report verdict = %q, want fail", persisted.Verdict)
+	}
+
+	var filesFinding *report.Finding
+	for index := range persisted.Report.Violations {
+		finding := &persisted.Report.Violations[index]
+		if finding.Kind != report.UndeclaredAuthority || finding.Class != "TrueAuthority" || !strings.Contains(finding.Message, `"FILES"`) {
+			continue
+		}
+		if filesFinding != nil {
+			t.Fatalf("consumer report has multiple FILES authority violations: %#v and %#v", filesFinding, finding)
+		}
+		filesFinding = finding
+	}
+	if filesFinding == nil {
+		t.Fatalf("consumer report has no UNDECLARED_AUTHORITY FILES violation: violations=%#v", persisted.Report.Violations)
+	}
+	if len(filesFinding.Sites) < 3 {
+		t.Fatalf("consumer FILES sites = %#v, want at least three os.ReadFile sites", filesFinding.Sites)
+	}
+	if !sort.SliceIsSorted(filesFinding.Sites, func(i, j int) bool {
+		if filesFinding.Sites[i].File != filesFinding.Sites[j].File {
+			return filesFinding.Sites[i].File < filesFinding.Sites[j].File
+		}
+		if filesFinding.Sites[i].Line != filesFinding.Sites[j].Line {
+			return filesFinding.Sites[i].Line < filesFinding.Sites[j].Line
+		}
+		return filesFinding.Sites[i].Symbol < filesFinding.Sites[j].Symbol
+	}) {
+		t.Fatalf("consumer FILES sites are not sorted: %#v", filesFinding.Sites)
+	}
+	for index, site := range filesFinding.Sites {
+		if site.Symbol != "os.ReadFile" {
+			t.Errorf("consumer FILES site[%d] = %#v, want os.ReadFile", index, site)
+		}
 	}
 }
 
