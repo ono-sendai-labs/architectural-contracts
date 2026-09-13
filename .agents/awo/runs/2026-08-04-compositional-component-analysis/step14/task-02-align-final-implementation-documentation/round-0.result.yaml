@@ -1,0 +1,68 @@
+result:
+  task_file: .agents/tasks/2026-08-04-compositional-component-analysis/step14/task-02-align-final-implementation-documentation.code-task.md
+  change_id: mlnrlupqpvtvtqozouqqtpsytrmkvkzy
+  status: completed
+  schema_version: 2
+  produced_at: 2026-09-12T23:50:26Z
+
+acceptance_criteria:
+  - text: |
+      1. **Checked and asserted digest semantics are unambiguous**
+      - Given the canonical surface proto and generated Go field comment
+      - When a reader examines `SurfaceManifest.digest`
+      - Then checked surfaces are described as source-derived and asserted `UNKNOWN` surfaces are explicitly described as carrying an empty non-content claim consistent with I6.
+    addressed: yes
+    evidence: |
+      `proto/archcontracts/v1/surface.proto:78-85` distinguishes the checked SHA-256 digest from the asserted UNKNOWN empty digest and says no component content was loaded, type-checked, or hashed. `go/internal/schema/gen/surface.pb.go:85-92` has the matching generated comment; `just gen-is-clean` passes.
+  - text: |
+      2. **The design reads as a completed implementation record**
+      - Given the detailed design header and overview
+      - When they are read after Step 13
+      - Then the status is complete, current behavior is not described as a future proposal, and historical baseline reasoning remains identifiable as historical.
+    addressed: yes
+    evidence: |
+      `.agents/planning/2026-08-04-compositional-component-analysis/design/detailed-design.md:8-12` marks implementation complete and labels the baseline historical. The overview and architecture diagram at `:25-38` and `:240-269` label the old pipeline historical and the final topology implemented; stale proposal/current-baseline phrases were inspected and absent.
+  - text: |
+      3. **Stale source comments match current behavior**
+      - Given hostpolicy namespace hooks, the default stdlib-map attribute, and stdlib package entries
+      - When their comments are compared with current call sites and generation behavior
+      - Then they contain no removed membership-pattern/future-emitter/unused-Step-5 claims and correctly include build-constraint-based non-importability.
+    addressed: yes
+    evidence: |
+      `go/internal/hostpolicy/hostpolicy.go:23-47` now lists only current canonicalization paths and implemented surface emission/consumption. `bazel_rules/go/private/stdlib_map.bzl:30-55` describes the component-analysis consumer without the completed-Step-5 placeholder. `go/internal/stdlibmap/stdlibmap.go:84-89` documents internal, target-build-excluded, and no-Go-source packages as non-importable.
+  - text: |
+      4. **Prototype debts are explicit production handoff items**
+      - Given README's Limitations and Scope section
+      - When a production implementer evaluates the MVP
+      - Then the component-wide WARN carrier and lexical ArccImportGraph projection are named as accepted, visible MVP trade-offs that should be revisited rather than copied implicitly.
+    addressed: yes
+    evidence: |
+      `README.md:802-807` identifies component-wide `analysis_defeating_policy: WARN` as an accepted, visible/measured MVP trade-off requiring production reconsideration. `README.md:819-826` identifies the cached lexical source-reading `ArccImportGraph` projection with the same accepted-MVP and production-revisit guidance. Numbering runs continuously through 13.
+  - text: |
+      5. **Owner disclosures and compatibility policy are preserved**
+      - Given README's implementation-status disclosure and the adapter contract
+      - When the documentation change is complete
+      - Then the AI coding-practices statement remains intact, legacy SDK aliases remain available for the external monorepo, and `.agents/summary/` has not changed.
+    addressed: yes
+    evidence: |
+      `README.md:7-21` retains the proof-of-concept and unchanged statement that neither implementation code nor workflow task descriptions received detailed human review. `README.md:228-233` and `bazel_rules/go/private/go_adapter.bzl:16-18,376-384,525-531,571-577,638-644` identify the canonical three SDK seams and retain the legacy aliases for the external monorepo migration. `jj diff --summary -- .agents/summary` is empty and no task change includes a summary path.
+  - text: |
+      6. **Documentation generation and validation remain clean**
+      - Given the completed documentation changes
+      - When `just gen-is-clean`, `just lint`, and `just ci` run
+      - Then generated protobuf comments match the proto and every gate passes without implementation behavior changes.
+    addressed: yes
+    evidence: |
+      `just gen-is-clean` passed its protoc regeneration and generated-file diff check; `just lint` passed `go vet ./...` and the gofmt check; `just ci` passed generation, lint, build, unit tests, integration tests, stdlib-map pinning, selfcheck, Bazel build/test, and the shell validation gates with exit status 0. The implementation commits contain only schema comments/generated output, design prose, source/adapter comments, and README documentation.
+
+artifacts:
+  scratchpad_dir: .agents/scratchpad/2026-08-04-compositional-component-analysis/step14/task-02-align-final-implementation-documentation/
+  files:
+    - context.md
+    - plan.md
+    - progress.md
+    - work.log
+    - result.yaml
+
+notes: |
+  Aligned the canonical surface digest documentation and regenerated the Go protobuf comment, then reconciled the completed design, source comments, adapter compatibility policy, and README handoff limitations. The changes were committed incrementally in four fresh jj changes, with the final stable `@-` change `mlnrlupqpvtvtqozouqqtpsytrmkvkzy` and an empty working copy. Required generation, lint, build, test, selfcheck, and Bazel validation passed.
