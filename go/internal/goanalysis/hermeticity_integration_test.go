@@ -23,9 +23,10 @@ import (
 )
 
 const (
-	hermeticityAPIComponent    = "//bazel_rules/go/tests/testdata/api:api_component"
-	hermeticitySharedComponent = "//bazel_rules/go/tests/testdata/shared:shared_component"
-	hermeticityCheckTest       = "//bazel_rules/go/tests:checked_api_analysis_test"
+	hermeticityAPIComponent           = "//bazel_rules/go/tests/testdata/api:api_component"
+	hermeticitySharedComponent        = "//bazel_rules/go/tests/testdata/shared:shared_component"
+	hermeticityReportBoundaryConsumer = "//bazel_rules/go/tests/testdata/reportboundary/consumer:consumer_component"
+	hermeticityCheckTest              = "//bazel_rules/go/tests:checked_api_analysis_test"
 )
 
 var hermeticityActionMnemonics = []string{
@@ -200,6 +201,7 @@ func runHermeticityProducerChainBazelSuite(t *testing.T, variants []producerChai
 		fullBuildDeterminismConsumer,
 		fullBuildDeterminismUnknown,
 		fullBuildDeterminismDependency,
+		hermeticityReportBoundaryConsumer,
 	)
 	run := runHermeticityBazelSuiteForTargets(t, labels, true)
 	assertHermeticityRun(t, run)
@@ -1227,6 +1229,44 @@ func assertHermeticityReportsAndSurfaces(t *testing.T, run hermeticityBazelRun) 
 		if surface.SdkKey == nil || surface.SdkKey.CgoEnabled {
 			t.Errorf("%s surface SDK key = %#v, want cgo-disabled target identity", target, surface.SdkKey)
 		}
+	}
+}
+
+func assertReportBoundaryUnknownText(t *testing.T, run hermeticityBazelRun) {
+	t.Helper()
+	var checkActions []producerChainAction
+	for _, action := range run.FirstActions {
+		if action.TargetLabel == hermeticityReportBoundaryConsumer && action.Mnemonic == "ArccCheck" {
+			checkActions = append(checkActions, action)
+		}
+	}
+	if len(checkActions) != 1 {
+		t.Fatalf("%s ArccCheck actions = %d, want exactly one persisted-report producer", hermeticityReportBoundaryConsumer, len(checkActions))
+	}
+	reportPath := producerChainOutputPath(t, run.Execroot, checkActions[0], ".report.json")
+	persisted, err := artifactio.ReadReportFile(reportPath)
+	if err != nil {
+		t.Fatalf("reading %s report %q: %v", hermeticityReportBoundaryConsumer, reportPath, err)
+	}
+
+	var manualBoundary string
+	for _, line := range strings.Split(report.RenderText(persisted.Report), "\n") {
+		if strings.HasPrefix(line, "- manual_component") {
+			if manualBoundary != "" {
+				t.Fatalf("rendered report contains multiple manual_component boundaries: %q", report.RenderText(persisted.Report))
+			}
+			manualBoundary = line
+		}
+	}
+	if manualBoundary == "" {
+		t.Fatalf("rendered report omits the manual_component boundary:\n%s", report.RenderText(persisted.Report))
+	}
+	if !strings.Contains(manualBoundary, "asserted") || !strings.Contains(manualBoundary, "untrusted") {
+		t.Errorf("manual_component boundary = %q, want asserted and untrusted status words", manualBoundary)
+	}
+	lowerBoundary := strings.ToLower(manualBoundary)
+	if strings.Contains(lowerBoundary, "certified") || strings.Contains(lowerBoundary, "declared") {
+		t.Errorf("manual_component boundary = %q, must not use certified or declared-authority wording", manualBoundary)
 	}
 }
 

@@ -206,6 +206,7 @@ func TestBazelProducerChainScaling_Integration(t *testing.T) {
 	assertProducerChainScaling(t, rows)
 	assertProducerChainArtifactsDeterministic(t, build, variants)
 	assertFullBuildArtifactsAreDeterministic(t, build.Hermeticity)
+	assertReportBoundaryUnknownText(t, build.Hermeticity)
 	printProducerChainTable(rows, len(stdlibMapActions))
 }
 

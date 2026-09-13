@@ -30,10 +30,11 @@ go_component(
     visibility = ["//bazel_rules:__subpackages__"],
 )
 
-# End-to-end status assertion for the explicit UNKNOWN boundary. The consumer
-# remains checked and passing, while its persisted report retains structural
-# ASSERTED provenance and UNKNOWN authority; the report-shape golden below
-# covers the absence of any certified/declared rendering for this edge.
+# Structural end-to-end assertions for the explicit UNKNOWN boundary. The
+# consumer remains checked and passing, while its persisted report retains
+# ASSERTED provenance and UNKNOWN authority. The producer-chain integration
+# test also decodes this same report and passes it through report.RenderText to
+# pin the user-visible asserted/untrusted boundary wording.
 arcc_check_grep_test(
     name = "consumer_unknown_boundary_status_test",
     component = ":consumer_component",

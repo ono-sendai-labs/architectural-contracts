@@ -158,6 +158,14 @@ func collectFullBuildArtifacts(t *testing.T, execroot string) map[string]fullBui
 			!strings.HasSuffix(path, ".surface.json") && !strings.HasSuffix(path, ".report.json")) {
 			return nil
 		}
+		// This collector is scoped to the determinism fixture. The shared
+		// producer-chain integration run also requests reportboundary, whose
+		// consumer intentionally has the same component name; filtering by
+		// output namespace avoids treating that unrelated artifact as a
+		// duplicate determinism artifact.
+		if !fullBuildArtifactPathExpected(path) {
+			return nil
+		}
 		data, err := os.ReadFile(path)
 		if err != nil {
 			return fmt.Errorf("reading %q: %w", path, err)
@@ -187,6 +195,12 @@ func collectFullBuildArtifacts(t *testing.T, execroot string) map[string]fullBui
 		t.Fatalf("collecting full-build artifacts under %q: %v", resolvedRoot, err)
 	}
 	return artifacts
+}
+
+func fullBuildArtifactPathExpected(path string) bool {
+	slashPath := filepath.ToSlash(path)
+	return strings.Contains(slashPath, "/bazel_rules/go/tests/testdata/determinism/") ||
+		strings.HasSuffix(slashPath, "/arcc_stdlib_map.stdlib-map.json")
 }
 
 func fullBuildArtifactIdentity(t *testing.T, path string, data []byte) (string, string) {
