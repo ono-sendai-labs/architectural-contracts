@@ -1,0 +1,142 @@
+review:
+  project: 2026-08-04-compositional-component-analysis
+  plan_path: .agents/planning/2026-08-04-compositional-component-analysis/implementation/plan.md
+  design_path: .agents/planning/2026-08-04-compositional-component-analysis/design/detailed-design.md
+  reviewed_at: 2026-09-13T00:44:56Z
+  schema_version: 1
+  steps_in_scope: [14]
+  commits_in_scope: 9
+  remediation_step: null
+  verdict: clean
+
+summary: |
+  Step 14 cleanly closes the actionable findings assigned to it by the
+  plan-scoped implementation review. The aggregate lint gate, final-state
+  documentation, asserted-boundary rendering coverage, and determinism-fixture
+  semantics are aligned with the plan and detailed design, and every task's
+  final review is approved with no unresolved important or critical residue.
+  The owner-directed exclusions were honored: .agents/summary was not refreshed
+  and the legacy SDK adapter accessors remain documented compatibility aliases.
+
+architecture:
+  - element: Aggregate lint and CI validation topology
+    expected: |
+      The shared Go validation path must run go vet and enforce gofmt
+      cleanliness so both GitHub's ci-go job and local just ci include the
+      documented lint gate without moving gen-is-clean into ci-go.
+    actual: |
+      ci-go depends on the existing lint recipe and on a disposable regression
+      harness that proves an unformatted Go file makes the aggregate just ci
+      graph fail. The full ci recipe still adds gen-is-clean, selfcheck, and
+      Bazel validation, while GitHub continues to invoke ci-go directly.
+    status: aligned
+    files:
+      - justfile
+      - scripts/test-lint-gate.sh
+      - scripts/testdata/lint-gate/main.go
+      - .github/workflows/ci.yml
+    notes: |
+      Independent review reproduced the ci-go dry-run with both lint commands,
+      no gen-is-clean or jj command, and ran the focused lint-gate harness.
+
+  - element: Checked and asserted surface digest documentation
+    expected: |
+      The canonical schema and generated field comment must distinguish the
+      source-derived digest on checked surfaces from the deliberately empty,
+      non-content digest on asserted UNKNOWN package surfaces under I6.
+    actual: |
+      surface.proto and its generated Go field comment describe both producer
+      cases explicitly, including that asserted surfaces load, type-check, and
+      hash no component content. The detailed design records the same I6
+      contract.
+    status: aligned
+    files:
+      - proto/archcontracts/v1/surface.proto
+      - go/internal/schema/gen/surface.pb.go
+      - .agents/planning/2026-08-04-compositional-component-analysis/design/detailed-design.md
+    notes: ""
+
+  - element: Final MVP documentation and production handoff
+    expected: |
+      The design and high-value source comments must describe the completed
+      implementation, and README must identify component-wide WARN policy and
+      the source-reading ArccImportGraph projection as accepted MVP debts that
+      require explicit production reconsideration.
+    actual: |
+      The design is marked complete and distinguishes historical behavior from
+      the implemented topology. Host-policy and stdlib-map comments describe
+      current behavior, while README records both prototype debts, preserves
+      the implementation-status disclosure, and keeps limitation numbering
+      coherent.
+    status: aligned
+    files:
+      - .agents/planning/2026-08-04-compositional-component-analysis/design/detailed-design.md
+      - README.md
+      - go/internal/hostpolicy/hostpolicy.go
+      - go/internal/stdlibmap/stdlibmap.go
+      - bazel_rules/go/private/stdlib_map.bzl
+    notes: |
+      The documentation changes reconcile accepted implementation decisions;
+      they do not alter checker, surface, stdlib-map, or provider behavior.
+
+  - element: Asserted UNKNOWN boundary rendering regression
+    expected: |
+      The real reportboundary dependency edge must be read from its persisted
+      report, rendered through production report code as asserted and
+      untrusted, and never called certified or declared, without introducing a
+      second ArccCheck action.
+    actual: |
+      The producer-chain integration suite requires exactly one ArccCheck for
+      the reportboundary consumer, decodes that action's report, passes it to
+      report.RenderText, and checks the required and forbidden boundary words.
+      The existing Bazel report assertion still pins ASSERTED provenance and
+      UNKNOWN authority in canonical JSON.
+    status: aligned
+    files:
+      - go/internal/goanalysis/hermeticity_integration_test.go
+      - go/internal/goanalysis/producer_chain_scaling_integration_test.go
+      - bazel_rules/go/tests/testdata/reportboundary/consumer/BUILD.bazel
+    notes: ""
+
+  - element: Full-build determinism fixture semantic guard
+    expected: |
+      The determinism consumer must retain a FAIL verdict and an
+      UNDECLARED_AUTHORITY FILES violation with at least three sorted
+      os.ReadFile sites while the two isolated builds continue comparing exact
+      map, surface, and report bytes.
+    actual: |
+      Both isolated artifact sets pass through a shared semantic assertion
+      requiring the FAIL verdict, the specific TrueAuthority FILES violation,
+      at least three canonically sorted os.ReadFile sites, and the existing
+      dependency-axis checks before exact byte and digest comparison.
+    status: aligned
+    files:
+      - go/internal/goanalysis/full_build_determinism_integration_test.go
+      - bazel_rules/go/tests/testdata/determinism/BUILD.bazel
+    notes: ""
+
+  - element: Owner-scoped compatibility and generated-summary boundaries
+    expected: |
+      Step 14 must retain legacy SDK adapter accessors for the external
+      monorepo migration and must not refresh the generated .agents/summary
+      knowledge base.
+    actual: |
+      The four legacy accessors remain callable and are documented as temporary
+      compatibility aliases alongside the canonical three SDK seams. No Step
+      14 implementation commit changes a file under .agents/summary.
+    status: aligned
+    files:
+      - bazel_rules/go/private/go_adapter.bzl
+      - README.md
+      - .agents/summary
+    notes: |
+      These are explicit owner decisions, not missing Step 14 work. Summary
+      regeneration and eventual alias removal remain out of this step's scope.
+
+doc_code_alignment: []
+
+findings: []
+
+remediation_tasks: []
+
+ecosystem_reviews: []
