@@ -5232,3 +5232,47 @@ No compaction; quota at launch primary 13 %, secondary 39 %. One check-in at ~20
 `prwtnlrl` (determinism/hermeticity tests); only modified existing test files, so no
 missing-`srcs` risk. §E.0 did not fire. MR title from review (tag equal to sibling), body
 rewritten; MR on `pplqyrvk`, bookmark on `prwtnlrl`. Sessions closed.
+
+### §5.2 — `clean`, first pass, 9 commits, 0 findings, 0 remediation tasks
+
+Fresh `awo-steprev-…-step14` (sol/high): 299 s, 59 tools, 142 164 tokens (17.6 %), no
+compaction; quota at launch primary 18 %, secondary 39 %. Report
+`implementation/review-step14.yaml`, committed and bookmarked
+`pr/awo-step-review-2026-08-04-compositional-component-analysis-step-14`. It says it reproduced
+the `ci-go` dry-run and ran the lint-gate harness, and that the owner exclusions
+(`.agents/summary/`, legacy SDK accessors) were honoured.
+
+**How much the `clean` verdict is worth:** not much as a test of cross-task drift. The three
+tasks are independent (a justfile edit, doc-only prose, test-only assertions) and share almost
+no surface, so little could drift between them. The more meaningful check — that Step 14 closed
+the plan review's selected findings — is the one it performed.
+
+**Orchestrator verification:** `just ci` exit 0 on the final tree. The log shows the lint
+commands and the lint-gate harness running. Bazel reported "Executed 0 out of 198 tests: 198
+tests pass" — a **cached** result, because the task producers had already run the gate on the
+same tree content (§4.6's `jj describe` changes only descriptions, not files). So this confirms
+the cache is consistent with the tree; it does not re-run the Bazel tests.
+
+**§5.3.** Step 14 ticked in its own commit, bookmark
+`pr/awo-step-complete-2026-08-04-compositional-component-analysis-step-14`. Sweep: **0 sessions**.
+
+## Step 14 final
+
+| Task | Rounds | Outcome |
+|---|---|---|
+| 01 `restore-lint-to-ci-gates` | 2 | approved, 4/4 |
+| 02 `align-final-implementation-documentation` | 1 | approved, 6/6 |
+| 03 `pin-acceptance-fixture-semantics` | 1 | approved, 6/6 |
+
+No escalations, no kills, no lost turns, no session restarts, no compactions, no quota holds.
+Every session stayed below the 50 % flag except task 02's implementer, which peaked at 47.9 %.
+The round budget came nowhere close. §E.0 fired once (task 02, design doc — a deliverable) and
+cleared. Titles needed no tag correction; bodies were rewritten on 3 of 3 (18 of 18 overall).
+
+# PLAN COMPLETE — all 14 steps (2026-09-13)
+
+`@` empty, every step-14 task/record/review/step-complete change bookmarked, zero sessions open.
+Open follow-ups, all owner-scoped and none from this step: refresh `.agents/summary/` with
+`codebase-summary`; remove legacy SDK adapter aliases once the external monorepo migrates; the
+two MVP handoff debts now documented in README (component-wide WARN policy, lexical
+`ArccImportGraph` projection).

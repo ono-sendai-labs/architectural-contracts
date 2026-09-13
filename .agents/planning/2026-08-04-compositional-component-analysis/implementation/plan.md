@@ -54,7 +54,7 @@ None of them is tagged, released, or imported; the series is consumed at its end
 - [x] **Step 11** — `authority: UNKNOWN`
 - [x] **Step 12** — Host adapter hooks
 - [x] **Step 13** — Cross-cutting acceptance: scaling, hermeticity, determinism
-- [ ] **Step 14** — Remediation from implementation review 2026-09-12
+- [x] **Step 14** — Remediation from implementation review 2026-09-12
 
 ---
 
