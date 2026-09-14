@@ -33,6 +33,15 @@ jobs:
       - name: Install protoc-gen-go
         run: go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.36.11
 
+      # just test-integration forces Bazel's linux-sandbox strategy (the
+      # restricted-PATH hermeticity driver). Bazel silently drops that
+      # strategy from its registered set if unprivileged user-namespace
+      # creation is blocked, which ubuntu-latest restricts via AppArmor by
+      # default; relax it for this ephemeral runner only. Best-effort: a
+      # no-op if the setting is ever removed from the runner image.
+      - name: Allow Bazel's sandbox strategy
+        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
+
       - name: Run CI
         run: CGO_ENABLED=0 just ci-go
 
