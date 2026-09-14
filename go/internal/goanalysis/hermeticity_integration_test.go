@@ -72,6 +72,12 @@ var hermeticitySafePathCommands = []string{
 	"ln",
 	"mkdir",
 	"mktemp",
+	// GitHub-hosted CI runners install Bazel via `npm install -g
+	// @bazel/bazelisk`, so the `bazel` launcher on PATH there is an npm shim
+	// beginning with `#!/usr/bin/env node`. node isn't a build toolchain the
+	// hermeticity check cares about excluding, so it must stay resolvable or
+	// the restricted run can't even start Bazel.
+	"node",
 	"pwd",
 	"readlink",
 	"rm",
@@ -619,6 +625,19 @@ func createHermeticityEnvironment(t *testing.T, runDir, writablePath, poisonRoot
 	values["GOSUMDB"] = "off"
 	values["PATH"] = safePath
 	values["TMPDIR"] = writablePath
+	// GitHub-hosted CI runners install Bazel as the @bazel/bazelisk npm
+	// package; before it ever execs the real bazel binary, the launcher
+	// itself writes its own version-download bookkeeping into a "bazelisk"
+	// directory under the user cache dir (i.e. XDG_CACHE_HOME), which this
+	// environment deliberately poisons to prove the *checked build* never
+	// touches a host cache. That launcher-level bookkeeping is unrelated to
+	// what this test verifies, so give it an explicit, writable home instead
+	// of falling back to the poisoned default.
+	bazeliskHome := filepath.Join(writablePath, "bazelisk-home")
+	if err := os.MkdirAll(bazeliskHome, 0o700); err != nil {
+		t.Fatalf("creating the restricted Bazelisk home directory: %v", err)
+	}
+	values["BAZELISK_HOME"] = bazeliskHome
 	for variable, path := range poisonPaths {
 		values[variable] = path
 	}
