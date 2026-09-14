@@ -9,11 +9,18 @@ build:
 	mkdir -p bin
 	cd {{go_dir}} && go build -o ../bin/arcc ./cmd/arcc
 
+# 10m gives headroom for a cold `cmd/arcc/app` run: on a fresh machine (no
+# warm ~/.cache/arcc/stdlibmap entry, e.g. every CI runner) the native
+# stdlib-authority path generates the whole stdlib map from scratch, which
+# alone has been observed to take up to ~5m.
 test:
-	cd {{go_dir}} && go test -timeout 5m ./...
+	cd {{go_dir}} && go test -timeout 10m ./...
 
 # Includes the restricted Bazel hermeticity/producer-chain driver; it shares
-# the default map generation across its scaling and assertion labels.
+# the default map generation across its scaling and assertion labels. That
+# driver forces Bazel's linux-sandbox strategy, which needs unprivileged
+# user-namespace creation — CI relaxes the AppArmor restriction on that in
+# its own workflow step (ci.yml), ahead of this recipe.
 test-integration:
 	cd {{go_dir}} && go test -timeout 10m -tags=integration ./...
 

@@ -2,6 +2,7 @@
 .agents/scratchpad/
 .agents/runs/
 .agents/runs-acpx/
+.agents/scheduled_tasks.lock
 
 # Bazel convenience symlinks and machine-local config
 /bazel-*
