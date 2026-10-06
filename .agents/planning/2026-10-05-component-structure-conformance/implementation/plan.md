@@ -106,7 +106,7 @@ says the component declares — no more and no fewer. Record the probe summary
 - [x] **Step 13** — `packagelayout`: file splits, `fs.FS` passing, two interface files *(done 2026-10-06; `interface_files = ["api.go", "layout.go"]`, 397 LOC total, `declared_authority = [REFLECT, UNSAFE_POINTER]`)*
 - [x] **Step 14** — `cli`: declared style with `app/app.go` as the interface *(done 2026-10-06; `interface_files = ["app/app.go"]`, 205 LOC, `declared_authority = [FILES, MODIFY_SYSTEM_STATE, OPERATING_SYSTEM, READ_SYSTEM_STATE, REFLECT, UNSAFE_POINTER]`)*
 - [x] **Step 15** — `stdlibmap`: `hosttoolchain` sub-component + two interface files *(done 2026-10-06; `interface_files = ["sdkkey.go", "stdlibmap.go"]`, `stdlibmap` authority-free, `stdlibmap-hosttoolchain` holds `[EXEC, FILES, READ_SYSTEM_STATE]`)*
-- [ ] **Step 16** — Final audit, README counts, conventions cross-check
+- [x] **Step 16** — Final audit, README counts, conventions cross-check *(done 2026-10-06; `final-audit.md` + `follow-ups.md` written, 28/28 probes match declared authority, README + `justfile` counts updated to 24 Bazel / 28 native analyzed / 3 asserted / 0 expected-fail)*
 
 ---
 
@@ -940,6 +940,15 @@ working copy.
 
 **Demo.** `final-audit.md` shows zero declared-vs-measured mismatches and every
 component tagged C3(a) or C3(b).
+
+**Observed (2026-10-06):**
+- Probed all 28 analyzed components in topological order and verified all 3 asserted `UNKNOWN` surfaces (`protobuf-runtime`, `x-tools`, `capslock-runtime`). Recorded the complete authority audit table (28 analyzed + 3 asserted = 31 manifests; **0 declared-vs-measured mismatches**; 19/28 analyzed components have `declared_authority = []`) and the C3(a)/C3(b) interface-size table in [`../research/final-audit.md`](../research/final-audit.md).
+- Verified the three convention cross-check greps:
+  1. `PACKAGE_SURFACE` appears only in `protobufruntime`, `xtools`, and `capslockruntime`.
+  2. Host/authority imports (`"os"`, `"os/exec"`, `"runtime"`, `"go/build"`) in non-test production Go files appear only in `atomicfile`, `layoutdriverhook`, `cmd/arcc`, and the three `internal/host*` sub-components (`goanalysis/internal/hostfs`, `packagelayout/internal/hostenv`, `stdlibmap/internal/hosttoolchain`).
+  3. Whole-library `interface = ":..."` in `BUILD.bazel` appears only in vocabulary/single-file components and `schema-gen`.
+- Updated `README.md` (limitation 12 and Self-Hosting Verification counts/lists: 24 Bazel checked component gates, 28 native analyzed components, 3 asserted `UNKNOWN` surfaces, 0 expected-fail analyses) and `justfile` self-check coverage comments. (Note: the design text estimated 29 native analyzed components from baseline 20 + 9 new components, whereas 8 of the 9 new components are analyzed and the 9th (`capslock-runtime`) is the 3rd asserted `UNKNOWN` surface, yielding 28 analyzed + 3 asserted = 31 total.)
+- Wrote [`../follow-ups.md`](../follow-ups.md) covering the proto-backed report/golden migration (to retire `REFLECT`/`UNSAFE_POINTER` from `reportio`, `packagelayout`, `cli`, and `capslockadapter`), `goanalysis/fixture_test.go` decoupling from `checker` internals, and `schema-gen` `protoc-gen-go` reflection site tracking.
 
 ---
 

@@ -1,8 +1,8 @@
 # Component structure conformance — summary
 
-**Date:** 2026-10-05 · **Revised:** 2026-10-06 (R1, R2) · **Status:** Steps 1–15 of 16
-done (probe script, conventions, spikes S1/S2/S3/S4 resolved, `interface_files` landed,
-Step 3 hygiene/unexports/dead-dep removal complete, Step 4 `atomicfile` extracted,
+**Date:** 2026-10-05 · **Revised:** 2026-10-06 (R1, R2) · **Status:** **Steps 1–16 of 16
+done (complete)** (probe script, conventions, spikes S1/S2/S3/S4 resolved, `interface_files`
+landed, Step 3 hygiene/unexports/dead-dep removal complete, Step 4 `atomicfile` extracted,
 Step 5 `artifactio` authority-free + `reportio` split, Step 6 `checker` interface
 shrunk to `checker.go`, Step 7 `capslocksymbol` split from `symbol`, Step 8 `schema` +
 `schema-gen` split and expected-fail gate retired, Step 9 `capslock-runtime` wrapper
@@ -13,8 +13,9 @@ now authority-free, Step 12 `goanalysis` split into 3 interface files totaling 2
 Step 13 `packagelayout` converted to declared style with `api.go` + `layout.go` and
 `[REFLECT, UNSAFE_POINTER]` only, Step 14 `cli` converted to declared style with
 `interface_files: "app/app.go"`, Step 15 `stdlibmap-hosttoolchain` extracted and
-`stdlibmap` now authority-free with `interface_files: "sdkkey.go", "stdlibmap.go"`);
-Step 16 in progress
+`stdlibmap` now authority-free with `interface_files: "sdkkey.go", "stdlibmap.go"`,
+Step 16 final audit (`research/final-audit.md`), `follow-ups.md`, and README/`justfile`
+updates complete)
 
 ## What this is
 
@@ -38,7 +39,8 @@ projects to follow. This planning set restructures them so that:
 |------|---------|
 | [`design/detailed-design.md`](design/detailed-design.md) | Constraining facts F1–F11, conventions C1–C12, three design questions (sub-component vs injection; the `encoding/json` codec exception and the `reportio` split; file-list interfaces vs packages), per-component targets §5, risks, deferred items, Appendix D = `go_component.interface_files` rule spec. |
 | [`implementation/plan.md`](implementation/plan.md) | 16 ordered steps with Objective / Guidance / Tests / Integration / Demo, a standard verification gate, and the inventory touch list per step. Written for a less capable model. |
-| [`research/`](research/) | Six measured analyses (authority sites, exported-symbol usage, test coupling, split proposals) + the report template. |
+| [`research/`](research/) | Six measured analyses (authority sites, exported-symbol usage, test coupling, split proposals), the report template, and [`research/final-audit.md`](research/final-audit.md) (Step 16 31-component authority & interface-size audit). |
+| [`follow-ups.md`](follow-ups.md) | Follow-up work deferred out of this refactoring (proto-backed report/golden format, `goanalysis/fixture_test.go` decoupling from `checker` internals, `schema-gen` reflection site tracking). |
 
 ## Headline decisions (R1)
 
@@ -55,18 +57,23 @@ projects to follow. This planning set restructures them so that:
   `reportio` (`[REFLECT, UNSAFE_POINTER]`, documented codec exception). Retiring those
   capabilities needs a protojson report — separate follow-up plan.
 - `packagelayout` → `[REFLECT, UNSAFE_POINTER]` with `fs.FS`/bytes passing, `hostenv`
-  (declares `RUNTIME`), the driver `init()` moved to `layout-driver-hook`, and a
-  project-owned `BuildTags` replacing `build.Context` (**mandatory**: spike S2 measured
-  that importing `go/build` or `runtime` is itself charged — F12).
-- `goanalysis` → three interface files (≈ 13 symbols), empty authority. Its `RUNTIME`
-  turned out to be *real* (import charge for one `runtime.Version()` call), so
-  `hostenv` + `BuildTags` (Step 11) now land before the `goanalysis` split (Step 12).
+  (declares `[FILES, MODIFY_SYSTEM_STATE, READ_SYSTEM_STATE, RUNTIME]`), the driver
+  `init()` moved to `layout-driver-hook`, and a project-owned `BuildTags` replacing
+  `build.Context` (**mandatory**: spike S2 measured that importing `go/build` or
+  `runtime` is itself charged — F12).
+- `goanalysis` → three interface files (`dependency_surface.go`, `goanalysis.go`,
+  `surfaceinputs.go`), empty authority. Its `RUNTIME` turned out to be *real* (import
+  charge for one `runtime.Version()` call), so `hostenv` + `BuildTags` (Step 11) landed
+  before the `goanalysis` split (Step 12).
 - `schema-gen`: declare `analysis_defeating_policy: WARN` (and no `declared_authority` —
   the 15 `protoc-gen-go` sites are `AnalysisDefeating`, not `TrueAuthority`
   `UNSAFE_POINTER`); the expected-fail gate becomes a real green gate with a 15-site
   growth assertion.
-- Counts after the work: Bazel gates 16 → 24, native analyses 20 → 29, asserted
-  surfaces 2 → 3, expected-fail analyses 1 → 0.
+- Counts after the work: Bazel gates 16 → 24, native analyzed components 20 → 28,
+  asserted `UNKNOWN` surfaces 2 → 3 (31 total manifests), expected-fail analyses 1 → 0.
+  (The R1 design text said 29 native analyses by adding 9 new components to 20, whereas 8
+  of the 9 new components are analyzed and the 9th, `capslock-runtime`, is the 3rd
+  asserted surface.)
 
 ## Spike outcomes (R2)
 
@@ -79,11 +86,12 @@ projects to follow. This planning set restructures them so that:
 
 ## Remaining open points
 
-1. *(Resolved in Step 6)* `goanalysis/fixture_test.go` coupling to `checker` internals:
-   8 strictly internal symbols unexported; the fixture-test symbols stay exported in
-   non-interface files (`boundary.go`, `classify.go`) with explicit test-only doc
-   comments (allowed under C4), and the full test rewrite will be recorded in
-   `follow-ups.md` in Step 16.
+All open points resolved:
+1. *(Resolved in Step 6 & recorded in `follow-ups.md`)* `goanalysis/fixture_test.go`
+   coupling to `checker` internals: 8 strictly internal symbols unexported; the
+   fixture-test symbols stay exported in non-interface files (`boundary.go`,
+   `classify.go`) with explicit test-only doc comments (allowed under C4), and the test
+   decoupling is tracked in [`follow-ups.md`](follow-ups.md).
 2. *(Resolved in Step 14)* Native loader accepts `interface_files: "app/app.go"` in
    `go/cmd/arcc/component.textproto` with canonical Go import paths in `members:`, and
    `validateInterfaceFiles` (`go/internal/goanalysis/ifacefiles.go:85`) already emits the
