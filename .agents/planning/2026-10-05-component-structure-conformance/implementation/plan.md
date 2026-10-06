@@ -103,7 +103,7 @@ says the component declares — no more and no fewer. Record the probe summary
 - [x] **Step 10** — `goanalysis-hostfs` sub-component (spike S1) *(done 2026-10-05; S1 passed: `FILES` removed from `goanalysis`, `hostfs` holds `FILES` ×4 + `READ_SYSTEM_STATE` ×1)*
 - [x] **Step 11** — `packagelayout-hostenv` sub-component, `layout-driver-hook`, `BuildTags` (+ `goanalysis` drops `RUNTIME`/`READ_SYSTEM_STATE`) *(done 2026-10-05; `goanalysis` now authority-free; only `hostenv.go` imports `runtime`, zero non-test files import `go/build`)*
 - [x] **Step 12** — `goanalysis`: file splits + three interface files *(done 2026-10-05; `interface_files = ["dependency_surface.go", "goanalysis.go", "surfaceinputs.go"]`, 222 LOC total, 17 exported symbols, authority empty)*
-- [ ] **Step 13** — `packagelayout`: file splits, `fs.FS` passing, two interface files
+- [x] **Step 13** — `packagelayout`: file splits, `fs.FS` passing, two interface files *(done 2026-10-06; `interface_files = ["api.go", "layout.go"]`, 397 LOC total, `declared_authority = [REFLECT, UNSAFE_POINTER]`)*
 - [ ] **Step 14** — `cli`: declared style with `app/app.go` as the interface
 - [ ] **Step 15** — `stdlibmap`: `hosttoolchain` sub-component + two interface files
 - [ ] **Step 16** — Final audit, README counts, conventions cross-check
@@ -809,6 +809,16 @@ them.
 
 **Demo.** `grep -rn '"os"\|go/build"\|"runtime"' go/internal/packagelayout --include=*.go | grep -v _test | grep -v internal/hostenv`
 prints nothing.
+
+**Observed (2026-10-06):**
+- Split `packagelayout.go` (2,586 LOC) and `shape_imports.go` (120 LOC) into two interface files — `layout.go` (278 LOC) and `api.go` (119 LOC) — plus non-interface files `buildtags.go` (279 LOC), `driver.go` (318 LOC), `scanner.go` (373 LOC), `stdlibdiscover.go` (257 LOC), `validate.go` (1,213 LOC), `ordinary_import_data.go` (531 LOC), and `stdlib_export_data.go` (457 LOC).
+- Converted `packagelayout` from `PACKAGE_SURFACE` to declared style with `interface_files = ["api.go", "layout.go"]` and `declared_authority = [REFLECT, UNSAFE_POINTER]` (with the C9 comment).
+- Replaced `filepath.Abs` in `resolveSDKSourcePath` with `filepath.Rel(sdkRoot, resolved)` (eliminating `READ_SYSTEM_STATE`) and routed all filesystem access through `fs.FS` (`StdlibLayout(sdk fs.FS, platform *Platform)`, `defaultFS = hostenv.FS()`, `subFS`, `hostenv.IsNotExist`), plus byte-slice / `io.Reader` APIs `MergeImportGraphLayout`, `WriteImportGraph`, and `DecodeStdlibExportFiles` (`go/cmd/arcc/app/package_imports.go` now reads via `os.ReadFile` and writes via `atomicfile.WriteFileAtomic`).
+- Updated `packagelayout-hostenv` to provide `FS() fs.FS` and `IsNotExist(err error) bool` (`declared_authority = [FILES, MODIFY_SYSTEM_STATE, READ_SYSTEM_STATE, RUNTIME]`).
+- **Probe summary:**
+  - `packagelayout`: `REFLECT` ×19, `UNSAFE_POINTER` ×19 (`driver.go:243,268`, `layout.go:256,259`, `ordinary_import_data.go:268,272,361,427,509`, `stdlib_export_data.go:143,193`, `validate.go:898,903,916,922,951,968,974,978`); zero `FILES`, `READ_SYSTEM_STATE`, `MODIFY_SYSTEM_STATE`, `OPERATING_SYSTEM`, or `RUNTIME`.
+  - `packagelayout-hostenv`: `FILES` ×4 (`hostenv.go:14,18,22,26`), `MODIFY_SYSTEM_STATE` ×15 (`hostenv.go:80,81,82,83,88,90,94,96,100,102,106,108,116,119,121`), `READ_SYSTEM_STATE` ×10 (`hostenv.go:52,57,63,66,70,71,72,73,75,115`), `RUNTIME` ×1 (`hostenv.go:8`).
+  - `layout-driver-hook`: `FILES` ×6, `MODIFY_SYSTEM_STATE` ×5, `OPERATING_SYSTEM` ×5 (`hook.go:16,19,21,24,25`).
 
 ---
 

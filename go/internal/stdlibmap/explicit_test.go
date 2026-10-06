@@ -37,12 +37,13 @@ func fixtureSDK(t *testing.T) string {
 
 func fixtureSDKLayout(t *testing.T, sdkRoot string) *packagelayout.Layout {
 	t.Helper()
-	layout, err := packagelayout.StdlibLayout(sdkRoot, &packagelayout.Platform{
+	layout, err := packagelayout.StdlibLayout(os.DirFS(sdkRoot), &packagelayout.Platform{
 		GOOS: "linux", GOARCH: "amd64", ToolchainVersion: strPtr("go1.26.4"),
 	})
 	if err != nil {
 		t.Fatalf("StdlibLayout() error = %v", err)
 	}
+	layout.GoSDKRoot = sdkRoot
 	return layout
 }
 

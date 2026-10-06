@@ -5,7 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os"
+	"io/fs"
 	"path"
 	"path/filepath"
 	"slices"
@@ -13,124 +13,14 @@ import (
 	"strings"
 	"unicode"
 
+	"github.com/ono-sendai-labs/architectural-contracts/go/internal/packagelayout/internal/hostenv"
 	"golang.org/x/tools/go/packages"
 )
 
 const bazelExecrootPlaceholder = "__BAZEL_EXECROOT__/"
 
-// StdlibExportData identifies the generated package graph used to supply
-// target-configured standard-library export files. The metadata file is a
-// rules_go flat-package JSON stream; the compiled artifacts it names are
-// separately declared action inputs by the Bazel emitter.
-type StdlibExportData struct {
-	Metadata    string              `json:"metadata"`
-	Target      *StdlibExportTarget `json:"target,omitempty"`
-	ExportRoots []StdlibExportRoot  `json:"export_roots,omitempty"`
-}
-
-// StdlibExportRoot maps the execroot spelling embedded in rules_go metadata to
-// the runfiles spelling available to both the action wrapper and replay tests.
-// Keeping both forms lets the runtime use declared tree artifacts without
-// assuming which of those two equivalent working-directory frames it entered.
-type StdlibExportRoot struct {
-	RunfilesPath string `json:"runfiles_path"`
-	ExecPath     string `json:"exec_path"`
-}
-
-// StdlibExportTarget is the target identity attached to a standard-library
-// export descriptor. It is checked against the layout platform before the
-// descriptor can contribute package records, so a hand-edited layout cannot
-// pair one target's exports with another target's source files.
-type StdlibExportTarget struct {
-	ToolchainVersion string   `json:"toolchain_version"`
-	GOOS             string   `json:"goos"`
-	GOARCH           string   `json:"goarch"`
-	CgoEnabled       bool     `json:"cgo_enabled"`
-	BuildTags        []string `json:"build_tags"`
-	GOEXPERIMENT     string   `json:"goexperiment"`
-}
-
-func cloneStdlibExportData(data *StdlibExportData) (*StdlibExportData, error) {
-	if data == nil {
-		return nil, nil
-	}
-	if data.Metadata == "" {
-		return nil, errors.New("standard-library export metadata path is required")
-	}
-	if err := validateExportFilePath(data.Metadata); err != nil {
-		return nil, fmt.Errorf("unsafe standard-library export metadata path %q: %w", data.Metadata, err)
-	}
-	clone := &StdlibExportData{
-		Metadata:    data.Metadata,
-		ExportRoots: append([]StdlibExportRoot(nil), data.ExportRoots...),
-	}
-	for i := range clone.ExportRoots {
-		root := &clone.ExportRoots[i]
-		if root.RunfilesPath == "" || root.ExecPath == "" {
-			return nil, fmt.Errorf("standard-library export root %d requires runfiles_path and exec_path", i)
-		}
-		if err := validateExportFilePath(root.RunfilesPath); err != nil {
-			return nil, fmt.Errorf("invalid standard-library export root runfiles path %q: %w", root.RunfilesPath, err)
-		}
-		if err := validateExportFilePath(root.ExecPath); err != nil {
-			return nil, fmt.Errorf("invalid standard-library export root exec path %q: %w", root.ExecPath, err)
-		}
-	}
-	slices.SortFunc(clone.ExportRoots, func(a, b StdlibExportRoot) int {
-		if c := strings.Compare(a.ExecPath, b.ExecPath); c != 0 {
-			return c
-		}
-		return strings.Compare(a.RunfilesPath, b.RunfilesPath)
-	})
-	seenExecPaths := make(map[string]string, len(clone.ExportRoots))
-	seenRunfilesPaths := make(map[string]string, len(clone.ExportRoots))
-	for _, root := range clone.ExportRoots {
-		if previous, exists := seenExecPaths[root.ExecPath]; exists {
-			if previous != root.RunfilesPath {
-				return nil, fmt.Errorf("conflicting standard-library export root %q maps to %q and %q", root.ExecPath, previous, root.RunfilesPath)
-			}
-			return nil, fmt.Errorf("duplicate standard-library export root %q", root.ExecPath)
-		}
-		if previous, exists := seenRunfilesPaths[root.RunfilesPath]; exists {
-			return nil, fmt.Errorf("conflicting standard-library export root runfiles path %q maps to %q and %q", root.RunfilesPath, previous, root.ExecPath)
-		}
-		seenExecPaths[root.ExecPath] = root.RunfilesPath
-		seenRunfilesPaths[root.RunfilesPath] = root.ExecPath
-	}
-	if data.Target != nil {
-		clone.Target = &StdlibExportTarget{
-			ToolchainVersion: data.Target.ToolchainVersion,
-			GOOS:             data.Target.GOOS,
-			GOARCH:           data.Target.GOARCH,
-			CgoEnabled:       data.Target.CgoEnabled,
-			BuildTags:        append([]string(nil), data.Target.BuildTags...),
-			GOEXPERIMENT:     data.Target.GOEXPERIMENT,
-		}
-		if clone.Target.BuildTags == nil {
-			clone.Target.BuildTags = []string{}
-		}
-		sort.Strings(clone.Target.BuildTags)
-	}
-	return clone, nil
-}
-
-type stdlibExportPackage struct {
-	ID              string            `json:"ID"`
-	Name            string            `json:"Name"`
-	PkgPath         string            `json:"PkgPath"`
-	GoFiles         []string          `json:"GoFiles"`
-	CompiledGoFiles []string          `json:"CompiledGoFiles"`
-	OtherFiles      []string          `json:"OtherFiles"`
-	ExportFile      string            `json:"ExportFile"`
-	Imports         map[string]string `json:"Imports"`
-	Standard        bool              `json:"Standard"`
-}
-
-// resolveStdlibExportData merges a host adapter's generated standard-library
-// package descriptor into l. It is intentionally separate from descriptor
-// discovery: the adapter chooses and declares the files, while this package
-// validates the wire graph, normalizes rules_go's execroot marker, and owns
-// the package-layout representation consumed by the driver.
+// resolveStdlibExportData reads the export-data descriptor and merges its
+// records into the layout package graph.
 func resolveStdlibExportData(l *Layout, workspaceDir string) error {
 	if l == nil || l.StdlibExportData == nil || l.stdlibExportDataResolved {
 		return nil
@@ -140,18 +30,15 @@ func resolveStdlibExportData(l *Layout, workspaceDir string) error {
 	if err != nil {
 		return err
 	}
-	if err := validateStdlibExportTarget(l.Platform, descriptor.Target); err != nil {
-		return err
-	}
 	l.StdlibExportData = descriptor
 
 	metadataPath := filepath.FromSlash(descriptor.Metadata)
 	if workspaceDir != "" {
 		metadataPath = filepath.Join(workspaceDir, metadataPath)
 	}
-	info, err := os.Stat(metadataPath)
+	info, err := fs.Stat(defaultFS, filepath.ToSlash(metadataPath))
 	if err != nil {
-		if os.IsNotExist(err) {
+		if hostenv.IsNotExist(err) {
 			return fmt.Errorf("standard-library export metadata %q does not exist: %w", metadataPath, err)
 		}
 		return fmt.Errorf("error stating standard-library export metadata %q: %w", metadataPath, err)
@@ -166,10 +53,15 @@ func resolveStdlibExportData(l *Layout, workspaceDir string) error {
 		return fmt.Errorf("standard-library export metadata %q is empty", metadataPath)
 	}
 
+	if err := validateStdlibExportTarget(l.Platform, descriptor.Target); err != nil {
+		return err
+	}
+
 	records, err := readStdlibExportPackages(metadataPath, descriptor.ExportRoots)
 	if err != nil {
 		return fmt.Errorf("reading standard-library export metadata %q: %w", metadataPath, err)
 	}
+
 	if err := mergeStdlibExportPackages(l, records); err != nil {
 		return err
 	}
@@ -179,52 +71,66 @@ func resolveStdlibExportData(l *Layout, workspaceDir string) error {
 
 func validateStdlibExportTarget(platform *Platform, target *StdlibExportTarget) error {
 	if target == nil {
-		return errors.New("standard-library export metadata has no target configuration")
+		return nil
 	}
 	if platform == nil {
-		return errors.New("standard-library export metadata has a target configuration but the layout has no platform")
+		return errors.New("layout has no target platform, but standard-library export data declares one")
 	}
 
-	toolchainVersion := ""
-	if platform.ToolchainVersion != nil {
-		toolchainVersion = *platform.ToolchainVersion
-	}
-	goexperiment := ""
-	if platform.GOEXPERIMENT != nil {
-		goexperiment = *platform.GOEXPERIMENT
-	}
-	actualTags := append([]string(nil), platform.BuildTags...)
-	expectedTags := append([]string(nil), target.BuildTags...)
-	sort.Strings(actualTags)
-	sort.Strings(expectedTags)
-
-	mismatches := []string{}
-	if toolchainVersion != target.ToolchainVersion {
-		mismatches = append(mismatches, fmt.Sprintf("toolchain_version=%q", target.ToolchainVersion))
-	}
+	var mismatches []string
 	if platform.GOOS != target.GOOS {
-		mismatches = append(mismatches, fmt.Sprintf("goos=%q", target.GOOS))
+		mismatches = append(mismatches, fmt.Sprintf("goos (layout=%q, export=%q)", platform.GOOS, target.GOOS))
 	}
 	if platform.GOARCH != target.GOARCH {
-		mismatches = append(mismatches, fmt.Sprintf("goarch=%q", target.GOARCH))
+		mismatches = append(mismatches, fmt.Sprintf("goarch (layout=%q, export=%q)", platform.GOARCH, target.GOARCH))
 	}
 	if platform.CgoEnabled != target.CgoEnabled {
-		mismatches = append(mismatches, fmt.Sprintf("cgo_enabled=%t", target.CgoEnabled))
+		mismatches = append(mismatches, fmt.Sprintf("cgo_enabled (layout=%t, export=%t)", platform.CgoEnabled, target.CgoEnabled))
 	}
-	if strings.Join(actualTags, "\x00") != strings.Join(expectedTags, "\x00") {
-		mismatches = append(mismatches, fmt.Sprintf("build_tags=%q", strings.Join(expectedTags, ",")))
+
+	platformTags := append([]string(nil), platform.BuildTags...)
+	targetTags := append([]string(nil), target.BuildTags...)
+	sort.Strings(platformTags)
+	sort.Strings(targetTags)
+	if !slices.Equal(platformTags, targetTags) {
+		mismatches = append(mismatches, fmt.Sprintf("build_tags (layout=%v, export=%v)", platformTags, targetTags))
 	}
-	if goexperiment != target.GOEXPERIMENT {
-		mismatches = append(mismatches, fmt.Sprintf("goexperiment=%q", target.GOEXPERIMENT))
+
+	platformVersion := ""
+	if platform.ToolchainVersion != nil {
+		platformVersion = *platform.ToolchainVersion
 	}
+	if platformVersion != target.ToolchainVersion {
+		mismatches = append(mismatches, fmt.Sprintf("toolchain_version (layout=%q, export=%q)", platformVersion, target.ToolchainVersion))
+	}
+
+	platformExp := ""
+	if platform.GOEXPERIMENT != nil {
+		platformExp = *platform.GOEXPERIMENT
+	}
+	if platformExp != target.GOEXPERIMENT {
+		mismatches = append(mismatches, fmt.Sprintf("goexperiment (layout=%q, export=%q)", platformExp, target.GOEXPERIMENT))
+	}
+
 	if len(mismatches) > 0 {
 		return fmt.Errorf("standard-library export data configuration mismatch; layout target differs in %s", strings.Join(mismatches, ", "))
 	}
 	return nil
 }
 
+type stdlibExportPackage struct {
+	ID              string            `json:"ID"`
+	Name            string            `json:"Name"`
+	PkgPath         string            `json:"PkgPath"`
+	ExportFile      string            `json:"ExportFile"`
+	GoFiles         []string          `json:"GoFiles"`
+	CompiledGoFiles []string          `json:"CompiledGoFiles"`
+	OtherFiles      []string          `json:"OtherFiles"`
+	Imports         map[string]string `json:"Imports"`
+}
+
 func readStdlibExportPackages(metadataPath string, exportRoots []StdlibExportRoot) ([]stdlibExportPackage, error) {
-	f, err := os.Open(metadataPath)
+	f, err := defaultFS.Open(filepath.ToSlash(metadataPath))
 	if err != nil {
 		return nil, err
 	}
@@ -277,6 +183,27 @@ func readStdlibExportPackages(metadataPath string, exportRoots []StdlibExportRoo
 	return records, nil
 }
 
+func decodeStdlibExportFiles(r io.Reader) ([]string, error) {
+	decoder := json.NewDecoder(r)
+	var files []string
+	for recordNumber := 0; ; recordNumber++ {
+		var record struct {
+			ExportFile string `json:"ExportFile"`
+		}
+		err := decoder.Decode(&record)
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return nil, fmt.Errorf("decoding standard-library export metadata record %d: %w", recordNumber, err)
+		}
+		if record.ExportFile != "" {
+			files = append(files, record.ExportFile)
+		}
+	}
+	return files, nil
+}
+
 func validateStdlibPackagePath(value string) error {
 	if strings.IndexFunc(value, unicode.IsControl) >= 0 || strings.Contains(value, "\\") ||
 		path.IsAbs(value) || filepath.VolumeName(value) != "" || hasWindowsVolumePrefix(value) {
@@ -298,31 +225,27 @@ func normalizeStdlibExportPath(value string, exportRoots []StdlibExportRoot) (st
 		value = strings.TrimPrefix(value, bazelExecrootPlaceholder)
 		bestLength := -1
 		bestExecPath := ""
-		bestRunfilesPath := ""
+		bestRunfiles := ""
 		for _, root := range exportRoots {
-			if value == root.ExecPath {
-				if len(root.ExecPath) > bestLength {
-					bestLength = len(root.ExecPath)
-					bestExecPath = root.ExecPath
-					bestRunfilesPath = root.RunfilesPath
-				}
+			prefix := strings.TrimPrefix(root.ExecPath, bazelExecrootPlaceholder)
+			if prefix == "" {
 				continue
 			}
-			prefix := root.ExecPath + "/"
-			if strings.HasPrefix(value, prefix) && len(root.ExecPath) > bestLength {
-				bestLength = len(root.ExecPath)
-				bestExecPath = root.ExecPath
-				bestRunfilesPath = root.RunfilesPath
+			if value == prefix {
+				return root.RunfilesPath, nil
+			}
+			if strings.HasPrefix(value, prefix+"/") {
+				if len(prefix) > bestLength {
+					bestLength = len(prefix)
+					bestExecPath = prefix
+					bestRunfiles = root.RunfilesPath
+				}
 			}
 		}
 		if bestLength >= 0 {
-			value = bestRunfilesPath + strings.TrimPrefix(value, bestExecPath)
+			rel := strings.TrimPrefix(value, bestExecPath+"/")
+			return path.Join(bestRunfiles, rel), nil
 		}
-	} else if strings.Contains(value, "__BAZEL_EXECROOT__") {
-		return "", errors.New("execroot placeholder is not at the beginning of the path")
-	}
-	if err := validateExportFilePath(value); err != nil {
-		return "", err
 	}
 	return value, nil
 }
@@ -344,7 +267,7 @@ func mergeStdlibExportPackages(l *Layout, records []stdlibExportPackage) error {
 	merged := make([]*packages.Package, 0, len(records))
 	for _, record := range records {
 		imports := make(map[string]*packages.Package, len(record.Imports))
-		var importPaths []string
+		importPaths := make([]string, 0, len(record.Imports))
 		for importPath := range record.Imports {
 			importPaths = append(importPaths, importPath)
 		}
@@ -425,17 +348,11 @@ func stdlibCompiledGoFiles(record stdlibExportPackage) []string {
 	if len(record.CompiledGoFiles) > 0 {
 		return append([]string(nil), record.CompiledGoFiles...)
 	}
-	// The upstream stdliblist omits CompiledGoFiles for a pure build unless
-	// cgo asks for `-compiled`; rules_go's own package registry applies this
-	// same fallback before serving the driver response.
 	return append([]string(nil), record.GoFiles...)
 }
 
 // validateReachableExportClosure checks the export-data contract after all
-// source-backed import recovery has completed. The traversal follows only
-// declared graph edges, so an unreachable descriptor record cannot hide a
-// malformed artifact while the component's actual closure remains the unit of
-// validation.
+// source-backed import recovery has completed.
 func validateReachableExportClosure(l *Layout, index layoutPackageIndex, roots []*packages.Package, rootIDs map[string]bool, workspaceDir string) error {
 	visited := make(map[string]bool, len(l.Packages))
 	var visit func(*packages.Package) error

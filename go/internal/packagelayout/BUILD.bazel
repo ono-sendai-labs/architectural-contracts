@@ -3,7 +3,17 @@ load("@rules_go//go:def.bzl", "go_library", "go_test")
 
 go_library(
     name = "packagelayout",
-    srcs = ["buildtags.go", "ordinary_import_data.go", "packagelayout.go", "shape_imports.go", "stdlib_export_data.go"],
+    srcs = [
+        "api.go",
+        "buildtags.go",
+        "driver.go",
+        "layout.go",
+        "ordinary_import_data.go",
+        "scanner.go",
+        "stdlib_export_data.go",
+        "stdlibdiscover.go",
+        "validate.go",
+    ],
     importpath = "github.com/ono-sendai-labs/architectural-contracts/go/internal/packagelayout",
     visibility = [
         "//bazel_rules:__subpackages__",
@@ -34,20 +44,25 @@ go_test(
 )
 
 # Mirrors the checked-in packagelayout/component.textproto. The layout/driver
-# package is one checked package-surface boundary shared by goanalysis and
-# stdlibmap; x-tools remains the sole foreign closure boundary beneath it.
+# package defines its boundary across layout.go and api.go; goanalysis and
+# stdlibmap consume this boundary.
 go_component(
     name = "packagelayout_component",
-    interface_style = "PACKAGE_SURFACE",
     component_deps = [
         "//go/internal/packagelayout/internal/hostenv:hostenv_component",
         "//go/internal/xtools:x-tools",
     ],
+    # REFLECT and UNSAFE_POINTER come from `encoding/json` in the layout JSON
+    # codec and import-data descriptors (C9). The layout JSON codec and
+    # import-data descriptors are this component's own schema, so json.Marshal
+    # and json.Unmarshal are retained directly.
     declared_authority = [
-        "FILES",
-        "READ_SYSTEM_STATE",
         "REFLECT",
         "UNSAFE_POINTER",
+    ],
+    interface_files = [
+        "layout.go",
+        "api.go",
     ],
     members = ["//go/internal/packagelayout"],
     visibility = ["//go:__subpackages__"],

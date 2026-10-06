@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"go/build"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -197,9 +198,55 @@ func (m mockFileInfo) ModTime() time.Time { return time.Time{} }
 func (m mockFileInfo) IsDir() bool        { return m.isDir }
 func (m mockFileInfo) Sys() any           { return nil }
 
+type mockFile struct {
+	fi   os.FileInfo
+	data *bytes.Reader
+}
+
+func (f *mockFile) Stat() (fs.FileInfo, error) { return f.fi, nil }
+func (f *mockFile) Read(b []byte) (int, error) {
+	if f.data == nil {
+		return 0, io.EOF
+	}
+	return f.data.Read(b)
+}
+func (f *mockFile) Close() error { return nil }
+
+type mockFS struct {
+	existing map[string]os.FileInfo
+}
+
+func (m mockFS) Stat(name string) (fs.FileInfo, error) {
+	clean := filepath.Clean(filepath.FromSlash(name))
+	if fi, ok := m.existing[clean]; ok {
+		return fi, nil
+	}
+	return nil, fs.ErrNotExist
+}
+
+func (m mockFS) Open(name string) (fs.File, error) {
+	clean := filepath.Clean(filepath.FromSlash(name))
+	if fi, ok := m.existing[clean]; ok {
+		return &mockFile{fi: fi, data: bytes.NewReader([]byte("package foo\n"))}, nil
+	}
+	return nil, fs.ErrNotExist
+}
+
+func (m mockFS) ReadFile(name string) ([]byte, error) {
+	clean := filepath.Clean(filepath.FromSlash(name))
+	if fi, ok := m.existing[clean]; ok && !fi.IsDir() {
+		return []byte("package foo\n"), nil
+	}
+	return nil, fs.ErrNotExist
+}
+
+func (m mockFS) ReadDir(name string) ([]fs.DirEntry, error) {
+	return nil, nil
+}
+
 // setupMockStat configures a mock file system where the specified paths and their parents exist.
 func setupMockStat(existingPaths []string) func() {
-	orig := osStat
+	orig := defaultFS
 	existing := make(map[string]os.FileInfo)
 
 	paths := append([]string{}, existingPaths...)
@@ -226,15 +273,37 @@ func setupMockStat(existingPaths []string) func() {
 		// Add root "/"
 		existing["/"] = mockFileInfo{name: "/", isDir: true}
 	}
-	osStat = func(name string) (os.FileInfo, error) {
-		if fi, ok := existing[name]; ok {
-			return fi, nil
-		}
-		return nil, os.ErrNotExist
-	}
+	defaultFS = mockFS{existing: existing}
 	return func() {
-		osStat = orig
+		defaultFS = orig
 	}
+}
+
+func runDriver(layoutPath string, workspaceDir string, patterns []string, stdin io.Reader, stdout io.Writer) error {
+	if layoutPath == "" {
+		return errors.New("package-layout file path is required")
+	}
+	layout, err := os.ReadFile(layoutPath)
+	if err != nil {
+		return fmt.Errorf("opening package-layout: %w", err)
+	}
+	return RunDriver(layout, layoutPath, workspaceDir, patterns, stdin, stdout)
+}
+
+func discoverStdlib(sdkRoot string) ([]*packages.Package, error) {
+	if sdkRoot == "" {
+		return nil, nil
+	}
+	fi, err := os.Stat(sdkRoot)
+	if err != nil {
+		return nil, fmt.Errorf("accessing SDK root %q: %w", sdkRoot, err)
+	}
+	if !fi.IsDir() {
+		return nil, fmt.Errorf("SDK root %q is not a directory", sdkRoot)
+	}
+	tags := nativeBuildTags()
+	tags.GOROOT = filepath.Dir(sdkRoot)
+	return discoverStdlibWithTags(os.DirFS(sdkRoot), tags)
 }
 
 func TestParse(t *testing.T) {
@@ -1133,7 +1202,7 @@ func TestDiscoverStdlib_DropsCgoPseudoImport(t *testing.T) {
 
 	bctx := nativeBuildTags()
 	bctx.CgoEnabled = true
-	pkgs, err := discoverStdlibWithTags(sdkSrc, bctx)
+	pkgs, err := discoverStdlibWithTags(os.DirFS(sdkSrc), bctx)
 	if err != nil {
 		t.Fatalf("discoverStdlibWithTags failed: %v", err)
 	}
@@ -1165,7 +1234,7 @@ func TestDiscoverStdlibWithTagsUsesDeclaredPlatform(t *testing.T) {
 	ctx := nativeBuildTags()
 	ctx.GOOS = "windows"
 	ctx.GOARCH = "amd64"
-	pkgs, err := discoverStdlibWithTags(sdkSrc, ctx)
+	pkgs, err := discoverStdlibWithTags(os.DirFS(sdkSrc), ctx)
 	if err != nil {
 		t.Fatalf("discoverStdlibWithTags() error = %v", err)
 	}
@@ -2441,11 +2510,11 @@ func TestFileMatchesBuildConstraints_ExperimentTag(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Logf("target context tool tags: %v", tags.ToolTags)
-	if fileMatchesBuildConstraintsWithTags(path, tags) {
+	if fileMatchesBuildConstraintsWithTags(defaultFS, path, tags) {
 		t.Fatalf("experiment-gated source matched without goexperiment.jsonv2: %#v", tags.ToolTags)
 	}
 	sdkFile := filepath.Join(build.Default.GOROOT, "src", "encoding", "json", "internal", "internal.go")
-	if _, err := os.Stat(sdkFile); err == nil && fileMatchesBuildConstraintsWithTags(sdkFile, tags) {
+	if _, err := os.Stat(sdkFile); err == nil && fileMatchesBuildConstraintsWithTags(defaultFS, sdkFile, tags) {
 		t.Fatalf("real SDK experiment-gated source matched without goexperiment.jsonv2: %s", sdkFile)
 	}
 }
@@ -2533,10 +2602,10 @@ func TestPlatformConstraintsUseDeclaredContext(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if got := fileMatchesBuildConstraintsWithTags(tc.file, tags); got != tc.want {
+			if got := fileMatchesBuildConstraintsWithTags(defaultFS, tc.file, tags); got != tc.want {
 				t.Errorf("fileMatchesBuildConstraintsWithTags() = %v, want %v", got, tc.want)
 			}
-			bulk := filterByBuildConstraintsWithTags([]string{tc.file}, tags)
+			bulk := filterByBuildConstraintsWithTags(defaultFS, []string{tc.file}, tags)
 			if (len(bulk) == 1) != tc.want {
 				t.Errorf("filterByBuildConstraintsWithTags() kept %v, want kept=%v", bulk, tc.want)
 			}
@@ -2655,9 +2724,18 @@ func fixtureStdlibSDKLayout(t *testing.T) *Layout {
 	write("pinned/future.go", "//go:build go1.27\n\npackage pinned\n")
 	write("pinned/experiment.go", "//go:build goexperiment.greenteagc\n\npackage pinned\n")
 	write("pinned/hostarch_amd64.go", "package pinned\n")
-	layout, err := StdlibLayout(sdkRoot, &Platform{GOOS: "linux", GOARCH: "arm64", ToolchainVersion: strPtr("go1.26.4"), GOEXPERIMENT: strPtr("greenteagc")})
+	layout, err := StdlibLayout(os.DirFS(sdkRoot), &Platform{GOOS: "linux", GOARCH: "arm64", ToolchainVersion: strPtr("go1.26.4"), GOEXPERIMENT: strPtr("greenteagc")})
 	if err != nil {
 		t.Fatalf("StdlibLayout() error = %v", err)
+	}
+	layout.GoSDKRoot = sdkRoot
+	for _, p := range layout.Packages {
+		for i, f := range p.GoFiles {
+			p.GoFiles[i] = filepath.Join(sdkRoot, filepath.FromSlash(f))
+		}
+		for i, f := range p.CompiledGoFiles {
+			p.CompiledGoFiles[i] = filepath.Join(sdkRoot, filepath.FromSlash(f))
+		}
 	}
 	return layout
 }
@@ -2889,7 +2967,7 @@ func TestPlatformFidelityThroughFixtureFiles(t *testing.T) {
 		t.Fatal(err)
 	}
 	match := func(rel string) bool {
-		return fileMatchesBuildConstraintsWithTags(filepath.Join(sdk.GoSDKRoot, "pinned", rel), ctx)
+		return fileMatchesBuildConstraintsWithTags(defaultFS, filepath.Join(sdk.GoSDKRoot, "pinned", rel), ctx)
 	}
 	if match("future.go") {
 		t.Error("a file constrained to go1.27 must be excluded by a go1.26 toolchain")

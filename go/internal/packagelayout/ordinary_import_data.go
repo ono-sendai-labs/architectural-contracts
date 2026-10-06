@@ -1,16 +1,18 @@
 package packagelayout
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
-	"os"
+	"io/fs"
 	"path/filepath"
 	"slices"
 	"sort"
 	"strings"
 
+	"github.com/ono-sendai-labs/architectural-contracts/go/internal/packagelayout/internal/hostenv"
 	"golang.org/x/tools/go/packages"
 )
 
@@ -22,14 +24,6 @@ const (
 	// declared output using the layout artifact path.
 	ordinaryImportDataLogicalPath = "__ARCC_ORDINARY_IMPORT_DATA__"
 )
-
-// OrdinaryImportData points at the build-time source-import projection for a
-// component's ordinary packages. It is kept separate from the package records
-// because Bazel analysis can name source Files but cannot read their contents;
-// the graph action produces this descriptor before the check action runs.
-type OrdinaryImportData struct {
-	Metadata string `json:"metadata"`
-}
 
 // importGraphRequest is the input to WriteImportGraph. File paths are
 // execroot-relative paths in a Bazel action (and may be absolute for a native
@@ -63,20 +57,6 @@ type importGraphPackage struct {
 	ID      string   `json:"id"`
 	PkgPath string   `json:"pkg_path"`
 	Imports []string `json:"imports"`
-}
-
-// cloneOrdinaryImportData validates and copies the layout descriptor metadata.
-func cloneOrdinaryImportData(data *OrdinaryImportData) (*OrdinaryImportData, error) {
-	if data == nil {
-		return nil, nil
-	}
-	if data.Metadata == "" {
-		return nil, errors.New("ordinary import metadata path is required")
-	}
-	if err := validateExportFilePath(data.Metadata); err != nil {
-		return nil, fmt.Errorf("unsafe ordinary import metadata path %q: %w", data.Metadata, err)
-	}
-	return &OrdinaryImportData{Metadata: data.Metadata}, nil
 }
 
 // withLayoutComponent adds the owning component to every layout validation
@@ -154,9 +134,9 @@ func resolveOrdinaryImportData(l *Layout, workspaceDir string) error {
 	if workspaceDir != "" {
 		metadataPath = filepath.Join(workspaceDir, metadataPath)
 	}
-	info, err := os.Stat(metadataPath)
+	info, err := fs.Stat(defaultFS, filepath.ToSlash(metadataPath))
 	if err != nil {
-		if os.IsNotExist(err) {
+		if hostenv.IsNotExist(err) {
 			return fmt.Errorf("ordinary import metadata %q does not exist: %w", metadataPath, err)
 		}
 		return fmt.Errorf("error stating ordinary import metadata %q: %w", metadataPath, err)
@@ -171,7 +151,13 @@ func resolveOrdinaryImportData(l *Layout, workspaceDir string) error {
 		return fmt.Errorf("ordinary import metadata %q is empty", metadataPath)
 	}
 
-	graph, err := readImportGraph(metadataPath)
+	f, err := defaultFS.Open(filepath.ToSlash(metadataPath))
+	if err != nil {
+		return fmt.Errorf("reading ordinary import metadata %q: %w", metadataPath, err)
+	}
+	defer f.Close()
+
+	graph, err := readImportGraphFromReader(f)
 	if err != nil {
 		return fmt.Errorf("reading ordinary import metadata %q: %w", metadataPath, err)
 	}
@@ -276,15 +262,9 @@ func resolveOrdinaryImportData(l *Layout, workspaceDir string) error {
 	return nil
 }
 
-func readImportGraph(metadataPath string) (importGraph, error) {
-	f, err := os.Open(metadataPath)
-	if err != nil {
-		return importGraph{}, err
-	}
-	defer f.Close()
-
+func readImportGraphFromReader(r io.Reader) (importGraph, error) {
 	var graph importGraph
-	decoder := json.NewDecoder(f)
+	decoder := json.NewDecoder(r)
 	if err := decoder.Decode(&graph); err != nil {
 		return importGraph{}, err
 	}
@@ -301,43 +281,28 @@ func readImportGraph(metadataPath string) (importGraph, error) {
 	return graph, nil
 }
 
-// MergeImportGraphLayout applies the exact ordinary source-import graph to a
-// base layout artifact. The action-time merge makes the emitted package-layout
-// JSON self-describing for inspection; resolveOrdinaryImportData repeats the
-// identity resolution at the runtime boundary and replaces placeholder IDs for
-// target-configured stdlib records.
-func MergeImportGraphLayout(baseLayoutPath, graphPath, outputPath string) error {
-	baseBytes, err := os.ReadFile(baseLayoutPath)
+func mergeImportGraphLayout(baseBytes, graphBytes []byte) ([]byte, error) {
+	layout, err := Parse(bytes.NewReader(baseBytes))
 	if err != nil {
-		return fmt.Errorf("reading base package layout %q: %w", baseLayoutPath, err)
+		return nil, fmt.Errorf("parsing base package layout: %w", err)
 	}
-	layout, err := Parse(strings.NewReader(string(baseBytes)))
+	graph, err := readImportGraphFromReader(bytes.NewReader(graphBytes))
 	if err != nil {
-		return fmt.Errorf("parsing base package layout %q: %w", baseLayoutPath, err)
-	}
-	graph, err := readImportGraph(graphPath)
-	if err != nil {
-		return fmt.Errorf("reading ordinary import graph %q: %w", graphPath, err)
+		return nil, fmt.Errorf("reading ordinary import graph: %w", err)
 	}
 	if err := validateImportGraphPlatform(layout.Platform, graph.Platform); err != nil {
-		return err
+		return nil, err
 	}
 	if len(graph.Errors) > 0 {
-		// Keep the default layout output buildable for a source that is itself
-		// malformed. The checked action will read the same descriptor and
-		// fail closed with the source-scanning diagnostic before packages.Load.
-		if err := os.WriteFile(outputPath, baseBytes, 0o666); err != nil {
-			return fmt.Errorf("writing base package layout %q: %w", outputPath, err)
-		}
-		return nil
+		return append([]byte(nil), baseBytes...), nil
 	}
 	index, err := indexLayoutPackages(layout)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	rootPackages, _, err := layoutRootPackages(layout.Roots, index)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	rootIDs := make(map[string]bool, len(rootPackages))
 	for _, pkg := range rootPackages {
@@ -347,18 +312,18 @@ func MergeImportGraphLayout(baseLayoutPath, graphPath, outputPath string) error 
 	seenRecords := make(map[string]bool, len(graph.Packages))
 	for _, record := range graph.Packages {
 		if record.ID == "" || record.PkgPath == "" {
-			return fmt.Errorf("ordinary import graph has a package with incomplete identity: ID=%q PkgPath=%q", record.ID, record.PkgPath)
+			return nil, fmt.Errorf("ordinary import graph has a package with incomplete identity: ID=%q PkgPath=%q", record.ID, record.PkgPath)
 		}
 		if seenRecords[record.ID] {
-			return fmt.Errorf("ordinary import graph repeats package ID %q", record.ID)
+			return nil, fmt.Errorf("ordinary import graph repeats package ID %q", record.ID)
 		}
 		seenRecords[record.ID] = true
 		pkg, ok := index.byID[record.ID]
 		if !ok {
-			return fmt.Errorf("ordinary import graph package %q is absent from the base layout", record.PkgPath)
+			return nil, fmt.Errorf("ordinary import graph package %q is absent from the base layout", record.PkgPath)
 		}
 		if pkg.PkgPath != record.PkgPath {
-			return fmt.Errorf("ordinary import graph package %q has base layout path %q", record.PkgPath, pkg.PkgPath)
+			return nil, fmt.Errorf("ordinary import graph package %q has base layout path %q", record.PkgPath, pkg.PkgPath)
 		}
 		if rootIDs[pkg.ID] {
 			continue
@@ -367,19 +332,15 @@ func MergeImportGraphLayout(baseLayoutPath, graphPath, outputPath string) error 
 		seenImports := make(map[string]bool, len(record.Imports))
 		for _, importPath := range record.Imports {
 			if importPath == "" {
-				return fmt.Errorf("ordinary package %q has an empty import path", record.PkgPath)
+				return nil, fmt.Errorf("ordinary package %q has an empty import path", record.PkgPath)
 			}
 			if importPath == "C" {
-				return fmt.Errorf("ordinary package %q includes cgo pseudo-import C", record.PkgPath)
+				return nil, fmt.Errorf("ordinary package %q includes cgo pseudo-import C", record.PkgPath)
 			}
 			if seenImports[importPath] {
-				return fmt.Errorf("ordinary package %q repeats import path %q", record.PkgPath, importPath)
+				return nil, fmt.Errorf("ordinary package %q repeats import path %q", record.PkgPath, importPath)
 			}
 			seenImports[importPath] = true
-			// Ordinary package IDs are their import paths. Stdlib package IDs
-			// are host-specific and are repaired by the runtime resolver after
-			// its descriptor has been materialized, so the emitted artifact uses
-			// the path as a deterministic placeholder here.
 			imports[importPath] = &packages.Package{ID: importPath}
 		}
 		pkg.Imports = imports
@@ -393,19 +354,15 @@ func MergeImportGraphLayout(baseLayoutPath, graphPath, outputPath string) error 
 			continue
 		}
 		if !seenRecords[pkg.ID] {
-			return fmt.Errorf("ordinary package %q has no record in ordinary import graph", pkg.PkgPath)
+			return nil, fmt.Errorf("ordinary package %q has no record in ordinary import graph", pkg.PkgPath)
 		}
 	}
 
 	data, err := json.MarshalIndent(layout, "", "  ")
 	if err != nil {
-		return fmt.Errorf("encoding merged package layout: %w", err)
+		return nil, fmt.Errorf("encoding merged package layout: %w", err)
 	}
-	data = append(data, '\n')
-	if err := os.WriteFile(outputPath, data, 0o666); err != nil {
-		return fmt.Errorf("writing merged package layout %q: %w", outputPath, err)
-	}
-	return nil
+	return append(data, '\n'), nil
 }
 
 func validateImportGraphPlatform(actual, expected *Platform) error {
@@ -416,12 +373,26 @@ func validateImportGraphPlatform(actual, expected *Platform) error {
 		return nil
 	}
 	if actual == nil {
-		return errors.New("ordinary import metadata has a target configuration but the layout has no platform")
+		return errors.New("layout has a target platform but ordinary import metadata has no platform")
+	}
+
+	var mismatches []string
+	if actual.GOOS != expected.GOOS {
+		mismatches = append(mismatches, fmt.Sprintf("goos (layout=%q, imports=%q)", actual.GOOS, expected.GOOS))
+	}
+	if actual.GOARCH != expected.GOARCH {
+		mismatches = append(mismatches, fmt.Sprintf("goarch (layout=%q, imports=%q)", actual.GOARCH, expected.GOARCH))
+	}
+	if actual.CgoEnabled != expected.CgoEnabled {
+		mismatches = append(mismatches, fmt.Sprintf("cgo_enabled (layout=%t, imports=%t)", actual.CgoEnabled, expected.CgoEnabled))
 	}
 	actualTags := append([]string(nil), actual.BuildTags...)
 	expectedTags := append([]string(nil), expected.BuildTags...)
 	sort.Strings(actualTags)
 	sort.Strings(expectedTags)
+	if !slices.Equal(actualTags, expectedTags) {
+		mismatches = append(mismatches, fmt.Sprintf("build_tags (layout=%v, imports=%v)", actualTags, expectedTags))
+	}
 	actualVersion := ""
 	if actual.ToolchainVersion != nil {
 		actualVersion = *actual.ToolchainVersion
@@ -430,54 +401,35 @@ func validateImportGraphPlatform(actual, expected *Platform) error {
 	if expected.ToolchainVersion != nil {
 		expectedVersion = *expected.ToolchainVersion
 	}
-	actualExperiment := ""
-	if actual.GOEXPERIMENT != nil {
-		actualExperiment = *actual.GOEXPERIMENT
-	}
-	expectedExperiment := ""
-	if expected.GOEXPERIMENT != nil {
-		expectedExperiment = *expected.GOEXPERIMENT
-	}
-	mismatches := make([]string, 0, 6)
 	if actualVersion != expectedVersion {
-		mismatches = append(mismatches, fmt.Sprintf("toolchain_version=%q", expectedVersion))
+		mismatches = append(mismatches, fmt.Sprintf("toolchain_version (layout=%q, imports=%q)", actualVersion, expectedVersion))
 	}
-	if actual.GOOS != expected.GOOS {
-		mismatches = append(mismatches, fmt.Sprintf("goos=%q", expected.GOOS))
+	actualExp := ""
+	if actual.GOEXPERIMENT != nil {
+		actualExp = *actual.GOEXPERIMENT
 	}
-	if actual.GOARCH != expected.GOARCH {
-		mismatches = append(mismatches, fmt.Sprintf("goarch=%q", expected.GOARCH))
+	expectedExp := ""
+	if expected.GOEXPERIMENT != nil {
+		expectedExp = *expected.GOEXPERIMENT
 	}
-	if actual.CgoEnabled != expected.CgoEnabled {
-		mismatches = append(mismatches, fmt.Sprintf("cgo_enabled=%t", expected.CgoEnabled))
+	if actualExp != expectedExp {
+		mismatches = append(mismatches, fmt.Sprintf("goexperiment (layout=%q, imports=%q)", actualExp, expectedExp))
 	}
-	if strings.Join(actualTags, "\x00") != strings.Join(expectedTags, "\x00") {
-		mismatches = append(mismatches, fmt.Sprintf("build_tags=%q", strings.Join(expectedTags, ",")))
-	}
-	if actualExperiment != expectedExperiment {
-		mismatches = append(mismatches, fmt.Sprintf("goexperiment=%q", expectedExperiment))
-	}
+
 	if len(mismatches) > 0 {
 		return fmt.Errorf("ordinary import metadata configuration mismatch in %s", strings.Join(mismatches, ", "))
 	}
 	return nil
 }
 
-// WriteImportGraph parses the selected source files and writes a deterministic
-// exact direct-import descriptor. It is intended for the non-analysis Bazel
-// graph-projection action and does not invoke a Go toolchain.
-func WriteImportGraph(configPath, outputPath string) error {
-	configBytes, err := os.ReadFile(configPath)
-	if err != nil {
-		return fmt.Errorf("reading import graph request %q: %w", configPath, err)
-	}
+func writeImportGraph(configBytes []byte, fsys fs.FS) ([]byte, error) {
 	var request importGraphRequest
 	if err := json.Unmarshal(configBytes, &request); err != nil {
-		return fmt.Errorf("decoding import graph request %q: %w", configPath, err)
+		return nil, fmt.Errorf("decoding import graph request: %w", err)
 	}
 	tags, err := BuildTagsForLayout(&Layout{Platform: request.Platform})
 	if err != nil {
-		return fmt.Errorf("building import graph target context: %w", err)
+		return nil, fmt.Errorf("building import graph target context: %w", err)
 	}
 	inputs := append([]importGraphPackageInput(nil), request.Packages...)
 	slices.SortFunc(inputs, func(a, b importGraphPackageInput) int {
@@ -495,10 +447,10 @@ func WriteImportGraph(configPath, outputPath string) error {
 	seenPaths := make(map[string]bool, len(inputs))
 	for _, input := range inputs {
 		if input.ID == "" || input.PkgPath == "" {
-			return fmt.Errorf("import graph request has package with empty identity: ID=%q PkgPath=%q", input.ID, input.PkgPath)
+			return nil, fmt.Errorf("import graph request has package with empty identity: ID=%q PkgPath=%q", input.ID, input.PkgPath)
 		}
 		if seenIDs[input.ID] || seenPaths[input.PkgPath] {
-			return fmt.Errorf("import graph request has duplicate package identity %q", input.PkgPath)
+			return nil, fmt.Errorf("import graph request has duplicate package identity %q", input.PkgPath)
 		}
 		seenIDs[input.ID] = true
 		seenPaths[input.PkgPath] = true
@@ -510,15 +462,15 @@ func WriteImportGraph(configPath, outputPath string) error {
 		for _, file := range files {
 			if file == "" || seenFiles[file] {
 				if file == "" {
-					return fmt.Errorf("ordinary package %q has an empty source file path", input.PkgPath)
+					return nil, fmt.Errorf("ordinary package %q has an empty source file path", input.PkgPath)
 				}
 				continue
 			}
 			seenFiles[file] = true
-			if !fileMatchesBuildConstraintsWithTags(file, tags) {
+			if !fileMatchesBuildConstraintsWithTags(fsys, file, tags) {
 				continue
 			}
-			source, err := os.ReadFile(file)
+			source, err := fs.ReadFile(fsys, filepath.ToSlash(file))
 			if err != nil {
 				graph.Errors = append(graph.Errors, fmt.Sprintf("ordinary package %q source file %q: %v", input.PkgPath, file, err))
 				continue
@@ -556,13 +508,9 @@ func WriteImportGraph(configPath, outputPath string) error {
 
 	data, err := json.MarshalIndent(graph, "", "  ")
 	if err != nil {
-		return fmt.Errorf("encoding import graph: %w", err)
+		return nil, fmt.Errorf("encoding import graph: %w", err)
 	}
-	data = append(data, '\n')
-	if err := os.WriteFile(outputPath, data, 0o666); err != nil {
-		return fmt.Errorf("writing import graph %q: %w", outputPath, err)
-	}
-	return nil
+	return append(data, '\n'), nil
 }
 
 func clonePlatform(platform *Platform) *Platform {
@@ -571,17 +519,13 @@ func clonePlatform(platform *Platform) *Platform {
 	}
 	clone := *platform
 	clone.BuildTags = append([]string(nil), platform.BuildTags...)
-	if clone.BuildTags == nil {
-		clone.BuildTags = []string{}
-	}
 	if platform.ToolchainVersion != nil {
-		version := *platform.ToolchainVersion
-		clone.ToolchainVersion = &version
+		v := *platform.ToolchainVersion
+		clone.ToolchainVersion = &v
 	}
 	if platform.GOEXPERIMENT != nil {
-		experiment := *platform.GOEXPERIMENT
-		clone.GOEXPERIMENT = &experiment
+		e := *platform.GOEXPERIMENT
+		clone.GOEXPERIMENT = &e
 	}
-	sort.Strings(clone.BuildTags)
 	return &clone
 }

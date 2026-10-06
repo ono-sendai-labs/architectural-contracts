@@ -1,5 +1,6 @@
 load(
     "@rules_arcc//bazel_rules/go:defs.bzl",
+    "FILES",
     "MODIFY_SYSTEM_STATE",
     "READ_SYSTEM_STATE",
     "RUNTIME",
@@ -30,6 +31,7 @@ go_test(
 go_component(
     name = "hostenv_component",
     declared_authority = [
+        FILES,
         MODIFY_SYSTEM_STATE,
         READ_SYSTEM_STATE,
         RUNTIME,

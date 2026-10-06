@@ -4,14 +4,33 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
 
+	"github.com/ono-sendai-labs/architectural-contracts/go/internal/packagelayout/internal/hostenv"
 	"golang.org/x/tools/go/packages"
 )
+
+type unreadableOpenFS struct {
+	base fs.FS
+}
+
+func (u unreadableOpenFS) Open(name string) (fs.File, error) {
+	return nil, errors.New("permission denied")
+}
+func (u unreadableOpenFS) Stat(name string) (fs.FileInfo, error) {
+	return fs.Stat(u.base, name)
+}
+func (u unreadableOpenFS) ReadFile(name string) ([]byte, error) {
+	return fs.ReadFile(u.base, name)
+}
+func (u unreadableOpenFS) ReadDir(name string) ([]fs.DirEntry, error) {
+	return fs.ReadDir(u.base, name)
+}
 
 func TestValidateAndResolveForMemberOnlyAcceptsDeepExportClosure(t *testing.T) {
 	layout, workspace := exportLayoutFixture(t)
@@ -153,11 +172,9 @@ func TestValidateAndResolveForMemberOnlyRejectsInvalidExportArtifacts(t *testing
 			layout, workspace := exportLayoutFixture(t)
 			tt.configure(layout, workspace)
 			if tt.name == "unreadable" {
-				oldOpen := osOpen
-				osOpen = func(string) (*os.File, error) {
-					return nil, errors.New("permission denied")
-				}
-				defer func() { osOpen = oldOpen }()
+				oldFS := defaultFS
+				defaultFS = unreadableOpenFS{base: hostenv.FS()}
+				defer func() { defaultFS = oldFS }()
 			}
 
 			err := validateAndResolveForMemberOnly(layout, workspace)
@@ -410,17 +427,9 @@ func TestWriteImportGraphPreservesDirectStdlibImports(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	configPath := filepath.Join(workspace, "request.json")
-	outputPath := filepath.Join(workspace, "imports.json")
-	if err := os.WriteFile(configPath, configBytes, 0644); err != nil {
-		t.Fatal(err)
-	}
-	if err := WriteImportGraph(configPath, outputPath); err != nil {
-		t.Fatalf("WriteImportGraph() error = %v", err)
-	}
-	outputBytes, err := os.ReadFile(outputPath)
+	outputBytes, err := WriteImportGraph(configBytes)
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("WriteImportGraph() error = %v", err)
 	}
 	var graph importGraph
 	if err := json.Unmarshal(outputBytes, &graph); err != nil {
@@ -438,21 +447,16 @@ func TestWriteImportGraphPreservesDirectStdlibImports(t *testing.T) {
 }
 
 func TestMergeImportGraphLayoutEmitsDirectStdlibEdge(t *testing.T) {
-	layout, workspace := stdlibExportLayoutFixture(t, false)
+	layout, _ := stdlibExportLayoutFixture(t, false)
 	layout.OrdinaryImportData = &OrdinaryImportData{Metadata: ordinaryImportDataLogicalPath}
 	layout.Packages = append(layout.Packages, &packages.Package{
 		ID: "dep-id", Name: "dep", PkgPath: "example.com/dep",
 		ExportFile: "dep.x", Imports: map[string]*packages.Package{},
 	})
-	basePath := filepath.Join(workspace, "base.package-layout.json")
 	baseBytes, err := json.Marshal(layout)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(basePath, baseBytes, 0644); err != nil {
-		t.Fatal(err)
-	}
-	graphPath := filepath.Join(workspace, "imports.json")
 	graphBytes, err := json.Marshal(importGraph{
 		FormatVersion: ordinaryImportDataFormatVersion,
 		Platform:      layout.Platform,
@@ -464,16 +468,9 @@ func TestMergeImportGraphLayoutEmitsDirectStdlibEdge(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(graphPath, graphBytes, 0644); err != nil {
-		t.Fatal(err)
-	}
-	outputPath := filepath.Join(workspace, "merged.package-layout.json")
-	if err := MergeImportGraphLayout(basePath, graphPath, outputPath); err != nil {
-		t.Fatalf("MergeImportGraphLayout() error = %v", err)
-	}
-	mergedBytes, err := os.ReadFile(outputPath)
+	mergedBytes, err := MergeImportGraphLayout(baseBytes, graphBytes)
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("MergeImportGraphLayout() error = %v", err)
 	}
 	merged, err := Parse(bytes.NewReader(mergedBytes))
 	if err != nil {

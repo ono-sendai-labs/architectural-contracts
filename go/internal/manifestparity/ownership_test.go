@@ -559,10 +559,13 @@ func TestPackageLayoutHasOneBoundaryAndAcyclicConsumers(t *testing.T) {
 	if !ok {
 		t.Fatal("checked-in manifest for component packagelayout not found")
 	}
-	if layout.InterfaceStyle != manifest.InterfaceStylePackageSurface {
-		t.Fatalf("packagelayout interface style = %v, want PACKAGE_SURFACE", layout.InterfaceStyle)
+	if layout.InterfaceStyle == manifest.InterfaceStylePackageSurface {
+		t.Fatalf("packagelayout interface style = %v, want declared-interface", layout.InterfaceStyle)
 	}
-	if len(layout.InterfaceFiles) != 0 || !slices.Equal(layout.Members, []string{packageLayout}) {
+	gotInterfaces := slices.Clone(layout.InterfaceFiles)
+	slices.Sort(gotInterfaces)
+	wantInterfaces := []string{"api.go", "layout.go"}
+	if !slices.Equal(gotInterfaces, wantInterfaces) || !slices.Equal(layout.Members, []string{packageLayout}) {
 		t.Fatalf("packagelayout boundary shape = interface_files %v, members %v", layout.InterfaceFiles, layout.Members)
 	}
 	if !hasDependency(layout, "x-tools", "../xtools/component.textproto") {

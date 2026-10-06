@@ -1,8 +1,8 @@
 name: "packagelayout"
-# The package-layout loader is a checked package-surface component. It is the
-# singular owner of the in-tree layout/driver package; goanalysis and stdlibmap
-# consume this boundary instead of claiming the package as a member.
-interface_style: INTERFACE_STYLE_PACKAGE_SURFACE
+# The package-layout loader defines its boundary across layout.go and api.go;
+# goanalysis and stdlibmap consume this boundary.
+interface_files: "layout.go"
+interface_files: "api.go"
 members: "github.com/ono-sendai-labs/architectural-contracts/go/internal/packagelayout"
 component_dependencies {
   name: "packagelayout-hostenv"
@@ -12,7 +12,9 @@ component_dependencies {
   name: "x-tools"
   manifest: "../xtools/component.textproto"
 }
-declared_authority: "FILES"
-declared_authority: "READ_SYSTEM_STATE"
+# REFLECT and UNSAFE_POINTER come from `encoding/json` in the layout JSON
+# codec and import-data descriptors (C9). The layout JSON codec and
+# import-data descriptors are this component's own schema, so json.Marshal
+# and json.Unmarshal are retained directly.
 declared_authority: "REFLECT"
 declared_authority: "UNSAFE_POINTER"

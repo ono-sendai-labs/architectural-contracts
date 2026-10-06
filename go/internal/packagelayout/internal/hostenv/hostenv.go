@@ -2,9 +2,40 @@ package hostenv
 
 import (
 	"fmt"
+	"io/fs"
 	"os"
+	"path/filepath"
 	"runtime"
 )
+
+type hostFS struct{}
+
+func (hostFS) Open(name string) (fs.File, error) {
+	return os.Open(filepath.FromSlash(name))
+}
+
+func (hostFS) Stat(name string) (fs.FileInfo, error) {
+	return os.Stat(filepath.FromSlash(name))
+}
+
+func (hostFS) ReadFile(name string) ([]byte, error) {
+	return os.ReadFile(filepath.FromSlash(name))
+}
+
+func (hostFS) ReadDir(name string) ([]fs.DirEntry, error) {
+	return os.ReadDir(filepath.FromSlash(name))
+}
+
+// FS returns an fs.FS backed by the host operating system.
+func FS() fs.FS {
+	return hostFS{}
+}
+
+// IsNotExist reports whether the error is known to report that a file or directory does not exist.
+func IsNotExist(err error) bool {
+	return os.IsNotExist(err) || err == fs.ErrNotExist
+}
+
 
 type NativeDefaults struct {
 	GOROOT     string

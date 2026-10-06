@@ -4,6 +4,7 @@ package packagelayout
 
 import (
 	"encoding/json"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"sort"
@@ -26,7 +27,7 @@ func TestStdlibLayoutMatchesGoListStd(t *testing.T) {
 	goroot := commandOutputValue(t, "go", "env", "GOROOT")
 	version := commandOutputValue(t, "go", "env", "GOVERSION")
 	sdkRoot := filepath.Join(goroot, "src")
-	layout, err := StdlibLayout(sdkRoot, &Platform{
+	layout, err := StdlibLayout(os.DirFS(sdkRoot), &Platform{
 		GOOS:             "linux",
 		GOARCH:           "amd64",
 		ToolchainVersion: &version,

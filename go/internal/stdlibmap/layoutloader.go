@@ -173,10 +173,11 @@ func generateExplicit(target TargetConfig, packageList []string, sdkRoot string)
 		ToolchainVersion: &toolchainVersion,
 		GOEXPERIMENT:     &goexperiment,
 	}
-	layout, err := packagelayout.StdlibLayout(sdkRoot, platform)
+	layout, err := packagelayout.StdlibLayout(os.DirFS(sdkRoot), platform)
 	if err != nil {
 		return nil, fmt.Errorf("generating the stdlib map: %w", err)
 	}
+	layout.GoSDKRoot = sdkRoot
 	entries, err := reconcilePackageList(packageList, layout, sdkRoot)
 	if err != nil {
 		return nil, fmt.Errorf("generating the stdlib map: %w", err)
