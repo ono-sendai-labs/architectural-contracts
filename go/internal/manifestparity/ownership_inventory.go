@@ -239,6 +239,10 @@ var foreignOwnershipRules = []ownershipRule{
 	{prefix: "golang.org/x/mod/", owner: "x-tools"},
 	{prefix: "golang.org/x/sync/", owner: "x-tools"},
 	{prefix: "golang.org/x/tools/", owner: "x-tools"},
+	{prefix: "github.com/fatih/color", owner: "capslock-runtime"},
+	{prefix: "github.com/google/capslock/", owner: "capslock-runtime"},
+	{prefix: "github.com/mattn/", owner: "capslock-runtime"},
+	{prefix: "golang.org/x/sys/", owner: "capslock-runtime"},
 }
 
 type foreignOwner struct {

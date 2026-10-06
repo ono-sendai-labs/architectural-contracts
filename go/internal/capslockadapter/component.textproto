@@ -1,38 +1,17 @@
 name: "capslockadapter"
 interface_files: "generation.go"
-analysis_defeating_policy: WARN
-# Capslock's retained x/tools and protobuf runtime closures are explicit
-# package-surface dependencies; only the generator shell and its other adopted
-# foreign members remain owned here.
 members: "github.com/ono-sendai-labs/architectural-contracts/go/internal/capslockadapter"
-members: "github.com/google/capslock/analyzer"
-members: "github.com/google/capslock/interesting"
-members: "github.com/google/capslock/proto"
-members: "golang.org/x/sys/unix"
-members: "github.com/fatih/color"
-members: "github.com/mattn/go-colorable"
-members: "github.com/mattn/go-isatty"
 component_dependencies {
   name: "stdlibauthority"
   manifest: "../stdlibauthority/component.textproto"
-}
-component_dependencies {
-  name: "protobuf-runtime"
-  manifest: "../protobufruntime/component.textproto"
 }
 component_dependencies {
   name: "x-tools"
   manifest: "../xtools/component.textproto"
 }
 component_dependencies {
-  name: "hostpolicy"
-  manifest: "../hostpolicy/component.textproto"
+  name: "capslock-runtime"
+  manifest: "../capslockruntime/component.textproto"
 }
-declared_authority: "FILES"
-declared_authority: "READ_SYSTEM_STATE"
-declared_authority: "OPERATING_SYSTEM"
+# generation.go inspects Capslock unexported Classifier struct fields to pin classifierHash into SDK key.
 declared_authority: "REFLECT"
-declared_authority: "RUNTIME"
-declared_authority: "SYSTEM_CALLS"
-declared_authority: "UNSAFE_POINTER"
-declared_authority: "MODIFY_SYSTEM_STATE"

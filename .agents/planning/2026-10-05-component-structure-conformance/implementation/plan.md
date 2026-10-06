@@ -99,7 +99,7 @@ says the component declares — no more and no fewer. Record the probe summary
 - [x] **Step 6** — `checker`: file-list interface = `checker.go` *(done 2026-10-05; `interface_files = ["checker.go"]`, 8 internal symbols unexported)*
 - [x] **Step 7** — `symbol` → `symbol` + `capslocksymbol` *(done 2026-10-05; `symbol` 653 LOC, `capslocksymbol` 1,105 LOC, both pure)*
 - [x] **Step 8** — `schema` → `schema` + `schema-gen` (WARN; last in-tree `PACKAGE_SURFACE` removed) *(done 2026-10-05; `schema` pure, `schema-gen` WARN with 15-site assertion; 0 `TrueAuthority` so `UNSAFE_POINTER` omitted)*
-- [ ] **Step 9** — `capslock-runtime` wrapper; `capslockadapter` shrinks
+- [x] **Step 9** — `capslock-runtime` wrapper; `capslockadapter` shrinks *(done 2026-10-05; `capslock-runtime` native-only asserted UNKNOWN surface, `capslockadapter` strict with `REFLECT` ×2)*
 - [ ] **Step 10** — `goanalysis-hostfs` sub-component (spike S1)
 - [ ] **Step 11** — `packagelayout-hostenv` sub-component, `layout-driver-hook`, `BuildTags` (+ `goanalysis` drops `RUNTIME`/`READ_SYSTEM_STATE`)
 - [ ] **Step 12** — `goanalysis`: file splits + three interface files
@@ -534,6 +534,12 @@ like `x-tools`, so `capslockadapter` declares only its own authority (§5.9).
 
 **Demo.** `just selfcheck` shows `capslock-runtime` asserted, `capslockadapter` passing
 with no `AnalysisDefeating` lines.
+
+**Status: DONE 2026-10-05.**
+- Created `go/internal/capslockruntime/{BUILD.bazel,component.textproto,component.surface.json}` (`name: "capslock-runtime"`, `interface_style: INTERFACE_STYLE_PACKAGE_SURFACE`, `authority: UNKNOWN`, 7 foreign packages). Tested `go_component(authority = UNKNOWN)` under Bazel: failed closed on cgo (`@org_golang_x_sys//unix`); documented as native-only in `BUILD.bazel` with `exports_files(["component.surface.json", "component.textproto"])`.
+- Updated `go/internal/capslockadapter/component.textproto`: `members` shrunk to `go/internal/capslockadapter` only; removed `analysis_defeating_policy: WARN`; pruned now-unused `protobuf-runtime` and `hostpolicy` dependencies; added `capslock-runtime`; kept `declared_authority: "REFLECT"` (`classifierContentDigest` in `generation.go:170-196` inspects Capslock's unexported `Classifier` struct fields to pin `classifierHash` into the SDK key).
+- Updated `go/internal/manifestparity/ownership_inventory.go` (`foreignOwnershipRules` for `capslock-runtime`), `ownership_test.go`, `go/cmd/arcc/cli_integration_test.go` (`TestIntegration_CapslockAdapter_PassesStrictly` + `TestIntegration_AnalysisDefeatingPolicy_SchemaGen`), `justfile`, and `scripts/selfcheck-staging-test.sh`.
+- Probe `capslockadapter`: `REFLECT` ×2 (`generation.go:180` `(reflect.Value).MapKeys`, `generation.go:183` `(reflect.Value).MapIndex`).
 
 ---
 

@@ -72,35 +72,37 @@ probe component:
 #   schema, schema-gen, manifest, report, reportio, stdlibauthority, facts,
 #   surface, artifactio, checker, capslockadapter, stdlibmap,
 #   goanalysis, parsecsv, csvfile, toprow, app, cli.
-# The `protobuf-runtime` and `x-tools` wrappers are asserted UNKNOWN package
-# surfaces: they provide a checked-in surface and intentionally produce no
-# report or analysis.
+# The `protobuf-runtime`, `x-tools`, and `capslock-runtime` wrappers are
+# asserted UNKNOWN package surfaces: they provide a checked-in surface and
+# intentionally produce no report or analysis.
 #
 # The Bazel wildcard has 21 checked component gates: the seventeen internal
 # components capanalyzer, atomicfile, hostpolicy, symbol, capslocksymbol,
 # packagelayout, schema, schema-gen, stdlibauthority, facts, report, reportio,
 # checker, manifest, goanalysis, artifactio, and surface, plus
-# the four CSV components parsecsv, csvfile, toprow, and app. The two wrappers
-# use `authority = UNKNOWN` for asserted surfaces; capslockadapter and cli
-# have no Bazel component gate because their closure contains cgo; and
-# stdlibmap is covered by dedicated map-generation tests rather than a
-# go_component check.
+# the four CSV components parsecsv, csvfile, toprow, and app. The two Bazel
+# wrappers use `authority = UNKNOWN` for asserted surfaces; capslock-runtime,
+# capslockadapter, and cli have no Bazel component gate because their closure
+# contains cgo; and stdlibmap is covered by dedicated map-generation tests
+# rather than a go_component check.
 #
 # hostpolicy previously rode inside symbol's member set; it is now its own
 # dependency-only leaf component, declared by symbol and consumed through
 # component dependencies by the shell components that use its policy hooks.
 #
-# The other two components — capslockadapter and cli — are native-only because
-# capslock's closure contains golang.org/x/sys/unix built with cgo. The Bazel
-# arcc rule fails closed on cgo closures, and cli (cmd/arcc) imports
-# capslockadapter. Native mode handles cgo via go/packages preprocessing.
+# The other three components — capslock-runtime, capslockadapter, and cli — are
+# native-only because capslock's closure contains golang.org/x/sys/unix built
+# with cgo. The Bazel arcc rule fails closed on cgo closures, and cli (cmd/arcc)
+# imports capslockadapter. Native mode handles cgo via go/packages
+# preprocessing.
 #
 # Keeping both legs is deliberate: native FR1 membership and Bazel declared
 # membership checking the same components cross-check the whole membership
 # model. Step 7 gives the foreign protobuf and x/tools closures one package-
-# surface boundary each. The parsecsv and capslockadapter residuals keep every
-# AnalysisDefeating site visible through their explicit WARN policy, while
-# their native report verdicts still gate this recipe.
+# surface boundary each, and Step 9 adds capslock-runtime. The parsecsv and
+# schema-gen residuals keep their AnalysisDefeating sites visible through their
+# explicit WARN policy, while their native report verdicts still gate this
+# recipe.
 selfcheck:
 	@echo "=== Validating pinned selfcheck toolchain ==="
 	@test "$(cd {{go_dir}} && go env GOVERSION)" = "go1.26.4"
@@ -147,6 +149,7 @@ selfcheck:
 	selfcheck_stage_component "$arcc_bin" "$map_path" internal/artifactio/component.textproto; \
 	selfcheck_stage_component "$arcc_bin" "$map_path" internal/reportio/component.textproto; \
 	selfcheck_stage_component "$arcc_bin" "$map_path" internal/checker/component.textproto; \
+	selfcheck_asserted_component internal/capslockruntime/component.textproto; \
 	selfcheck_stage_component "$arcc_bin" "$map_path" internal/capslockadapter/component.textproto; \
 	selfcheck_stage_component "$arcc_bin" "$map_path" internal/stdlibmap/component.textproto; \
 	selfcheck_stage_component "$arcc_bin" "$map_path" internal/goanalysis/component.textproto; \

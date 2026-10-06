@@ -1,0 +1,14 @@
+name: "capslock-runtime"
+# The Capslock runtime and its foreign transitive closure are an adopted
+# package-level boundary for the map-generator adapter. It is staged as an
+# asserted UNKNOWN surface in native integration; no consumer owns these
+# foreign packages as source members.
+interface_style: INTERFACE_STYLE_PACKAGE_SURFACE
+members: "github.com/fatih/color"
+members: "github.com/google/capslock/analyzer"
+members: "github.com/google/capslock/interesting"
+members: "github.com/google/capslock/proto"
+members: "github.com/mattn/go-colorable"
+members: "github.com/mattn/go-isatty"
+members: "golang.org/x/sys/unix"
+authority: UNKNOWN

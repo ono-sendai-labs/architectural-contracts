@@ -1,0 +1,9 @@
+# capslock-runtime is deliberately not declared as a go_component under Bazel:
+# its closure includes golang.org/x/sys/unix which uses cgo, and component.bzl
+# fails closed on cgo closures. It retains native coverage via `just selfcheck`,
+# where its checked-in asserted UNKNOWN package surface provides the adopted
+# boundary for capslockadapter.
+exports_files([
+    "component.surface.json",
+    "component.textproto",
+])

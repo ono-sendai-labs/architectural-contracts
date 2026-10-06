@@ -10,13 +10,15 @@ test_root=$(mktemp -d "${TMPDIR:-/tmp}/arcc-selfcheck-staging-test.XXXXXX")
 trap 'rm -rf -- "$test_root"' EXIT
 
 mkdir -p "$test_root/stage-only" "$test_root/schema" \
-  "$test_root/protobuf-runtime" "$test_root/x-tools"
+  "$test_root/protobuf-runtime" "$test_root/x-tools" "$test_root/capslock-runtime"
 touch "$test_root/stage-only/component.textproto"
 touch "$test_root/schema/component.textproto"
 touch "$test_root/protobuf-runtime/component.textproto"
 touch "$test_root/protobuf-runtime/component.surface.json"
 touch "$test_root/x-tools/component.textproto"
 touch "$test_root/x-tools/component.surface.json"
+touch "$test_root/capslock-runtime/component.textproto"
+touch "$test_root/capslock-runtime/component.surface.json"
 touch "$test_root/map.json"
 
 fake_arcc="$test_root/fake-arcc"
@@ -46,6 +48,7 @@ grep -Fq "verdict schema/component.report.json --expect=fail" "$SELFCHECK_FAKE_L
 before_asserted_calls=$(wc -l <"$SELFCHECK_FAKE_LOG")
 selfcheck_asserted_component protobuf-runtime/component.textproto
 selfcheck_asserted_component x-tools/component.textproto
+selfcheck_asserted_component capslock-runtime/component.textproto
 after_asserted_calls=$(wc -l <"$SELFCHECK_FAKE_LOG")
 if [[ "$before_asserted_calls" != "$after_asserted_calls" ]]; then
   echo "asserted wrapper unexpectedly invoked the analysis command" >&2

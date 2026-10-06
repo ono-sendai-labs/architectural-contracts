@@ -1,0 +1,26 @@
+{
+  "formatVersion": 1,
+  "component": "capslock-runtime",
+  "interfaceStyle": "INTERFACE_STYLE_PACKAGE_SURFACE",
+  "authority": {
+    "authority": "UNKNOWN"
+  },
+  "packages": [
+    "github.com/fatih/color",
+    "github.com/google/capslock/analyzer",
+    "github.com/google/capslock/interesting",
+    "github.com/google/capslock/proto",
+    "github.com/mattn/go-colorable",
+    "github.com/mattn/go-isatty",
+    "golang.org/x/sys/unix"
+  ],
+  "namespace": "upstream",
+  "sdkKey": {
+    "toolchainVersion": "go1.26.4",
+    "goos": "linux",
+    "goarch": "amd64",
+    "classifierHash": "adc198ed82f2ae81de8f2d00e26a0c90a22a1317a19579476ab0d7e33cc52eed",
+    "mapFormatVersion": 1
+  },
+  "producerVersion": "arcc 0.0.0-dev"
+}

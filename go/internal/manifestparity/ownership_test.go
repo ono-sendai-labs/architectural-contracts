@@ -92,7 +92,7 @@ func TestProjectPackagesSingleOwner(t *testing.T) {
 
 	// The slice under repair; every other component (e.g. goanalysis, which
 	// predates the slice and is remediated separately) is out of scope here.
-	slice := []string{"artifactio", "atomicfile", "capslocksymbol", "manifest", "reportio", "schema", "schema-gen", "stdlibauthority", "symbol"}
+	slice := []string{"artifactio", "atomicfile", "capslockadapter", "capslocksymbol", "manifest", "reportio", "schema", "schema-gen", "stdlibauthority", "symbol"}
 
 	owner := map[string]string{}
 	for _, name := range slice {
@@ -115,6 +115,7 @@ func TestProjectPackagesSingleOwner(t *testing.T) {
 	wantOwner := map[string]string{
 		modulePrefix + "internal/artifactio":      "artifactio",
 		modulePrefix + "internal/atomicfile":      "atomicfile",
+		modulePrefix + "internal/capslockadapter": "capslockadapter",
 		modulePrefix + "internal/capslocksymbol":  "capslocksymbol",
 		modulePrefix + "internal/manifest":        "manifest",
 		modulePrefix + "internal/reportio":        "reportio",
@@ -327,11 +328,11 @@ func TestProtobufRuntimeHasOneConcreteOwnerAndBuildParity(t *testing.T) {
 
 // TestProtobufRuntimeConsumersDeclareTheSharedBoundary keeps the repository
 // audit explicit for direct and foreign-closure consumers. The capslockadapter
-// component is native-only under the cgo rule, but its manifest still needs the
-// same edge as the Bazel-capable schema-gen/manifest/artifactio consumers.
+// component consumed protobuf-runtime when it owned capslock's closure; now
+// capslockadapter is purely its own package with a capslock-runtime dependency.
 func TestProtobufRuntimeConsumersDeclareTheSharedBoundary(t *testing.T) {
 	manifests := checkedInComponentManifests(t)
-	for _, name := range []string{"schema-gen", "manifest", "artifactio", "capslockadapter"} {
+	for _, name := range []string{"schema-gen", "manifest", "artifactio"} {
 		component, ok := manifests[name]
 		if !ok {
 			t.Fatalf("checked-in manifest for component %q not found", name)
@@ -346,6 +347,100 @@ func TestProtobufRuntimeConsumersDeclareTheSharedBoundary(t *testing.T) {
 		if !found {
 			t.Errorf("component %q does not declare the shared protobuf-runtime boundary", name)
 		}
+	}
+}
+
+// TestCapslockRuntimeHasOneConcreteOwnerAndNativeSurface audits the adopted
+// Capslock foreign boundary introduced for map generation.
+func TestCapslockRuntimeHasOneConcreteOwnerAndNativeSurface(t *testing.T) {
+	manifests := checkedInComponentManifests(t)
+	wrapper, ok := manifests["capslock-runtime"]
+	if !ok {
+		t.Fatal("checked-in manifest for component capslock-runtime not found")
+	}
+	if wrapper.InterfaceStyle != manifest.InterfaceStylePackageSurface {
+		t.Fatalf("capslock-runtime interface style = %v, want PACKAGE_SURFACE", wrapper.InterfaceStyle)
+	}
+	if wrapper.Authority.Known || len(wrapper.DeclaredAuthority) != 0 {
+		t.Fatalf("capslock-runtime authority = %+v/%v, want UNKNOWN with no declared authority", wrapper.Authority, wrapper.DeclaredAuthority)
+	}
+	if !slices.IsSorted(wrapper.Members) {
+		t.Fatalf("capslock-runtime manifest members are not sorted: %v", wrapper.Members)
+	}
+	if hasDuplicate(wrapper.Members) {
+		t.Fatalf("capslock-runtime manifest members contain duplicates: %v", wrapper.Members)
+	}
+
+	// No other component may list a github.com/google/capslock member.
+	for name, comp := range manifests {
+		if name == "capslock-runtime" {
+			continue
+		}
+		for _, member := range comp.Members {
+			if strings.HasPrefix(member, "github.com/google/capslock") {
+				t.Errorf("component %q lists capslock member %q; only capslock-runtime may own capslock packages", name, member)
+			}
+		}
+	}
+
+	const surfacePath = "../capslockruntime/component.surface.json"
+	data, err := os.ReadFile(surfacePath)
+	if err != nil {
+		t.Fatalf("reading %s: %v", surfacePath, err)
+	}
+	var got struct {
+		FormatVersion  int    `json:"formatVersion"`
+		Component      string `json:"component"`
+		InterfaceStyle string `json:"interfaceStyle"`
+		Authority      struct {
+			Authority string `json:"authority"`
+		} `json:"authority"`
+		Packages  []string `json:"packages"`
+		Symbols   []string `json:"symbols"`
+		Namespace string   `json:"namespace"`
+		SDKKey    struct {
+			ToolchainVersion string `json:"toolchainVersion"`
+			GOOS             string `json:"goos"`
+			GOARCH           string `json:"goarch"`
+			ClassifierHash   string `json:"classifierHash"`
+			MapFormatVersion int    `json:"mapFormatVersion"`
+		} `json:"sdkKey"`
+		ProducerVersion string `json:"producerVersion"`
+		Digest          string `json:"digest"`
+	}
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatalf("decode %s: %v", surfacePath, err)
+	}
+	if got.FormatVersion != 1 || got.Component != "capslock-runtime" || got.InterfaceStyle != "INTERFACE_STYLE_PACKAGE_SURFACE" {
+		t.Fatalf("native capslock-runtime surface identity = %+v", got)
+	}
+	if got.Authority.Authority != "UNKNOWN" || len(got.Symbols) != 0 || got.Digest != "" {
+		t.Fatalf("native capslock-runtime surface is not an empty-digest UNKNOWN assertion: %+v", got)
+	}
+	if !slices.Equal(got.Packages, wrapper.Members) || !slices.IsSorted(got.Packages) {
+		t.Fatalf("native capslock-runtime surface packages = %v, want sorted manifest members %v", got.Packages, wrapper.Members)
+	}
+	if got.Namespace != "upstream" || got.SDKKey.ToolchainVersion != "go1.26.4" || got.SDKKey.GOOS != "linux" || got.SDKKey.GOARCH != "amd64" || got.SDKKey.ClassifierHash == "" || got.SDKKey.MapFormatVersion != 1 || got.ProducerVersion == "" {
+		t.Fatalf("native capslock-runtime surface target identity = %+v", got)
+	}
+	mapData, err := os.ReadFile(filepath.Join("..", "teststdlibmap", "testdata", "linux_amd64.stdlib-map.json"))
+	if err != nil {
+		t.Fatalf("read pinned stdlib map: %v", err)
+	}
+	var pinned struct {
+		Key struct {
+			ToolchainVersion string `json:"toolchainVersion"`
+			GOOS             string `json:"goos"`
+			GOARCH           string `json:"goarch"`
+			ClassifierHash   string `json:"classifierHash"`
+			MapFormatVersion int    `json:"mapFormatVersion"`
+		} `json:"key"`
+	}
+	if err := json.Unmarshal(mapData, &pinned); err != nil {
+		t.Fatalf("decode pinned stdlib map: %v", err)
+	}
+	if got.SDKKey.ToolchainVersion != pinned.Key.ToolchainVersion || got.SDKKey.GOOS != pinned.Key.GOOS || got.SDKKey.GOARCH != pinned.Key.GOARCH || got.SDKKey.ClassifierHash != pinned.Key.ClassifierHash || got.SDKKey.MapFormatVersion != pinned.Key.MapFormatVersion {
+		t.Fatalf("native capslock-runtime surface SDK key = %+v, want pinned map key %+v", got.SDKKey, pinned.Key)
 	}
 }
 

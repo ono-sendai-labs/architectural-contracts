@@ -644,19 +644,40 @@ func Parse(text string) ([][]string, error) {
 	}
 }
 
-func TestIntegration_AnalysisDefeatingPolicy_CapslockAdapter(t *testing.T) {
+func TestIntegration_CapslockAdapter_PassesStrictly(t *testing.T) {
 	const checkedInManifest = "../../internal/capslockadapter/component.textproto"
+
+	output, stderr, code := runArcc([]string{"check", checkedInManifest, "--format=json"})
+	if code != 0 {
+		t.Fatalf("capslockadapter strict exit = %d, want 0; stderr=%q output=%s", code, stderr, output)
+	}
+	var rep report.ConformanceReport
+	if err := json.Unmarshal([]byte(output), &rep); err != nil {
+		t.Fatalf("decode capslockadapter report: %v; output=%s", err, output)
+	}
+	if len(rep.Violations) != 0 {
+		t.Fatalf("capslockadapter report has violations = %+v, want none", rep.Violations)
+	}
+	for _, w := range rep.Warnings {
+		if w.Class == "AnalysisDefeating" {
+			t.Fatalf("capslockadapter has AnalysisDefeating warning: %+v, want none", w)
+		}
+	}
+}
+
+func TestIntegration_AnalysisDefeatingPolicy_SchemaGen(t *testing.T) {
+	const checkedInManifest = "../../internal/schema/gen/component.textproto"
 
 	warnOutput, warnStderr, warnCode := runArcc([]string{"check", checkedInManifest, "--format=json"})
 	if warnCode != 0 {
-		t.Fatalf("capslockadapter WARN policy exit = %d, want 0; stderr=%q", warnCode, warnStderr)
+		t.Fatalf("schema-gen WARN policy exit = %d, want 0; stderr=%q", warnCode, warnStderr)
 	}
 	var warned report.ConformanceReport
 	if err := json.Unmarshal([]byte(warnOutput), &warned); err != nil {
-		t.Fatalf("decode capslockadapter WARN report: %v; output=%s", err, warnOutput)
+		t.Fatalf("decode schema-gen WARN report: %v; output=%s", err, warnOutput)
 	}
 	if len(warned.Violations) != 0 || len(warned.Warnings) == 0 {
-		t.Fatalf("capslockadapter WARN report = %+v, want no violations and residual warnings", warned)
+		t.Fatalf("schema-gen WARN report = %+v, want no violations and residual warnings", warned)
 	}
 	var warning *report.Finding
 	for i := range warned.Warnings {
@@ -665,16 +686,16 @@ func TestIntegration_AnalysisDefeatingPolicy_CapslockAdapter(t *testing.T) {
 			break
 		}
 	}
-	if warning == nil || warning.Kind != report.AnalysisLimitation || len(warning.Sites) == 0 {
-		t.Fatalf("capslockadapter residual warning = %+v, want a site-bearing ANALYSIS_LIMITATION", warned.Warnings)
+	if warning == nil || warning.Kind != report.AnalysisLimitation || len(warning.Sites) != 15 {
+		t.Fatalf("schema-gen residual warning = %+v, want 15 site-bearing ANALYSIS_LIMITATION sites", warned.Warnings)
 	}
 	if warning.SDKKey == "" {
-		t.Error("capslockadapter residual warning has no SDK key")
+		t.Error("schema-gen residual warning has no SDK key")
 	}
 	for i := 1; i < len(warning.Sites); i++ {
 		if warning.Sites[i-1].File > warning.Sites[i].File ||
 			(warning.Sites[i-1].File == warning.Sites[i].File && warning.Sites[i-1].Line > warning.Sites[i].Line) {
-			t.Errorf("capslockadapter residual sites are not sorted: %+v", warning.Sites)
+			t.Errorf("schema-gen residual sites are not sorted: %+v", warning.Sites)
 			break
 		}
 	}
@@ -684,7 +705,7 @@ func TestIntegration_AnalysisDefeatingPolicy_CapslockAdapter(t *testing.T) {
 		t.Fatal(err)
 	}
 	strictData := bytes.Replace(data, []byte("analysis_defeating_policy: WARN\n"), nil, 1)
-	strictPath, err := os.CreateTemp("../../internal/capslockadapter", "strict-policy-*.textproto")
+	strictPath, err := os.CreateTemp("../../internal/schema/gen", "strict-policy-*.textproto")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -699,26 +720,26 @@ func TestIntegration_AnalysisDefeatingPolicy_CapslockAdapter(t *testing.T) {
 
 	strictOutput, strictStderr, strictCode := runArcc([]string{"check", strictPath.Name(), "--format=json"})
 	if strictCode != 1 {
-		t.Fatalf("capslockadapter strict policy exit = %d, want 1; stderr=%q output=%s", strictCode, strictStderr, strictOutput)
+		t.Fatalf("schema-gen strict policy exit = %d, want 1; stderr=%q output=%s", strictCode, strictStderr, strictOutput)
 	}
 	var strict report.ConformanceReport
 	if err := json.Unmarshal([]byte(strictOutput), &strict); err != nil {
-		t.Fatalf("decode capslockadapter strict report: %v; output=%s", err, strictOutput)
+		t.Fatalf("decode schema-gen strict report: %v; output=%s", err, strictOutput)
 	}
 	if len(strict.Violations) == 0 {
-		t.Fatal("capslockadapter strict policy produced no violation")
+		t.Fatal("schema-gen strict policy produced no violation")
 	}
 	foundDefeat := false
 	for _, v := range strict.Violations {
 		if v.Class == "AnalysisDefeating" && v.Kind == report.UndeclaredAuthority {
 			foundDefeat = true
-			if len(v.Sites) != len(warning.Sites) {
-				t.Errorf("strict residual sites = %d, WARN sites = %d", len(v.Sites), len(warning.Sites))
+			if len(v.Sites) != 15 {
+				t.Errorf("strict residual sites = %d, want 15", len(v.Sites))
 			}
 		}
 	}
 	if !foundDefeat {
-		t.Errorf("capslockadapter strict report has no AnalysisDefeating violation: %+v", strict.Violations)
+		t.Errorf("schema-gen strict report has no AnalysisDefeating violation: %+v", strict.Violations)
 	}
 }
 
