@@ -1,7 +1,5 @@
 name: "checker"
-interface_files: "aggregate.go"
 interface_files: "checker.go"
-interface_files: "classify.go"
 # Explicit spelling of the default axis (design R10): proves an explicit
 # DECLARED declaration is byte-compatible with the generated implicit one.
 authority: DECLARED

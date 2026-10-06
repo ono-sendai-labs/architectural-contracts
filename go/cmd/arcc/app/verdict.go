@@ -104,13 +104,7 @@ func (r *Runner) runVerdict(args []string, stdout, stderr io.Writer) int {
 		}
 	}
 
-	rf, err := os.Open(reportPath)
-	if err != nil {
-		fmt.Fprintf(stderr, "error: %v\n", err)
-		return 2
-	}
-	defer rf.Close()
-	data, err := io.ReadAll(io.LimitReader(rf, reportio.MaxReportBytes+1))
+	data, err := os.ReadFile(reportPath)
 	if err != nil {
 		fmt.Fprintf(stderr, "error: %v\n", err)
 		return 2

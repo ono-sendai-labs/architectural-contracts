@@ -1,9 +1,10 @@
 # Component structure conformance — summary
 
-**Date:** 2026-10-05 · **Revised:** 2026-10-05 (R1, R2) · **Status:** Steps 1–5 of 16
+**Date:** 2026-10-05 · **Revised:** 2026-10-05 (R1, R2) · **Status:** Steps 1–6 of 16
 done (probe script, conventions, spikes S2/S3/S4 resolved, `interface_files` landed,
 Step 3 hygiene/unexports/dead-dep removal complete, Step 4 `atomicfile` extracted,
-Step 5 `artifactio` authority-free + `reportio` split); Steps 6–16 in progress
+Step 5 `artifactio` authority-free + `reportio` split, Step 6 `checker` interface
+shrunk to `checker.go`); Steps 7–16 in progress
 
 ## What this is
 
@@ -65,7 +66,10 @@ projects to follow. This planning set restructures them so that:
 
 ## Remaining open points
 
-1. `goanalysis/fixture_test.go` coupling to `checker` internals: rewrite in Step 6 if
-   cheap, otherwise recorded follow-up.
+1. *(Resolved in Step 6)* `goanalysis/fixture_test.go` coupling to `checker` internals:
+   8 strictly internal symbols unexported; the fixture-test symbols stay exported in
+   non-interface files (`boundary.go`, `classify.go`) with explicit test-only doc
+   comments (allowed under C4), and the full test rewrite will be recorded in
+   `follow-ups.md` in Step 16.
 2. Native error message when an interface file sits in a package missing from
    `members` is the generic member-only-load one; Step 14 confirms or improves it.

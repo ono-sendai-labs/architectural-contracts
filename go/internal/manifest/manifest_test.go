@@ -592,7 +592,7 @@ func TestSelfHostingManifests(t *testing.T) {
 		},
 		"../checker/component.textproto": {
 			name:           "checker",
-			interfaceFiles: []string{"aggregate.go", "checker.go", "classify.go"},
+			interfaceFiles: []string{"checker.go"},
 			dependencies: map[string]string{
 				"capanalyzer":     "../capanalyzer/component.textproto",
 				"facts":           "../facts/component.textproto",

@@ -96,7 +96,7 @@ says the component declares — no more and no fewer. Record the probe summary
 - [x] **Step 3** — Hygiene: honest declarations, unexports, explicit members *(done 2026-10-05; `report` dropped from `goanalysis`, `x-tools` dropped from `cli`, `hostpolicy` explicit member, unexports across 8 packages)*
 - [x] **Step 4** — New component `atomicfile` *(done 2026-10-05; lifted from `artifactio/write.go`, `FILES` ×4)*
 - [x] **Step 5** — `artifactio` authority-free + new `reportio` *(done 2026-10-05; `artifactio` authority-free, `reportio` holds `REFLECT`+`UNSAFE_POINTER`)*
-- [ ] **Step 6** — `checker`: file-list interface = `checker.go`
+- [x] **Step 6** — `checker`: file-list interface = `checker.go` *(done 2026-10-05; `interface_files = ["checker.go"]`, 8 internal symbols unexported)*
 - [ ] **Step 7** — `symbol` → `symbol` + `capslocksymbol`
 - [ ] **Step 8** — `schema` → `schema` + `schema-gen` (WARN; last in-tree `PACKAGE_SURFACE` removed)
 - [ ] **Step 9** — `capslock-runtime` wrapper; `capslockadapter` shrinks
@@ -409,6 +409,13 @@ is empty; `reportio_component.report.json` passes.
 
 **Demo.** `go doc ./internal/checker` lists `Inputs`, `Check` (+ whatever the fixture
 exception kept, clearly commented as test-only).
+
+**Status: DONE 2026-10-05.**
+- Set `interface_files = ["checker.go"]` in `go/internal/checker/{BUILD.bazel,component.textproto}` (including `broken_checker_component`) and updated `go/internal/manifest/manifest_test.go`.
+- Verified `go/internal/capanalyzer/capanalyzer_test.go` does not import `checker` (the research table had conflated `capanalyzer.Classify` with `(BoundaryIndex).Classify`).
+- Unexported 8 internal-only symbols across NIF files (`authoritySite`, `authorityFinding`, `aggregateAuthority`, `applyAuthorityPolicy`, `referenceIntraComponent`, `referenceDecision`, `boundaryIndex`, `boundaryObservation`), with `go/internal/checker/export_test.go` bridging `package checker_test`.
+- Kept `ReferenceStatus`, `ReferenceDeclaredDependency`, `ReferenceCallsUndeclaredInterface`, `ReferenceUndeclaredDependency`, `(referenceDecision).ViolationKind`, `NewBoundaryIndex`, `(boundaryIndex).Classify`, `AuthorityObservation`, `Classified`, and `ClassifyEdges` exported in NIF (`boundary.go`/`classify.go`) with explicit test-only doc comments for `goanalysis/fixture_test.go` and `member_only_integration_test.go` (allowed by C4; full test rewrite tracked for `follow-ups.md`).
+- Probe `checker`: **empty** (0 findings).
 
 ---
 

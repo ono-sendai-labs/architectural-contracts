@@ -49,6 +49,9 @@ import (
 // carry an empty Capability and no evidence. Referent is the referenced
 // SymbolID for object references and the aggregate `pkg.init` identity for
 // imports (R3, DR-04).
+//
+// Exported in a non-interface file only for goanalysis fixture tests
+// (pending test rewrite follow-up).
 type AuthorityObservation struct {
 	Class      capanalyzer.Class
 	Capability string
@@ -62,9 +65,9 @@ type AuthorityObservation struct {
 	Evidence []stdlibauthority.Frame
 }
 
-// BoundaryObservation is one reportable boundary violation at an exact site.
+// boundaryObservation is one reportable boundary violation at an exact site.
 // Referent is empty for import edges (the violation names ReferentPackage).
-type BoundaryObservation struct {
+type boundaryObservation struct {
 	Kind            report.Kind
 	FromPackage     string
 	ReferentPackage string
@@ -79,8 +82,11 @@ type BoundaryObservation struct {
 // the report's policy application (FR6), and the dependencies an import used
 // (including auto-attached infra dependencies, R13). Every collection is
 // sorted and duplicate-free.
+//
+// Exported in a non-interface file only for goanalysis fixture tests
+// (pending test rewrite follow-up).
 type Classified struct {
-	Boundary         []BoundaryObservation
+	Boundary         []boundaryObservation
 	Authority        []AuthorityObservation
 	UsedDependencies []string
 }
@@ -91,6 +97,9 @@ type Classified struct {
 // inventory gap, invalid classification, or missing type data for a written
 // non-member import) aborts the whole operation and no partial verdict is
 // produced (DR-14).
+//
+// Exported in a non-interface file only for goanalysis fixture tests
+// (pending test rewrite follow-up).
 func ClassifyEdges(
 	members facts.MemberSet,
 	deps []facts.DependencyInterface,
@@ -133,7 +142,7 @@ func ClassifyEdges(
 			return Classified{}, err
 		}
 		if kind := decision.ViolationKind(); kind != "" {
-			out.Boundary = append(out.Boundary, BoundaryObservation{
+			out.Boundary = append(out.Boundary, boundaryObservation{
 				Kind:            report.Kind(kind),
 				FromPackage:     e.FromPackage,
 				ReferentPackage: e.ReferentPackage,
@@ -177,7 +186,7 @@ func ClassifyEdges(
 			used[dep] = true
 			continue
 		}
-		out.Boundary = append(out.Boundary, BoundaryObservation{
+		out.Boundary = append(out.Boundary, boundaryObservation{
 			Kind:            report.UndeclaredDependency,
 			FromPackage:     e.ImportingPackage,
 			ReferentPackage: e.ImportPath,
@@ -282,7 +291,7 @@ func classifyPackageInit(authority stdlibauthority.StdlibAuthority, pkgPath stri
 
 // owningDependency returns the component owning pkg, or false when no direct
 // dependency claims it.
-func (b *BoundaryIndex) owningDependency(pkg string) (string, bool) {
+func (b *boundaryIndex) owningDependency(pkg string) (string, bool) {
 	dep, owns := b.pkgToDep[pkg]
 	if !owns {
 		return "", false
@@ -310,8 +319,8 @@ func sortAuthorityObservations(obs []AuthorityObservation) []AuthorityObservatio
 
 // sortBoundaryObservations orders observations deterministically: by kind,
 // referent package, referent, site, then dependency.
-func sortBoundaryObservations(obs []BoundaryObservation) []BoundaryObservation {
-	slices.SortStableFunc(obs, func(a, b BoundaryObservation) int {
+func sortBoundaryObservations(obs []boundaryObservation) []boundaryObservation {
+	slices.SortStableFunc(obs, func(a, b boundaryObservation) int {
 		if a.Kind != b.Kind {
 			return strings.Compare(string(a.Kind), string(b.Kind))
 		}

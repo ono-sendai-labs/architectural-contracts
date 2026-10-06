@@ -38,37 +38,52 @@ import (
 
 // ReferenceStatus is the outcome of classifying one reference edge against
 // the component boundary.
+//
+// Exported in a non-interface file only for goanalysis fixture tests
+// (pending test rewrite follow-up).
 type ReferenceStatus string
 
 const (
-	// ReferenceIntraComponent: the referent is a member object; not a
+	// referenceIntraComponent: the referent is a member object; not a
 	// boundary edge.
-	ReferenceIntraComponent ReferenceStatus = "intra_component"
+	referenceIntraComponent ReferenceStatus = "intra_component"
 	// ReferenceDeclaredDependency: the referent is authorized by a direct
 	// dependency — either any object of a PACKAGE_SURFACE dependency's owned
 	// packages, or an exact declaring-object SymbolID of a declared
 	// interface.
+	//
+	// Exported in a non-interface file only for goanalysis fixture tests
+	// (pending test rewrite follow-up).
 	ReferenceDeclaredDependency ReferenceStatus = "declared_dependency"
 	// ReferenceCallsUndeclaredInterface: the owning dependency is a declared
 	// interface and the declaring object is not in its symbol set.
+	//
+	// Exported in a non-interface file only for goanalysis fixture tests
+	// (pending test rewrite follow-up).
 	ReferenceCallsUndeclaredInterface ReferenceStatus = "calls_undeclared_interface"
 	// ReferenceUndeclaredDependency: no direct dependency owns the referent
 	// package.
+	//
+	// Exported in a non-interface file only for goanalysis fixture tests
+	// (pending test rewrite follow-up).
 	ReferenceUndeclaredDependency ReferenceStatus = "undeclared_dependency"
 )
 
-// ReferenceDecision is the classification of one reference edge. Dependency
+// referenceDecision is the classification of one reference edge. Dependency
 // is the owning component's name whenever the edge reaches a dependency,
 // including violating edges, so edge provenance (and per-dependency use
 // counting) survives the decision.
-type ReferenceDecision struct {
+type referenceDecision struct {
 	Status     ReferenceStatus
 	Dependency string
 }
 
 // ViolationKind returns the report.Kind spelling for a violating decision,
 // or "" when the edge is not a violation.
-func (d ReferenceDecision) ViolationKind() string {
+//
+// Exported in a non-interface file only for goanalysis fixture tests
+// (pending test rewrite follow-up).
+func (d referenceDecision) ViolationKind() string {
 	switch d.Status {
 	case ReferenceCallsUndeclaredInterface:
 		return "CALLS_UNDECLARED_INTERFACE"
@@ -79,10 +94,10 @@ func (d ReferenceDecision) ViolationKind() string {
 	}
 }
 
-// BoundaryIndex is the precomputed package-to-dependency lookup over the
+// boundaryIndex is the precomputed package-to-dependency lookup over the
 // resolved direct dependencies. Construct it once per check; construction
 // fails closed on overlapping ownership (R14).
-type BoundaryIndex struct {
+type boundaryIndex struct {
 	members  facts.MemberSet
 	pkgToDep map[string]*facts.DependencyInterface
 }
@@ -93,7 +108,10 @@ type BoundaryIndex struct {
 // lexicographically first by package, so the reported collision (and the
 // error text) is byte-identical in any dependency order (R14). The legacy
 // last-wins behavior must not return.
-func NewBoundaryIndex(members facts.MemberSet, deps []facts.DependencyInterface) (*BoundaryIndex, error) {
+//
+// Exported in a non-interface file only for goanalysis fixture tests
+// (pending test rewrite follow-up).
+func NewBoundaryIndex(members facts.MemberSet, deps []facts.DependencyInterface) (*boundaryIndex, error) {
 	owners := make(map[string]string)
 	var collisions []overlap
 	for i := range deps {
@@ -128,7 +146,7 @@ func NewBoundaryIndex(members facts.MemberSet, deps []facts.DependencyInterface)
 			pkgToDep[pkg] = di
 		}
 	}
-	return &BoundaryIndex{members: members, pkgToDep: pkgToDep}, nil
+	return &boundaryIndex{members: members, pkgToDep: pkgToDep}, nil
 }
 
 // overlap is one cross-component package collision, normalized so the pair
@@ -150,37 +168,40 @@ func sortedPair(a, b string) (string, string) {
 
 // Classify decides one reference edge. A malformed edge is an error, never a
 // silent pass.
-func (b *BoundaryIndex) Classify(edge facts.ReferenceEdge) (ReferenceDecision, error) {
+//
+// Exported in a non-interface file only for goanalysis fixture tests
+// (pending test rewrite follow-up).
+func (b *boundaryIndex) Classify(edge facts.ReferenceEdge) (referenceDecision, error) {
 	if err := edge.Validate(); err != nil {
-		return ReferenceDecision{}, err
+		return referenceDecision{}, err
 	}
 	if b.members.Contains(edge.ReferentPackage) {
-		return ReferenceDecision{Status: ReferenceIntraComponent}, nil
+		return referenceDecision{Status: referenceIntraComponent}, nil
 	}
 	dep, owns := b.pkgToDep[edge.ReferentPackage]
 	if !owns {
-		return ReferenceDecision{Status: ReferenceUndeclaredDependency}, nil
+		return referenceDecision{Status: ReferenceUndeclaredDependency}, nil
 	}
 	if dep.InterfaceStyle == manifest.InterfaceStylePackageSurface {
-		return ReferenceDecision{Status: ReferenceDeclaredDependency, Dependency: dep.Component}, nil
+		return referenceDecision{Status: ReferenceDeclaredDependency, Dependency: dep.Component}, nil
 	}
 	symbols := make(map[facts.SymbolID]bool, len(dep.Symbols))
 	for _, sym := range dep.Symbols {
 		symbols[sym] = true
 	}
 	if !symbols[edge.Referent] {
-		return ReferenceDecision{
+		return referenceDecision{
 			Status:     ReferenceCallsUndeclaredInterface,
 			Dependency: dep.Component,
 		}, nil
 	}
-	return ReferenceDecision{Status: ReferenceDeclaredDependency, Dependency: dep.Component}, nil
+	return referenceDecision{Status: ReferenceDeclaredDependency, Dependency: dep.Component}, nil
 }
 
 // ownsPackage reports whether a direct dependency claims pkg. The distinction
 // between an unowned unresolved import and a missing dependency package is made
 // by the import classifier, after this index has already rejected overlap.
-func (b *BoundaryIndex) ownsPackage(pkg string) bool {
+func (b *boundaryIndex) ownsPackage(pkg string) bool {
 	_, ok := b.pkgToDep[pkg]
 	return ok
 }

@@ -173,7 +173,7 @@ func Check(in Inputs) (report.ConformanceReport, error) {
 	// the stdlib classifications and bypass observations, then apply the
 	// effective policy.
 	effectivePolicy := deriveEffectivePolicy(in.Policy, in.Manifest.DeclaredAuthority)
-	authorityFindings, err := AggregateAuthority(classified.Authority, in.Facts.Bypasses, in.SDKKey)
+	authorityFindings, err := aggregateAuthority(classified.Authority, in.Facts.Bypasses, in.SDKKey)
 	if err != nil {
 		return report.ConformanceReport{}, err
 	}
@@ -182,7 +182,7 @@ func Check(in Inputs) (report.ConformanceReport, error) {
 	// policy allows or warns on it; AnalysisDefeating findings carry no
 	// capability and therefore cannot suppress this warning (R12, DR-17).
 	warnings = append(warnings, unusedAuthorityWarnings(authorityFindings, in.Manifest.DeclaredAuthority)...)
-	authorityViolations, authorityWarnings := ApplyAuthorityPolicy(authorityFindings, effectivePolicy)
+	authorityViolations, authorityWarnings := applyAuthorityPolicy(authorityFindings, effectivePolicy)
 	violations = append(violations, authorityViolations...)
 	warnings = append(warnings, authorityWarnings...)
 
@@ -243,7 +243,7 @@ func Check(in Inputs) (report.ConformanceReport, error) {
 // list is treated as a set defensively: parsed manifests are already validated
 // as duplicate-free, but this keeps the pure checker deterministic for direct
 // callers too.
-func unusedAuthorityWarnings(findings []AuthorityFinding, declared []string) []report.Finding {
+func unusedAuthorityWarnings(findings []authorityFinding, declared []string) []report.Finding {
 	exercised := make(map[string]bool)
 	for _, finding := range findings {
 		if finding.Class == capanalyzer.TrueAuthority && finding.Capability != "" {
@@ -273,7 +273,7 @@ func unusedAuthorityWarnings(findings []AuthorityFinding, declared []string) []r
 // boundaryReportFinding converts one boundary observation to its report
 // finding: the exact site is the location, and the message names the
 // referent, the owning dependency (when the edge reached one), and the site.
-func boundaryReportFinding(b BoundaryObservation) report.Finding {
+func boundaryReportFinding(b boundaryObservation) report.Finding {
 	switch b.Kind {
 	case report.CallsUndeclaredInterface:
 		return report.Finding{
