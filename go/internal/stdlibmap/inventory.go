@@ -9,24 +9,6 @@ import (
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/symbol"
 )
 
-// Loader is the injectable batch package-loading seam (task req 9): it loads
-// every requested importable package for the target configuration described by
-// the generation environment. Implementations must not consult global
-// process state beyond the configuration they were constructed with.
-type Loader interface {
-	// Load type-loads every path and returns the loaded *types.Package per
-	// path. A load or type error for any path fails the whole batch with an
-	// actionable error; a path absent from the result is likewise an error,
-	// so a partial result can never masquerade as a complete one.
-	Load(paths []string) (map[string]*types.Package, error)
-}
-
-// LoaderFunc adapts a function to the Loader seam.
-type LoaderFunc func(paths []string) (map[string]*types.Package, error)
-
-// Load implements Loader.
-func (f LoaderFunc) Load(paths []string) (map[string]*types.Package, error) { return f(paths) }
-
 // inventory is the independent declaration oracle for one SDK configuration
 // (design I3, DR-05): the total package list and, for every importable
 // package, its complete externally referencable exported symbol set plus

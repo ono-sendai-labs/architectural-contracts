@@ -1,0 +1,10 @@
+name: "stdlibmap-hosttoolchain"
+# Sub-component of stdlibmap confining host toolchain process execution (`go
+# list std`, `go env`), user cache directory and environment lookups, and host
+# filesystem operations so stdlibmap itself is authority-free. Native-only
+# component (matching stdlibmap).
+interface_files: "hosttoolchain.go"
+members: "github.com/ono-sendai-labs/architectural-contracts/go/internal/stdlibmap/internal/hosttoolchain"
+declared_authority: "EXEC"
+declared_authority: "FILES"
+declared_authority: "READ_SYSTEM_STATE"

@@ -1,0 +1,20 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+# stdlibmap-hosttoolchain is the host-toolchain and filesystem sub-component of
+# stdlibmap (native-checked only, matching stdlibmap).
+go_library(
+    name = "hosttoolchain",
+    srcs = ["hosttoolchain.go"],
+    importpath = "github.com/ono-sendai-labs/architectural-contracts/go/internal/stdlibmap/internal/hosttoolchain",
+    visibility = [
+        "//bazel_rules:__subpackages__",
+        "//go/internal/stdlibmap:__subpackages__",
+    ],
+)
+
+go_test(
+    name = "hosttoolchain_test",
+    size = "small",
+    srcs = ["hosttoolchain_test.go"],
+    embed = [":hosttoolchain"],
+)

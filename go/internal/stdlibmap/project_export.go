@@ -1,13 +1,14 @@
 package stdlibmap
 
 import (
-	"encoding/json"
 	"fmt"
 	"io"
-	"os"
 	pathpkg "path"
 	"path/filepath"
 	"strings"
+
+	"github.com/ono-sendai-labs/architectural-contracts/go/internal/packagelayout"
+	"github.com/ono-sendai-labs/architectural-contracts/go/internal/stdlibmap/internal/hosttoolchain"
 )
 
 const bazelExecrootPlaceholder = "__BAZEL_EXECROOT__/"
@@ -24,34 +25,24 @@ func projectExportFiles(metadataPath, sourceRoot, outputRoot string) error {
 
 	sourceRoot = filepath.Clean(sourceRoot)
 	sourceRootSlash := filepath.ToSlash(sourceRoot)
-	if err := os.MkdirAll(outputRoot, 0o755); err != nil {
+	if err := hosttoolchain.MkdirAll(outputRoot, 0o755); err != nil {
 		return fmt.Errorf("creating projected standard-library export tree %q: %w", outputRoot, err)
 	}
 
-	metadata, err := os.Open(metadataPath)
+	metadata, err := hosttoolchain.OpenFile(metadataPath)
 	if err != nil {
 		return fmt.Errorf("opening standard-library export metadata %q: %w", metadataPath, err)
 	}
 	defer metadata.Close()
 
-	decoder := json.NewDecoder(metadata)
+	exportFiles, err := packagelayout.DecodeStdlibExportFiles(metadata)
+	if err != nil {
+		return err
+	}
 	seen := map[string]bool{}
 	projected := 0
-	for recordNumber := 0; ; recordNumber++ {
-		var record struct {
-			ExportFile string `json:"ExportFile"`
-		}
-		if err := decoder.Decode(&record); err != nil {
-			if err == io.EOF {
-				break
-			}
-			return fmt.Errorf("decoding standard-library export metadata record %d: %w", recordNumber, err)
-		}
-		if record.ExportFile == "" {
-			continue
-		}
-
-		relative, err := projectedExportRelativePath(record.ExportFile, sourceRootSlash)
+	for recordNumber, exportFile := range exportFiles {
+		relative, err := projectedExportRelativePath(exportFile, sourceRootSlash)
 		if err != nil {
 			return fmt.Errorf("standard-library export metadata record %d: %w", recordNumber, err)
 		}
@@ -60,17 +51,17 @@ func projectExportFiles(metadataPath, sourceRoot, outputRoot string) error {
 		}
 		seen[relative] = true
 
-		sourcePath, mode, err := declaredExportSourcePath(sourceRoot, relative)
+		sourcePath, mode, err := hosttoolchain.DeclaredExportSourcePath(sourceRoot, relative)
 		if err != nil {
-			return fmt.Errorf("standard-library export file %q: %w", record.ExportFile, err)
+			return fmt.Errorf("standard-library export file %q: %w", exportFile, err)
 		}
 
 		destinationPath := filepath.Join(outputRoot, filepath.FromSlash(relative))
-		if err := os.MkdirAll(filepath.Dir(destinationPath), 0o755); err != nil {
+		if err := hosttoolchain.MkdirAll(filepath.Dir(destinationPath), 0o755); err != nil {
 			return fmt.Errorf("creating projected export directory for %q: %w", relative, err)
 		}
-		if err := copyProjectedExport(sourcePath, destinationPath, mode); err != nil {
-			return fmt.Errorf("projecting standard-library export file %q: %w", record.ExportFile, err)
+		if err := hosttoolchain.CopyProjectedExport(sourcePath, destinationPath, mode); err != nil {
+			return fmt.Errorf("projecting standard-library export file %q: %w", exportFile, err)
 		}
 		projected++
 	}
@@ -78,53 +69,6 @@ func projectExportFiles(metadataPath, sourceRoot, outputRoot string) error {
 		return fmt.Errorf("standard-library export metadata names no compiler export artifacts")
 	}
 	return nil
-}
-
-func declaredExportSourcePath(sourceRoot, relative string) (string, os.FileMode, error) {
-	rootAbs, err := filepath.Abs(sourceRoot)
-	if err != nil {
-		return "", 0, fmt.Errorf("resolving declared export root %q: %w", sourceRoot, err)
-	}
-	rootReal, err := filepath.EvalSymlinks(rootAbs)
-	if err != nil {
-		return "", 0, fmt.Errorf("resolving declared export root %q: %w", sourceRoot, err)
-	}
-	sourcePath := filepath.Join(rootAbs, filepath.FromSlash(relative))
-	entry, err := os.Lstat(sourcePath)
-	if err != nil {
-		return "", 0, fmt.Errorf("is not available below declared root %q: %w", sourceRoot, err)
-	}
-	if !entry.Mode().IsRegular() && entry.Mode()&os.ModeSymlink == 0 {
-		return "", 0, fmt.Errorf("below declared root %q is not a regular file", sourceRoot)
-	}
-	resolved, err := filepath.EvalSymlinks(sourcePath)
-	if err != nil {
-		return "", 0, fmt.Errorf("cannot resolve below declared root %q: %w", sourceRoot, err)
-	}
-	resolved, err = filepath.Abs(resolved)
-	if err != nil {
-		return "", 0, fmt.Errorf("resolving export target below declared root %q: %w", sourceRoot, err)
-	}
-	relativeResolved, err := filepath.Rel(rootReal, resolved)
-	if err != nil || relativeResolved == ".." || strings.HasPrefix(relativeResolved, ".."+string(filepath.Separator)) || filepath.IsAbs(relativeResolved) {
-		// Bazel may materialize a tree-artifact entry as an absolute symlink to
-		// the same declared tree in the execroot outside this action's sandbox.
-		// Permit that representation only when the target preserves the exact
-		// declared logical root and relative export path; an arbitrary symlink
-		// escape still fails closed.
-		logicalExportPath := filepath.ToSlash(filepath.Join(sourceRoot, filepath.FromSlash(relative)))
-		if !strings.HasSuffix(filepath.ToSlash(resolved), "/"+logicalExportPath) {
-			return "", 0, fmt.Errorf("resolves outside declared root %q", sourceRoot)
-		}
-	}
-	resolvedInfo, err := os.Stat(resolved)
-	if err != nil {
-		return "", 0, fmt.Errorf("checking resolved export below declared root %q: %w", sourceRoot, err)
-	}
-	if !resolvedInfo.Mode().IsRegular() {
-		return "", 0, fmt.Errorf("resolved target below declared root %q is not a regular file", sourceRoot)
-	}
-	return resolved, resolvedInfo.Mode().Perm(), nil
 }
 
 func projectedExportRelativePath(value, sourceRoot string) (string, error) {
@@ -147,46 +91,7 @@ func projectedExportRelativePath(value, sourceRoot string) (string, error) {
 	return clean, nil
 }
 
-func copyProjectedExport(sourcePath, destinationPath string, mode os.FileMode) error {
-	source, err := os.Open(sourcePath)
-	if err != nil {
-		return err
-	}
-	defer source.Close()
-
-	destination, err := os.OpenFile(destinationPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, mode)
-	if err != nil {
-		return err
-	}
-	buffer := make([]byte, 32*1024)
-	for {
-		readCount, readErr := source.Read(buffer)
-		if readCount > 0 {
-			written, writeErr := destination.Write(buffer[:readCount])
-			if writeErr != nil {
-				destination.Close()
-				return writeErr
-			}
-			if written != readCount {
-				destination.Close()
-				return io.ErrShortWrite
-			}
-		}
-		if readErr == io.EOF {
-			break
-		}
-		if readErr != nil {
-			destination.Close()
-			return readErr
-		}
-	}
-	return destination.Close()
-}
-
-// RunProjectExportCommand implements the explicit-input stdlib export
-// projection used by the single shared Bazel producer. It accepts only paths
-// supplied by the action; there is no toolchain or host discovery fallback.
-func RunProjectExportCommand(args []string, stdout, stderr io.Writer) int {
+func runProjectExportCommand(args []string, stdout, stderr io.Writer) int {
 	values := map[string]string{}
 	for _, arg := range args {
 		matched := false

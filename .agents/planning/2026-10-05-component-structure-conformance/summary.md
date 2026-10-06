@@ -1,6 +1,6 @@
 # Component structure conformance — summary
 
-**Date:** 2026-10-05 · **Revised:** 2026-10-06 (R1, R2) · **Status:** Steps 1–14 of 16
+**Date:** 2026-10-05 · **Revised:** 2026-10-06 (R1, R2) · **Status:** Steps 1–15 of 16
 done (probe script, conventions, spikes S1/S2/S3/S4 resolved, `interface_files` landed,
 Step 3 hygiene/unexports/dead-dep removal complete, Step 4 `atomicfile` extracted,
 Step 5 `artifactio` authority-free + `reportio` split, Step 6 `checker` interface
@@ -12,7 +12,9 @@ nested sub-component landed and `FILES` removed from `goanalysis`, Step 11
 now authority-free, Step 12 `goanalysis` split into 3 interface files totaling 222 LOC,
 Step 13 `packagelayout` converted to declared style with `api.go` + `layout.go` and
 `[REFLECT, UNSAFE_POINTER]` only, Step 14 `cli` converted to declared style with
-`interface_files: "app/app.go"`); Steps 15–16 in progress
+`interface_files: "app/app.go"`, Step 15 `stdlibmap-hosttoolchain` extracted and
+`stdlibmap` now authority-free with `interface_files: "sdkkey.go", "stdlibmap.go"`);
+Step 16 in progress
 
 ## What this is
 

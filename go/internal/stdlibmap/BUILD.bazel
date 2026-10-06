@@ -32,6 +32,7 @@ go_library(
         "//go/internal/schema",
         "//go/internal/schema/gen",
         "//go/internal/stdlibauthority",
+        "//go/internal/stdlibmap/internal/hosttoolchain",
         "//go/internal/symbol",
         "@org_golang_x_tools//go/packages",
     ],

@@ -3,24 +3,13 @@ package stdlibmap
 import (
 	"fmt"
 	"go/types"
-	"os"
 	"strings"
 
+	"github.com/ono-sendai-labs/architectural-contracts/go/internal/stdlibmap/internal/hosttoolchain"
 	"golang.org/x/tools/go/packages"
 )
 
-// TargetEnv renders the target environment overrides that make the Go
-// toolchain build for the target configuration (task reqs 8–9): GOOS,
-// GOARCH, CGO_ENABLED and GOEXPERIMENT replace the host's values so every
-// toolchain invocation underneath the loader and oracle describes the
-// target. Every requested build tag is carried in one canonical GOFLAGS
-// value. GOFLAGS is ALWAYS overridden — to the tags when any are requested,
-// otherwise cleared — so inherited host GOFLAGS can never change which
-// packages and symbols are analyzed while the SDK key still reports
-// build_tags: [] (fail-closed identity; review finding). The result is
-// override pairs, not a complete environment; NativeLoader.Environment
-// and NativeEnvironment merge them onto the host environment.
-func TargetEnv(t TargetConfig) []string {
+func targetEnv(t TargetConfig) []string {
 	env := []string{
 		"GOOS=" + t.GOOS,
 		"GOARCH=" + t.GOARCH,
@@ -67,43 +56,14 @@ func mergeEnv(base, overrides []string) []string {
 	return append(out, overrides...)
 }
 
-// NativeEnvironment returns the complete environment every toolchain
-// invocation of a native generation must run in: the host environment with
-// the target overrides merged. Package discovery (NativeStdPackageList) and
-// package loading (NativeLoader) must receive this same value — a partial
-// override slice would let host GOFLAGS/GOTOOLCHAIN/GOROOT state affect
-// loading but not discovery (or vice versa), producing inconsistent
-// enumeration and inventory (review finding).
-func NativeEnvironment(target TargetConfig) []string {
-	return (&NativeLoader{Env: TargetEnv(target)}).Environment()
-}
-
-// NativeLoader loads importable packages from the target toolchain's SDK
-// sources with x/tools go/packages (task req 4). The loader is constructed
-// with the target configuration's environment overrides (TargetEnv): it runs
-// the toolchain in the host environment merged with those overrides, so
-// cross-compilation loads the target's packages and no global logging or
-// network access is involved.
-type NativeLoader struct {
-	// Env holds the target environment overrides (TargetEnv).
-	Env []string
-}
-
-// Environment returns the complete environment the loader runs the toolchain
-// in: the host environment with the target overrides merged (every override
-// key replaced by the override, GOFLAGS's requested build tags carried in one
-// canonical entry).
-func (l *NativeLoader) Environment() []string {
+func nativeLoaderEnvironment(l *NativeLoader) []string {
 	if l == nil {
 		return nil
 	}
-	return mergeEnv(os.Environ(), l.Env)
+	return mergeEnv(hosttoolchain.Environ(), l.Env)
 }
 
-// Load implements the batch Loader seam: every path is loaded for the target
-// configuration; any load or type error, or any path missing from the
-// result, fails the batch with an actionable error.
-func (l *NativeLoader) Load(paths []string) (map[string]*types.Package, error) {
+func nativeLoaderLoad(l *NativeLoader, paths []string) (map[string]*types.Package, error) {
 	if len(paths) == 0 {
 		return map[string]*types.Package{}, nil
 	}

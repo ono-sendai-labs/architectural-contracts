@@ -4,17 +4,14 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"os"
 	"strings"
 
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/schema/gen"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/stdlibauthority"
+	"github.com/ono-sendai-labs/architectural-contracts/go/internal/stdlibmap/internal/hosttoolchain"
 )
 
-// RunGenerateCommand implements the shared `stdlibmap generate` command used
-// by the full CLI and the thin Bazel generator. Keeping parsing and generation
-// here ensures both binaries have exactly the same explicit-input semantics.
-func RunGenerateCommand(args []string, stdout, stderr io.Writer) int {
+func runGenerateCommand(args []string, stdout, stderr io.Writer) int {
 	opts, err := parseGenerateOptions(args)
 	if err != nil {
 		fmt.Fprintf(stderr, "error: %v\n", err)
@@ -22,7 +19,7 @@ func RunGenerateCommand(args []string, stdout, stderr io.Writer) int {
 	}
 
 	if opts.explicit {
-		configFile, err := os.Open(opts.configFile)
+		configFile, err := hosttoolchain.OpenFile(opts.configFile)
 		if err != nil {
 			fmt.Fprintf(stderr, "error: opening the target config file: %v\n", err)
 			return 2
@@ -33,7 +30,7 @@ func RunGenerateCommand(args []string, stdout, stderr io.Writer) int {
 			fmt.Fprintf(stderr, "error: %v\n", err)
 			return 2
 		}
-		listFile, err := os.Open(opts.packageList)
+		listFile, err := hosttoolchain.OpenFile(opts.packageList)
 		if err != nil {
 			fmt.Fprintf(stderr, "error: opening the toolchain package list file: %v\n", err)
 			return 2

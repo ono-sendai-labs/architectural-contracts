@@ -98,6 +98,23 @@ func classifierHash(d GenerationDescriptor) string {
 	return hex.EncodeToString(h.Sum(nil))
 }
 
+// RuleVersion is the production version of the generation classification
+// rules (GenerationInput.RuleVersion): bumped whenever the rules' semantics
+// change, so the stamped classifier_hash cannot mask a rule change (I2).
+const RuleVersion = "stdlibmap-generation-rules-v2"
+
+// GenerationClassifierRules renders the generation classifier's hashable
+// rule descriptor from the semantics generation actually executes (task reqs
+// 1–3, design I2): Capslock's exact builtin classifier content pin, the exact
+// project overlay text NewGenerationClassifier loads, and the canonical
+// project completion rules (the unsafe-builtin hardcoding and the full
+// variable/minting policy — the same canonical instance BuildAuthorityMap
+// executes). There is no independently maintained description that can drift
+// from the classifier execution path (review: assembly-to-execution drift).
+func GenerationClassifierRules() ([]ClassifierRule, error) {
+	return generationClassifierRules()
+}
+
 // DeriveSDKKey derives the target's SDKKey from the generation descriptor
 // (task reqs 7–8): the target's toolchain version, GOOS/GOARCH, cgo state,
 // sorted build tags and GOEXPERIMENT, the map format version, and the

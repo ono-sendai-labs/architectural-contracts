@@ -1,13 +1,12 @@
 package stdlibmap
 
 import (
-	"encoding/json"
 	"fmt"
 	"go/types"
-	"os"
 
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/capslockadapter"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/packagelayout"
+	"github.com/ono-sendai-labs/architectural-contracts/go/internal/stdlibmap/internal/hosttoolchain"
 	"golang.org/x/tools/go/packages"
 )
 
@@ -56,26 +55,18 @@ func withLayoutDriverEnv(layout *packagelayout.Layout, fn func() error) error {
 	// generation; a nested Load must not re-enter WithDriverEnv, whose
 	// environment mutex is not reentrant): the ambient environment already
 	// carries GOPACKAGESDRIVER and the ARCC_DRIVER_MODE marker.
-	if os.Getenv("ARCC_DRIVER_MODE") == "1" {
+	if hosttoolchain.Getenv("ARCC_DRIVER_MODE") == "1" {
 		return fn()
 	}
-	data, err := json.Marshal(layout)
+	data, err := layout.MarshalJSON()
 	if err != nil {
 		return fmt.Errorf("materialising the layout for the driver: %w", err)
 	}
-	f, err := os.CreateTemp("", "arcc-stdlib-layout-*.json")
+	path, cleanup, err := hosttoolchain.WriteTempLayout(data)
 	if err != nil {
 		return fmt.Errorf("materialising the layout for the driver: %w", err)
 	}
-	path := f.Name()
-	defer os.Remove(path)
-	if _, err := f.Write(data); err != nil {
-		f.Close()
-		return fmt.Errorf("materialising the layout for the driver: %w", err)
-	}
-	if err := f.Close(); err != nil {
-		return fmt.Errorf("materialising the layout for the driver: %w", err)
-	}
+	defer cleanup()
 	if err := packagelayout.WithDriverEnv(path, "", fn); err != nil {
 		return fmt.Errorf("loading through the layout driver: %w", err)
 	}
@@ -173,7 +164,7 @@ func generateExplicit(target TargetConfig, packageList []string, sdkRoot string)
 		ToolchainVersion: &toolchainVersion,
 		GOEXPERIMENT:     &goexperiment,
 	}
-	layout, err := packagelayout.StdlibLayout(os.DirFS(sdkRoot), platform)
+	layout, err := packagelayout.StdlibLayout(hosttoolchain.SDKFS(sdkRoot), platform)
 	if err != nil {
 		return nil, fmt.Errorf("generating the stdlib map: %w", err)
 	}

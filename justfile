@@ -155,6 +155,7 @@ selfcheck:
 	selfcheck_stage_component "$arcc_bin" "$map_path" internal/checker/component.textproto; \
 	selfcheck_asserted_component internal/capslockruntime/component.textproto; \
 	selfcheck_stage_component "$arcc_bin" "$map_path" internal/capslockadapter/component.textproto; \
+	selfcheck_stage_component "$arcc_bin" "$map_path" internal/stdlibmap/internal/hosttoolchain/component.textproto; \
 	selfcheck_stage_component "$arcc_bin" "$map_path" internal/stdlibmap/component.textproto; \
 	selfcheck_stage_component "$arcc_bin" "$map_path" internal/goanalysis/internal/hostfs/component.textproto; \
 	selfcheck_stage_component "$arcc_bin" "$map_path" internal/goanalysis/component.textproto; \

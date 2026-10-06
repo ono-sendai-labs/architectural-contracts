@@ -33,57 +33,7 @@ const (
 // hold authority, so no trust decision is recorded.
 const provenanceStructural = ""
 
-// FindingSource is the injectable per-package Capslock seam behind Generate:
-// Generate invokes it once for each importable package so each result is
-// scoped to that package's own analysis closure. The
-// capslockadapter.GenerationFindings function is the native implementation.
-type FindingSource interface {
-	Findings(paths []string) ([]capslockadapter.GenerationFinding, error)
-}
-
-// FindingSourceFunc adapts a function to the FindingSource seam.
-type FindingSourceFunc func(paths []string) ([]capslockadapter.GenerationFinding, error)
-
-// Findings implements FindingSource.
-func (f FindingSourceFunc) Findings(paths []string) ([]capslockadapter.GenerationFinding, error) {
-	return f(paths)
-}
-
-// GeneratedMap is one completed generation: the canonical map message, its
-// canonical bytes, and the digest over those bytes (DR-15).
-type GeneratedMap struct {
-	Map    *gen.StdlibMap
-	Bytes  []byte
-	Digest string
-}
-
-// GenerationInput carries every seam and configuration Generate needs: the
-// target configuration and rule version for the SDK key, the package oracle,
-// the batch loader, and the Capslock findings source.
-type GenerationInput struct {
-	// Target describes the target build configuration (DR-09).
-	Target TargetConfig
-	// RuleVersion is the generation classification rules' explicit version.
-	RuleVersion string
-	// Oracle enumerates the SDK's packages (total, any order).
-	Oracle PackageOracle
-	// Loader type-loads the importable packages for the target.
-	Loader Loader
-	// Findings runs Capslock for one importable package at a time. When nil,
-	// the native Capslock runner is used, bound to the same target environment
-	// as the loader and oracle (round-1 finding: the analysis must describe the
-	// target, not the host).
-	Findings FindingSource
-}
-
-// Generate produces the total stdlib authority map (task reqs 1–10): it
-// inventories the SDK independently, runs one Capslock batch per importable
-// package, groups the findings by root, completes every inventoried symbol and init with a
-// terminal classification under the design's object-kind rules, reconciles
-// the exact inventory equality, and emits canonical bytes through the
-// artifact I/O boundary. It fails closed: any inventory gap, unaccounted
-// analyzer root, or validation error means no map.
-func Generate(in GenerationInput) (*GeneratedMap, error) {
+func generate(in GenerationInput) (*GeneratedMap, error) {
 	if in.Oracle == nil {
 		return nil, fmt.Errorf("generating the stdlib map: the package oracle is required")
 	}
@@ -216,15 +166,7 @@ func rootDisplayNames(findings []capslockadapter.GenerationFinding) []string {
 	return names
 }
 
-// GenerationClassifierRules renders the generation classifier's hashable
-// rule descriptor from the semantics generation actually executes (task reqs
-// 1–3, design I2): Capslock's exact builtin classifier content pin, the exact
-// project overlay text NewGenerationClassifier loads, and the canonical
-// project completion rules (the unsafe-builtin hardcoding and the full
-// variable/minting policy — the same canonical instance BuildAuthorityMap
-// executes). There is no independently maintained description that can drift
-// from the classifier execution path (review: assembly-to-execution drift).
-func GenerationClassifierRules() ([]ClassifierRule, error) {
+func generationClassifierRules() ([]ClassifierRule, error) {
 	pin, err := capslockadapter.BuiltinClassifierPin()
 	if err != nil {
 		return nil, fmt.Errorf("fingerprinting the Capslock builtins: %w", err)

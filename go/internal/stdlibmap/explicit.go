@@ -4,19 +4,15 @@ import (
 	"bufio"
 	"fmt"
 	"io"
-	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/packagelayout"
+	"github.com/ono-sendai-labs/architectural-contracts/go/internal/stdlibmap/internal/hosttoolchain"
 )
 
-// RenderTargetConfig renders the deterministic configuration-parameter file
-// the explicit-input mode (and the Bazel stdlib-map rule of step 4 task 06)
-// passes around: six fixed key=value lines in a fixed order, so analysis-time
-// bytes are reproducible (task req 7).
-func RenderTargetConfig(t TargetConfig) (string, error) {
+func renderTargetConfig(t TargetConfig) (string, error) {
 	if t.ToolchainVersion == "" {
 		return "", fmt.Errorf("rendering the target config: toolchain_version is required")
 	}
@@ -166,7 +162,7 @@ func reconcilePackageList(listed []string, layout *packagelayout.Layout, sdkRoot
 			// the discovered node is the vendored copy, which is the
 			// enumerated package.
 			entries = append(entries, PackageEntry{Path: "vendor/" + path, Importable: !isInternalPath(path)})
-		case directoryExists(filepath.Join(sdkRoot, filepath.FromSlash(path))):
+		case hosttoolchain.DirectoryExists(filepath.Join(sdkRoot, filepath.FromSlash(path))):
 			// The directory exists but the target's build constraints
 			// excluded every file (or it carries no Go sources): enumerated,
 			// not importable.
@@ -186,9 +182,4 @@ func reconcilePackageList(listed []string, layout *packagelayout.Layout, sdkRoot
 	}
 	slices.SortFunc(entries, func(a, b PackageEntry) int { return strings.Compare(a.Path, b.Path) })
 	return entries, nil
-}
-
-func directoryExists(path string) bool {
-	fi, err := os.Stat(path)
-	return err == nil && fi.IsDir()
 }

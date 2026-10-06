@@ -3,21 +3,16 @@ name: "stdlibmap"
 # inventory, the Capslock-backed generator, and the native SDK-keyed cache.
 # Its retained x/tools, x/mod, and x/sync closure is owned by the explicit
 # x-tools package-surface boundary below rather than duplicated as members.
-# Declared-interface style: its exported API produces and reads the total
-# standard-library authority map consumed by the CLI. It is deliberately not declared as a go_component
+# Declared-interface style: its exported API (stdlibmap.go, sdkkey.go) produces
+# and reads the total standard-library authority map consumed by the CLI. Host
+# toolchain subprocesses and filesystem probes/writes are confined to the
+# stdlibmap-hosttoolchain and atomicfile sub-components, leaving stdlibmap
+# itself authority-free. It is deliberately not declared as a go_component
 # under Bazel — like capslockadapter, its closure (golang.org/x/tools/go/
 # packages) pulls in cgo-built packages and component.bzl fails closed on cgo
-# closures; native coverage is via the FR10 contract above and the Bazel
+# closures; native coverage is via the FR10 contract and the Bazel
 # arcc_stdlib_map rule consumes its artifacts rather than running this
 # component inside a checked action.
-interface_files: "cache.go"
-interface_files: "command.go"
-interface_files: "explicit.go"
-interface_files: "layoutloader.go"
-interface_files: "generate.go"
-interface_files: "inventory.go"
-interface_files: "nativeloader.go"
-interface_files: "project_export.go"
 interface_files: "sdkkey.go"
 interface_files: "stdlibmap.go"
 members: "github.com/ono-sendai-labs/architectural-contracts/go/internal/stdlibmap"
@@ -50,6 +45,10 @@ component_dependencies {
   manifest: "../stdlibauthority/component.textproto"
 }
 component_dependencies {
+  name: "stdlibmap-hosttoolchain"
+  manifest: "internal/hosttoolchain/component.textproto"
+}
+component_dependencies {
   name: "symbol"
   manifest: "../symbol/component.textproto"
 }
@@ -65,8 +64,3 @@ component_dependencies {
   name: "packagelayout"
   manifest: "../packagelayout/component.textproto"
 }
-declared_authority: "FILES"
-declared_authority: "EXEC"
-declared_authority: "READ_SYSTEM_STATE"
-declared_authority: "REFLECT"
-declared_authority: "UNSAFE_POINTER"

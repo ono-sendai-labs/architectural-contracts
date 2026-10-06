@@ -105,7 +105,7 @@ says the component declares — no more and no fewer. Record the probe summary
 - [x] **Step 12** — `goanalysis`: file splits + three interface files *(done 2026-10-05; `interface_files = ["dependency_surface.go", "goanalysis.go", "surfaceinputs.go"]`, 222 LOC total, 17 exported symbols, authority empty)*
 - [x] **Step 13** — `packagelayout`: file splits, `fs.FS` passing, two interface files *(done 2026-10-06; `interface_files = ["api.go", "layout.go"]`, 397 LOC total, `declared_authority = [REFLECT, UNSAFE_POINTER]`)*
 - [x] **Step 14** — `cli`: declared style with `app/app.go` as the interface *(done 2026-10-06; `interface_files = ["app/app.go"]`, 205 LOC, `declared_authority = [FILES, MODIFY_SYSTEM_STATE, OPERATING_SYSTEM, READ_SYSTEM_STATE, REFLECT, UNSAFE_POINTER]`)*
-- [ ] **Step 15** — `stdlibmap`: `hosttoolchain` sub-component + two interface files
+- [x] **Step 15** — `stdlibmap`: `hosttoolchain` sub-component + two interface files *(done 2026-10-06; `interface_files = ["sdkkey.go", "stdlibmap.go"]`, `stdlibmap` authority-free, `stdlibmap-hosttoolchain` holds `[EXEC, FILES, READ_SYSTEM_STATE]`)*
 - [ ] **Step 16** — Final audit, README counts, conventions cross-check
 
 ---
@@ -900,6 +900,14 @@ sub-component and declare the 20-symbol API as the interface (§5.10). Native-on
 
 **Demo.** `grep -rn 'os/exec\|os\.Environ\|os\.UserCacheDir\|os\.DirFS' go/internal/stdlibmap --include=*.go | grep -v _test`
 lists only `internal/hosttoolchain/`.
+
+**Observed (2026-10-06):**
+- Extracted `go/internal/stdlibmap/internal/hosttoolchain` (`stdlibmap-hosttoolchain`, 227 LOC, `interface_files: "hosttoolchain.go"`, `declared_authority: [EXEC, FILES, READ_SYSTEM_STATE]`) providing `GoEnv`, `GoListStd`, `GoVersion`, `UserCacheDir`, `Environ`, `Getenv`, `SDKFS`, `OpenFile`, `MkdirAll`, `IsNotExist`, `DirectoryExists`, `WriteTempLayout`, `DeclaredExportSourcePath`, and `CopyProjectedExport`.
+- Replaced `json.Marshal(layout)` in `layoutloader.go` with `layout.MarshalJSON()` and `json.NewDecoder(metadata)` in `project_export.go` with `packagelayout.DecodeStdlibExportFiles(metadata)`, eliminating `"encoding/json"` (and `REFLECT`/`UNSAFE_POINTER`) from `stdlibmap`.
+- Narrowed `stdlibmap`'s interface to `interface_files = ["sdkkey.go", "stdlibmap.go"]` (`sdkkey.go` 136 LOC + `stdlibmap.go` 401 LOC = 537 LOC total out of 3,088 non-test LOC = 17.4%), with all 8 remaining implementation files (`cache.go`, `command.go`, `explicit.go`, `generate.go`, `inventory.go`, `layoutloader.go`, `nativeloader.go`, `project_export.go`) as non-interface files with zero exported declarations.
+- **Probe summary:**
+  - `stdlibmap`: **empty** (0 findings; `declared_authority` is empty).
+  - `stdlibmap-hosttoolchain`: `EXEC` ×6 (`hosttoolchain.go:36,37,47,51,60,63`), `FILES` ×12 (`hosttoolchain.go:93,98,103,115,122,127,148,153,160,180,193,199`), `READ_SYSTEM_STATE` ×5 (`hosttoolchain.go:77,83,88,144,164`).
 
 ---
 
