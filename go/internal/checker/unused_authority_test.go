@@ -5,12 +5,12 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ono-sendai-labs/architectural-contracts/go/internal/artifactio"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/capanalyzer"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/checker"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/facts"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/manifest"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/report"
+	"github.com/ono-sendai-labs/architectural-contracts/go/internal/reportio"
 )
 
 func TestCheck_UnusedAuthority_OverDeclaredIsNonFatal(t *testing.T) {
@@ -172,7 +172,7 @@ func TestCheck_UnusedAuthority_DeterministicCapabilityDiff(t *testing.T) {
 		if rep.Warnings[0].Location != (report.Location{}) || rep.Warnings[0].Evidence != nil || rep.Warnings[0].Class != "" || rep.Warnings[0].SDKKey != "" || rep.Warnings[0].Sites != nil {
 			t.Fatalf("run %d unused warning carries fabricated source data: %#v", i, rep.Warnings[0])
 		}
-		data, err := artifactio.MarshalReport(rep)
+		data, err := reportio.MarshalReport(rep)
 		if err != nil {
 			t.Fatalf("run %d MarshalReport: %v", i, err)
 		}

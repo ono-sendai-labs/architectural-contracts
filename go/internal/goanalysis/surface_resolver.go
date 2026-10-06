@@ -19,6 +19,7 @@ import (
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/hostpolicy"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/manifest"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/packagelayout"
+	"github.com/ono-sendai-labs/architectural-contracts/go/internal/reportio"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/schema/gen"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/stdlibauthority"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/surface"
@@ -593,7 +594,7 @@ func readDependencyReport(req DependencySurfaceRequest, path string, readFile De
 		}
 		return "", false, fmt.Errorf("dependency %q report %q: %w", req.Dependency.Name, path, err)
 	}
-	persisted, err := artifactio.DecodeReport(data)
+	persisted, err := reportio.DecodeReport(data)
 	if err != nil {
 		return "", false, fmt.Errorf("dependency %q report %q is invalid: %w", req.Dependency.Name, path, err)
 	}

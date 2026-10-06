@@ -17,6 +17,7 @@ import (
 
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/artifactio"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/report"
+	"github.com/ono-sendai-labs/architectural-contracts/go/internal/reportio"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/schema/gen"
 )
 
@@ -222,7 +223,7 @@ func fullBuildArtifactIdentity(t *testing.T, path string, data []byte) (string, 
 		}
 		return "surface:" + decoded.Component, "surface"
 	case strings.HasSuffix(path, ".report.json"):
-		decoded, err := artifactio.DecodeReport(data)
+		decoded, err := reportio.DecodeReport(data)
 		if err != nil {
 			t.Fatalf("decoding report artifact %q: %v", path, err)
 		}
@@ -332,7 +333,7 @@ func assertFullBuildArtifactSemantics(t *testing.T, artifacts map[string]fullBui
 	}
 }
 
-func assertDeterminismConsumerSemantic(t *testing.T, persisted artifactio.PersistedReport) {
+func assertDeterminismConsumerSemantic(t *testing.T, persisted reportio.PersistedReport) {
 	t.Helper()
 	if persisted.Verdict != report.VerdictFail {
 		t.Fatalf("consumer report verdict = %q, want fail", persisted.Verdict)
@@ -382,9 +383,9 @@ func decodeFullBuildSurface(t *testing.T, artifact fullBuildArtifact) *gen.Surfa
 	return decoded
 }
 
-func decodeFullBuildReport(t *testing.T, artifact fullBuildArtifact) artifactio.PersistedReport {
+func decodeFullBuildReport(t *testing.T, artifact fullBuildArtifact) reportio.PersistedReport {
 	t.Helper()
-	decoded, err := artifactio.DecodeReport(artifact.Bytes)
+	decoded, err := reportio.DecodeReport(artifact.Bytes)
 	if err != nil {
 		t.Fatalf("decode %s: %v", artifact.Logical, err)
 	}

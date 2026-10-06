@@ -7,13 +7,13 @@ import (
 	"testing"
 
 	"github.com/ono-sendai-labs/architectural-contracts/go/cmd/arcc/app"
-	"github.com/ono-sendai-labs/architectural-contracts/go/internal/artifactio"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/report"
+	"github.com/ono-sendai-labs/architectural-contracts/go/internal/reportio"
 )
 
 func writeReportFile(t *testing.T, r report.ConformanceReport) string {
 	t.Helper()
-	data, err := artifactio.MarshalReport(r)
+	data, err := reportio.MarshalReport(r)
 	if err != nil {
 		t.Fatalf("MarshalReport() error = %v", err)
 	}
@@ -231,7 +231,7 @@ func TestVerdictGolden_ImportPrefixRewritePreservesBytesAndResult(t *testing.T) 
 			},
 		}},
 	}
-	original, err := artifactio.MarshalReport(input)
+	original, err := reportio.MarshalReport(input)
 	if err != nil {
 		t.Fatalf("MarshalReport() error = %v", err)
 	}
@@ -254,19 +254,27 @@ func TestVerdictGolden_ImportPrefixRewritePreservesBytesAndResult(t *testing.T) 
 		}
 	}
 
-	originalDecoded, err := artifactio.ReadReportFile(originalReport)
+	originalData, err := os.ReadFile(originalReport)
 	if err != nil {
-		t.Fatalf("ReadReportFile(original) error = %v", err)
+		t.Fatalf("ReadFile(original) error = %v", err)
 	}
-	rewrittenDecoded, err := artifactio.ReadReportFile(rewrittenReport)
+	originalDecoded, err := reportio.DecodeReport(originalData)
 	if err != nil {
-		t.Fatalf("ReadReportFile(rewritten) error = %v", err)
+		t.Fatalf("DecodeReport(original) error = %v", err)
 	}
-	originalVerdictBytes, err := artifactio.MarshalVerdict(originalDecoded.Verdict)
+	rewrittenData, err := os.ReadFile(rewrittenReport)
+	if err != nil {
+		t.Fatalf("ReadFile(rewritten) error = %v", err)
+	}
+	rewrittenDecoded, err := reportio.DecodeReport(rewrittenData)
+	if err != nil {
+		t.Fatalf("DecodeReport(rewritten) error = %v", err)
+	}
+	originalVerdictBytes, err := reportio.MarshalVerdict(originalDecoded.Verdict)
 	if err != nil {
 		t.Fatalf("MarshalVerdict(original) error = %v", err)
 	}
-	rewrittenVerdictBytes, err := artifactio.MarshalVerdict(rewrittenDecoded.Verdict)
+	rewrittenVerdictBytes, err := reportio.MarshalVerdict(rewrittenDecoded.Verdict)
 	if err != nil {
 		t.Fatalf("MarshalVerdict(rewritten) error = %v", err)
 	}

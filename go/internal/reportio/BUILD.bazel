@@ -1,0 +1,66 @@
+load("@rules_arcc//bazel_rules/go:defs.bzl", "go_component")
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "reportio",
+    srcs = [
+        "golden.go",
+        "report.go",
+    ],
+    importpath = "github.com/ono-sendai-labs/architectural-contracts/go/internal/reportio",
+    visibility = [
+        "//bazel_rules:__subpackages__",
+        "//go:__subpackages__",
+    ],
+    deps = [
+        "//go/internal/artifactio",
+        "//go/internal/report",
+        "//go/internal/schema/gen",
+    ],
+)
+
+go_test(
+    name = "reportio_test",
+    size = "small",
+    srcs = [
+        "golden_test.go",
+        "report_test.go",
+    ],
+    embed = [":reportio"],
+    deps = [
+        "//go/internal/artifactio",
+        "//go/internal/report",
+        "//go/internal/schema/gen",
+    ],
+)
+
+# Mirrors the checked-in reportio/component.textproto.
+go_component(
+    name = "reportio_component",
+    component_deps = [
+        "//go/internal/artifactio:artifactio_component",
+        "//go/internal/report:report_component",
+        "//go/internal/schema:schema_component",
+    ],
+    # REFLECT and UNSAFE_POINTER come from `encoding/json` in the persisted-report
+    # and shape-snapshot codecs; the stdlib map attributes both to
+    # `json.Marshal/Unmarshal` (number parsing reaches `unsafe.Pointer`), so they
+    # cannot be separated. They are not confined to a smaller sub-component because
+    # the reflective traversal is the serialization itself: a wrapper would hold the
+    # same call sites and narrow nothing (README limitation 11). This component
+    # exists so that the declaration coincides with its sole purpose; retiring the
+    # capabilities requires encoding the report with protojson, a schema change
+    # tracked as a follow-up.
+    declared_authority = [
+        "REFLECT",
+        "UNSAFE_POINTER",
+    ],
+    interface_files = [
+        "golden.go",
+        "report.go",
+    ],
+    members = [":reportio"],
+    visibility = ["//go:__subpackages__"],
+)
+
+exports_files(["component.textproto"])

@@ -1,13 +1,68 @@
-package artifactio
+package reportio
 
 import (
 	"bytes"
 	"strings"
 	"testing"
 
+	"github.com/ono-sendai-labs/architectural-contracts/go/internal/artifactio"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/report"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/schema/gen"
 )
+
+// validSurface returns a canonical-quality surface manifest fixture.
+func validSurface() *gen.SurfaceManifest {
+	return &gen.SurfaceManifest{
+		FormatVersion: 1,
+		Component:     "widget",
+		Packages:      []string{"a.example/pkg", "b.example/pkg"},
+		Symbols:       []string{"a.example/pkg.F", "(a.example/pkg.T).M"},
+	}
+}
+
+// validMap returns a canonical-quality stdlib map fixture.
+func validMap() *gen.StdlibMap {
+	return &gen.StdlibMap{
+		FormatVersion: 1,
+		Key: &gen.SDKKey{
+			ToolchainVersion: "go1.26.4",
+			Goos:             "linux",
+			Goarch:           "amd64",
+			MapFormatVersion: 1,
+		},
+		Packages: []*gen.PackageInventory{
+			{Path: "bytes", Importable: true},
+			{Path: "internal/secret", Importable: false},
+			{Path: "os", Importable: true},
+		},
+		Symbols: []*gen.SymbolRecord{
+			{Package: "bytes", Id: "bytes.Buffer", Classification: gen.Classification_SAFE},
+			{Package: "os", Id: "(os.File).Read", Classification: gen.Classification_CAPABILITIES, Capabilities: []string{"FILES", "READ_SYSTEM_STATE"}},
+		},
+		Inits: []*gen.InitRecord{
+			{Package: "bytes", Classification: gen.Classification_SAFE},
+			{Package: "os", Classification: gen.Classification_SAFE},
+		},
+		Evidence: []*gen.Evidence{
+			{
+				SymbolId:   "(os.File).Read",
+				Capability: "FILES",
+				Frames: []*gen.Frame{
+					{Function: "(os.File).Read", File: "file_io.go", Line: 1},
+					{Function: "os.Open", File: "file.go", Line: 2},
+				},
+			},
+			{
+				SymbolId:   "(os.File).Read",
+				Capability: "READ_SYSTEM_STATE",
+				Frames: []*gen.Frame{
+					{Function: "(os.File).Read", File: "file_io.go", Line: 1},
+					{Function: "os.Getenv", File: "env.go", Line: 3},
+				},
+			},
+		},
+	}
+}
 
 func TestShapeSnapshotReportRetainsContractAndUsesNamedPlaceholders(t *testing.T) {
 	input := report.ConformanceReport{
@@ -130,9 +185,9 @@ func TestShapeSnapshotSurfaceMakesDefaultSemanticsExplicit(t *testing.T) {
 	}
 	input.ProducerVersion = "arcc test"
 	input.Digest = "0123456789abcdef"
-	data, err := MarshalSurface(input)
+	data, err := artifactio.MarshalSurface(input)
 	if err != nil {
-		t.Fatalf("MarshalSurface: %v", err)
+		t.Fatalf("artifactio.MarshalSurface: %v", err)
 	}
 	got, err := Snapshot(shapeSurface, bytes.NewReader(data))
 	if err != nil {
@@ -159,9 +214,9 @@ func TestShapeSnapshotMapRetainsTerminalClassesAndOrdering(t *testing.T) {
 		Id:             "bytes.Reader",
 		Classification: gen.Classification_UNANALYZED,
 	})
-	data, err := MarshalMap(input)
+	data, err := artifactio.MarshalMap(input)
 	if err != nil {
-		t.Fatalf("MarshalMap: %v", err)
+		t.Fatalf("artifactio.MarshalMap: %v", err)
 	}
 	got, err := Snapshot(shapeMap, bytes.NewReader(data))
 	if err != nil {
@@ -205,9 +260,9 @@ func TestShapeSnapshotsAreByteIdenticalAcrossLogicalOrderings(t *testing.T) {
 	surfaceB.Symbols = []string{"(a.example/pkg.T).M", "a.example/pkg.F"}
 	surfaceSnapshot := func(m *gen.SurfaceManifest) []byte {
 		t.Helper()
-		data, err := MarshalSurface(m)
+		data, err := artifactio.MarshalSurface(m)
 		if err != nil {
-			t.Fatalf("MarshalSurface: %v", err)
+			t.Fatalf("artifactio.MarshalSurface: %v", err)
 		}
 		snapshot, err := Snapshot(shapeSurface, bytes.NewReader(data))
 		if err != nil {
@@ -230,9 +285,9 @@ func TestShapeSnapshotsAreByteIdenticalAcrossLogicalOrderings(t *testing.T) {
 	mapB.Symbols[0].Capabilities = []string{"READ_SYSTEM_STATE", "FILES"}
 	mapSnapshot := func(m *gen.StdlibMap) []byte {
 		t.Helper()
-		data, err := MarshalMap(m)
+		data, err := artifactio.MarshalMap(m)
 		if err != nil {
-			t.Fatalf("MarshalMap: %v", err)
+			t.Fatalf("artifactio.MarshalMap: %v", err)
 		}
 		snapshot, err := Snapshot(shapeMap, bytes.NewReader(data))
 		if err != nil {
@@ -286,15 +341,15 @@ func TestShapeSnapshotCanonicalizesOnlyThroughProductionBoundary(t *testing.T) {
 		ClassifierHash:   "classifier",
 		MapFormatVersion: 1,
 	}
-	surfaceData, err := MarshalSurface(surfaceInput)
+	surfaceData, err := artifactio.MarshalSurface(surfaceInput)
 	if err != nil {
-		t.Fatalf("MarshalSurface: %v", err)
+		t.Fatalf("artifactio.MarshalSurface: %v", err)
 	}
 	mapInput := validMap()
 	mapInput.Key.ClassifierHash = "classifier"
-	mapData, err := MarshalMap(mapInput)
+	mapData, err := artifactio.MarshalMap(mapInput)
 	if err != nil {
-		t.Fatalf("MarshalMap: %v", err)
+		t.Fatalf("artifactio.MarshalMap: %v", err)
 	}
 	reportData, err := MarshalReport(report.ConformanceReport{Component: "clean"})
 	if err != nil {
@@ -334,9 +389,9 @@ func TestShapeSnapshotRequiresCompleteSDKKey(t *testing.T) {
 		Goarch:           "amd64",
 		MapFormatVersion: 1,
 	}
-	surfaceData, err := MarshalSurface(surface)
+	surfaceData, err := artifactio.MarshalSurface(surface)
 	if err != nil {
-		t.Fatalf("MarshalSurface: %v", err)
+		t.Fatalf("artifactio.MarshalSurface: %v", err)
 	}
 	if _, err := Snapshot(shapeSurface, bytes.NewReader(surfaceData)); err == nil || !strings.Contains(err.Error(), "classifier_hash") {
 		t.Errorf("Snapshot(surface with incomplete key) error = %v, want classifier_hash validation", err)
@@ -344,9 +399,9 @@ func TestShapeSnapshotRequiresCompleteSDKKey(t *testing.T) {
 
 	stdlibMap := validMap()
 	stdlibMap.Key.ClassifierHash = ""
-	mapData, err := MarshalMap(stdlibMap)
+	mapData, err := artifactio.MarshalMap(stdlibMap)
 	if err != nil {
-		t.Fatalf("MarshalMap: %v", err)
+		t.Fatalf("artifactio.MarshalMap: %v", err)
 	}
 	if _, err := Snapshot(shapeMap, bytes.NewReader(mapData)); err == nil || !strings.Contains(err.Error(), "classifier_hash") {
 		t.Errorf("Snapshot(map with incomplete key) error = %v, want classifier_hash validation", err)
@@ -362,9 +417,9 @@ func TestCompareShapeReportsFocusedDiff(t *testing.T) {
 		ClassifierHash:   "classifier",
 		MapFormatVersion: 1,
 	}
-	data, err := MarshalSurface(input)
+	data, err := artifactio.MarshalSurface(input)
 	if err != nil {
-		t.Fatalf("MarshalSurface: %v", err)
+		t.Fatalf("artifactio.MarshalSurface: %v", err)
 	}
 	golden, err := Snapshot(shapeSurface, bytes.NewReader(data))
 	if err != nil {

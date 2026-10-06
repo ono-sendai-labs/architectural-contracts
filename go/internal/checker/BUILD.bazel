@@ -36,11 +36,11 @@ go_test(
     ],
     deps = [
         ":checker",
-        "//go/internal/artifactio",
         "//go/internal/capanalyzer",
         "//go/internal/facts",
         "//go/internal/manifest",
         "//go/internal/report",
+        "//go/internal/reportio",
         "//go/internal/stdlibauthority",
         "//go/internal/symbol",
     ],

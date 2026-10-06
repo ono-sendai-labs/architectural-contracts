@@ -92,7 +92,7 @@ func TestProjectPackagesSingleOwner(t *testing.T) {
 
 	// The slice under repair; every other component (e.g. goanalysis, which
 	// predates the slice and is remediated separately) is out of scope here.
-	slice := []string{"artifactio", "atomicfile", "manifest", "schema", "stdlibauthority", "symbol"}
+	slice := []string{"artifactio", "atomicfile", "manifest", "reportio", "schema", "stdlibauthority", "symbol"}
 
 	owner := map[string]string{}
 	for _, name := range slice {
@@ -116,6 +116,7 @@ func TestProjectPackagesSingleOwner(t *testing.T) {
 		modulePrefix + "internal/artifactio":      "artifactio",
 		modulePrefix + "internal/atomicfile":      "atomicfile",
 		modulePrefix + "internal/manifest":        "manifest",
+		modulePrefix + "internal/reportio":        "reportio",
 		modulePrefix + "internal/schema":          "schema",
 		modulePrefix + "internal/schema/gen":      "schema",
 		modulePrefix + "internal/symbol":          "symbol",
@@ -146,7 +147,6 @@ func TestArtifactioDeclaresCoreComponentDependencies(t *testing.T) {
 	}
 
 	want := map[string]string{
-		"report":           "../report/component.textproto",
 		"schema":           "../schema/component.textproto",
 		"stdlibauthority":  "../stdlibauthority/component.textproto",
 		"surface":          "../surface/component.textproto",
@@ -172,7 +172,7 @@ func TestArtifactioDeclaresCoreComponentDependencies(t *testing.T) {
 	// core package artifactio's production code imports must be a member of a
 	// declared dependency (or of artifactio itself).
 	owners := map[string]string{}
-	for _, name := range []string{"artifactio", "report", "schema", "stdlibauthority", "surface", "symbol"} {
+	for _, name := range []string{"artifactio", "schema", "stdlibauthority", "surface", "symbol"} {
 		for _, member := range manifests[name].Members {
 			if strings.HasPrefix(member, modulePrefix) {
 				owners[member] = name
@@ -528,6 +528,7 @@ func mustRead(t *testing.T, path string) []byte {
 // artifact-I/O shell (which holds filesystem and runtime authority). The list
 // mirrors the design's pure-core inventory for this slice.
 var purePackages = []string{
+	"internal/artifactio",
 	"internal/capanalyzer",
 	"internal/checker",
 	"internal/facts",

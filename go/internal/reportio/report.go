@@ -1,11 +1,11 @@
-package artifactio
+package reportio
 
 import (
 	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
+	"io"
 	"slices"
 
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/report"
@@ -353,48 +353,15 @@ func compareStringSlices(a, b []string) int {
 	}
 }
 
-// ReadReportFile reads and validates the persisted report artifact at path.
-// The read is bounded by MaxReportBytes so an oversized input fails before
-// any unbounded allocation; decoding and verdict validation are delegated to
-// DecodeReport. Filesystem access stays in this shell package — the report
-// package itself holds no filesystem authority (task req 3). Eventual atomic
-// writes reuse WriteFileAtomic in the caller (`--report-out`, Task 3).
-func ReadReportFile(path string) (PersistedReport, error) {
-	f, err := os.Open(path)
-	if err != nil {
-		return PersistedReport{}, fmt.Errorf("open report artifact %q: %w", path, err)
-	}
-	defer f.Close()
-
-	// One sentinel byte beyond the cap distinguishes "too large" from
-	// "exactly at the cap" without buffering the whole excess.
-	data, err := boundedRead(f, MaxReportBytes)
-	if err != nil {
-		return PersistedReport{}, fmt.Errorf("read report artifact %q: %w", path, err)
-	}
-
-	persisted, err := DecodeReport(data)
-	if err != nil {
-		return PersistedReport{}, fmt.Errorf("decode report artifact %q: %w", path, err)
-	}
-	return persisted, nil
-}
-
-// ReadVerdictGoldenFile reads the deliberately small, canonical representation
+// DecodeVerdictGolden reads the deliberately small, canonical representation
 // consumed by a verdict-golden assertion. Requiring exactly one of the two
 // values plus a trailing newline keeps the golden deterministic and makes the
 // file safe to pass as data to a shell launcher; it is never interpreted as
 // shell syntax or as a report artifact.
-func ReadVerdictGoldenFile(path string) (report.Verdict, error) {
-	f, err := os.Open(path)
+func DecodeVerdictGolden(r io.Reader) (report.Verdict, error) {
+	data, err := boundedRead(r, maxVerdictGoldenBytes)
 	if err != nil {
-		return "", fmt.Errorf("open verdict golden %q: %w", path, err)
-	}
-	defer f.Close()
-
-	data, err := boundedRead(f, maxVerdictGoldenBytes)
-	if err != nil {
-		return "", fmt.Errorf("%w %q: %v", ErrInvalidVerdictGolden, path, err)
+		return "", fmt.Errorf("%w: %v", ErrInvalidVerdictGolden, err)
 	}
 	switch string(data) {
 	case verdictGoldenPass:
@@ -402,7 +369,7 @@ func ReadVerdictGoldenFile(path string) (report.Verdict, error) {
 	case verdictGoldenFail:
 		return report.VerdictFail, nil
 	default:
-		return "", fmt.Errorf("%w %q: expected exactly %q or %q", ErrInvalidVerdictGolden, path, verdictGoldenPass, verdictGoldenFail)
+		return "", fmt.Errorf("%w: expected exactly %q or %q", ErrInvalidVerdictGolden, verdictGoldenPass, verdictGoldenFail)
 	}
 }
 
@@ -418,5 +385,52 @@ func MarshalVerdict(verdict report.Verdict) ([]byte, error) {
 		return []byte(verdictGoldenFail), nil
 	default:
 		return nil, fmt.Errorf("%w: unknown verdict %q", ErrInvalidVerdictGolden, verdict)
+	}
+}
+
+// boundedRead reads at most max bytes plus one sentinel byte, so an oversized
+// input fails before any unbounded read or allocation. The explicit reader
+// loop avoids io.ReadAll's UNANALYZED stdlib classification while preserving
+// its EOF, reader-error, and no-progress behavior for this shell boundary.
+func boundedRead(r io.Reader, max int64) ([]byte, error) {
+	if max < 0 {
+		return nil, fmt.Errorf("read artifact: negative byte limit %d", max)
+	}
+	const chunkSize = 32 * 1024
+	data := make([]byte, 0, chunkSize)
+	buf := make([]byte, chunkSize)
+	noProgress := 0
+	for {
+		remaining := max - int64(len(data))
+		readBuf := buf
+		if remaining < int64(len(readBuf)) {
+			// Ask the underlying reader for no more than the limit plus the
+			// one sentinel byte. This preserves io.LimitReader's bounded-read
+			// contract rather than merely rejecting an oversized result after
+			// the reader has already consumed it.
+			readBuf = readBuf[:int(remaining)+1]
+		}
+		n, err := r.Read(readBuf)
+		if n < 0 || n > len(buf) {
+			return nil, fmt.Errorf("read artifact: invalid reader count %d", n)
+		}
+		if n > 0 {
+			data = append(data, buf[:n]...)
+			noProgress = 0
+		} else if err == nil {
+			noProgress++
+			if noProgress >= 100 {
+				return nil, fmt.Errorf("read artifact: %w", io.ErrNoProgress)
+			}
+		}
+		if int64(len(data)) > max {
+			return nil, fmt.Errorf("artifact size %d exceeds the %d byte limit", len(data), max)
+		}
+		if err == io.EOF {
+			return data, nil
+		}
+		if err != nil {
+			return nil, fmt.Errorf("read artifact: %w", err)
+		}
 	}
 }

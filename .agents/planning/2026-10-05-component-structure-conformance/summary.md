@@ -1,9 +1,9 @@
 # Component structure conformance — summary
 
-**Date:** 2026-10-05 · **Revised:** 2026-10-05 (R1, R2) · **Status:** Steps 1–4 of 16
+**Date:** 2026-10-05 · **Revised:** 2026-10-05 (R1, R2) · **Status:** Steps 1–5 of 16
 done (probe script, conventions, spikes S2/S3/S4 resolved, `interface_files` landed,
-Step 3 hygiene/unexports/dead-dep removal complete, Step 4 `atomicfile` extracted);
-Steps 5–16 in progress
+Step 3 hygiene/unexports/dead-dep removal complete, Step 4 `atomicfile` extracted,
+Step 5 `artifactio` authority-free + `reportio` split); Steps 6–16 in progress
 
 ## What this is
 

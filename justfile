@@ -66,9 +66,9 @@ probe component:
 	bash scripts/authority-probe.sh {{component}}
 
 # Self-check coverage:
-# Native `just selfcheck` stages 21 analyzed production components in dependency
-# order. Twenty must pass:
-#   capanalyzer, atomicfile, hostpolicy, symbol, manifest, report, stdlibauthority, facts,
+# Native `just selfcheck` stages 22 analyzed production components in dependency
+# order. Twenty-one must pass:
+#   capanalyzer, atomicfile, hostpolicy, symbol, manifest, report, reportio, stdlibauthority, facts,
 #   surface, artifactio, checker, capslockadapter, packagelayout, stdlibmap,
 #   goanalysis, parsecsv, csvfile, toprow, app, cli.
 # `schema` is the one explicit expected-fail analysis because its generated
@@ -76,8 +76,8 @@ probe component:
 # and `x-tools` wrappers are asserted UNKNOWN package surfaces: they provide a
 # checked-in surface and intentionally produce no report or analysis.
 #
-# The Bazel wildcard has 17 checked component gates: the thirteen internal
-# components capanalyzer, atomicfile, hostpolicy, symbol, stdlibauthority, facts, report,
+# The Bazel wildcard has 18 checked component gates: the fourteen internal
+# components capanalyzer, atomicfile, hostpolicy, symbol, stdlibauthority, facts, report, reportio,
 # checker, manifest, goanalysis, artifactio, surface, and packagelayout, plus
 # the four CSV components parsecsv, csvfile, toprow, and app. Schema's check is
 # excluded via `check_tags = ["manual"]` for the same expected generated-protobuf
@@ -143,6 +143,7 @@ selfcheck:
 	selfcheck_stage_component "$arcc_bin" "$map_path" internal/facts/component.textproto; \
 	selfcheck_stage_component "$arcc_bin" "$map_path" internal/surface/component.textproto; \
 	selfcheck_stage_component "$arcc_bin" "$map_path" internal/artifactio/component.textproto; \
+	selfcheck_stage_component "$arcc_bin" "$map_path" internal/reportio/component.textproto; \
 	selfcheck_stage_component "$arcc_bin" "$map_path" internal/checker/component.textproto; \
 	selfcheck_stage_component "$arcc_bin" "$map_path" internal/capslockadapter/component.textproto; \
 	selfcheck_stage_component "$arcc_bin" "$map_path" internal/stdlibmap/component.textproto; \

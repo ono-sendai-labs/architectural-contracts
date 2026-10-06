@@ -20,6 +20,7 @@ import (
 
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/artifactio"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/report"
+	"github.com/ono-sendai-labs/architectural-contracts/go/internal/reportio"
 )
 
 const (
@@ -1225,9 +1226,13 @@ func assertHermeticityReportsAndSurfaces(t *testing.T, run hermeticityBazelRun) 
 			t.Fatalf("missing ArccCheck action for %s", target)
 		}
 		reportPath := producerChainOutputPath(t, run.Execroot, *matching, ".report.json")
-		persisted, err := artifactio.ReadReportFile(reportPath)
+		reportBytes, err := os.ReadFile(reportPath)
 		if err != nil {
 			t.Fatalf("reading %s report %q: %v", target, reportPath, err)
+		}
+		persisted, err := reportio.DecodeReport(reportBytes)
+		if err != nil {
+			t.Fatalf("decoding %s report %q: %v", target, reportPath, err)
 		}
 		if persisted.Verdict != report.VerdictPass {
 			t.Fatalf("%s report verdict = %q, want pass", target, persisted.Verdict)
@@ -1263,9 +1268,13 @@ func assertReportBoundaryUnknownText(t *testing.T, run hermeticityBazelRun) {
 		t.Fatalf("%s ArccCheck actions = %d, want exactly one persisted-report producer", hermeticityReportBoundaryConsumer, len(checkActions))
 	}
 	reportPath := producerChainOutputPath(t, run.Execroot, checkActions[0], ".report.json")
-	persisted, err := artifactio.ReadReportFile(reportPath)
+	reportBytes, err := os.ReadFile(reportPath)
 	if err != nil {
 		t.Fatalf("reading %s report %q: %v", hermeticityReportBoundaryConsumer, reportPath, err)
+	}
+	persisted, err := reportio.DecodeReport(reportBytes)
+	if err != nil {
+		t.Fatalf("decoding %s report %q: %v", hermeticityReportBoundaryConsumer, reportPath, err)
 	}
 
 	rendered := report.RenderText(persisted.Report)

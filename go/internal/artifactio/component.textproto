@@ -1,12 +1,9 @@
 name: "artifactio"
-# Shell component: owns its implementation and consumes the generated schema,
-# capability vocabulary, symbol grammar, and foreign protobuf runtime through
-# their single-owner package-surface dependencies.
-interface_style: INTERFACE_STYLE_PACKAGE_SURFACE
-component_dependencies {
-  name: "report"
-  manifest: "../report/component.textproto"
-}
+interface_files: "artifactio.go"
+interface_files: "digest.go"
+interface_files: "stdlibmap.go"
+interface_files: "surface.go"
+interface_files: "surfacepaths.go"
 component_dependencies {
   name: "schema"
   manifest: "../schema/component.textproto"
@@ -28,6 +25,3 @@ component_dependencies {
   manifest: "../protobufruntime/component.textproto"
 }
 members: "github.com/ono-sendai-labs/architectural-contracts/go/internal/artifactio"
-declared_authority: "FILES"
-declared_authority: "REFLECT"
-declared_authority: "UNSAFE_POINTER"

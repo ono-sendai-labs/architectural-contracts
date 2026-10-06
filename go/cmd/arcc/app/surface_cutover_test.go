@@ -15,6 +15,7 @@ import (
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/hostpolicy"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/manifest"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/report"
+	"github.com/ono-sendai-labs/architectural-contracts/go/internal/reportio"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/schema/gen"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/stdlibauthority"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/surface"
@@ -229,11 +230,11 @@ component_dependencies {
 	writeLayoutStatusSurface("csvfile", declared, strings.Repeat("0", 64))
 	writeLayoutStatusSurface("parsecsv", declared, strings.Repeat("1", 64))
 	writeLayoutStatusSurface("unowned", &gen.AuthorityDeclaration{Authority: gen.Authority_UNKNOWN}, "")
-	passReport, err := artifactio.MarshalReport(report.ConformanceReport{Component: "csvfile"})
+	passReport, err := reportio.MarshalReport(report.ConformanceReport{Component: "csvfile"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	failReport, err := artifactio.MarshalReport(report.ConformanceReport{
+	failReport, err := reportio.MarshalReport(report.ConformanceReport{
 		Component: "parsecsv",
 		Violations: []report.Finding{{
 			Kind:    report.UndeclaredAuthority,

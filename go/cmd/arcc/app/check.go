@@ -19,6 +19,7 @@ import (
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/goanalysis"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/manifest"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/report"
+	"github.com/ono-sendai-labs/architectural-contracts/go/internal/reportio"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/stdlibauthority"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/stdlibmap"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/surface"
@@ -440,7 +441,7 @@ func (r *Runner) publishArtifacts(
 	}
 
 	if opts.reportOut != "" {
-		data, err := artifactio.MarshalReport(conformanceReport)
+		data, err := reportio.MarshalReport(conformanceReport)
 		if err != nil {
 			return fmt.Errorf("encoding the report artifact: %v", err)
 		}

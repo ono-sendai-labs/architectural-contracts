@@ -9,6 +9,10 @@ component_dependencies {
   manifest: "../artifactio/component.textproto"
 }
 component_dependencies {
+  name: "reportio"
+  manifest: "../reportio/component.textproto"
+}
+component_dependencies {
   name: "facts"
   manifest: "../facts/component.textproto"
 }

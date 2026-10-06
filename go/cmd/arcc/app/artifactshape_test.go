@@ -7,19 +7,19 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ono-sendai-labs/architectural-contracts/go/internal/artifactio"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/report"
+	"github.com/ono-sendai-labs/architectural-contracts/go/internal/reportio"
 )
 
 func TestArtifactShapeCommandComparesValidatedSnapshot(t *testing.T) {
 	dir := t.TempDir()
 	artifactPath := filepath.Join(dir, "component.report.json")
 	goldenPath := filepath.Join(dir, "component.report.shape.golden.json")
-	artifact, err := artifactio.MarshalReport(report.ConformanceReport{Component: "shape"})
+	artifact, err := reportio.MarshalReport(report.ConformanceReport{Component: "shape"})
 	if err != nil {
 		t.Fatalf("MarshalReport: %v", err)
 	}
-	golden, err := artifactio.Snapshot(artifactio.ShapeReport, bytes.NewReader(artifact))
+	golden, err := reportio.Snapshot(reportio.ShapeReport, bytes.NewReader(artifact))
 	if err != nil {
 		t.Fatalf("Snapshot: %v", err)
 	}

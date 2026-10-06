@@ -12,6 +12,7 @@ import (
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/artifactio"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/facts"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/goanalysis"
+	"github.com/ono-sendai-labs/architectural-contracts/go/internal/reportio"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/stdlibauthority"
 )
 
@@ -281,7 +282,7 @@ func TestRunner_Check_EmitsBothArtifacts(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit = %d, want 0", code)
 	}
-	persisted, err := artifactio.DecodeReport(recorded[reportPath])
+	persisted, err := reportio.DecodeReport(recorded[reportPath])
 	if err != nil {
 		t.Fatalf("decode report artifact: %v", err)
 	}
@@ -331,7 +332,7 @@ func TestRunner_Check_VerdictOnlySeparatesPolicyFromExecution(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("violating verdict-only exit = %d, want 0", code)
 	}
-	persisted, err := artifactio.DecodeReport(recorded[reportPath])
+	persisted, err := reportio.DecodeReport(recorded[reportPath])
 	if err != nil {
 		t.Fatalf("decode report: %v", err)
 	}
@@ -346,7 +347,7 @@ func TestRunner_Check_VerdictOnlySeparatesPolicyFromExecution(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("conforming verdict-only exit = %d, want 0", code)
 	}
-	passing, err := artifactio.DecodeReport(recordedPass[reportPath])
+	passing, err := reportio.DecodeReport(recordedPass[reportPath])
 	if err != nil {
 		t.Fatalf("decode report: %v", err)
 	}
@@ -402,7 +403,7 @@ func TestRunner_Check_ManifestAnalysisDefeatingPolicy(t *testing.T) {
 			if code != tt.wantCode {
 				t.Fatalf("exit = %d, want %d; stdout=%q stderr=%q", code, tt.wantCode, stdout, stderr)
 			}
-			persisted, err := artifactio.DecodeReport(recorded[reportPath])
+			persisted, err := reportio.DecodeReport(recorded[reportPath])
 			if err != nil {
 				t.Fatalf("decode report: %v", err)
 			}
@@ -447,7 +448,7 @@ func TestRunner_Check_ManifestWarnDoesNotDowngradeTrueAuthority(t *testing.T) {
 	if code != 1 {
 		t.Fatalf("exit = %d, want 1 for undeclared FILES; stderr = %q", code, stderr)
 	}
-	persisted, err := artifactio.DecodeReport(recorded[reportPath])
+	persisted, err := reportio.DecodeReport(recorded[reportPath])
 	if err != nil {
 		t.Fatalf("decode report: %v", err)
 	}
@@ -477,7 +478,7 @@ func TestRunner_Check_OrdinaryExitsPreserved(t *testing.T) {
 	if code != 1 {
 		t.Fatalf("violation exit = %d, want 1; stderr = %q", code, stderr)
 	}
-	persisted, err := artifactio.DecodeReport(recorded[reportPath])
+	persisted, err := reportio.DecodeReport(recorded[reportPath])
 	if err != nil {
 		t.Fatalf("decode report: %v", err)
 	}

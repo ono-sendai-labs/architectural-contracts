@@ -6,10 +6,10 @@ import (
 	"os"
 	"strings"
 
-	"github.com/ono-sendai-labs/architectural-contracts/go/internal/artifactio"
+	"github.com/ono-sendai-labs/architectural-contracts/go/internal/reportio"
 )
 
-// runArtifactShape validates one persisted artifact through artifactio and
+// runArtifactShape validates one persisted artifact through reportio and
 // compares its typed shape snapshot with a checked-in golden. The command is
 // intentionally assertion-only: it never regenerates an artifact or invokes a
 // producer action.
@@ -19,7 +19,7 @@ func (r *Runner) runArtifactShape(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 	kindName := args[0]
-	kind := artifactio.ShapeKind(kindName)
+	kind := reportio.ShapeKind(kindName)
 	artifactPath := args[1]
 	goldenPath := ""
 	printSnapshot := false
@@ -91,7 +91,7 @@ func (r *Runner) runArtifactShape(args []string, stdout, stderr io.Writer) int {
 	if err == nil {
 		return 0
 	}
-	if artifactio.IsShapeMismatch(err) || isLayoutShapeMismatch(err) {
+	if reportio.IsShapeMismatch(err) || isLayoutShapeMismatch(err) {
 		fmt.Fprintf(stderr, "shape mismatch: %v\n", err)
 		return 1
 	}
@@ -134,10 +134,10 @@ func (r *Runner) runLayoutArtifactShape(artifactPath, goldenPath string, printSn
 	}
 }
 
-func snapshotArtifactShape(kind artifactio.ShapeKind, artifact io.Reader) ([]byte, error) {
-	return artifactio.Snapshot(kind, artifact)
+func snapshotArtifactShape(kind reportio.ShapeKind, artifact io.Reader) ([]byte, error) {
+	return reportio.Snapshot(kind, artifact)
 }
 
-func compareArtifactShape(kind artifactio.ShapeKind, artifact, golden io.Reader) error {
-	return artifactio.CompareShape(kind, artifact, golden)
+func compareArtifactShape(kind reportio.ShapeKind, artifact, golden io.Reader) error {
+	return reportio.CompareShape(kind, artifact, golden)
 }

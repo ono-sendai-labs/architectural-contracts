@@ -17,6 +17,7 @@ import (
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/goanalysis"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/manifest"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/report"
+	"github.com/ono-sendai-labs/architectural-contracts/go/internal/reportio"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/stdlibmap"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/teststdlibmap"
 )
@@ -366,7 +367,7 @@ func TestCheck_EmitsArtifactsLayoutMode(t *testing.T) {
 	if err != nil {
 		t.Fatalf("surface artifact: %v", err)
 	}
-	persisted, err := artifactio.DecodeReport(reportData)
+	persisted, err := reportio.DecodeReport(reportData)
 	if err != nil {
 		t.Fatalf("decode report: %v", err)
 	}
@@ -1088,7 +1089,7 @@ func TestCheck_ExcludedInterfaceFileStillEmitsSurface(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	persisted, err := artifactio.DecodeReport(reportData)
+	persisted, err := reportio.DecodeReport(reportData)
 	if err != nil {
 		t.Fatalf("decode report: %v", err)
 	}

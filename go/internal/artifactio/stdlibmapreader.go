@@ -5,7 +5,6 @@ package artifactio
 
 import (
 	"fmt"
-	"io"
 	"slices"
 
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/schema/gen"
@@ -16,68 +15,6 @@ import (
 // Compile-time assertion: the artifact-backed reader satisfies the core-side
 // StdlibAuthority port (design §stdlibmap, "pinned artifact reader").
 var _ stdlibauthority.StdlibAuthority = (*stdlibMapReader)(nil)
-
-// NewStdlibMapReader converts a validated in-memory persisted stdlib map into
-// a StdlibAuthority. It validates the message's semantic invariants even
-// though it skips the JSON decoder (technical requirement 5): an invalid or
-// duplicate terminal state handed in by any caller is rejected here, never
-// indexed. When expected is non-nil, the reader fails closed with
-// ErrKeyMismatch unless the map's SDK key agrees with it on every field (N3).
-//
-// The returned authority holds immutable indexes built once from m; it does
-// not alias m's mutable slices. Lookup results are defensive copies.
-func NewStdlibMapReader(m *gen.StdlibMap, expected *stdlibauthority.SDKKey) (stdlibauthority.StdlibAuthority, error) {
-	if m == nil {
-		return nil, fmt.Errorf("stdlib map is nil")
-	}
-	if err := validateMap(m); err != nil {
-		return nil, err
-	}
-	key, err := sdkKeyFromProto(m.Key)
-	if err != nil {
-		return nil, err
-	}
-	if expected != nil {
-		if fields := stdlibauthority.EqualKeys(key, *expected); len(fields) > 0 {
-			return nil, &stdlibauthority.KeyMismatchError{Fields: fields}
-		}
-	}
-
-	r := &stdlibMapReader{
-		packages: make(map[string]bool, len(m.Packages)),
-		symbols:  make(map[string]stdlibauthority.Classification, len(m.Symbols)),
-		inits:    make(map[string]stdlibauthority.Classification, len(m.Inits)),
-		evidence: make(map[string][]stdlibauthority.Frame, len(m.Evidence)),
-		key:      key,
-	}
-	for _, p := range m.Packages {
-		r.packages[p.Path] = true
-	}
-	for _, s := range m.Symbols {
-		r.symbols[s.Package+"\x00"+s.Id] = classificationFromProto(s.Classification, s.Capabilities)
-	}
-	for _, i := range m.Inits {
-		r.inits[i.Package] = classificationFromProto(i.Classification, i.Capabilities)
-	}
-	for _, e := range m.Evidence {
-		frames := make([]stdlibauthority.Frame, 0, len(e.Frames))
-		for _, f := range e.Frames {
-			frames = append(frames, stdlibauthority.Frame{Function: f.Function, File: f.File, Line: int(f.Line)})
-		}
-		r.evidence[e.SymbolId+"\x00"+e.Capability] = frames
-	}
-	return r, nil
-}
-
-// OpenStdlibMap decodes the canonical stdlib-map artifact from r and opens it
-// for lookup, with the same fail-closed key check as NewStdlibMapReader.
-func OpenStdlibMap(r io.Reader, expected *stdlibauthority.SDKKey) (stdlibauthority.StdlibAuthority, error) {
-	m, err := DecodeMap(r)
-	if err != nil {
-		return nil, err
-	}
-	return NewStdlibMapReader(m, expected)
-}
 
 // sdkKeyFromProto converts the persisted SDK-key message to the core value,
 // canonicalizing build tags to sorted order as EqualKeys expects.

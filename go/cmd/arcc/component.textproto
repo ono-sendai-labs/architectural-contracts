@@ -47,6 +47,10 @@ component_dependencies {
   manifest: "../../internal/report/component.textproto"
 }
 component_dependencies {
+  name: "reportio"
+  manifest: "../../internal/reportio/component.textproto"
+}
+component_dependencies {
   name: "stdlibmap"
   manifest: "../../internal/stdlibmap/component.textproto"
 }

@@ -16,6 +16,7 @@ import (
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/artifactio"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/manifest"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/report"
+	"github.com/ono-sendai-labs/architectural-contracts/go/internal/reportio"
 )
 
 var arccBin string
@@ -236,7 +237,7 @@ component_dependencies {
 	}
 	if data, err := os.ReadFile(reportPath); err != nil {
 		t.Fatal(err)
-	} else if _, err := artifactio.DecodeReport(data); err != nil {
+	} else if _, err := reportio.DecodeReport(data); err != nil {
 		t.Fatalf("staged report remains stale: %v", err)
 	}
 	if err := staged.restore(); err != nil {
@@ -1458,7 +1459,7 @@ declared_authority: "FILES"
 	if code != 0 || stderr != "" {
 		t.Fatalf("CSV layout dependency artifact: exit %d, stderr=%q", code, stderr)
 	}
-	statusFailReport, err := artifactio.MarshalReport(report.ConformanceReport{
+	statusFailReport, err := reportio.MarshalReport(report.ConformanceReport{
 		Component: "parsecsv",
 		Violations: []report.Finding{{
 			Kind:    report.AnalysisLimitation,
@@ -1471,7 +1472,7 @@ declared_authority: "FILES"
 	if err := os.WriteFile(statusDepReportPath, statusFailReport, 0o644); err != nil {
 		t.Fatalf("write CSV checked-fail report: %v", err)
 	}
-	persisted, err := artifactio.DecodeReport(statusFailReport)
+	persisted, err := reportio.DecodeReport(statusFailReport)
 	if err != nil {
 		t.Fatalf("decode CSV checked-fail report: %v", err)
 	}

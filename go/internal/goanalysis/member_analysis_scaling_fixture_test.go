@@ -22,6 +22,7 @@ import (
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/manifest"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/packagelayout"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/report"
+	"github.com/ono-sendai-labs/architectural-contracts/go/internal/reportio"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/surface"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/teststdlibmap"
 	"golang.org/x/tools/go/packages"
@@ -374,7 +375,7 @@ func emitScalingArtifacts(t *testing.T, fixture scalingFixture, loaded facts.Pac
 	if err != nil {
 		t.Fatalf("encoding scaling surface artifact: %v", err)
 	}
-	reportBytes, err := artifactio.MarshalReport(report.ConformanceReport{
+	reportBytes, err := reportio.MarshalReport(report.ConformanceReport{
 		Component: fixture.MemberPath,
 		Diagnostics: report.Diagnostics{
 			NonMemberExportArtifactCount: loaded.ExportDataDiagnostics.NonMemberExportArtifactCount,

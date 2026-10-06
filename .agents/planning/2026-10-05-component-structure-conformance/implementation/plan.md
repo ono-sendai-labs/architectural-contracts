@@ -95,7 +95,7 @@ says the component declares — no more and no fewer. Record the probe summary
 - [x] **Step 2** — `go_component.interface_files` attribute; parity set-equality; `goanalysis`/`checker` converted (spike S4) *(done 2026-10-05; `csvfile` also converted — real divergence found)*
 - [x] **Step 3** — Hygiene: honest declarations, unexports, explicit members *(done 2026-10-05; `report` dropped from `goanalysis`, `x-tools` dropped from `cli`, `hostpolicy` explicit member, unexports across 8 packages)*
 - [x] **Step 4** — New component `atomicfile` *(done 2026-10-05; lifted from `artifactio/write.go`, `FILES` ×4)*
-- [ ] **Step 5** — `artifactio` authority-free + new `reportio`
+- [x] **Step 5** — `artifactio` authority-free + new `reportio` *(done 2026-10-05; `artifactio` authority-free, `reportio` holds `REFLECT`+`UNSAFE_POINTER`)*
 - [ ] **Step 6** — `checker`: file-list interface = `checker.go`
 - [ ] **Step 7** — `symbol` → `symbol` + `capslocksymbol`
 - [ ] **Step 8** — `schema` → `schema` + `schema-gen` (WARN; last in-tree `PACKAGE_SURFACE` removed)
@@ -370,6 +370,16 @@ protojson codecs stay and become authority-free; the JSON report/golden codecs b
 
 **Demo.** `grep -n 'declared_authority\|interface_style' go/internal/artifactio/BUILD.bazel`
 is empty; `reportio_component.report.json` passes.
+
+**Status: DONE 2026-10-05.**
+- Created `go/internal/reportio/{report.go,golden.go,report_test.go,golden_test.go,BUILD.bazel,component.textproto}` (`interface_files = ["golden.go", "report.go"]`, `declared_authority = ["REFLECT", "UNSAFE_POINTER"]` with exact C9 comment).
+- Replaced `ReadVerdictGoldenFile` with `DecodeVerdictGolden(io.Reader)` and deleted `ReadReportFile` (`cmd/arcc/app/verdict.go` opens files directly with `io.LimitReader(rf, reportio.MaxReportBytes+1)`).
+- Converted `artifactio` to declared style (`interface_files = ["artifactio.go", "digest.go", "stdlibmap.go", "surface.go", "surfacepaths.go"]`, NIF `stdlibmapreader.go` with `NewStdlibMapReader`/`OpenStdlibMap` moved to `stdlibmap.go`) and zero `declared_authority`.
+- Note on `goanalysis`: `go/internal/goanalysis/surface_resolver.go:596` (`readDependencyReport`) calls `reportio.DecodeReport` to inspect companion `.report.json` verdicts, so `goanalysis` declares a component dependency on `reportio` as well as `artifactio`. Per F6, `reportio`'s `REFLECT`/`UNSAFE_POINTER` are charged to `reportio`, never to `goanalysis`.
+- Probes:
+  - `artifactio`: **empty** (0 findings).
+  - `reportio`: `REFLECT` ×6 (`golden.go:573,582`, `report.go:78,114,139,157`), `UNSAFE_POINTER` ×6 (same sites).
+  - `goanalysis`: `FILES` ×6, `READ_SYSTEM_STATE` ×2, `RUNTIME` ×1 (no `REFLECT`/`UNSAFE_POINTER`).
 
 ---
 

@@ -17,6 +17,7 @@ import (
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/facts"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/goanalysis"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/report"
+	"github.com/ono-sendai-labs/architectural-contracts/go/internal/reportio"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/schema/gen"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/stdlibauthority"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/symbol"
@@ -1248,7 +1249,7 @@ func TestRunner_Check_DependencyArtifactFaultsPublishNothing(t *testing.T) {
 			prepare: func(t *testing.T, dependencyDir string) {
 				t.Helper()
 				writeNativeTestSurface(t, dependencyDir, "dependency", gen.InterfaceStyle_INTERFACE_STYLE_PACKAGE_SURFACE, []string{"example.com/temp/dependency"}, nil)
-				data, err := artifactio.MarshalReport(report.ConformanceReport{Component: "other-component"})
+				data, err := reportio.MarshalReport(report.ConformanceReport{Component: "other-component"})
 				if err != nil {
 					t.Fatal(err)
 				}

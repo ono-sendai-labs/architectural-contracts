@@ -16,6 +16,7 @@ import (
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/manifest"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/packagelayout"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/report"
+	"github.com/ono-sendai-labs/architectural-contracts/go/internal/reportio"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/schema/gen"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/stdlibauthority"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/surface"
@@ -93,9 +94,9 @@ func resolverReport(t *testing.T, component string, failed bool) []byte {
 	if failed {
 		r.Violations = []report.Finding{{Kind: report.UndeclaredAuthority, Message: "dependency failed"}}
 	}
-	data, err := artifactio.MarshalReport(r)
+	data, err := reportio.MarshalReport(r)
 	if err != nil {
-		t.Fatalf("artifactio.MarshalReport: %v", err)
+		t.Fatalf("reportio.MarshalReport: %v", err)
 	}
 	return data
 }

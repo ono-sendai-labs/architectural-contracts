@@ -23,6 +23,7 @@ import (
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/facts"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/packagelayout"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/report"
+	"github.com/ono-sendai-labs/architectural-contracts/go/internal/reportio"
 	"golang.org/x/tools/go/packages"
 )
 
@@ -609,9 +610,13 @@ func producerChainSourceInput(t *testing.T, execroot string, action producerChai
 func assertProducerChainReport(t *testing.T, execroot string, action producerChainAction, component string) {
 	t.Helper()
 	path := producerChainOutputPath(t, execroot, action, ".report.json")
-	persisted, err := artifactio.ReadReportFile(path)
+	reportBytes, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("reading %s report %q: %v", component, path, err)
+	}
+	persisted, err := reportio.DecodeReport(reportBytes)
+	if err != nil {
+		t.Fatalf("decoding %s report %q: %v", component, path, err)
 	}
 	if persisted.Report.Component != component {
 		t.Fatalf("%s report component = %q, want %q", component, persisted.Report.Component, component)

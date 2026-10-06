@@ -1,0 +1,27 @@
+name: "reportio"
+interface_files: "golden.go"
+interface_files: "report.go"
+component_dependencies {
+  name: "artifactio"
+  manifest: "../artifactio/component.textproto"
+}
+component_dependencies {
+  name: "report"
+  manifest: "../report/component.textproto"
+}
+component_dependencies {
+  name: "schema"
+  manifest: "../schema/component.textproto"
+}
+members: "github.com/ono-sendai-labs/architectural-contracts/go/internal/reportio"
+# REFLECT and UNSAFE_POINTER come from `encoding/json` in the persisted-report
+# and shape-snapshot codecs; the stdlib map attributes both to
+# `json.Marshal/Unmarshal` (number parsing reaches `unsafe.Pointer`), so they
+# cannot be separated. They are not confined to a smaller sub-component because
+# the reflective traversal is the serialization itself: a wrapper would hold the
+# same call sites and narrow nothing (README limitation 11). This component
+# exists so that the declaration coincides with its sole purpose; retiring the
+# capabilities requires encoding the report with protojson, a schema change
+# tracked as a follow-up.
+declared_authority: "REFLECT"
+declared_authority: "UNSAFE_POINTER"

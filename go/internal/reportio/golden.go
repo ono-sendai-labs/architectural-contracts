@@ -1,4 +1,4 @@
-package artifactio
+package reportio
 
 import (
 	"bytes"
@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/ono-sendai-labs/architectural-contracts/go/internal/artifactio"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/report"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/schema/gen"
 )
@@ -36,7 +37,7 @@ func (e *shapeMismatchError) Error() string {
 }
 
 // IsShapeMismatch reports whether err is the assertion result from
-// CompareShape. Keeping the result classification inside artifactio lets CLI
+// CompareShape. Keeping the result classification inside reportio lets CLI
 // hosts depend on this small semantic port without importing another
 // standard-library error traversal edge into their component boundary.
 func IsShapeMismatch(err error) bool {
@@ -60,6 +61,8 @@ const (
 	shapeSDKClassifier             = "<SDK_CLASSIFIER_HASH>"
 	shapeSDKExperiment             = "<SDK_GOEXPERIMENT>"
 	shapeContentDigest             = "<CONTENT_DIGEST>"
+
+	maxSurfaceBytes = 16 << 20
 )
 
 // Surface and map shape policy: package/symbol identities, enum values,
@@ -107,7 +110,7 @@ func CompareShape(kind ShapeKind, artifact io.Reader, golden io.Reader) error {
 	if err != nil {
 		return fmt.Errorf("snapshot %s artifact: %w", kind, err)
 	}
-	wantBytes, err := boundedRead(golden, MaxMapBytes)
+	wantBytes, err := boundedRead(golden, artifactio.MaxMapBytes)
 	if err != nil {
 		return fmt.Errorf("read %s shape golden: %w", kind, err)
 	}
@@ -145,11 +148,11 @@ func readCanonicalSurface(r io.Reader) (*gen.SurfaceManifest, error) {
 	if err != nil {
 		return nil, err
 	}
-	surface, err := DecodeSurface(bytes.NewReader(data))
+	surface, err := artifactio.DecodeSurface(bytes.NewReader(data))
 	if err != nil {
 		return nil, err
 	}
-	canonical, err := MarshalSurface(surface)
+	canonical, err := artifactio.MarshalSurface(surface)
 	if err != nil {
 		return nil, fmt.Errorf("re-encode surface artifact: %w", err)
 	}
@@ -160,15 +163,15 @@ func readCanonicalSurface(r io.Reader) (*gen.SurfaceManifest, error) {
 }
 
 func readCanonicalMap(r io.Reader) (*gen.StdlibMap, error) {
-	data, err := boundedRead(r, MaxMapBytes)
+	data, err := boundedRead(r, artifactio.MaxMapBytes)
 	if err != nil {
 		return nil, err
 	}
-	stdlibMap, err := DecodeMap(bytes.NewReader(data))
+	stdlibMap, err := artifactio.DecodeMap(bytes.NewReader(data))
 	if err != nil {
 		return nil, err
 	}
-	canonical, err := MarshalMap(stdlibMap)
+	canonical, err := artifactio.MarshalMap(stdlibMap)
 	if err != nil {
 		return nil, fmt.Errorf("re-encode stdlib map artifact: %w", err)
 	}

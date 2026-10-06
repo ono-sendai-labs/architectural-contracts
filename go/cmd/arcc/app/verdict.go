@@ -3,10 +3,11 @@ package app
 import (
 	"fmt"
 	"io"
+	"os"
 	"strings"
 
-	"github.com/ono-sendai-labs/architectural-contracts/go/internal/artifactio"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/report"
+	"github.com/ono-sendai-labs/architectural-contracts/go/internal/reportio"
 )
 
 // runVerdict implements `arcc verdict <report> --expect=pass|fail` and its
@@ -90,15 +91,31 @@ func (r *Runner) runVerdict(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 	if expectFile != "" {
-		var err error
-		expect, err = artifactio.ReadVerdictGoldenFile(expectFile)
+		f, err := os.Open(expectFile)
+		if err != nil {
+			fmt.Fprintf(stderr, "error: %v\n", err)
+			return 2
+		}
+		defer f.Close()
+		expect, err = reportio.DecodeVerdictGolden(f)
 		if err != nil {
 			fmt.Fprintf(stderr, "error: %v\n", err)
 			return 2
 		}
 	}
 
-	persisted, err := artifactio.ReadReportFile(reportPath)
+	rf, err := os.Open(reportPath)
+	if err != nil {
+		fmt.Fprintf(stderr, "error: %v\n", err)
+		return 2
+	}
+	defer rf.Close()
+	data, err := io.ReadAll(io.LimitReader(rf, reportio.MaxReportBytes+1))
+	if err != nil {
+		fmt.Fprintf(stderr, "error: %v\n", err)
+		return 2
+	}
+	persisted, err := reportio.DecodeReport(data)
 	if err != nil {
 		fmt.Fprintf(stderr, "error: %v\n", err)
 		return 2
