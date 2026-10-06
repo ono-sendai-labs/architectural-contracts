@@ -765,3 +765,24 @@ func TestLoadPackageFacts_BodilessMemberIsHardError(t *testing.T) {
 		t.Errorf("expected M10 error message about missing source files, got %v", err)
 	}
 }
+
+func TestLoadPackageFacts_InterfaceFileOutsideMembersFails(t *testing.T) {
+	root, err := filepath.Abs("testdata/success")
+	if err != nil {
+		t.Fatalf("failed to get absolute path to testdata: %v", err)
+	}
+
+	// testdata/success/a has package a. If declared members is only package a,
+	// but interface_files names a file from package b (a/b/b.go), loading must fail.
+	_, err = goanalysis.LoadPackageFacts(goanalysis.LoadRequest{
+		ComponentRoot:  root,
+		Members:        []string{"github.com/ono-sendai-labs/architectural-contracts/go/internal/goanalysis/testdata/success/a"},
+		InterfaceFiles: []string{"a/b/b.go"},
+	})
+	if err == nil {
+		t.Fatalf("expected error when interface file is outside declared members, got nil")
+	}
+	if !strings.Contains(err.Error(), "non-member package") && !strings.Contains(err.Error(), "does not belong") {
+		t.Errorf("error %q does not describe non-member interface file", err)
+	}
+}

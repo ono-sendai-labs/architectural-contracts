@@ -15,11 +15,46 @@ mkdir -p "${invalid_root}/unknown_interface"
 mkdir -p "${invalid_root}/unknown_declaration"
 mkdir -p "${invalid_root}/invalid_authority"
 
+mkdir -p "${invalid_root}/declared_both"
+mkdir -p "${invalid_root}/interface_files_empty_members"
+mkdir -p "${invalid_root}/surface_interface_files"
+
 cat > "${invalid_root}/declared_missing/BUILD.bazel" <<'EOF'
 load("@rules_arcc//bazel_rules/go:defs.bzl", "go_component")
 
 go_component(
     name = "declared_missing",
+)
+EOF
+
+cat > "${invalid_root}/declared_both/BUILD.bazel" <<'EOF'
+load("@rules_arcc//bazel_rules/go:defs.bzl", "go_component")
+
+go_component(
+    name = "declared_both",
+    interface = "//bazel_rules/go/tests/testdata/api:api",
+    interface_files = ["api.go"],
+    members = ["//bazel_rules/go/tests/testdata/api"],
+)
+EOF
+
+cat > "${invalid_root}/interface_files_empty_members/BUILD.bazel" <<'EOF'
+load("@rules_arcc//bazel_rules/go:defs.bzl", "go_component")
+
+go_component(
+    name = "interface_files_empty_members",
+    interface_files = ["api.go"],
+)
+EOF
+
+cat > "${invalid_root}/surface_interface_files/BUILD.bazel" <<'EOF'
+load("@rules_arcc//bazel_rules/go:defs.bzl", "go_component")
+
+go_component(
+    name = "surface_interface_files",
+    interface_files = ["api.go"],
+    interface_style = "PACKAGE_SURFACE",
+    members = ["//bazel_rules/go/tests/testdata/member"],
 )
 EOF
 
@@ -130,7 +165,13 @@ run_failure() {
 }
 
 run_failure declared_missing "${invalid_root}/declared_missing.txt" \
-  "component declared_missing" "requires interface"
+  "component declared_missing" "declared interface_style requires exactly one of interface or interface_files"
+run_failure declared_both "${invalid_root}/declared_both.txt" \
+  "component declared_both" "declared interface_style requires exactly one of interface or interface_files"
+run_failure interface_files_empty_members "${invalid_root}/interface_files_empty_members.txt" \
+  "component interface_files_empty_members" "interface_files requires non-empty members"
+run_failure surface_interface_files "${invalid_root}/surface_interface_files.txt" \
+  "component surface_interface_files" "does not allow interface or interface_files"
 run_failure declared_pattern "${invalid_root}/declared_pattern.txt" \
   "component declared_pattern" "declared-style members must be literal target labels"
 run_failure surface_interface "${invalid_root}/surface_interface.txt" \

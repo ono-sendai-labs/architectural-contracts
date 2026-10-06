@@ -3,9 +3,17 @@ load("@rules_go//go:def.bzl", "go_library", "go_test")
 
 go_library(
     name = "checker",
-    srcs = ["aggregate.go", "boundary.go", "checker.go", "classify.go"],
+    srcs = [
+        "aggregate.go",
+        "boundary.go",
+        "checker.go",
+        "classify.go",
+    ],
     importpath = "github.com/ono-sendai-labs/architectural-contracts/go/internal/checker",
-    visibility = ["//go:__subpackages__"],
+    visibility = [
+        "//bazel_rules:__subpackages__",
+        "//go:__subpackages__",
+    ],
     deps = [
         "//go/internal/capanalyzer",
         "//go/internal/facts",
@@ -19,7 +27,13 @@ go_library(
 go_test(
     name = "checker_test",
     size = "small",
-    srcs = ["aggregate_test.go", "boundary_test.go", "checker_test.go", "classify_test.go", "unused_authority_test.go"],
+    srcs = [
+        "aggregate_test.go",
+        "boundary_test.go",
+        "checker_test.go",
+        "classify_test.go",
+        "unused_authority_test.go",
+    ],
     deps = [
         ":checker",
         "//go/internal/artifactio",
@@ -44,7 +58,12 @@ go_component(
         "//go/internal/stdlibauthority:stdlibauthority_component",
         "//go/internal/symbol:symbol_component",
     ],
-    interface = ":checker",
+    interface_files = [
+        "aggregate.go",
+        "checker.go",
+        "classify.go",
+    ],
+    members = [":checker"],
     visibility = ["//go:__subpackages__"],
 )
 
@@ -60,6 +79,7 @@ go_component(
 # longer exists.
 go_component(
     name = "broken_checker_component",
+    check_tags = ["manual"],
     component_deps = [
         "//go/internal/capanalyzer:capanalyzer_component",
         "//go/internal/facts:facts_component",
@@ -68,7 +88,6 @@ go_component(
         "//go/internal/symbol:symbol_component",
     ],
     interface = ":checker",
-    check_tags = ["manual"],
     visibility = ["//bazel_rules:__subpackages__"],
 )
 

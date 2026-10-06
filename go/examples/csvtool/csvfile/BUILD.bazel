@@ -26,7 +26,8 @@ go_component(
     name = "csvfile_component",
     component_deps = ["//go/examples/csvtool/internal/parsecsv:parsecsv_component"],
     declared_authority = [FILES],
-    interface = ":csvfile",
+    interface_files = ["csvfile.go"],
+    members = [":csvfile"],
     visibility = ["//visibility:public"],
 )
 

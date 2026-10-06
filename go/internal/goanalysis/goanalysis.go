@@ -798,8 +798,23 @@ func packageIsDeclaredMember(pkg *packages.Package, members []string) bool {
 	return false
 }
 
+func packageIsComponentRoot(pkg *packages.Package, componentRoot string) bool {
+	cleanRoot := filepath.Clean(componentRoot)
+	for _, file := range pkg.GoFiles {
+		if filepath.Clean(filepath.Dir(file)) == cleanRoot {
+			return true
+		}
+	}
+	for _, file := range pkg.CompiledGoFiles {
+		if filepath.Clean(filepath.Dir(file)) == cleanRoot {
+			return true
+		}
+	}
+	return false
+}
+
 func packageContainsInterfaceFile(pkg *packages.Package, componentRoot string, interfaceFiles []string) bool {
-	if len(interfaceFiles) == 0 {
+	if len(interfaceFiles) == 0 || !packageIsComponentRoot(pkg, componentRoot) {
 		return false
 	}
 	files := make(map[string]bool, len(pkg.GoFiles)+len(pkg.CompiledGoFiles))

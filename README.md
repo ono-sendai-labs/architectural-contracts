@@ -31,6 +31,7 @@ the workflow task descriptions have been reviewed in detail by the repository ow
 - [CLI Reference and Exit Codes](#cli-reference-and-exit-codes)
 - [The CSV Tool Walkthrough](#the-csv-tool-walkthrough)
 - [Authoring a Component Manifest](#authoring-a-component-manifest)
+- [Component Structure Conventions](#component-structure-conventions)
 - [Limitations and Scope](#limitations-and-scope)
 - [Development and Contributing](#development-and-contributing)
 
@@ -768,6 +769,36 @@ declared_authority: "SYSTEM_CALLS"
 # Omit this field to retain strict fail-closed behavior.
 analysis_defeating_policy: WARN
 ```
+
+---
+
+## Component Structure Conventions
+
+The repository organizes components according to structural conventions designed to minimize ambient authority and keep interface surfaces small:
+
+### Interface Style and Surface (C1–C6)
+- **Declared interface style:** All project-authored components use the declared interface style (`interface_files`). The `PACKAGE_SURFACE` style is strictly reserved for third-party modules or external toolchain runtimes; generated code and internal libraries must declare explicit file boundaries.
+- **Explicit interface files:** A component's interface is declared via `interface_files` (identical in both Bazel `go_component` rules and `component.textproto` manifests). Interface files contain consumer-facing types, API functions, and thin orchestration.
+- **Measurable interface proportion:** Interface files must comprise ≤ ⅓ of the component's non-test LOC, unless the component is a small vocabulary or data-model package (≤ ~500 LOC with ≥ ⅔ of exported symbols consumed by dependents).
+- **Export hygiene and contract boundaries:** No exported symbol in an interface file should be internal-only. A file-list interface represents a contract boundary enforced by arcc (`CALLS_UNDECLARED_INTERFACE`). When language-level compile-time enforcement is required, code is placed in an `internal/` package.
+- **Types-down rule:** Any type a consumer constructs, inspects, or invokes methods on must be declared in interface files alongside all its exported methods (`METHOD_OUTSIDE_INTERFACE`). Interface functions return interface types, Go interfaces, or shared vocabulary models rather than concrete types from implementation files.
+
+### Authority Confinement and Capability Passing (C7–C11, §4.1, §4.2)
+- **Prefer capability passing over authority:** When code only needs to read or process data, accept an `fs.FS`, `io.Reader`, or byte slice rather than performing ambient filesystem operations. This leaves the component authority-free by construction and easily testable with `fstest.MapFS`.
+- **Authority sub-components:** When environment interactions (`os`, `os/exec`, `runtime`, `go/build`) are intrinsic to the behavior, isolate them into small dedicated sub-components (`<component>/internal/<name>`, ≤ ~150 LOC) with narrow, capability-specific APIs.
+- **Measured minimum authority:** Declared authority must equal the exact set of capabilities exercised, as measured by `scripts/authority-probe.sh`. Unused authority declarations (`UNUSED_AUTHORITY`) and undeclared ambient calls are violations.
+- **Codec exception:** Standard library `encoding/json` incurs `REFLECT` and `UNSAFE_POINTER` together due to stdlib number formatting. Because reflection is intrinsic to `encoding/json`, wrapping calls in tiny helper packages would only launder authority rather than narrow it. Instead, JSON codecs are isolated into dedicated components (e.g. `reportio`) so that declared authority aligns directly with component purpose.
+- **Composition root:** The application root (`cmd/arcc/app`) holds the union of capabilities required to wire the system, routing atomic file writes through dedicated sub-components.
+
+### Parity and Package Requirements (C12, §4.3)
+- **Parity:** Member package lists, `interface_files`, dependencies, and declared capabilities must be identical between Bazel rules and native textproto manifests.
+- **When a separate package is required:** While intra-package file splits satisfy most interface-reduction needs, separate packages remain required in three specific situations:
+
+| Situation | Why a package is required | Instances |
+|-----------|---------------------------|-----------|
+| Authority confinement | Authority is accounted per component; sub-components must be distinct packages | `atomicfile`, `goanalysis-hostfs`, `packagelayout-hostenv`, `layout-driver-hook`, `stdlibmap-hosttoolchain` |
+| Consumer set / ownership | Code serves distinct consumers or wraps foreign/generated code | `capslocksymbol`, `reportio`, `schema-gen`, `capslock-runtime` |
+| Compile-time enforcement | Go's compiler enforces `internal/` package import restrictions (C4′) | Adopters' choice for hard language-level barriers |
 
 ---
 

@@ -2,7 +2,9 @@
 
 **Date:** 2026-10-05 · **Revised:** 2026-10-05 (R1: file-list interfaces via a new
 `go_component.interface_files` attribute; `reportio` split; `BuildTags` and `schema-gen`
-WARN decided)
+WARN decided); 2026-10-05 (R2: Steps 1–2 done; spikes S2/S3/S4 resolved — `go/build`
+and `runtime` imports are charged, so `hostenv` + `BuildTags` (Step 11) now precede the
+`goanalysis` split (Step 12); `goanalysis`'s `RUNTIME` is real, not dead)
 **Design:** [`../design/detailed-design.md`](../design/detailed-design.md) (§ references
 below are to that document; F1–F11 are its constraining facts, C1–C12 its conventions,
 Appendix D the rule change)
@@ -37,12 +39,16 @@ Two kinds of change recur. Learn the difference before starting:
    later diff.
 4. **`atomicfile` before `artifactio`/`reportio`** (Step 4 → 5).
 5. **`checker`, `capslocksymbol`, `schema`, `capslock-runtime` before `goanalysis`**
-   (Steps 6–9 → 10–11): `goanalysis` gains `schema-gen` as a dep and `checker` settles
+   (Steps 6–9 → 10–12): `goanalysis` gains `schema-gen` as a dep and `checker` settles
    first.
 6. **`goanalysis-hostfs` is its own step** (Step 10, spike S1): nested-component
    plumbing is proven on a 60-line package before the 3,800-line split.
-7. **`packagelayout` after `goanalysis`** (Steps 12–13): its public-signature changes
-   are easier once `goanalysis` call sites are in cleanly split files.
+7. **`hostenv` + `BuildTags` before the `goanalysis` split** (Step 11 → 12). Spike S2
+   measured that importing `go/build` or `runtime` is itself charged (F12), and
+   `goanalysis` does both (`goanalysis.go:15, :22`). Its remaining authority can only
+   leave through `packagelayout`'s new pure `BuildTags` API and the `hostenv`-forwarded
+   Go version, so those land first and `goanalysis` ends Step 12 with
+   `declared_authority = []`. The rest of the `packagelayout` split (Step 13) follows.
 8. **`cli` and `stdlibmap` last** (Steps 14–15): native-only, least automated coverage.
 9. **Final audit** (Step 16).
 
@@ -85,8 +91,8 @@ says the component declares — no more and no fewer. Record the probe summary
 
 ## Progress checklist
 
-- [ ] **Step 1** — Conventions, authority probe script, spikes S2/S3
-- [ ] **Step 2** — `go_component.interface_files` attribute; parity set-equality; `goanalysis`/`checker` converted (spike S4)
+- [x] **Step 1** — Conventions, authority probe script, spikes S2/S3 *(done 2026-10-05; S2: both imports charged; S3: `fs.FS` free)*
+- [x] **Step 2** — `go_component.interface_files` attribute; parity set-equality; `goanalysis`/`checker` converted (spike S4) *(done 2026-10-05; `csvfile` also converted — real divergence found)*
 - [ ] **Step 3** — Hygiene: honest declarations, unexports, explicit members
 - [ ] **Step 4** — New component `atomicfile`
 - [ ] **Step 5** — `artifactio` authority-free + new `reportio`
@@ -95,9 +101,9 @@ says the component declares — no more and no fewer. Record the probe summary
 - [ ] **Step 8** — `schema` → `schema` + `schema-gen` (WARN; last in-tree `PACKAGE_SURFACE` removed)
 - [ ] **Step 9** — `capslock-runtime` wrapper; `capslockadapter` shrinks
 - [ ] **Step 10** — `goanalysis-hostfs` sub-component (spike S1)
-- [ ] **Step 11** — `goanalysis`: file splits + three interface files
-- [ ] **Step 12** — `packagelayout-hostenv` sub-component + `layout-driver-hook`
-- [ ] **Step 13** — `packagelayout`: file splits, `fs.FS` passing, `BuildTags`, two interface files
+- [ ] **Step 11** — `packagelayout-hostenv` sub-component, `layout-driver-hook`, `BuildTags` (+ `goanalysis` drops `RUNTIME`/`READ_SYSTEM_STATE`)
+- [ ] **Step 12** — `goanalysis`: file splits + three interface files
+- [ ] **Step 13** — `packagelayout`: file splits, `fs.FS` passing, two interface files
 - [ ] **Step 14** — `cli`: declared style with `app/app.go` as the interface
 - [ ] **Step 15** — `stdlibmap`: `hosttoolchain` sub-component + two interface files
 - [ ] **Step 16** — Final audit, README counts, conventions cross-check
@@ -135,24 +141,27 @@ measures conformance, and resolve the import-charge question before any code mov
 - **Spike S2 (import-time charges).** Throwaway `go/internal/zzspike/` (deleted at the
   end of the step, never committed): `a.go` = `import "go/build"; var _ build.Context`;
   `b.go` = `import "runtime"; var _ = runtime.Compiler`. Probe. Record in
-  `../research/spike-s2-import-charges.md` whether findings name `go/build.init`,
-  `runtime.init`, or any capability. **Outcome drives:**
-  - `go/build` charged → Step 13 implements `BuildTags` (decided) and Step 11 keeps
-    `READ_SYSTEM_STATE` on `goanalysis` until Step 13 lands, then drops it.
-  - `go/build` free → `BuildTags` is optional in Step 13 (record the choice).
-  - `runtime` charged → `packagelayout-hostenv` declares `RUNTIME`. Either way all
-    `runtime` references move to `hostenv` (Step 12).
+  `../research/spike-s2-import-charges.md`.
+  **Outcome (measured): both charged** — `go/build.init` → `READ_SYSTEM_STATE`,
+  `runtime.init` → `RUNTIME` (F12). Consequences are already folded into Steps 3, 10, 11.
 - **Spike S3.** Same throwaway: a function taking `fs.FS` that calls `fs.WalkDir`,
-  `fs.ReadDir`, `fs.ReadFile`, `fs.Stat`. Probe → must be empty. If not, stop and report
-  (Step 13's `stdlibdiscover`/`validate` depend on it).
+  `fs.ReadDir`, `fs.ReadFile`, `fs.Stat`. **Outcome: zero findings** — capability passing
+  is free; Step 13's `stdlibdiscover`/`validate` design stands.
 
-**Tests.** `scripts/authority-probe-test.sh` in `just ci`.
+**Tests.** `scripts/authority-probe-test.sh` in `just ci` (recipe `authority-probe-test`,
+wired into `ci-go`).
 
 **Integration.** No component changes; `just ci` only.
 
-**Demo.** `scripts/authority-probe.sh internal/goanalysis/component.textproto` prints
-`FILES` (9 sites) and `READ_SYSTEM_STATE` (1 site: `goanalysis.go:557`) and **no**
-`RUNTIME`.
+**Demo (observed).** `scripts/authority-probe.sh goanalysis` prints `FILES` ×9
+(`defeatscan.go:228`, `goanalysis.go:42,658,689,1003,1063`, `surface_resolver.go:110,714,725`),
+`READ_SYSTEM_STATE` ×2 (`go/build.init` at `goanalysis.go:15`, `filepath.Abs` at `:557`)
+and `RUNTIME` ×1 (`runtime.init` at `goanalysis.go:22`). The research report's claim
+that `RUNTIME` was unexercised was wrong; the declaration stays until Step 11.
+
+**Status: DONE 2026-10-05.** Files: `scripts/authority-probe.sh`,
+`scripts/authority-probe-test.sh`, `justfile` (`probe`, `authority-probe-test`, `ci-go`),
+`README.md` ("Component Structure Conventions"), `research/spike-s2-import-charges.md`.
 
 ---
 
@@ -200,7 +209,7 @@ and `checker`, whose textprotos already list subsets. Specification: design Appe
 - **First real users.** `go/internal/goanalysis/BUILD.bazel`: replace `interface =
   ":goanalysis"` with `interface_files = ["defeatscan.go", "goanalysis.go",
   "surface_resolver.go", "surfaceinputs.go"], members = [":goanalysis"]` (exactly the
-  textproto's current list — Step 11 shrinks it). `go/internal/checker/BUILD.bazel`:
+  textproto's current list — Step 12 shrinks it). `go/internal/checker/BUILD.bazel`:
   `interface_files = ["aggregate.go", "checker.go", "classify.go"]` (current textproto;
   Step 6 shrinks it). Both parity pairs must now be **equal**.
 - Document the attribute where `go_component` attrs are documented (`bazel_rules/go/`
@@ -214,7 +223,7 @@ attrs set → fail; neither → fail; `interface_files` with empty members → f
 consumer of `goanalysis`/`checker` that references a symbol outside the four/three
 listed files now fails with `CALLS_UNDECLARED_INTERFACE` under Bazel exactly as it
 already would natively. If one appears, the two legs *were* diverging — fix by adding
-the file to both lists (temporarily; Step 6/11 redraws them) and record it.
+the file to both lists (temporarily; Step 6/12 redraws them) and record it.
 
 **Demo.** `bazel build //go/internal/goanalysis:goanalysis_component --output_groups=+arcc`
 produces a `goanalysis_component.component.textproto` whose `interface_files` equals the
@@ -223,6 +232,18 @@ checked-in list; `self_manifest_parity_test` passes with equality on.
 **If S4 fails** (a structural assumption about an interface *library* elsewhere in the
 rules or the aspect): stop, write `../research/spike-s4-interface-files.md`, and ask —
 the fallback is the package-per-interface plan (previous revision of this file in VCS).
+
+**Status: DONE 2026-10-05 (S4 passed).** Landed: `interface_files` attr + validation
+(`defs.bzl`, `component.bzl`), fixture `bazel_rules/go/tests/testdata/filelist/` (three
+variants + positive manifest assertion), `manifestparity` set-equality + test,
+`goanalysis`/`checker`/`csvfile` converted (the last was a *real* divergence:
+`private.go` was in the Bazel interface only), F9 visibility added to `:goanalysis` and
+`:checker`. Native containment: an interface file in a non-root package requires that
+package in `members` (`goanalysis.go:801-835`, F13) — the error message is the generic
+"non-member package … retains source syntax" one; Step 14 should confirm it is
+acceptable for `cli` or improve it. Gate item 4 at this point still matches
+`goanalysis_component.report.json` on `UNUSED_DEPENDENCY: report_component` — the
+pre-existing dead dependency removed in Step 3.
 
 ---
 
@@ -233,8 +254,9 @@ exports (C4) *before* restructuring.
 
 **Guidance.**
 - **Dead declarations** (probe before removing each):
-  - `go/internal/goanalysis/{component.textproto,BUILD.bazel}`: remove `RUNTIME`; remove
-    the `report` dependency (both legs).
+  - `go/internal/goanalysis/{component.textproto,BUILD.bazel}`: remove the `report`
+    dependency (both legs). **Keep `RUNTIME`** — the probe shows it is exercised through
+    `import "runtime"` (`goanalysis.go:22`, F12); it leaves in Step 11.
   - `go/cmd/arcc/component.textproto`: remove the `x-tools` dependency.
   - `go/internal/artifactio/artifactio.go:30-32`: rewrite the package doc to name
     exactly `FILES`, `REFLECT`, `UNSAFE_POINTER` (rewritten again in Step 5).
@@ -254,8 +276,9 @@ exports (C4) *before* restructuring.
 
 **Integration.** Full gate.
 
-**Demo.** Probe output for `goanalysis` shows no capability that is not declared;
-`grep -c declared_authority go/internal/goanalysis/component.textproto` = 2.
+**Demo.** Probe output for `goanalysis` shows no capability that is not declared and no
+declared capability without a finding (`FILES`, `READ_SYSTEM_STATE`, `RUNTIME` — all
+three measured); gate item 4 no longer matches `goanalysis_component.report.json`.
 
 ---
 
@@ -489,8 +512,9 @@ proving parent/child plumbing in both legs before the large split (§5.3 **S**).
   (`Join/Base/Clean/Rel/ToSlash`).
 - Parent: `component_deps += "//go/internal/goanalysis/internal/hostfs:hostfs_component"`;
   textproto `component_dependencies` += `./internal/hostfs/component.textproto`;
-  `members` stays explicit (F5). `declared_authority` → `[]` (or `READ_SYSTEM_STATE`
-  only, if S2 said `go/build` is charged — annotate "until Step 13").
+  `members` stays explicit (F5). `declared_authority` → `["READ_SYSTEM_STATE", "RUNTIME"]`
+  (`FILES` gone; the two that remain are the `go/build` and `runtime` import charges,
+  F12, removed in Step 11 — say so in a comment).
 - Appendix A: 4 (stage `internal/goanalysis/internal/hostfs` immediately before
   `internal/goanalysis`; counts), 5, 6 (`wantOwner`), 10.
 
@@ -498,75 +522,25 @@ proving parent/child plumbing in both legs before the large split (§5.3 **S**).
 
 **Integration.** Full gate + S1 pass criteria: parent report shows `goanalysis-hostfs`
 `CHECKED_PASS`, no `UNUSED_DEPENDENCY`; parity pairs `hostfs` by basename (F10). Probe
-`goanalysis` → empty (or `READ_SYSTEM_STATE` per S2); probe `hostfs` → `FILES` +
+`goanalysis` → exactly `READ_SYSTEM_STATE` (`go/build.init` only) + `RUNTIME`
+(`runtime.init` only), no `FILES`, no `filepath.Abs`; probe `hostfs` → `FILES` +
 `READ_SYSTEM_STATE`.
 
 **Demo.** `bazel build //go/internal/goanalysis/... --output_groups=+arcc` → two reports;
-parent `declared_authority` empty.
+parent `declared_authority` has lost `FILES`.
 
 **If S1 fails:** stop, write `../research/spike-s1-nested.md`, ask. Fallback is sibling
 components (`goanalysishostfs`), which changes later steps' paths.
 
 ---
 
-## Step 11: `goanalysis` — file splits + three interface files
-
-**Objective.** Reduce the interface from 29 exported symbols across every file to ≈ 13
-symbols in three small files (§5.3). Intra-package.
-
-**Guidance.** Sub-steps in order; `go build ./... && go test ./internal/goanalysis/...`
-between each; every sub-step is pure motion (gate item 6).
-
-- **11.1** Split `goanalysis.go` (1,549 LOC): clusters 1–2 (driver, graph validation,
-  export-data completion, the 14 helpers `surfaceinputs.go` uses) → `loader.go`;
-  cluster 4 (symbol canonicalization + type-expression parser) → `symcanon.go`;
-  cluster 3 (`ValidateInterfaceFiles` body, `leadingBuildConstraint`) → `ifacefiles.go`.
-  `goanalysis.go` keeps: `LoadRequest`, `LoadPackageFacts`, `SerializeChecks`,
-  `WithDriverEnv`, `ValidateInterfaceFiles` (signature + call into `ifacefiles.go`),
-  `InterfaceFileExclusion`.
-- **11.2** New `dependency_surface.go`: move `DependencySurfaceRequest`,
-  `DependencySurfaceMode` + consts, `ResolveDependencySurfaceForDependency`,
-  `ResolveDependencySurface` (declarations + thin bodies) out of `surface_resolver.go`;
-  the remaining `surface_resolver.go` API becomes unexported.
-- **11.3** `surfaceinputs.go` keeps `LoadSurfaceInputs`, `SurfaceInputs`,
-  `PlatformIdentity`; remove the four shims at `:292-350` (`ActivePlatformIdentity`,
-  `LayoutModeActive`, `ActiveDependencyArtifactBindings`, `CanonicalNamespace`) — `app`
-  calls `packagelayout`/`hostpolicy` directly and computes `PlatformIdentity` over
-  `packagelayout.Platform`. Keep a shim only if >1 caller needs it; record.
-- **11.4** `refscan.go`, `defeatscan.go`, `scanobserver.go`: unexport
-  `ScanReferences`/`ScanAnalysisDefeats` if their only non-test callers are in-package;
-  their external tests (`*_test` package in the same dir) switch to the unexported names
-  by becoming internal tests, or go through `LoadPackageFacts`. No file moves.
-- **11.5 (hygiene, optional)** Replace the `loadedFiles` global keyed by
-  `reflect.ValueOf(pkgs).Pointer()` (`goanalysis.go:38-42,344,968`) with an explicit
-  return (`LoadResult{Facts, Files}` or a field on `facts.PackageFacts`; record). Deletes
-  `reflect` and `membershipMu`.
-- **11.6** Method rule (F3′): every type declared in the three IF files has all exported
-  methods in IF files (`grep -n '^func (' go/internal/goanalysis/{goanalysis,surfaceinputs,dependency_surface}.go`
-  vs the others). Types-down (C5): every type `cmd/arcc/app`/`cmd/arcc` construct or
-  read fields of is declared in an IF file — move declarations, do not alias.
-- **11.7** Declarations: `BUILD.bazel` `interface_files = ["goanalysis.go",
-  "surfaceinputs.go", "dependency_surface.go"]`; textproto identical. Deps = previous −
-  `report` (Step 3) + `hostfs` (Step 10) + `schema-gen` (Step 8). `declared_authority`
-  `[]` (or `READ_SYSTEM_STATE` until Step 13, per S2).
-- No inventory changes (no new packages). `x_tools_ownership_test.go` unchanged.
-
-**Tests.** All 18 files stay in the directory. Internal tests that referenced moved
-unexported helpers keep compiling (same package).
-
-**Integration.** Full gate; gate item 4 across `cmd/arcc/app`, `stdlibmap`, `cmd/arcc`.
-`wc -l` of the three IF files ≤ ~450 non-test LOC combined.
-
-**Demo.** `go doc ./internal/goanalysis` lists ≈ 13 symbols; Bazel report shows
-`interface_files` = three files and empty `declared_authority`.
-
----
-
-## Step 12: `packagelayout-hostenv` sub-component + `layout-driver-hook`
+## Step 11: `packagelayout-hostenv` sub-component, `layout-driver-hook`, `BuildTags`
 
 **Objective.** Move every environment interaction of `packagelayout` (env vars, process
-identity, host toolchain facts, stdio in `init()`) into one 120-line sub-component and
-one 40-line hook component (§5.4 **S** / sibling).
+identity, host toolchain facts via `runtime`/`go/build`, stdio in `init()`) into one
+≈120-line sub-component and one ≈40-line hook component, and give `packagelayout` a
+pure `BuildTags` API — so that `goanalysis` (Step 12) and `packagelayout` (Step 13) can
+each drop `go/build` and `runtime` entirely (F12). (§5.4 **S** / sibling / `BuildTags`.)
 
 **Guidance.**
 - **`internal/hostenv`** (`go/internal/packagelayout/internal/hostenv/hostenv.go`,
@@ -574,14 +548,36 @@ one 40-line hook component (§5.4 **S** / sibling).
   ```go
   func WithDriverEnv(layoutPath, workspaceDir string, fn func() error) error // body of packagelayout.go:2741-2820
   func DriverRequestFromEnv() (ok bool, layoutPath, workspaceDir string)      // GOPACKAGESDRIVER-mode vars incl. ARCC_DRIVER_MODE
-  type NativeDefaults struct { GOROOT, GOOS, GOARCH, Compiler, Version, GOPATH string; CgoEnabled bool }
-  func NativeTargetDefaults() NativeDefaults                                  // runtime.* + os.Getenv("GOPATH"), replaces :369-370
+  type NativeDefaults struct { GOROOT, GOOS, GOARCH, Compiler, Version, GOPATH string; CgoEnabled bool; ReleaseTags, ToolTags []string }
+  func NativeTargetDefaults() NativeDefaults                                  // runtime.* + build.Default + os.Getenv("GOPATH"); replaces :369-370
   ```
   plus the env half of `WithTemporaryLayout`. Move `cgo_enabled.go`/`cgo_disabled.go`
-  here. `declared_authority = ["READ_SYSTEM_STATE", "MODIFY_SYSTEM_STATE"]` (+ `RUNTIME`
-  if S2 charged `runtime`). `ARCC_DRIVER_MODE` semantics unchanged (also read by
+  here. `declared_authority = ["READ_SYSTEM_STATE", "MODIFY_SYSTEM_STATE", "RUNTIME"]`
+  (measured: `runtime.init`, `go/build.init`, `os.Setenv/LookupEnv/Executable`) — probe
+  and keep exactly what it shows. `ARCC_DRIVER_MODE` semantics unchanged (also read by
   `stdlibmap/layoutloader.go:59`, asserted in
-  `goanalysis/hermeticity_integration_test.go:109`).
+  `goanalysis/hermeticity_integration_test.go:109`). This is the **only** package in
+  the tree allowed to import `runtime` or `go/build` (F12); `grep -rlE '^\s*"(runtime|go/build)"$' go --include=*.go --exclude=*_test.go`
+  must list only this file by the end of Step 13.
+- **`BuildTags` in `packagelayout`** (pure): add to the package (it will be in
+  `layout.go` after Step 13; for now put it in a new `buildtags.go` that Step 13 folds in)
+  ```go
+  type BuildTags struct { GOOS, GOARCH string; CgoEnabled bool; ReleaseTags, BuildTags, ToolTags []string }
+  func BuildTagsForLayout(l *Layout) BuildTags                      // replaces BuildContextForLayout
+  func FileMatchesBuildConstraints(tags BuildTags, path string, src []byte) (bool, error) // replaces ...WithContext; evaluates go/build/constraint
+  func NativeGoVersion() string                                     // forwards hostenv.NativeTargetDefaults().Version
+  ```
+  Implement constraint evaluation with `go/build/constraint` (`constraint.Parse`,
+  `Expr.Eval(func(tag string) bool)`) over the `//go:build` line and the `_GOOS_GOARCH`
+  filename rules — port the logic from `go/build`'s `goodOSArchFile`/`shouldBuild` as
+  pure code with a unit test table that compares against `build.Context.MatchFile` in a
+  `_test.go` (tests may import `go/build`; non-test code may not). Delete
+  `BuildContextForLayout` and `FileMatchesBuildConstraintsWithContext`; update their
+  callers in `packagelayout` and `goanalysis` (`goanalysis.go:1044,1146`). Replace
+  `runtime.Version()` at `goanalysis.go:730` with `packagelayout.NativeGoVersion()`.
+  After this, `goanalysis` imports neither `runtime` nor `go/build`; its
+  `declared_authority` loses `RUNTIME` and (together with Step 10's `hostfs`)
+  `READ_SYSTEM_STATE` — verify with the probe and update both legs now.
 - **`go/internal/layoutdriverhook`** (component `layout-driver-hook`, ≈ 40 LOC): the
   `init()` from `packagelayout.go:2842-2852`, now: `hostenv.DriverRequestFromEnv()` →
   `os.ReadFile(layoutPath)` → `packagelayout.RunDriver(layout, workspaceDir, patterns,
@@ -602,52 +598,111 @@ one 40-line hook component (§5.4 **S** / sibling).
   (`wantOwner`), 10, 11 (`cli` += `layout-driver-hook`).
 
 **Tests.** `hostenv_test.go`: env restored on success and error; `DriverRequestFromEnv`
-false when unset. Hermeticity tests prove a spawned driver still answers.
+false when unset; `NativeTargetDefaults` fields non-empty. `buildtags_test.go`: table
+comparing `FileMatchesBuildConstraints` with `build.Context.MatchFile` over the cgo
+pair, `_linux.go`/`_windows_amd64.go` names, `//go:build` expressions with `!`, `&&`,
+`||`, release tags. Hermeticity tests prove a spawned driver still answers.
 
 **Integration.** Full gate; especially `go test ./internal/goanalysis/...
-./internal/stdlibmap/... ./cmd/...` and the Bazel hermeticity tests. Probe
-`packagelayout` → no `OPERATING_SYSTEM`; `READ/MODIFY_SYSTEM_STATE` only if a non-env
-site remains (Step 13 handles `FILES`).
+./internal/stdlibmap/... ./cmd/...` (driver spawning) and the Bazel hermeticity tests.
+Probe `packagelayout` → no `OPERATING_SYSTEM`, no `RUNTIME`; `READ/MODIFY_SYSTEM_STATE`
+only if a non-env site remains (Step 13 handles `FILES`). Probe `goanalysis` → `FILES`
+gone (Step 10), `RUNTIME` gone, `READ_SYSTEM_STATE` gone ⇒ **empty**; set
+`declared_authority = []` in both legs if not already.
 
-**Demo.** `grep -n 'os\.Setenv\|os\.Unsetenv\|os\.Executable\|runtime\.' go/internal/packagelayout/*.go`
-empty; `just selfcheck` shows both new components passing.
+**Demo.** `grep -rlE '^\s*"(runtime|go/build)"$' go --include=*.go --exclude=*_test.go`
+lists only `go/internal/packagelayout/internal/hostenv/hostenv.go` (and
+`packagelayout.go` until Step 13 finishes removing `build.Default` uses there, if any
+remain — list them in the checklist entry); `just selfcheck` shows both new components
+passing.
 
 ---
 
-## Step 13: `packagelayout` — file splits, `fs.FS` passing, `BuildTags`, two interface files
+## Step 12: `goanalysis` — file splits + three interface files
+
+**Objective.** Reduce the interface from 29 exported symbols across every file to ≈ 13
+symbols in three small files (§5.3). Intra-package. Authority is already empty after
+Steps 10–11; this step must keep it so.
+
+**Guidance.** Sub-steps in order; `go build ./... && go test ./internal/goanalysis/...`
+between each; every sub-step is pure motion (gate item 6).
+
+- **12.1** Split `goanalysis.go` (1,549 LOC): clusters 1–2 (driver, graph validation,
+  export-data completion, the 14 helpers `surfaceinputs.go` uses) → `loader.go`;
+  cluster 4 (symbol canonicalization + type-expression parser) → `symcanon.go`;
+  cluster 3 (`ValidateInterfaceFiles` body, `leadingBuildConstraint`) → `ifacefiles.go`.
+  `goanalysis.go` keeps: `LoadRequest`, `LoadPackageFacts`, `SerializeChecks`,
+  `WithDriverEnv`, `ValidateInterfaceFiles` (signature + call into `ifacefiles.go`),
+  `InterfaceFileExclusion`.
+- **12.2** New `dependency_surface.go`: move `DependencySurfaceRequest`,
+  `DependencySurfaceMode` + consts, `ResolveDependencySurfaceForDependency`,
+  `ResolveDependencySurface` (declarations + thin bodies) out of `surface_resolver.go`;
+  the remaining `surface_resolver.go` API becomes unexported.
+- **12.3** `surfaceinputs.go` keeps `LoadSurfaceInputs`, `SurfaceInputs`,
+  `PlatformIdentity`; remove the four shims at `:292-350` (`ActivePlatformIdentity`,
+  `LayoutModeActive`, `ActiveDependencyArtifactBindings`, `CanonicalNamespace`) — `app`
+  calls `packagelayout`/`hostpolicy` directly and computes `PlatformIdentity` over
+  `packagelayout.Platform`. Keep a shim only if >1 caller needs it; record.
+- **12.4** `refscan.go`, `defeatscan.go`, `scanobserver.go`: unexport
+  `ScanReferences`/`ScanAnalysisDefeats` if their only non-test callers are in-package;
+  their external tests (`*_test` package in the same dir) switch to the unexported names
+  by becoming internal tests, or go through `LoadPackageFacts`. No file moves.
+- **12.5 (hygiene, optional)** Replace the `loadedFiles` global keyed by
+  `reflect.ValueOf(pkgs).Pointer()` (`goanalysis.go:38-42,344,968`) with an explicit
+  return (`LoadResult{Facts, Files}` or a field on `facts.PackageFacts`; record). Deletes
+  `reflect` and `membershipMu`.
+- **12.6** Method rule (F3′): every type declared in the three IF files has all exported
+  methods in IF files (`grep -n '^func (' go/internal/goanalysis/{goanalysis,surfaceinputs,dependency_surface}.go`
+  vs the others). Types-down (C5): every type `cmd/arcc/app`/`cmd/arcc` construct or
+  read fields of is declared in an IF file — move declarations, do not alias.
+- **12.7** Declarations: `BUILD.bazel` `interface_files = ["goanalysis.go",
+  "surfaceinputs.go", "dependency_surface.go"]`; textproto identical. Deps = previous −
+  `report` (Step 3) + `hostfs` (Step 10) + `schema-gen` (Step 8). `declared_authority`
+  `[]`.
+- No inventory changes (no new packages). `x_tools_ownership_test.go` unchanged.
+
+**Tests.** All 18 files stay in the directory. Internal tests that referenced moved
+unexported helpers keep compiling (same package).
+
+**Integration.** Full gate; gate item 4 across `cmd/arcc/app`, `stdlibmap`, `cmd/arcc`.
+Probe `goanalysis` → empty. `wc -l` of the three IF files ≤ ~450 non-test LOC combined.
+
+**Demo.** `go doc ./internal/goanalysis` lists ≈ 13 symbols; Bazel report shows
+`interface_files` = three files and empty `declared_authority`.
+
+---
+
+## Step 13: `packagelayout` — file splits, `fs.FS` passing, two interface files
 
 **Objective.** Convert the widest-authority component to declared style with
 `[REFLECT, UNSAFE_POINTER]` only (§5.4). Intra-package, plus signature changes for
-in-tree consumers.
+in-tree consumers. `BuildTags` and `hostenv` already exist (Step 11).
 
 **Guidance.** Sub-steps in order; `go test ./internal/packagelayout/...` green between
 them.
 
 - **13.1 Split `packagelayout.go`** (2,853 LOC) by cluster into `layout.go` (schema types
-  + `Parse` + JSON codec + `IsMemberOnlyLayout`/`IsStdlibPackage`), `api.go` (exported
-  entry points listed in §5.4 IF), `validate.go` + `scanner.go`, `stdlibdiscover.go`,
-  `driver.go`, `active.go` (active-layout globals/accessors/`CheckMu` — may be folded
-  into `api.go`). Pure motion; `packagelayout_test.go` (2.9k) split the same way.
+  + `Parse` + JSON codec + `IsMemberOnlyLayout`/`IsStdlibPackage` + the `BuildTags` type
+  from Step 11's `buildtags.go`), `api.go` (exported entry points listed in §5.4 IF),
+  `validate.go` + `scanner.go`, `stdlibdiscover.go`, `driver.go`, `active.go`
+  (active-layout globals/accessors/`CheckMu` — may be folded into `api.go`). Pure motion;
+  `packagelayout_test.go` (2.9k) split the same way.
 - **13.2 `importdata`:** `ordinary_import_data.go` + `stdlib_export_data.go` lose their
   `os` calls; descriptors parse/validate/merge over `[]byte`/`io.Reader`. `api.go`
   exposes `MergeImportGraphLayout(base, graph []byte) ([]byte, error)` and
-  `WriteImportGraph(config []byte) ([]byte, error)`. Update `cmd/arcc/app` (reads via
-  `os.ReadFile`, writes via `atomicfile`).
-- **13.3 `stdlibdiscover.go`** over `fs.FS` (`fs.WalkDir/ReadDir/ReadFile/Stat`);
-  `StdlibLayout(sdk fs.FS, platform *Platform)`; callers pass `os.DirFS(sdkRoot)`
+  `WriteImportGraph(config []byte) ([]byte, error)`; callers do I/O. Update
+  `cmd/arcc/app` (reads via `os.ReadFile`, writes via `atomicfile`).
+- **13.3 `stdlibdiscover.go`** over `fs.FS` (`fs.WalkDir/ReadDir/ReadFile/Stat` — free,
+  S3); `StdlibLayout(sdk fs.FS, platform *Platform)`; callers pass `os.DirFS(sdkRoot)`
   (`stdlibmap` from its existing code now, from `hosttoolchain` in Step 15).
 - **13.4 `validate.go`/`scanner.go`** take an `fs.FS` rooted at the workspace instead of
   `os.ReadFile` at (old) `:1575, 1914, 2009`; `osStat`/`osOpen` seams → `fstest.MapFS`.
 - **13.5 `driver.go`:** `RunDriver(layout []byte, workspaceDir string, patterns []string,
   stdin io.Reader, stdout io.Writer) error`; `handleDriverRequest`,
   `clonePackageForDriver`, `resolveQueryPattern` unexported.
-- **13.6 `BuildTags` (decided; mandatory if S2 charged `go/build`, else optional —
-  record):** `type BuildTags struct { GOOS, GOARCH string; CgoEnabled bool; ReleaseTags,
-  BuildTags, ToolTags []string }` in `layout.go`; `BuildTagsForLayout(*Layout) BuildTags`
-  and `FileMatchesBuildConstraints(BuildTags, …)` evaluated with `go/build/constraint`;
-  delete `BuildContextForLayout`/`…WithContext`; `import "go/build"` disappears from
-  `packagelayout` and `goanalysis` (update `goanalysis` call sites; drop its
-  `READ_SYSTEM_STATE` if it was kept in Step 10/11).
+- **13.6 Remove the last `go/build`/`runtime` uses:** any remaining `build.Default` or
+  `runtime.*` reference in `packagelayout` (e.g. `nativeBuildContext`) is replaced by
+  `hostenv.NativeTargetDefaults()` fields; the two imports disappear from the package.
 - **13.7 Declarations:** `BUILD.bazel` `interface_files = ["layout.go", "api.go"]`,
   `members = [":packagelayout"]`, `component_deps = [x-tools, hostenv]`,
   `declared_authority = ["REFLECT", "UNSAFE_POINTER"]` with the C9 comment adapted
@@ -656,7 +711,7 @@ them.
   outside the package (consumers use 21 symbols — all must be declared in the two IF
   files; `OrdinaryImportData`/`StdlibExportData` stay exported in `layout.go` because
   `app` tests construct them).
-- **13.8** Method rule and types-down check as in 11.6 for `layout.go`/`api.go`.
+- **13.8** Method rule and types-down check as in 12.6 for `layout.go`/`api.go`.
 - Inventory: `purePackages` unchanged (component still declares REFLECT);
   `x_tools_ownership_test.go` unchanged.
 
@@ -667,7 +722,7 @@ them.
 (sites in `layout.go` and the import-data files). Probe `hostenv`, `layout-driver-hook`
 → their declarations. Gate item 4 across `goanalysis`, `stdlibmap`, `app`, `checker`.
 
-**Demo.** `grep -rn '"os"\|go/build"' go/internal/packagelayout --include=*.go | grep -v _test | grep -v internal/hostenv`
+**Demo.** `grep -rn '"os"\|go/build"\|"runtime"' go/internal/packagelayout --include=*.go | grep -v _test | grep -v internal/hostenv`
 prints nothing.
 
 ---
@@ -792,8 +847,8 @@ component tagged C3(a) or C3(b).
 | 8 | `schema-gen` | yes (fail removed) | yes | yes | – | – | yes | counts |
 | 9 | `capslock-runtime` | asserted | maybe | – | – | **yes** | – | counts |
 | 10 | `goanalysis-hostfs` | yes (before parent) | yes | yes | no | – | – | counts |
-| 11 | – | – | – | – | – | – | – | – |
-| 12 | `packagelayout-hostenv`, `layout-driver-hook` | yes ×2 | yes ×2 | yes | no | – | yes (hook) | counts |
+| 11 | `packagelayout-hostenv`, `layout-driver-hook` | yes ×2 | yes ×2 | yes | no | – | yes (hook) | counts |
+| 12 | – | – | – | – | – | – | – | – |
 | 13 | – | – | – | – | – | – | – | – |
 | 14 | – (manifest may move) | path if moved | – | – | – | – | n/a | – |
 | 15 | `stdlibmap-hosttoolchain` | yes (before parent) | – (native) | yes | – | – | – | counts |

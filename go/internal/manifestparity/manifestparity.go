@@ -118,13 +118,12 @@ func CompareManifests(t testing.TB, dir string, gen, chk manifest.Manifest) {
 		t.Errorf("%s: name = %q (normalized %q), want %q", dir, gen.Name, got, chk.Name)
 	}
 
-	// Interface files: every file the checked-in manifest calls interface must
-	// appear in the generated interface set (compared by basename).
+	// Interface files: checked-in and generated interface file sets must match
+	// exactly (compared by basename).
 	genIface := basenames(gen.InterfaceFiles)
-	for _, want := range basenames(chk.InterfaceFiles) {
-		if !slices.Contains(genIface, want) {
-			t.Errorf("%s: checked-in interface file %q missing from generated interface files %v", dir, want, genIface)
-		}
+	chkIface := basenames(chk.InterfaceFiles)
+	if !slices.Equal(genIface, chkIface) {
+		t.Errorf("%s: interface files = %v, want %v", dir, genIface, chkIface)
 	}
 
 	// Members: check equivalence considering implicit interface package membership.

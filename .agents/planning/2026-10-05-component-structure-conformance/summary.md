@@ -1,7 +1,8 @@
 # Component structure conformance — summary
 
-**Date:** 2026-10-05 · **Revised:** 2026-10-05 (R1) · **Status:** design + plan complete,
-no implementation started
+**Date:** 2026-10-05 · **Revised:** 2026-10-05 (R1, R2) · **Status:** Steps 1–2 of 16
+done (probe script, conventions, spikes S2/S3/S4 resolved, `interface_files` landed);
+Steps 3–16 ready for hand-off
 
 ## What this is
 
@@ -41,21 +42,29 @@ projects to follow. This planning set restructures them so that:
 - `artifactio` becomes **authority-free**; its JSON report/golden codecs move to
   `reportio` (`[REFLECT, UNSAFE_POINTER]`, documented codec exception). Retiring those
   capabilities needs a protojson report — separate follow-up plan.
-- `packagelayout` → `[REFLECT, UNSAFE_POINTER]` with `fs.FS`/bytes passing, `hostenv`,
-  the driver `init()` moved to `layout-driver-hook`, and a project-owned `BuildTags`
-  replacing `build.Context` (mandatory if spike S2 shows `go/build` is charged).
-- `goanalysis` → three interface files (≈ 13 symbols), empty authority; `RUNTIME` and
-  the `report` dep were dead.
+- `packagelayout` → `[REFLECT, UNSAFE_POINTER]` with `fs.FS`/bytes passing, `hostenv`
+  (declares `RUNTIME`), the driver `init()` moved to `layout-driver-hook`, and a
+  project-owned `BuildTags` replacing `build.Context` (**mandatory**: spike S2 measured
+  that importing `go/build` or `runtime` is itself charged — F12).
+- `goanalysis` → three interface files (≈ 13 symbols), empty authority. Its `RUNTIME`
+  turned out to be *real* (import charge for one `runtime.Version()` call), so
+  `hostenv` + `BuildTags` (Step 11) now land before the `goanalysis` split (Step 12).
 - `schema-gen`: declare `UNSAFE_POINTER` + `analysis_defeating_policy: WARN`; the
   expected-fail gate becomes a real green gate with a 15-finding growth assertion.
 - Counts after the work: Bazel gates 16 → 24, native analyses 20 → 29, asserted
   surfaces 2 → 3, expected-fail analyses 1 → 0.
 
+## Spike outcomes (R2)
+
+| Spike | Result |
+|-------|--------|
+| S2 import charges | `import "go/build"` → `READ_SYSTEM_STATE`; `import "runtime"` → `RUNTIME`. Measured on `goanalysis` too (`goanalysis.go:15, :22`). |
+| S3 capability passing | `fs.WalkDir/ReadDir/ReadFile/Stat` over an injected `fs.FS`: zero findings. |
+| S4 `interface_files` | Landed; fixture covers `CALLS_UNDECLARED_INTERFACE`, `METHOD_OUTSIDE_INTERFACE`, unknown-file failure; parity is set-equality; `goanalysis`, `checker`, `csvfile` converted (`csvfile` was a real divergence). |
+
 ## Remaining open points
 
-1. Spike S2 (Step 1) outcome decides whether `BuildTags` is mandatory and whether
-   `hostenv` declares `RUNTIME`.
-2. Spike S4 (Step 2): if the rules/aspect assume an interface *library* somewhere not
-   yet seen, the fallback is the previous (package-per-interface) revision of the plan.
-3. `goanalysis/fixture_test.go` coupling to `checker` internals: rewrite in Step 6 if
+1. `goanalysis/fixture_test.go` coupling to `checker` internals: rewrite in Step 6 if
    cheap, otherwise recorded follow-up.
+2. Native error message when an interface file sits in a package missing from
+   `members` is the generic member-only-load one; Step 14 confirms or improves it.

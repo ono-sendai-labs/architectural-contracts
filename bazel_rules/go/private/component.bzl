@@ -57,8 +57,8 @@ load(
     "merge_private_rule_attrs",
     "runtime_injection_attrs",
     "sdk_export_data_attrs",
-    "validate_target_identity_match",
     "validate_sdk_export_data",
+    "validate_target_identity_match",
 )
 load(":paths.bzl", "match_path", "runfiles_path")
 load(":stdlib_map.bzl", "stdlib_map_default_attr")
@@ -192,6 +192,7 @@ def _layout_content(ctx, merged, roots, go_sdk_root, target, dependency_bindings
             if pkg.export_file == None:
                 fail("package %s has no export file for non-member package %s" % (ctx.label.name, importpath))
             package["ExportFile"] = runfiles_path(ctx, pkg.export_file)
+
             # Keep the aspect's declared archive projection in the base layout
             # for inspection. The member-only driver ignores these compatibility
             # source fields and uses the exact source import set from
@@ -261,6 +262,7 @@ def _layout_content(ctx, merged, roots, go_sdk_root, target, dependency_bindings
             "build_tags": sorted(target.build_tags),
             "cgo_enabled": target.cgo_enabled,
         }
+
         # Pinning fields (docs/package-layout-schema.md §3): they must be
         # omitted when empty — a present-but-empty toolchain_version is a
         # validation error and a present-but-empty goexperiment pins
@@ -465,6 +467,7 @@ def _classify(ctx, merged, effective_members, covered):
             continue
         elif importpath in effective_members:
             members.append(importpath)
+
         # The checker reports the remaining frontier as UNDECLARED_DEPENDENCY.
 
     return sorted(members)
@@ -510,6 +513,7 @@ def _asserted_surface_content(component_name, packages, key):
     pinned against the checked emitter's key by asserted_surface_sdk_key_test
     (task req 5) — never duplicated here.
     """
+
     # Starlark's JSON encoder orders dictionary keys lexicographically, while
     # protojson's canonical artifact contract orders fields by protobuf field
     # number. Assemble the small analysis-time artifact in that field order so
@@ -587,6 +591,7 @@ def _frame_symlink_commands(files, workspace_name, preferred_files = []):
 
     for f in files:
         short_path = f.short_path
+
         # Tree and generated files produced under an external repository keep
         # a `../repo/...` runfiles short path even though their sandbox path is
         # a declared bazel-out path. Recreate that repository frame from the
@@ -837,6 +842,7 @@ def go_component_impl(ctx, attachment_fn = go_attached_infra, runtime_packages_f
     ordinary_root_packages = []
     for root in roots:
         ordinary_root_packages.extend(root[ArccPackageInfo].packages.to_list())
+
     # Pass a defensive snapshot: a host implementation must treat the ordinary
     # package projection as read-only while exposing hidden runtime packages.
     injected_packages = runtime_packages_fn(ctx, list(ordinary_root_packages))
@@ -894,6 +900,7 @@ def go_component_impl(ctx, attachment_fn = go_attached_infra, runtime_packages_f
     interface = ctx.attr.interface
     interface_importpath = go_importpath(interface) if interface else ""
 
+    interface_file_member_paths = []
     if interface:
         if interface_importpath in covered:
             fail("component %s: its own interface package %s is covered by component_dep %s" % (
@@ -901,6 +908,27 @@ def go_component_impl(ctx, attachment_fn = go_attached_infra, runtime_packages_f
                 interface_importpath,
                 covered[interface_importpath],
             ))
+    elif ctx.files.interface_files:
+        for f in ctx.files.interface_files:
+            matched_member = None
+            for m in ctx.attr.members:
+                srcs = go_library_srcs(m)
+                if f in srcs or f.path in [s.path for s in srcs]:
+                    matched_member = m
+                    break
+            if not matched_member:
+                fail("component %s: interface file %s is not a src of any member" % (
+                    ctx.label.name,
+                    f.short_path,
+                ))
+            m_path = go_importpath(matched_member)
+            if m_path in covered:
+                fail("component %s: its own interface package %s is covered by component_dep %s" % (
+                    ctx.label.name,
+                    m_path,
+                    covered[m_path],
+                ))
+            interface_file_member_paths.append(m_path)
 
     for pattern, comp_name in auto_attached_patterns:
         for importpath in merged.keys():
@@ -921,6 +949,14 @@ def go_component_impl(ctx, attachment_fn = go_attached_infra, runtime_packages_f
             ctx.label.name,
             interface_importpath,
         ))
+    elif not interface and ctx.files.interface_files:
+        for m_path in interface_file_member_paths:
+            if m_path not in members:
+                fail(("component %s: its own interface package %s is covered by a component_dep, " +
+                      "which would leave the component with nothing to check.") % (
+                    ctx.label.name,
+                    m_path,
+                ))
 
     all_manifest_members = {}
     for m_path in members:
@@ -959,6 +995,7 @@ def go_component_impl(ctx, attachment_fn = go_attached_infra, runtime_packages_f
 
     if roots:
         layout = ctx.actions.declare_file(ctx.label.name + ".package-layout.json")
+
         # Roots are the component's effective owned packages, not every
         # raw root before direct component dependencies/infra coverage is
         # removed. Keeping covered packages in the layout roots makes the
@@ -999,6 +1036,11 @@ def go_component_impl(ctx, attachment_fn = go_attached_infra, runtime_packages_f
             runfiles_path(ctx, src)
             for src in go_library_srcs(interface)
             if src.extension == "go"
+        ])
+    elif ctx.files.interface_files:
+        interface_files = sorted([
+            runfiles_path(ctx, f)
+            for f in ctx.files.interface_files
         ])
 
     ctx.actions.write(
@@ -1172,6 +1214,12 @@ _GO_COMPONENT_BASE_ATTRS = {
         providers = GO_PROVIDERS,
         aspects = [arcc_deps_aspect],
         doc = "The declared-style public surface; absent for PACKAGE_SURFACE.",
+    ),
+    "interface_files": attr.label_list(
+        allow_files = [".go"],
+        doc = "The .go files that form the component's interface. Each must be a src of a " +
+              "member go_library. Mutually exclusive with `interface`, which is sugar for " +
+              "'every .go src of that library' and adds it to members.",
     ),
     "interface_style": attr.string(
         default = "",

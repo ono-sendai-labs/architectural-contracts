@@ -18,7 +18,10 @@ go_library(
         "surfaceinputs.go",
     ],
     importpath = "github.com/ono-sendai-labs/architectural-contracts/go/internal/goanalysis",
-    visibility = ["//go:__subpackages__"],
+    visibility = [
+        "//bazel_rules:__subpackages__",
+        "//go:__subpackages__",
+    ],
     deps = [
         "//go/internal/artifactio",
         "//go/internal/facts",
@@ -29,7 +32,7 @@ go_library(
         "//go/internal/stdlibauthority",
         "//go/internal/surface",
         "//go/internal/symbol",
-        "@org_golang_x_tools//go/gcexportdata:gcexportdata",
+        "@org_golang_x_tools//go/gcexportdata",
         "@org_golang_x_tools//go/packages",
     ],
 )
@@ -63,7 +66,13 @@ go_component(
         READ_SYSTEM_STATE,
         RUNTIME,
     ],
-    interface = ":goanalysis",
+    interface_files = [
+        "defeatscan.go",
+        "goanalysis.go",
+        "surface_resolver.go",
+        "surfaceinputs.go",
+    ],
+    members = [":goanalysis"],
     visibility = ["//go:__subpackages__"],
 )
 

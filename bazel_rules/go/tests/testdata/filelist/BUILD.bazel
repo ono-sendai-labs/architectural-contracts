@@ -1,0 +1,30 @@
+load("@rules_arcc//bazel_rules/go:defs.bzl", "go_component")
+load("@rules_go//go:def.bzl", "go_library")
+
+# Two-file package with interface_files = ["api.go"]
+go_library(
+    name = "filelist",
+    srcs = [
+        "api.go",
+        "impl.go",
+    ],
+    importpath = "example.com/aspect/filelist",
+    visibility = ["//bazel_rules:__subpackages__"],
+)
+
+go_component(
+    name = "filelist_component",
+    interface_files = ["api.go"],
+    members = [":filelist"],
+    visibility = ["//bazel_rules:__subpackages__"],
+)
+
+# Variant listing a file not in any member: extra.go is not in :filelist srcs.
+go_component(
+    name = "unknown_file_component",
+    check_tags = ["manual"],
+    interface_files = ["extra.go"],
+    members = [":filelist"],
+    tags = ["manual"],
+    visibility = ["//bazel_rules:__subpackages__"],
+)

@@ -59,6 +59,12 @@ run *args:
 selfcheck-staging-test:
 	bash scripts/selfcheck-staging-test.sh
 
+authority-probe-test:
+	bash scripts/authority-probe-test.sh
+
+probe component:
+	bash scripts/authority-probe.sh {{component}}
+
 # Self-check coverage:
 # Native `just selfcheck` stages 20 analyzed production components in dependency
 # order. Nineteen must pass:
@@ -170,7 +176,7 @@ bazel-test:
 # Go-only leg: everything except selfcheck and bazel-test. Mirrors the
 # ci.yml "Go" job so the three CI jobs can run in parallel on separate
 # runners; selfcheck and bazel-test run as their own CI jobs.
-ci-go: gen lint lint-gate-test build test test-integration stdlibmap-pin-check selfcheck-staging-test
+ci-go: gen lint lint-gate-test build test test-integration stdlibmap-pin-check selfcheck-staging-test authority-probe-test
 
 ci: gen-is-clean ci-go selfcheck bazel-test
 

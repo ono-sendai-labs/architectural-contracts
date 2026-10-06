@@ -7,13 +7,6 @@ statement; they are equally available from their language-neutral home,
 `@rules_arcc//bazel_rules:authority.bzl`.
 """
 
-load("//bazel_rules/go/private:check.bzl", "arcc_check_test")
-load("//bazel_rules/go/private:component.bzl", "go_component_rule")
-load("//bazel_rules/go/private:stdlib_map.bzl", "arcc_stdlib_map_rule")
-load(
-    "//bazel_rules/go/private:go_adapter.bzl",
-    "go_infra_deps",
-)
 load(
     "//bazel_rules:authority.bzl",
     _ALL_AUTHORITIES = "ALL_AUTHORITIES",
@@ -31,9 +24,16 @@ load(
     _RUNTIME = "RUNTIME",
     _SYSTEM_CALLS = "SYSTEM_CALLS",
     _UNANALYZED = "UNANALYZED",
-    _UNSAFE_POINTER = "UNSAFE_POINTER",
     _UNKNOWN = "UNKNOWN",
+    _UNSAFE_POINTER = "UNSAFE_POINTER",
 )
+load("//bazel_rules/go/private:check.bzl", "arcc_check_test")
+load("//bazel_rules/go/private:component.bzl", "go_component_rule")
+load(
+    "//bazel_rules/go/private:go_adapter.bzl",
+    "go_infra_deps",
+)
+load("//bazel_rules/go/private:stdlib_map.bzl", "arcc_stdlib_map_rule")
 
 FILES = _FILES
 NETWORK = _NETWORK
@@ -128,7 +128,7 @@ def _validate_component_authority(name, kwargs):
     if kwargs.get("declared_authority"):
         fail(("component %s: authority UNKNOWN requires declared_authority to be empty; " +
               "remove the declared capabilities or use authority = DECLARED.") % name)
-    if kwargs.get("interface") != None:
+    if kwargs.get("interface") != None or kwargs.get("interface_files"):
         fail(("component %s: authority UNKNOWN cannot use a declared interface; " +
               "UNKNOWN asserted surfaces are package-level and require interface_style = " +
               "PACKAGE_SURFACE.") % name)
@@ -144,6 +144,7 @@ def _validate_component_shape(name, kwargs):
     _validate_component_authority(name, kwargs)
     style = kwargs.get("interface_style")
     interface = kwargs.get("interface")
+    interface_files = kwargs.get("interface_files")
     members = kwargs.get("members") or []
 
     if style == None or style == "":
@@ -158,16 +159,18 @@ def _validate_component_shape(name, kwargs):
         ))
 
     if declared_style:
-        if interface == None:
-            fail("component %s: declared interface_style requires interface." % name)
+        if (interface == None and not interface_files) or (interface != None and interface_files):
+            fail("component %s: declared interface_style requires exactly one of interface or interface_files." % name)
+        if interface_files and not members:
+            fail("component %s: interface_files requires non-empty members." % name)
         for m in members:
             m_str = str(m)
             if not _is_label(m_str) or _has_wildcards(m_str):
                 fail("component %s: declared-style members must be literal target labels: %r" % (name, m_str))
         return
 
-    if interface != None:
-        fail("component %s: interface_style %s does not allow interface; remove interface." % (
+    if interface != None or interface_files:
+        fail("component %s: interface_style %s does not allow interface or interface_files; remove them." % (
             name,
             PACKAGE_SURFACE,
         ))
@@ -249,10 +252,17 @@ go_component = macro(
             doc = "The single go_library holding the component's public surface. " +
                   "Required for declared style and omitted for PACKAGE_SURFACE.",
         ),
+        "interface_files": attr.label_list(
+            allow_files = [".go"],
+            configurable = False,
+            doc = "The .go files that form the component's interface. Each must be a src of a " +
+                  "member go_library. Mutually exclusive with `interface`, which is sugar for " +
+                  "'every .go src of that library' and adds it to members.",
+        ),
         "interface_style": attr.string(
             configurable = False,
             doc = "Interface shape: unset for declared style, or PACKAGE_SURFACE for " +
-                 "components whose complete surface is their concrete members.",
+                  "components whose complete surface is their concrete members.",
         ),
         "members": attr.string_list(
             configurable = False,
@@ -272,7 +282,7 @@ go_component = macro(
         "declared_authority": attr.string_list(
             configurable = False,
             doc = "The ambient authority this component declares, as constants from this file " +
-                 "(FILES, NETWORK, ...). Empty means the component claims to be authority-free.",
+                  "(FILES, NETWORK, ...). Empty means the component claims to be authority-free.",
         ),
         "authority": attr.string(
             default = DECLARED,
@@ -295,13 +305,19 @@ go_component = macro(
 
 There are two authoring styles:
 
-  * Declared style wraps a Go interface library. `interface` is required,
-    `members` is optional, and the component target forwards the interface
-    library's Go providers so it can be used as a `deps` entry.
-  * `PACKAGE_SURFACE` has no interface library. Its complete surface is the
-    declared `members` set, which is required, and no Go providers are
-    forwarded. Use this for a toolchain-injected runtime or an existing
-    library that has no architectural interface.
+  * Declared style specifies the public interface via either `interface` (a single
+    Go library target whose .go sources form the interface) or `interface_files`
+    (a list of .go source files that belong to member libraries). Exactly one of
+    `interface` or `interface_files` is required for declared style. When using
+    `interface`, `members` is optional and `interface` is added to members. When
+    using `interface_files`, `members` is required. The component target forwards
+    the interface library's Go providers (when `interface` is used) so it can be
+    used as a `deps` entry.
+  * `PACKAGE_SURFACE` has no interface library or files (`interface` and
+    `interface_files` are omitted). Its complete surface is the declared `members`
+    set, which is required, and no Go providers are forwarded. Use this for a
+    toolchain-injected runtime or an existing library that has no architectural
+    interface.
 
 Expands to:
 

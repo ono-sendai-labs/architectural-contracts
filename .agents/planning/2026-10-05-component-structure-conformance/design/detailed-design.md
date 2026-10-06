@@ -1,7 +1,9 @@
 # Detailed design — component structure conformance (arcc self-hosting components)
 
 **Date:** 2026-10-05 · **Revised:** 2026-10-05 (R1: file-list interfaces replace
-package-per-interface; `reportio` split; `BuildTags` and `schema-gen` WARN decided)
+package-per-interface; `reportio` split; `BuildTags` and `schema-gen` WARN decided);
+2026-10-05 (R2: spikes S2/S3/S4 resolved — see F12; `goanalysis` does exercise
+`RUNTIME`; `hostenv` + `BuildTags` now precede the `goanalysis` split)
 **Plan:** [`../implementation/plan.md`](../implementation/plan.md)
 **Research:** [`../research/`](../research/) — six measured analyses (one per component
 group plus one on infrastructure constraints). Every claim below about symbols,
@@ -38,10 +40,12 @@ want every arcc-adopting project to follow:
 4. **Native/Bazel divergence and dead declarations.** `goanalysis` and `checker` textprotos
    list a *subset* of files as `interface_files` while the Bazel interface library
    contains all files — the two legs check **different interfaces**, and the parity test
-   only checks ⊆. `goanalysis` declares `RUNTIME` (not exercised — `runtime.Version` is
-   SAFE in the stdlib map) and an unused `report` dependency; `cli` declares an unused
-   `x-tools` dependency; `artifactio`'s package doc lists four capabilities it neither
-   declares nor uses.
+   only checks ⊆. `goanalysis` declares `RUNTIME` for a single `runtime.Version()` call
+   (`goanalysis.go:730`) and inherits `READ_SYSTEM_STATE` from merely importing
+   `go/build` (F12) — both are real charges on a 3,800-LOC package for two lines of
+   host-toolchain lookup; it also declares an unused `report` dependency; `cli` declares
+   an unused `x-tools` dependency; `artifactio`'s package doc lists four capabilities it
+   neither declares nor uses.
 
 ### Goals
 
@@ -93,6 +97,8 @@ structure below; the implementer must not plan around them.
 | F9 | `go_component` member and interface `go_library` targets must be visible to `//bazel_rules:__subpackages__` as well as `//go:__subpackages__`. | `artifactio/BUILD.bazel:18-23` | Every new sub-component library copies that visibility. |
 | F10 | The parity runner pairs generated and checked-in manifests by **directory basename** (`manifestparity.go:32-59`); the inventory requires **unique component names** (`ownership_inventory.go:93-100`). | infra report §3 | Sub-component directory basenames and component names must be unique repo-wide (`hostfs`, `hostenv`, `hosttoolchain` — never two `internal/fs`). |
 | F11 | Native self-check stages components in an explicit topological list (`justfile:125-147`); Bazel parity test lists each component's labels (`app/BUILD.bazel:71-118`); several tests pin component inventories (`ownership_test.go`, `x_tools_ownership_test.go`, `manifest_test.go:574-626`). | infra report §3 | Every new component touches a fixed checklist (Appendix A). |
+| F12 | **Import-time charges (spike S2, measured).** `import "go/build"` is charged `READ_SYSTEM_STATE` (`go/build.init → defaultContext → os.Getenv`, `build.go:360`) even if only the `build.Context` *type* is used; `import "runtime"` is charged `RUNTIME` (`runtime.init`) even for a constant. `fs.WalkDir/ReadDir/ReadFile/Stat` over an injected `fs.FS` are free (spike S3). Measured on `goanalysis`: `READ_SYSTEM_STATE` at `goanalysis.go:15` (import) and `:557` (`filepath.Abs`); `RUNTIME` at `:22` (import). | `research/spike-s2-import-charges.md`; probe of `goanalysis` | No package outside a sub-component may import `go/build` or `runtime`. `packagelayout` exposes a project-owned `BuildTags` (pure, `go/build/constraint`) and forwards `hostenv.NativeTargetDefaults()` (incl. Go version); `goanalysis` consumes both. `hostenv` declares `RUNTIME`. |
+| F13 | **`interface_files` under Bazel (spike S4, landed).** `go_component(interface_files = […], members = […])` works end to end: files must be `srcs` of a member; the generated manifest lists exactly those files; `CALLS_UNDECLARED_INTERFACE` and `METHOD_OUTSIDE_INTERFACE` fire as natively; parity is set-equality. Natively the component-root package is an implicit member; any *other* package holding an interface file must be listed in `members` or loading fails. Member libraries need the F9 visibility. | `defs.bzl`, `component.bzl:900-960, 1037-1044`, `bazel_rules/go/tests/testdata/filelist`, `goanalysis.go:801-835` | `csvfile` had a real two-leg divergence (`private.go`) that equality exposed; it is converted. `cli`'s `interface_files: "app/app.go"` requires `./app` in `members` (it already is). |
 
 ---
 
@@ -300,7 +306,7 @@ Top-level rather than a sub-component of `artifactio`: the consumers are outside
 - **Docs:** fix `artifactio.go:30-32`.
 - `ownership_test.go:140-194` (`artifactio` dependency inventory) updated.
 
-### 5.3 `goanalysis` — file-list interface, one sub-component (A: none¹)
+### 5.3 `goanalysis` — file-list interface, one sub-component (A: none)
 
 Consumers use 17 of 29 exported symbols (all from `cmd/arcc/app` and `cmd/arcc`).
 
@@ -332,11 +338,14 @@ Consumers use 17 of 29 exported symbols (all from `cmd/arcc/app` and `cmd/arcc`)
   (`goanalysis.go:557`, `defeatscan.go:228`, `surface_resolver.go:110,714,725`, the
   `Stat`/header read in `ValidateInterfaceFiles`, export-data `os.Open`).
 - **Deps:** drop `report` (unused); add `goanalysis-hostfs`, `schema-gen`; rest unchanged.
-- **A:** `[]`¹ — drop `RUNTIME` (unexercised), `FILES`, `READ_SYSTEM_STATE`.
-  ¹ *If spike S2 shows `import "go/build"` is charged, `goanalysis` keeps
-  `READ_SYSTEM_STATE` until `packagelayout` ships `BuildTags` (§5.4, decided: do it),
-  then drops it.* `packages.Load` is invisible behind the `x-tools` `UNKNOWN` boundary;
-  "authority-free" is relative to that declared boundary, as for every `x-tools` consumer.
+- **A:** `[]`. Measured today (probe): `FILES` ×9 (→ `hostfs`), `READ_SYSTEM_STATE` ×2
+  (`filepath.Abs` at `:557` → `hostfs`; `import "go/build"` at `:15` → replaced by
+  `packagelayout.BuildTags`, F12), `RUNTIME` ×1 (`import "runtime"` at `:22` for
+  `runtime.Version()` at `:730` → replaced by `packagelayout.NativeGoVersion()`, which
+  forwards `hostenv`). Because the last two depend on `packagelayout`'s new API, the plan
+  lands `hostenv` + `BuildTags` (Step 11) *before* the `goanalysis` split (Step 12).
+  `packages.Load` is invisible behind the `x-tools` `UNKNOWN` boundary; "authority-free"
+  is relative to that declared boundary, as for every `x-tools` consumer.
 - **Tests:** stay in package; nothing relocates. `fixture_test.go` keeps using `checker`
   internals only if §5.6 leaves them exported (see there).
 - **Bazel:** `interface_files = ["goanalysis.go", "surfaceinputs.go", "dependency_surface.go"]`,
@@ -366,16 +375,18 @@ from `import "runtime"`.
   `fs.WalkDir/ReadDir/ReadFile` — free by F7/S3), `driver.go` (`handleDriverRequest`,
   `clonePackageForDriver`, `resolveQueryPattern`), `ordinary_import_data.go` +
   `stdlib_export_data.go` minus their `os` calls (descriptors over bytes/`io.Reader`).
-- **`BuildTags` (decided R1):** replace `build.Context` in the interface with a
+- **`BuildTags` (mandatory, F12):** replace `build.Context` in the interface with a
   project-owned `type BuildTags struct { GOOS, GOARCH string; CgoEnabled bool;
   ReleaseTags, BuildTags, ToolTags []string }` evaluated with `go/build/constraint`
   (pure); `BuildContextForLayout` → `BuildTagsForLayout`,
   `FileMatchesBuildConstraintsWithContext` → `FileMatchesBuildConstraints(BuildTags, …)`.
-  Executed if spike S2 shows `go/build` is charged on import (if S2 shows it is free,
-  the rename is still allowed but not required — record the choice). Every `runtime`
-  reference moves to `hostenv` regardless.
+  `import "go/build"` disappears from `packagelayout` and `goanalysis`; the only
+  remaining importer is `hostenv` (for `build.Default` in `NativeTargetDefaults`). Every
+  `runtime` reference moves to `hostenv`; `packagelayout` forwards
+  `NativeGoVersion() string` (and `NativeTargetDefaults()` if more fields are needed)
+  for `goanalysis.go:730`. This API lands in plan Step 11, before the `goanalysis` split.
 - **S** `internal/hostenv`, component `packagelayout-hostenv` (A: `READ_SYSTEM_STATE`,
-  `MODIFY_SYSTEM_STATE`, plus `RUNTIME` if S2 says the import is charged; ≈ 120 LOC):
+  `MODIFY_SYSTEM_STATE`, `RUNTIME`; ≈ 120 LOC):
   `WithDriverEnv(layoutPath, workspaceDir string, fn func() error) error`
   (`packagelayout.go:2741-2820`), the env half of `WithTemporaryLayout`,
   `DriverRequestFromEnv() (ok bool, layoutPath, workspaceDir string)`,
@@ -565,8 +576,8 @@ Component counts after the work (recompute in the final audit): Bazel gates 16 �
 | The `interface_files` rule change has a semantic gap (e.g. surface emission or the aspect assumes an interface *library*) | Step 2 is a self-contained spike with a fixture and hard pass criteria, and it converts `goanalysis`/`checker` first — the two components whose textprotos already list subsets. Nothing else starts until it is green. |
 | Types-down / method-rule violations discovered late | Each step ends with `bazel build … --output_groups=+arcc` of **every consumer** and greps for `CALLS_UNDECLARED_INTERFACE` and `METHOD_OUTSIDE_INTERFACE`. The native leg catches `cli`/`stdlibmap`. With file-list interfaces the fix is a declaration move within the package. |
 | File-list interfaces let implementation stay entangled (C4′) | Accepted trade-off; the plan still requires file splits along cluster lines so interface files are *small* (C3 measured in Step 16), and keeps every authority sub-component as a real package. |
-| `go/build`/`runtime` import charges | Spike S2 in Step 1; `BuildTags` decided (§5.4); `runtime` moves to `hostenv` unconditionally. |
-| Driver `init()` relocation breaks test binaries spawned as `GOPACKAGESDRIVER` | Step 12 enumerates every test package calling `WithDriverEnv`/`WithTemporaryLayout` and adds the blank import; `just test` + `bazel test //...` + hermeticity tests gate. |
+| `go/build`/`runtime` import charges | Resolved by spike S2 (F12): both are charged. `BuildTags` and `hostenv` (with `RUNTIME`) land in Step 11, before the `goanalysis` split, so `goanalysis` ends Step 12 authority-free rather than carrying a temporary declaration. |
+| Driver `init()` relocation breaks test binaries spawned as `GOPACKAGESDRIVER` | Step 11 enumerates every test package calling `WithDriverEnv`/`WithTemporaryLayout` and adds the blank import; `just test` + `bazel test //...` + hermeticity tests gate. |
 | Native staging order / parity inventories drift | Appendix A checklist is part of every "new component" step's acceptance. |
 | Parity matcher collides on directory basenames | F10: `hostfs`, `hostenv`, `hosttoolchain`, `layoutdriverhook`, `capslockruntime`, `capslocksymbol`, `atomicfile`, `reportio` are unique by construction. |
 | cgo blocks a Bazel gate for `capslock-runtime` | `UNKNOWN` wrapper has no analysis action; if layout emission still fails closed it stays native-only — same coverage as today. |
@@ -635,18 +646,18 @@ Scripted in plan Step 1 as `scripts/authority-probe.sh`:
   parent listing the child in `component_deps`; `just selfcheck` green with the child
   staged before the parent; `self_manifest_parity_test` green; the parent's report shows
   the child as `CHECKED_PASS` and no `UNUSED_DEPENDENCY`.
-- **S2 — import-time charges.** Probe (Appendix B) a throwaway member that only declares
-  `var _ build.Context` and another with `_ = runtime.Compiler`. Record whether
-  `go/build.init` / `runtime.init` findings appear. Drives §5.4 `BuildTags` and
-  `hostenv`'s `RUNTIME`.
-- **S3 — capability passing is free.** Already evidenced (`artifactio.ReadSources` over
-  `fs.FS` is SAFE). Re-confirm once with `fs.WalkDir`, `fs.ReadDir`, `fs.Stat`.
-- **S4 — `interface_files` attribute** (plan Step 2; Appendix D). Pass criteria: fixture
-  under `bazel_rules/go/tests/testdata/` with a two-file package where one file is the
-  interface; a consumer fixture referencing a symbol from the other file produces
-  `CALLS_UNDECLARED_INTERFACE`; a method-split fixture produces `METHOD_OUTSIDE_INTERFACE`;
-  a file not in any member's `srcs` fails at analysis time; `goanalysis` and `checker`
-  converted with parity **equality** green.
+- **S2 — import-time charges. RESOLVED (2026-10-05): both charged.** `import "go/build"`
+  → `READ_SYSTEM_STATE` via `go/build.init → defaultContext → os.Getenv` (`build.go:360`);
+  `import "runtime"` → `RUNTIME` via `runtime.init`. Raw findings in
+  `research/spike-s2-import-charges.md`. Consequences are F12.
+- **S3 — capability passing is free. RESOLVED: confirmed.** `fs.WalkDir`, `fs.ReadDir`,
+  `fs.ReadFile`, `fs.Stat` over an injected `fs.FS` produce zero findings.
+- **S4 — `interface_files` attribute. RESOLVED (plan Step 2 landed): all criteria met.**
+  Fixture `bazel_rules/go/tests/testdata/filelist/` covers the three variants;
+  `goanalysis`, `checker` and `csvfile` are converted; parity is set-equality and green.
+  Two facts learned: member libraries need the F9 visibility once listed in `members`;
+  natively, an interface file in a non-root package requires that package in `members`
+  (F13).
 
 ## Appendix D — `go_component.interface_files` (rule change specification)
 

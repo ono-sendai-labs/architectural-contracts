@@ -1,30 +1,29 @@
 load("@rules_go//go:def.bzl", "go_test")
 load("@rules_shell//shell:sh_test.bzl", "sh_test")
 load("//bazel_rules/go/private:check.bzl", "arcc_check_grep_test", "arcc_check_layout_golden_test", "arcc_check_report_golden_test", "arcc_check_surface_golden_test", "arcc_check_test", "arcc_check_verdict_golden_test", "arcc_checked_analysis_test")
-load(":aspect_tests.bzl", "arcc_deps_aspect_full_test_suite", "arcc_deps_aspect_test_suite")
 load(":artifact_shape_tests.bzl", "artifact_shape_test_suite")
+load(":aspect_tests.bzl", "arcc_deps_aspect_full_test_suite", "arcc_deps_aspect_test_suite")
 load(":asserted_surface_tests.bzl", "asserted_surface_comparison", "asserted_surface_test_suite")
 load(":component_tests.bzl", "go_component_test_suite")
-load(":producer_chain_tests.bzl", "producer_chain_analysis_tests")
 load(":layout_shape_tests.bzl", "layout_shape_test_suite")
 load(":pattern_match_test.bzl", "pattern_match_test_suite")
 load(":probe.bzl", "checked_analysis_surface", "stdlib_export_data_mismatch_probe", "stdlib_export_data_missing_probe", "stdlib_export_data_probe", "stdlib_export_data_unprojected_consumer_probe", "stdlib_source_data_missing_probe", "transitioned_checked_map", "transitioned_checked_surface", "transitioned_component_layout")
+load(":producer_chain_tests.bzl", "producer_chain_analysis_tests")
 load(":report_assertion_tests.bzl", "report_assertion_test_suite")
-load(":stdlib_map_probe.bzl", "darwin_arm64_stdlib_map", "default_seam_probe", "linux_stdlib_map", "tagged_stdlib_map")
-load(":stdlib_map_tests.bzl", "stdlib_map_full_test_suite", "stdlib_map_test_suite")
-load(":stdlib_export_data_tests.bzl", "stdlib_export_data_test_suite")
-load(":sdk_adapter_tests.bzl", "sdk_adapter_test_suite")
 load(
     ":runtime_injection_tests.bzl",
     "fake_go_member",
     "fake_go_member_probe",
     "fake_runtime_package",
-    "runtime_layout",
     "runtime_injection_defaults_probe",
     "runtime_injection_test_suite",
+    "runtime_layout",
 )
-load(":testing.bzl", "fake_stdlib_export_data", "testing_go_component_direct")
-load(":testing.bzl", "testing_infra_attachment_probe")
+load(":sdk_adapter_tests.bzl", "sdk_adapter_test_suite")
+load(":stdlib_export_data_tests.bzl", "stdlib_export_data_test_suite")
+load(":stdlib_map_probe.bzl", "darwin_arm64_stdlib_map", "default_seam_probe", "linux_stdlib_map", "tagged_stdlib_map")
+load(":stdlib_map_tests.bzl", "stdlib_map_full_test_suite", "stdlib_map_test_suite")
+load(":testing.bzl", "fake_stdlib_export_data", "testing_go_component_direct", "testing_infra_attachment_probe")
 
 exports_files([
     "test_export_a.data",
@@ -37,11 +36,12 @@ exports_files([
 
 fake_go_member(
     name = "injected_runtime_member",
-    importpath = "example.com/injected/consumer",
     src = "//bazel_rules/go/tests/testdata/injected_runtime:consumer/runtime_consumer.go",
     export_file = "test_export_a.data",
+    importpath = "example.com/injected/consumer",
     visibility = ["//bazel_rules:__subpackages__"],
 )
+
 fake_go_member_probe(
     name = "injected_runtime_member_probe",
     target = ":injected_runtime_member",
@@ -49,85 +49,96 @@ fake_go_member_probe(
 
 fake_stdlib_export_data(
     name = "fake_sdk_export_data",
-    metadata = "test_sdk_export_metadata.json",
     export_files = [
         "test_sdk_export_a.x",
         "test_sdk_export_b.x",
     ],
+    metadata = "test_sdk_export_metadata.json",
 )
+
 fake_stdlib_export_data(
     name = "fake_sdk_export_data_missing",
     metadata = "test_sdk_export_metadata.json",
 )
+
 fake_stdlib_export_data(
     name = "fake_sdk_export_data_mismatch",
-    metadata = "test_sdk_export_metadata.json",
     export_files = ["test_sdk_export_a.x"],
+    metadata = "test_sdk_export_metadata.json",
     mismatch_field = "goos",
 )
+
 fake_stdlib_export_data(
     name = "fake_sdk_export_data_with_source",
-    metadata = "test_sdk_export_metadata.json",
     export_files = ["test_sdk_export_a.x"],
+    metadata = "test_sdk_export_metadata.json",
     source_file = "test_sdk_export_source.go",
 )
+
 fake_stdlib_export_data(
     name = "fake_sdk_export_data_linux",
-    map = ":linux_stdlib_map",
-    metadata = "test_sdk_export_metadata.json",
     export_files = [
         "test_sdk_export_a.x",
         "test_sdk_export_b.x",
     ],
+    map = ":linux_stdlib_map",
+    metadata = "test_sdk_export_metadata.json",
 )
 
 testing_go_component_direct(
     name = "fake_sdk_export_component",
-    interface = "//bazel_rules/go/tests/testdata/api:api",
+    interface = "//bazel_rules/go/tests/testdata/api",
     tags = ["manual"],
     test_stdlib_export_data = ":fake_sdk_export_data",
 )
+
 testing_go_component_direct(
     name = "fake_sdk_export_missing_component",
-    interface = "//bazel_rules/go/tests/testdata/api:api",
+    interface = "//bazel_rules/go/tests/testdata/api",
     tags = ["manual"],
     test_stdlib_export_data = ":fake_sdk_export_data_missing",
 )
+
 testing_go_component_direct(
     name = "fake_sdk_export_mismatch_component",
-    interface = "//bazel_rules/go/tests/testdata/api:api",
+    interface = "//bazel_rules/go/tests/testdata/api",
     tags = ["manual"],
     test_stdlib_export_data = ":fake_sdk_export_data_mismatch",
 )
+
 testing_go_component_direct(
     name = "fake_sdk_export_source_component",
-    interface = "//bazel_rules/go/tests/testdata/api:api",
+    interface = "//bazel_rules/go/tests/testdata/api",
     tags = ["manual"],
     test_stdlib_export_data = ":fake_sdk_export_data_with_source",
 )
+
 testing_go_component_direct(
     name = "fake_sdk_export_opposite_map_component",
-    interface = "//bazel_rules/go/tests/testdata/api:api",
+    interface = "//bazel_rules/go/tests/testdata/api",
     tags = ["manual"],
     test_stdlib_export_data = ":fake_sdk_export_data_linux",
     test_stdlib_map = ":linux_stdlib_map",
 )
+
 transitioned_component_layout(
     name = "fake_sdk_export_component_darwin_layout",
     component = ":fake_sdk_export_component",
     tags = ["manual"],
 )
+
 transitioned_component_layout(
     name = "fake_sdk_export_opposite_map_component_layout",
     component = ":fake_sdk_export_opposite_map_component",
     tags = ["manual"],
 )
+
 sh_test(
     name = "transitioned_sdk_export_layout_test",
+    size = "small",
     srcs = ["transitioned_sdk_export_layout_test.sh"],
     args = ["$(rootpath :fake_sdk_export_component_darwin_layout)"],
     data = [":fake_sdk_export_component_darwin_layout"],
-    size = "small",
     tags = ["manual"],
 )
 
@@ -148,67 +159,80 @@ linux_stdlib_map(
 )
 
 stdlib_map_test_suite(name = "stdlib_map_tests")
+
 stdlib_map_full_test_suite(name = "stdlib_map_full_tests")
+
 stdlib_export_data_test_suite(name = "stdlib_export_data_tests")
+
 sdk_adapter_test_suite(name = "sdk_adapter_tests")
 
 runtime_injection_defaults_probe(name = "runtime_injection_defaults_probe")
+
 fake_runtime_package(
     name = "injected_cgo_package",
-    importpath = "example.com/injected/cgo",
     cgo = True,
     export_file = "test_export_a.data",
+    importpath = "example.com/injected/cgo",
 )
+
 fake_runtime_package(
     name = "injected_conflict_node_a",
-    importpath = "example.com/injected/conflict",
     export_file = "test_export_a.data",
+    importpath = "example.com/injected/conflict",
 )
+
 fake_runtime_package(
     name = "injected_conflict_node_b",
-    importpath = "example.com/injected/conflict",
     export_file = "test_export_b.data",
+    importpath = "example.com/injected/conflict",
 )
+
 fake_runtime_package(
     name = "injected_ordinary_conflict_package",
-    importpath = "example.com/aspect/api",
     export_file = "test_export_b.data",
+    importpath = "example.com/aspect/api",
 )
+
 fake_runtime_package(
     name = "injected_order_node_a",
-    importpath = "example.com/injected/order-a",
     export_file = "test_export_a.data",
+    importpath = "example.com/injected/order-a",
 )
+
 fake_runtime_package(
     name = "injected_order_node_b",
-    importpath = "example.com/injected/order-b",
     export_file = "test_export_b.data",
+    importpath = "example.com/injected/order-b",
 )
+
 testing_go_component_direct(
     name = "injected_cgo_component",
-    interface = "//bazel_rules/go/tests/testdata/api:api",
+    interface = "//bazel_rules/go/tests/testdata/api",
     tags = ["manual"],
     test_runtime_packages = [":injected_cgo_package"],
 )
+
 testing_go_component_direct(
     name = "injected_conflict_component",
-    interface = "//bazel_rules/go/tests/testdata/api:api",
+    interface = "//bazel_rules/go/tests/testdata/api",
     tags = ["manual"],
     test_runtime_packages = [
         ":injected_conflict_node_a",
         ":injected_conflict_node_b",
     ],
 )
+
 testing_go_component_direct(
     name = "injected_ordinary_conflict_component",
-    interface = "//bazel_rules/go/tests/testdata/api:api",
+    interface = "//bazel_rules/go/tests/testdata/api",
     tags = ["manual"],
     test_runtime_packages = [":injected_ordinary_conflict_package"],
 )
+
 testing_go_component_direct(
     name = "injected_order_component_a",
     component_deps = ["//bazel_rules/go/tests/testdata/shared:shared_component"],
-    interface = "//bazel_rules/go/tests/testdata/api:api",
+    interface = "//bazel_rules/go/tests/testdata/api",
     members = [
         "//bazel_rules/go/tests/testdata/core",
         "//bazel_rules/go/tests/testdata/extradep",
@@ -219,10 +243,11 @@ testing_go_component_direct(
         ":injected_order_node_b",
     ],
 )
+
 testing_go_component_direct(
     name = "injected_order_component_b",
     component_deps = ["//bazel_rules/go/tests/testdata/shared:shared_component"],
-    interface = "//bazel_rules/go/tests/testdata/api:api",
+    interface = "//bazel_rules/go/tests/testdata/api",
     members = [
         "//bazel_rules/go/tests/testdata/core",
         "//bazel_rules/go/tests/testdata/extradep",
@@ -233,6 +258,7 @@ testing_go_component_direct(
         ":injected_order_node_a",
     ],
 )
+
 runtime_injection_test_suite(name = "runtime_injection_tests")
 
 arcc_checked_analysis_test(
@@ -245,13 +271,15 @@ runtime_layout(
     name = "injected_runtime_final_layout",
     component = "//bazel_rules/go/tests/testdata/injected_runtime:runtime_injection_component",
 )
+
 sh_test(
     name = "injected_runtime_final_layout_test",
-    srcs = ["runtime_injection_layout_test.sh"],
     size = "small",
+    srcs = ["runtime_injection_layout_test.sh"],
     args = ["$(rootpath :injected_runtime_final_layout)"],
     data = [":injected_runtime_final_layout"],
 )
+
 arcc_check_grep_test(
     name = "injected_runtime_report_axes_test",
     component = "//bazel_rules/go/tests/testdata/injected_runtime:runtime_injection_component",
@@ -268,10 +296,12 @@ arcc_check_grep_test(
 )
 
 stdlib_export_data_probe(name = "stdlib_export_data_probe")
+
 stdlib_export_data_missing_probe(
     name = "stdlib_export_data_missing_probe",
     tags = ["manual"],
 )
+
 stdlib_export_data_mismatch_probe(
     name = "stdlib_export_data_mismatch_probe",
     map = "//:arcc_stdlib_map",
@@ -282,6 +312,7 @@ stdlib_export_data_unprojected_consumer_probe(
     name = "stdlib_export_data_unprojected_consumer_probe",
     tags = ["manual"],
 )
+
 stdlib_source_data_missing_probe(
     name = "stdlib_source_data_missing_probe",
     sentinel = "test_export_a.data",
@@ -290,8 +321,8 @@ stdlib_source_data_missing_probe(
 
 sh_test(
     name = "stdlib_map_default_matches_pinned_test",
-    srcs = ["stdlib_map_default_matches_pinned_test.sh"],
     size = "small",
+    srcs = ["stdlib_map_default_matches_pinned_test.sh"],
     args = [
         "$(rootpath //:arcc)",
         "$(rootpath //:arcc_stdlib_map)",
@@ -359,8 +390,8 @@ arcc_check_grep_test(
 # run the CLI-level behavior the action inherits directly.
 sh_test(
     name = "malformed_manifest_tool_error_test",
-    srcs = ["malformed_manifest_tool_error_test.sh"],
     size = "small",
+    srcs = ["malformed_manifest_tool_error_test.sh"],
     args = [
         "$(rootpath //:arcc)",
         "$(rootpath //bazel_rules/go/tests/testdata/malformed:broken.component.textproto)",
@@ -406,19 +437,8 @@ tagged_stdlib_map(
 
 sh_test(
     name = "stdlib_map_keys_test",
-    srcs = ["stdlib_map_keys_test.sh"],
     size = "medium",
-    tags = ["manual"],
-    data = select({
-        ":stdlibmap_full": [
-            "//:arcc",
-            "//:arcc_stdlib_map",
-            "//:arcc_stdlib_map_replica",
-            ":stdlib_map_darwin_arm64",
-            ":stdlib_map_tagged",
-        ],
-        "//conditions:default": [],
-    }),
+    srcs = ["stdlib_map_keys_test.sh"],
     args = select({
         ":stdlibmap_full": [
             "$(rootpath //:arcc)",
@@ -429,9 +449,21 @@ sh_test(
         ],
         "//conditions:default": [],
     }),
+    data = select({
+        ":stdlibmap_full": [
+            ":stdlib_map_darwin_arm64",
+            ":stdlib_map_tagged",
+            "//:arcc",
+            "//:arcc_stdlib_map",
+            "//:arcc_stdlib_map_replica",
+        ],
+        "//conditions:default": [],
+    }),
+    tags = ["manual"],
 )
 
 arcc_deps_aspect_full_test_suite(name = "arcc_deps_aspect_full_tests")
+
 arcc_deps_aspect_test_suite(name = "arcc_deps_aspect_tests")
 
 go_component_test_suite(name = "go_component_tests")
@@ -456,8 +488,8 @@ asserted_surface_comparison(
 
 sh_test(
     name = "reordered_unknown_surface_bytes_test",
-    srcs = ["asserted_surface_determinism_test.sh"],
     size = "small",
+    srcs = ["asserted_surface_determinism_test.sh"],
     args = [
         "$(rootpath //bazel_rules/go/tests/testdata/reportboundary/reordered_a:reordered_surface)",
         "$(rootpath //bazel_rules/go/tests/testdata/reportboundary/reordered_b:reordered_surface)",
@@ -469,7 +501,9 @@ sh_test(
         "//bazel_rules/go/tests/testdata/reportboundary/reordered_duplicate:reordered_surface",
     ],
 )
+
 artifact_shape_test_suite(name = "artifact_shape_tests")
+
 layout_shape_test_suite(name = "layout_shape_tests")
 
 # AC 5 (task req 7): an explicitly requested `.check` of an asserted
@@ -540,17 +574,17 @@ checked_analysis_surface(
 
 sh_test(
     name = "asserted_surface_sdk_key_test",
-    srcs = ["asserted_surface_sdk_key_test.sh"],
     size = "small",
+    srcs = ["asserted_surface_sdk_key_test.sh"],
     args = [
         "$(rootpath :default_surface)",
         "$(rootpath :asserted_surface)",
         "$(rootpath //:arcc_stdlib_map)",
     ],
     data = [
-        "//:arcc_stdlib_map",
         ":asserted_surface",
         ":default_surface",
+        "//:arcc_stdlib_map",
     ],
 )
 
@@ -570,7 +604,6 @@ transitioned_component_layout(
         "//conditions:default": ["@platforms//:incompatible"],
     }),
 )
-
 
 # Target-identity coherence under a non-default configuration (task req 8,
 # AC 6): the darwin/arm64, cgo-off, build-tagged analysis emits a surface
@@ -602,10 +635,9 @@ checked_analysis_surface(
 
 sh_test(
     name = "transitioned_surface_sdk_key_test",
-    srcs = ["transitioned_surface_sdk_key_test.sh"],
     size = "large",
     timeout = "moderate",
-    tags = ["manual"],
+    srcs = ["transitioned_surface_sdk_key_test.sh"],
     args = [
         "$(rootpath //:arcc)",
         "$(rootpath //:arcc_stdlib_map)",
@@ -614,12 +646,13 @@ sh_test(
         "$(rootpath :darwin_arm64_surface)",
     ],
     data = [
-        "//:arcc",
-        "//:arcc_stdlib_map",
         ":darwin_arm64_map",
         ":darwin_arm64_surface",
         ":default_surface",
+        "//:arcc",
+        "//:arcc_stdlib_map",
     ],
+    tags = ["manual"],
 )
 
 # Negative test for self-check dependency regression: a self-component declaration
@@ -661,6 +694,24 @@ arcc_check_grep_test(
         "example.com/hazard/util1",
         "example.com/hazard/util2",
         "example.com/hazard/util3",
+    ],
+)
+
+arcc_check_grep_test(
+    name = "filelist_consumer_calls_undeclared_interface_test",
+    size = "small",
+    component = "//bazel_rules/go/tests/testdata/filelist/consumer:consumer_component",
+    expected_strings = [
+        "CALLS_UNDECLARED_INTERFACE",
+    ],
+)
+
+arcc_check_grep_test(
+    name = "filelist_split_method_outside_interface_test",
+    size = "small",
+    component = "//bazel_rules/go/tests/testdata/filelist/splitmethod:splitmethod_component",
+    expected_strings = [
+        "METHOD_OUTSIDE_INTERFACE",
     ],
 )
 
@@ -796,8 +847,8 @@ arcc_check_surface_golden_test(
 # does not duplicate the pinned routine map artifact.
 sh_test(
     name = "stdlib_map_shape_golden_test",
-    srcs = ["artifact_shape_golden_test.sh"],
     size = "small",
+    srcs = ["artifact_shape_golden_test.sh"],
     args = [
         "$(rootpath //:arcc)",
         "stdlib-map",
@@ -805,9 +856,9 @@ sh_test(
         "$(rootpath goldens/stdlib_map_shape.golden.json)",
     ],
     data = [
-        "//:arcc",
         "goldens/stdlib_map_shape.fixture.json",
         "goldens/stdlib_map_shape.golden.json",
+        "//:arcc",
     ],
 )
 
@@ -817,10 +868,11 @@ sh_test(
 # target. The guard also runs synthetic contamination probes so a failure
 # names the forbidden content class instead of silently accepting host data.
 _VERDICT_GOLDENS = glob(["goldens/*.verdict.golden"])
+
 sh_test(
     name = "verdict_golden_portability_test",
-    srcs = ["verdict_golden_portability_test.sh"],
     size = "small",
+    srcs = ["verdict_golden_portability_test.sh"],
     args = ["$(rootpath %s)" % golden for golden in _VERDICT_GOLDENS],
     data = _VERDICT_GOLDENS,
 )
@@ -857,8 +909,8 @@ arcc_check_grep_test(
 
 sh_test(
     name = "member_order_test",
-    srcs = ["member_order_test.sh"],
     size = "small",
+    srcs = ["member_order_test.sh"],
     args = [
         "$(rootpaths //bazel_rules/go/tests/testdata/membercomponent:member_component)",
         "$(rootpaths //bazel_rules/go/tests/testdata/membercomponent:member_component_reversed)",
@@ -871,8 +923,8 @@ sh_test(
 
 sh_test(
     name = "multi_infra_order_test",
-    srcs = ["member_order_test.sh"],
     size = "small",
+    srcs = ["member_order_test.sh"],
     args = [
         "$(rootpaths //bazel_rules/go/tests/testdata/membercomponent:multi_infra_a)",
         "$(rootpaths //bazel_rules/go/tests/testdata/membercomponent:multi_infra_b)",
@@ -891,10 +943,10 @@ go_test(
         ":stdlibmap_full": [":darwin_arm64_layout"],
         "//conditions:default": [],
     }),
-    deps = ["//go/internal/packagelayout"],
     tags = ["manual"],
     target_compatible_with = select({
         ":stdlibmap_full": [],
         "//conditions:default": ["@platforms//:incompatible"],
     }),
+    deps = ["//go/internal/packagelayout"],
 )

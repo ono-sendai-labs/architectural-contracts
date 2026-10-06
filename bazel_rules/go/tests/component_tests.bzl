@@ -6,9 +6,9 @@ typed layout-shape golden targets; these analysis tests see only the provider
 contract and analysis-time errors, which is what is asserted here.
 """
 
+load("@rules_go//go:def.bzl", "GoInfo")
 load("@rules_testing//lib:analysis_test.bzl", "analysis_test", "test_suite")
 load("@rules_testing//lib:truth.bzl", "matching")
-load("@rules_go//go:def.bzl", "GoInfo")
 load("//bazel_rules:providers.bzl", "ArccComponentInfo")
 load("//bazel_rules/go/tests:testing.bzl", "TestingInfraAttachmentInfo")
 
@@ -257,6 +257,37 @@ def _nested_component_root_allowed_impl(env, target):
         [pkg.importpath for pkg in info.closure.to_list()],
     ).contains_exactly(["example.com/aspect/nested"])
 
+def _filelist_unknown_file_fails_test(name):
+    analysis_test(
+        name = name,
+        target = "//bazel_rules/go/tests/testdata/filelist:unknown_file_component",
+        impl = _filelist_unknown_file_fails_impl,
+        attr_values = {"size": "small"},
+        expect_failure = True,
+    )
+
+def _filelist_unknown_file_fails_impl(env, target):
+    env.expect.that_target(target).failures().contains_predicate(
+        matching.str_matches("*component unknown_file_component:*"),
+    )
+    env.expect.that_target(target).failures().contains_predicate(
+        matching.str_matches("*interface file * is not a src of any member*"),
+    )
+
+def _filelist_component_interface_files_test(name):
+    analysis_test(
+        name = name,
+        target = "//bazel_rules/go/tests/testdata/filelist:filelist_component",
+        impl = _filelist_component_interface_files_impl,
+        attr_values = {"size": "small"},
+    )
+
+def _filelist_component_interface_files_impl(env, target):
+    info = target[ArccComponentInfo]
+    action = env.expect.that_target(target).action_generating(info.manifest.short_path)
+    action.content().contains("interface_files: \"_main/bazel_rules/go/tests/testdata/filelist/api.go\"")
+    env.expect.that_bool("impl.go" in action.actual.content).equals(False)
+
 def _auto_attached_infra_test(name):
     analysis_test(
         name = name,
@@ -478,7 +509,7 @@ def _dependency_artifact_bindings_impl(env, target):
     # every binding field. The collection is canonicalized by dependency name.
     env.expect.that_str(layout).contains('"dependency_artifact_bindings": [')
     env.expect.that_str(layout).contains('"dependency": "manual_component"')
-    env.expect.that_str(layout).contains('reportboundary/manual/manual_component.surface.json')
+    env.expect.that_str(layout).contains("reportboundary/manual/manual_component.surface.json")
     env.expect.that_str(layout).contains('"dependency": "shared_component"')
     env.expect.that_str(layout).contains('"report": "_main/bazel_rules/go/tests/testdata/shared/shared_component.report.json"')
     env.expect.that_str(layout).contains('"auto_attached": true')
@@ -794,13 +825,13 @@ def _checked_action_inputs_impl(env, target):
     unexpected = [
         basename
         for basename in non_sdk_inputs
-        if not expected_basenames.get(basename)
-        # The arcc tool and its runfiles (the argv[1] executable, declared as
-        # a tool) and the generated frame wrapper (the action's executable)
-        # are Bazel execution machinery, not semantic inputs.
-        and basename != argv[1].rsplit("/", 1)[-1]
-        and basename != "arcc.runfiles"
-        and basename != argv[0].rsplit("/", 1)[-1]
+        if not expected_basenames.get(basename) and
+           # The arcc tool and its runfiles (the argv[1] executable, declared as
+           # a tool) and the generated frame wrapper (the action's executable)
+           # are Bazel execution machinery, not semantic inputs.
+           basename != argv[1].rsplit("/", 1)[-1] and
+           basename != "arcc.runfiles" and
+           basename != argv[0].rsplit("/", 1)[-1]
     ]
     env.expect.that_collection(unexpected).contains_exactly([])
     input_set = {basename: True for basename in non_sdk_inputs}
@@ -890,6 +921,7 @@ def _export_layout_shape_test(name):
 
 def _export_layout_shape_impl(env, target):
     info = target[ArccComponentInfo]
+
     # The final layout is assembled by ArccLayout from the deterministic base
     # write and the exact ordinary-import graph. Inspect the base request here;
     # the execution/golden tests cover the assembled package Imports bytes.
@@ -909,6 +941,7 @@ def _export_layout_shape_impl(env, target):
     env.expect.that_str(content).contains('"metadata": "rules_go+/stdlib_/stdlib.pkg.json"')
     env.expect.that_str(content).contains('"toolchain_version": "go1.26.4"')
     package_sections = content.split('"ID":')
+
     # The first package is the member root `api`; its section must keep source
     # ownership without an export role.
     if '"ExportFile":' in package_sections[1]:
@@ -1005,6 +1038,8 @@ def go_component_test_suite(name):
             _invalid_analysis_defeating_policy_fails_test,
             _analysis_defeating_policy_manifest_test,
             _nested_component_root_allowed_test,
+            _filelist_unknown_file_fails_test,
+            _filelist_component_interface_files_test,
             _auto_attached_infra_test,
             _exact_self_infra_excluded_test,
             _same_short_name_infra_remains_eligible_test,

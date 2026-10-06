@@ -123,6 +123,32 @@ func TestCompareManifests_AnalysisDefeatingPolicyCompared(t *testing.T) {
 	}
 }
 
+func TestCompareManifests_InterfaceFilesSetEquality(t *testing.T) {
+	gen := manifest.Manifest{
+		Name:           "files_component",
+		InterfaceFiles: []string{"api.go", "impl.go"},
+	}
+	chk := manifest.Manifest{
+		Name:           "files",
+		InterfaceFiles: []string{"api.go"}, // textproto lists fewer files than generated
+	}
+	spy := &spyTB{TB: t}
+	manifestparity.CompareManifests(spy, "files", gen, chk)
+	if len(spy.errors) == 0 {
+		t.Fatalf("expected parity failure when textproto lists fewer interface files than generated manifest, got none")
+	}
+	found := false
+	for _, e := range spy.errors {
+		if strings.Contains(e, "interface files =") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected error containing 'interface files =', got %v", spy.errors)
+	}
+}
+
 func TestRun_MissingGeneratedCounterpart(t *testing.T) {
 	tmpDir := t.TempDir()
 	compDir := filepath.Join(tmpDir, "mycomp")
