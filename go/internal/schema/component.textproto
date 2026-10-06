@@ -1,14 +1,3 @@
 name: "schema"
-# The persisted-artifact schema vocabulary: the generated protobuf package and
-# the shared capability taxonomy. Package-surface component: its complete
-# declared surface is the exported API of its member packages, so consumers
-# (manifest, artifactio) use every generated symbol and schema.KnownCapabilities
-# through this declared component dependency instead of claiming the packages
-# as members.
-interface_style: INTERFACE_STYLE_PACKAGE_SURFACE
+interface_files: "capabilities.go"
 members: "github.com/ono-sendai-labs/architectural-contracts/go/internal/schema"
-members: "github.com/ono-sendai-labs/architectural-contracts/go/internal/schema/gen"
-component_dependencies {
-  name: "protobuf-runtime"
-  manifest: "../protobufruntime/component.textproto"
-}

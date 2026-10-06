@@ -10,8 +10,8 @@ component_dependencies {
   manifest: "../report/component.textproto"
 }
 component_dependencies {
-  name: "schema"
-  manifest: "../schema/component.textproto"
+  name: "schema-gen"
+  manifest: "../schema/gen/component.textproto"
 }
 members: "github.com/ono-sendai-labs/architectural-contracts/go/internal/reportio"
 # REFLECT and UNSAFE_POINTER come from `encoding/json` in the persisted-report

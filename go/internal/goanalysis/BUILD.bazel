@@ -54,7 +54,7 @@ go_component(
         "//go/internal/facts:facts_component",
         "//go/internal/manifest:manifest_component",
         "//go/internal/reportio:reportio_component",
-        "//go/internal/schema:schema_component",
+        "//go/internal/schema/gen:schema_gen_component",
         "//go/internal/stdlibauthority:stdlibauthority_component",
         "//go/internal/surface:surface_component",
         "//go/internal/symbol:symbol_component",

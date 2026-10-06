@@ -40,7 +40,7 @@ go_component(
     component_deps = [
         "//go/internal/artifactio:artifactio_component",
         "//go/internal/report:report_component",
-        "//go/internal/schema:schema_component",
+        "//go/internal/schema/gen:schema_gen_component",
     ],
     # REFLECT and UNSAFE_POINTER come from `encoding/json` in the persisted-report
     # and shape-snapshot codecs; the stdlib map attributes both to

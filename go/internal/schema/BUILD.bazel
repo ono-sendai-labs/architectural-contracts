@@ -22,26 +22,10 @@ go_library(
     ],
 )
 
-# Mirrors the checked-in schema/component.textproto: a package-surface
-# component whose complete surface is the exported API of the generated
-# protobuf package and the capability taxonomy package, so manifest and
-# artifactio consume both through declared component dependencies instead of
-# duplicated membership. The generated closure imports the shared protobuf
-# runtime through its asserted package-surface dependency. Its own generated
-# `.pb.go` code still contains UNANALYZED constructs retained by the pinned map,
-# so this unrelated generated-code verdict remains outside the default test
-# wildcard; it is not a second protobuf-runtime ownership exemption.
+# Mirrors the checked-in schema/component.textproto: pure capability taxonomy.
 go_component(
     name = "schema_component",
-    interface_style = "PACKAGE_SURFACE",
-    component_deps = ["//go/internal/protobufruntime:protobuf-runtime"],
-    members = [
-        "//go/internal/schema",
-        "//go/internal/schema/gen",
-    ],
-    # Its generated `.check` is excluded from `bazel test //...`
-    # (`check_tags = ["manual"]`) solely for the generated-code
-    # UNANALYZED verdict described above; the component itself stays checked.
-    check_tags = ["manual"],
+    interface_files = ["capabilities.go"],
+    members = ["//go/internal/schema"],
     visibility = ["//go:__subpackages__"],
 )

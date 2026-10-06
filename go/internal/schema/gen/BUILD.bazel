@@ -1,3 +1,4 @@
+load("@rules_arcc//bazel_rules/go:defs.bzl", "go_component")
 load("@rules_go//go:def.bzl", "go_library")
 
 go_library(
@@ -14,3 +15,14 @@ go_library(
         "@org_golang_google_protobuf//runtime/protoimpl",
     ],
 )
+
+# generated protoc-gen-go code uses unsafe.Slice/StringData and sync.Once; WARN keeps the 15 boilerplate sites visible without failing the gate; regenerate, never hand-edit.
+go_component(
+    name = "schema_gen_component",
+    analysis_defeating_policy = "warn",
+    component_deps = ["//go/internal/protobufruntime:protobuf-runtime"],
+    interface = ":gen",
+    visibility = ["//go:__subpackages__"],
+)
+
+exports_files(["component.textproto"])

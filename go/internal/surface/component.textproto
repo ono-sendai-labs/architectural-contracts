@@ -7,8 +7,8 @@ component_dependencies {
   manifest: "../manifest/component.textproto"
 }
 component_dependencies {
-  name: "schema"
-  manifest: "../schema/component.textproto"
+  name: "schema-gen"
+  manifest: "../schema/gen/component.textproto"
 }
 component_dependencies {
   name: "symbol"

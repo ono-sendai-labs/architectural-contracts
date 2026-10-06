@@ -58,6 +58,7 @@ go_component(
     component_deps = [
         "//go/internal/protobufruntime:protobuf-runtime",
         "//go/internal/schema:schema_component",
+        "//go/internal/schema/gen:schema_gen_component",
     ],
     members = [],
     interface = ":manifest",

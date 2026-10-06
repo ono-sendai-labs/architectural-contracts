@@ -45,7 +45,7 @@ go_component(
     name = "surface_component",
     component_deps = [
         "//go/internal/manifest:manifest_component",
-        "//go/internal/schema:schema_component",
+        "//go/internal/schema/gen:schema_gen_component",
         "//go/internal/symbol:symbol_component",
         "//go/internal/stdlibauthority:stdlibauthority_component",
     ],

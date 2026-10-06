@@ -42,6 +42,10 @@ component_dependencies {
   manifest: "../schema/component.textproto"
 }
 component_dependencies {
+  name: "schema-gen"
+  manifest: "../schema/gen/component.textproto"
+}
+component_dependencies {
   name: "stdlibauthority"
   manifest: "../stdlibauthority/component.textproto"
 }

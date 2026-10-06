@@ -98,7 +98,7 @@ says the component declares — no more and no fewer. Record the probe summary
 - [x] **Step 5** — `artifactio` authority-free + new `reportio` *(done 2026-10-05; `artifactio` authority-free, `reportio` holds `REFLECT`+`UNSAFE_POINTER`)*
 - [x] **Step 6** — `checker`: file-list interface = `checker.go` *(done 2026-10-05; `interface_files = ["checker.go"]`, 8 internal symbols unexported)*
 - [x] **Step 7** — `symbol` → `symbol` + `capslocksymbol` *(done 2026-10-05; `symbol` 653 LOC, `capslocksymbol` 1,105 LOC, both pure)*
-- [ ] **Step 8** — `schema` → `schema` + `schema-gen` (WARN; last in-tree `PACKAGE_SURFACE` removed)
+- [x] **Step 8** — `schema` → `schema` + `schema-gen` (WARN; last in-tree `PACKAGE_SURFACE` removed) *(done 2026-10-05; `schema` pure, `schema-gen` WARN with 15-site assertion; 0 `TrueAuthority` so `UNSAFE_POINTER` omitted)*
 - [ ] **Step 9** — `capslock-runtime` wrapper; `capslockadapter` shrinks
 - [ ] **Step 10** — `goanalysis-hostfs` sub-component (spike S1)
 - [ ] **Step 11** — `packagelayout-hostenv` sub-component, `layout-driver-hook`, `BuildTags` (+ `goanalysis` drops `RUNTIME`/`READ_SYSTEM_STATE`)
@@ -492,6 +492,16 @@ gate into a real green gate (§5.8, decided R1).
 `capslockruntime`). `just selfcheck` has **no** expected-fail line.
 
 **Demo.** `bazel test //go/internal/schema/...` runs and passes both `.check` targets.
+
+**Status: DONE 2026-10-05.**
+- Split `schema` into `go/internal/schema` (`interface_files = ["capabilities.go"]`, pure, `check_tags = ["manual"]` removed) and `go/internal/schema/gen` (`schema-gen`, `interface = ":gen"`, `analysis_defeating_policy = "warn"` / `WARN`, dep `protobuf-runtime`).
+- Measured authority deviation (Principle 4 / C10): probing `schema-gen` showed that the 15 `protoc-gen-go` boilerplate sites (`3× (sync.Once).Do`, `6× unsafe.Slice`, `6× unsafe.StringData`) are classified as `AnalysisDefeating` (`UNANALYZED`), with **0 `TrueAuthority` capabilities**. Declaring `declared_authority = ["UNSAFE_POINTER"]` emitted `WARNING: declared authority "UNSAFE_POINTER" is unused`; omitting `declared_authority` leaves `schema-gen` with 0 `UNUSED_AUTHORITY` warnings and 1 `ANALYSIS_LIMITATION` warning containing the 15 sites.
+- Added `selfcheck_assert_analysis_defeating_sites` in `scripts/selfcheck-staging.sh` (tested in `scripts/selfcheck-staging-test.sh`) and wired `justfile` to assert 15 `ANALYSIS_LIMITATION` sites on `internal/schema/gen/component.report.json`; all 24 staged components now pass with 0 expected-fail stages.
+- Updated consumers: `manifest`, `artifactio`, `stdlibmap` depend on both `schema` and `schema-gen`; `reportio`, `surface`, `goanalysis`, `cli` replaced `schema` with `schema-gen`.
+- Updated `go/internal/manifestparity/manifestparity.go` (`normalizeComponentName` mapping `_` to `-` after trimming `_component`) and `ownership_test.go`.
+- Probes:
+  - `schema`: **empty** (0 findings).
+  - `schema-gen`: **empty** under `analysis_defeating_policy: WARN` (0 `TrueAuthority` findings; 15 `AnalysisDefeating` sites downgraded to `ANALYSIS_LIMITATION` warning).
 
 ---
 

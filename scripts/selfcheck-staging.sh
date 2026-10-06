@@ -60,3 +60,26 @@ selfcheck_asserted_component() {
 		return 1
 	fi
 }
+
+selfcheck_assert_analysis_defeating_sites() {
+	if (($# != 2)); then
+		echo "selfcheck staging: expected report path and expected count" >&2
+		return 2
+	fi
+
+	local report="$1"
+	local expected="$2"
+
+	if [[ ! -f "$report" ]]; then
+		echo "selfcheck staging: report not found: $report" >&2
+		return 1
+	fi
+
+	local actual
+	actual=$(jq '[.report.warnings[]? | select(.kind == "ANALYSIS_LIMITATION") | .sites[]?] | length' "$report")
+	if [[ "$actual" != "$expected" ]]; then
+		echo "selfcheck staging analysis-defeating site count for $report: got $actual, want $expected" >&2
+		return 1
+	fi
+}
+

@@ -51,7 +51,26 @@ if [[ "$before_asserted_calls" != "$after_asserted_calls" ]]; then
   echo "asserted wrapper unexpectedly invoked the analysis command" >&2
   exit 1
 fi
-test ! -e protobuf-runtime/component.report.json
-test ! -e x-tools/component.report.json
+# Analysis-defeating site count assertion: matches expected count, rejects mismatch.
+cat >"$test_root/mock-report.json" <<'EOF'
+{
+  "report": {
+    "warnings": [
+      {
+        "kind": "ANALYSIS_LIMITATION",
+        "sites": [
+          {"file": "a.go", "line": 1},
+          {"file": "b.go", "line": 2}
+        ]
+      }
+    ]
+  }
+}
+EOF
+selfcheck_assert_analysis_defeating_sites "$test_root/mock-report.json" 2
+if selfcheck_assert_analysis_defeating_sites "$test_root/mock-report.json" 3 2>/dev/null; then
+  echo "selfcheck_assert_analysis_defeating_sites unexpectedly passed for mismatched count" >&2
+  exit 1
+fi
 
 echo "selfcheck staging verdict regression passed"

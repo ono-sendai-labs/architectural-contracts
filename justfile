@@ -66,25 +66,25 @@ probe component:
 	bash scripts/authority-probe.sh {{component}}
 
 # Self-check coverage:
-# Native `just selfcheck` stages 23 analyzed production components in dependency
-# order. Twenty-two must pass:
-#   capanalyzer, atomicfile, hostpolicy, symbol, capslocksymbol, manifest, report, reportio, stdlibauthority, facts,
-#   surface, artifactio, checker, capslockadapter, packagelayout, stdlibmap,
+# Native `just selfcheck` stages 24 analyzed production components in dependency
+# order. All 24 must pass:
+#   capanalyzer, atomicfile, hostpolicy, symbol, capslocksymbol, packagelayout,
+#   schema, schema-gen, manifest, report, reportio, stdlibauthority, facts,
+#   surface, artifactio, checker, capslockadapter, stdlibmap,
 #   goanalysis, parsecsv, csvfile, toprow, app, cli.
-# `schema` is the one explicit expected-fail analysis because its generated
-# protobuf code retains documented UNANALYZED findings. The `protobuf-runtime`
-# and `x-tools` wrappers are asserted UNKNOWN package surfaces: they provide a
-# checked-in surface and intentionally produce no report or analysis.
+# The `protobuf-runtime` and `x-tools` wrappers are asserted UNKNOWN package
+# surfaces: they provide a checked-in surface and intentionally produce no
+# report or analysis.
 #
-# The Bazel wildcard has 19 checked component gates: the fifteen internal
-# components capanalyzer, atomicfile, hostpolicy, symbol, capslocksymbol, stdlibauthority, facts, report, reportio,
-# checker, manifest, goanalysis, artifactio, surface, and packagelayout, plus
-# the four CSV components parsecsv, csvfile, toprow, and app. Schema's check is
-# excluded via `check_tags = ["manual"]` for the same expected generated-protobuf
-# failure; the two wrappers use `authority = UNKNOWN` for asserted surfaces;
-# capslockadapter and cli have no Bazel component gate
-# because their closure contains cgo; and stdlibmap is covered by dedicated
-# map-generation tests rather than a go_component check.
+# The Bazel wildcard has 21 checked component gates: the seventeen internal
+# components capanalyzer, atomicfile, hostpolicy, symbol, capslocksymbol,
+# packagelayout, schema, schema-gen, stdlibauthority, facts, report, reportio,
+# checker, manifest, goanalysis, artifactio, and surface, plus
+# the four CSV components parsecsv, csvfile, toprow, and app. The two wrappers
+# use `authority = UNKNOWN` for asserted surfaces; capslockadapter and cli
+# have no Bazel component gate because their closure contains cgo; and
+# stdlibmap is covered by dedicated map-generation tests rather than a
+# go_component check.
 #
 # hostpolicy previously rode inside symbol's member set; it is now its own
 # dependency-only leaf component, declared by symbol and consumed through
@@ -136,8 +136,9 @@ selfcheck:
 	selfcheck_asserted_component internal/protobufruntime/component.textproto; \
 	selfcheck_asserted_component internal/xtools/component.textproto; \
 	selfcheck_stage_component "$arcc_bin" "$map_path" internal/packagelayout/component.textproto; \
-	selfcheck_stage_component "$arcc_bin" "$map_path" internal/schema/component.textproto fail; \
-	echo "schema dependency artifact verdict: fail (expected generated-protobuf UNANALYZED; staged and discarded with the temporary stage)"; \
+	selfcheck_stage_component "$arcc_bin" "$map_path" internal/schema/component.textproto; \
+	selfcheck_stage_component "$arcc_bin" "$map_path" internal/schema/gen/component.textproto; \
+	selfcheck_assert_analysis_defeating_sites internal/schema/gen/component.report.json 15; \
 	selfcheck_stage_component "$arcc_bin" "$map_path" internal/manifest/component.textproto; \
 	selfcheck_stage_component "$arcc_bin" "$map_path" internal/report/component.textproto; \
 	selfcheck_stage_component "$arcc_bin" "$map_path" internal/stdlibauthority/component.textproto; \

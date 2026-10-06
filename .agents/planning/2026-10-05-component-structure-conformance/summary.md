@@ -1,10 +1,11 @@
 # Component structure conformance — summary
 
-**Date:** 2026-10-05 · **Revised:** 2026-10-05 (R1, R2) · **Status:** Steps 1–7 of 16
+**Date:** 2026-10-05 · **Revised:** 2026-10-05 (R1, R2) · **Status:** Steps 1–8 of 16
 done (probe script, conventions, spikes S2/S3/S4 resolved, `interface_files` landed,
 Step 3 hygiene/unexports/dead-dep removal complete, Step 4 `atomicfile` extracted,
 Step 5 `artifactio` authority-free + `reportio` split, Step 6 `checker` interface
-shrunk to `checker.go`, Step 7 `capslocksymbol` split from `symbol`); Steps 8–16 in progress
+shrunk to `checker.go`, Step 7 `capslocksymbol` split from `symbol`, Step 8 `schema` +
+`schema-gen` split and expected-fail gate retired); Steps 9–16 in progress
 
 ## What this is
 
@@ -51,8 +52,10 @@ projects to follow. This planning set restructures them so that:
 - `goanalysis` → three interface files (≈ 13 symbols), empty authority. Its `RUNTIME`
   turned out to be *real* (import charge for one `runtime.Version()` call), so
   `hostenv` + `BuildTags` (Step 11) now land before the `goanalysis` split (Step 12).
-- `schema-gen`: declare `UNSAFE_POINTER` + `analysis_defeating_policy: WARN`; the
-  expected-fail gate becomes a real green gate with a 15-finding growth assertion.
+- `schema-gen`: declare `analysis_defeating_policy: WARN` (and no `declared_authority` —
+  the 15 `protoc-gen-go` sites are `AnalysisDefeating`, not `TrueAuthority`
+  `UNSAFE_POINTER`); the expected-fail gate becomes a real green gate with a 15-site
+  growth assertion.
 - Counts after the work: Bazel gates 16 → 24, native analyses 20 → 29, asserted
   surfaces 2 → 3, expected-fail analyses 1 → 0.
 

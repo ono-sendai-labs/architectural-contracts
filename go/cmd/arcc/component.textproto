@@ -59,8 +59,8 @@ component_dependencies {
   manifest: "../../internal/stdlibauthority/component.textproto"
 }
 component_dependencies {
-  name: "schema"
-  manifest: "../../internal/schema/component.textproto"
+  name: "schema-gen"
+  manifest: "../../internal/schema/gen/component.textproto"
 }
 component_dependencies {
   name: "surface"

@@ -92,7 +92,7 @@ func TestProjectPackagesSingleOwner(t *testing.T) {
 
 	// The slice under repair; every other component (e.g. goanalysis, which
 	// predates the slice and is remediated separately) is out of scope here.
-	slice := []string{"artifactio", "atomicfile", "capslocksymbol", "manifest", "reportio", "schema", "stdlibauthority", "symbol"}
+	slice := []string{"artifactio", "atomicfile", "capslocksymbol", "manifest", "reportio", "schema", "schema-gen", "stdlibauthority", "symbol"}
 
 	owner := map[string]string{}
 	for _, name := range slice {
@@ -119,7 +119,7 @@ func TestProjectPackagesSingleOwner(t *testing.T) {
 		modulePrefix + "internal/manifest":        "manifest",
 		modulePrefix + "internal/reportio":        "reportio",
 		modulePrefix + "internal/schema":          "schema",
-		modulePrefix + "internal/schema/gen":      "schema",
+		modulePrefix + "internal/schema/gen":      "schema-gen",
 		modulePrefix + "internal/symbol":          "symbol",
 		modulePrefix + "internal/stdlibauthority": "stdlibauthority",
 	}
@@ -149,6 +149,7 @@ func TestArtifactioDeclaresCoreComponentDependencies(t *testing.T) {
 
 	want := map[string]string{
 		"schema":           "../schema/component.textproto",
+		"schema-gen":       "../schema/gen/component.textproto",
 		"stdlibauthority":  "../stdlibauthority/component.textproto",
 		"surface":          "../surface/component.textproto",
 		"symbol":           "../symbol/component.textproto",
@@ -173,7 +174,7 @@ func TestArtifactioDeclaresCoreComponentDependencies(t *testing.T) {
 	// core package artifactio's production code imports must be a member of a
 	// declared dependency (or of artifactio itself).
 	owners := map[string]string{}
-	for _, name := range []string{"artifactio", "schema", "stdlibauthority", "surface", "symbol"} {
+	for _, name := range []string{"artifactio", "schema", "schema-gen", "stdlibauthority", "surface", "symbol"} {
 		for _, member := range manifests[name].Members {
 			if strings.HasPrefix(member, modulePrefix) {
 				owners[member] = name
@@ -232,35 +233,39 @@ func projectImports(t *testing.T, dir string) map[string]bool {
 }
 
 // TestSchemaSurfaceCoversCapabilityTaxonomy pins the schema component's
-// declared surface: it must be package-surface over both the generated
-// protobuf package and the schema vocabulary package, so the
-// schema.KnownCapabilities references in the manifest model and the artifact
-// shell are authorized by the schema dependency's declared surface rather
-// than by an undeclared member symbol.
+// declared surface: it is a declared-interface component exposing
+// capabilities.go, while schema-gen exposes the generated protobuf types.
+// The schema.KnownCapabilities references in the manifest model and the
+// artifact shell are authorized by the schema dependency's declared surface.
 func TestSchemaSurfaceCoversCapabilityTaxonomy(t *testing.T) {
 	manifests := checkedInComponentManifests(t)
 	m, ok := manifests["schema"]
 	if !ok {
 		t.Fatal("checked-in manifest for component schema not found")
 	}
-	if m.InterfaceStyle != manifest.InterfaceStylePackageSurface {
-		t.Fatalf("schema component interface style = %v, want PACKAGE_SURFACE so the vocabulary package is part of its declared surface", m.InterfaceStyle)
+	if m.InterfaceStyle == manifest.InterfaceStylePackageSurface {
+		t.Fatalf("schema component interface style = %v, want declared-interface", m.InterfaceStyle)
 	}
-	if len(m.InterfaceFiles) != 0 {
-		t.Errorf("schema package-surface component must not declare interface files, got %v", m.InterfaceFiles)
+	wantInterfaceFiles := []string{"capabilities.go"}
+	if !slices.Equal(m.InterfaceFiles, wantInterfaceFiles) {
+		t.Errorf("schema component interface files = %v, want %v", m.InterfaceFiles, wantInterfaceFiles)
 	}
-	wantMembers := map[string]bool{
-		modulePrefix + "internal/schema":     true,
-		modulePrefix + "internal/schema/gen": true,
+	wantMembers := []string{modulePrefix + "internal/schema"}
+	if !slices.Equal(m.Members, wantMembers) {
+		t.Errorf("schema component members = %v, want %v", m.Members, wantMembers)
 	}
-	gotMembers := map[string]bool{}
-	for _, member := range m.Members {
-		gotMembers[member] = true
+
+	// schema-gen owns the generated protobuf bindings.
+	mGen, ok := manifests["schema-gen"]
+	if !ok {
+		t.Fatal("checked-in manifest for component schema-gen not found")
 	}
-	for member := range wantMembers {
-		if !gotMembers[member] {
-			t.Errorf("schema component members %v are missing the declared member %q", m.Members, member)
-		}
+	if mGen.InterfaceStyle == manifest.InterfaceStylePackageSurface {
+		t.Fatalf("schema-gen component interface style = %v, want declared-interface", mGen.InterfaceStyle)
+	}
+	wantGenMembers := []string{modulePrefix + "internal/schema/gen"}
+	if !slices.Equal(mGen.Members, wantGenMembers) {
+		t.Errorf("schema-gen component members = %v, want %v", mGen.Members, wantGenMembers)
 	}
 
 	// Both consumers of the taxonomy must reach it through the schema
@@ -323,17 +328,17 @@ func TestProtobufRuntimeHasOneConcreteOwnerAndBuildParity(t *testing.T) {
 // TestProtobufRuntimeConsumersDeclareTheSharedBoundary keeps the repository
 // audit explicit for direct and foreign-closure consumers. The capslockadapter
 // component is native-only under the cgo rule, but its manifest still needs the
-// same edge as the Bazel-capable schema/manifest/artifactio consumers.
+// same edge as the Bazel-capable schema-gen/manifest/artifactio consumers.
 func TestProtobufRuntimeConsumersDeclareTheSharedBoundary(t *testing.T) {
 	manifests := checkedInComponentManifests(t)
-	for _, name := range []string{"schema", "manifest", "artifactio", "capslockadapter"} {
+	for _, name := range []string{"schema-gen", "manifest", "artifactio", "capslockadapter"} {
 		component, ok := manifests[name]
 		if !ok {
 			t.Fatalf("checked-in manifest for component %q not found", name)
 		}
 		found := false
 		for _, dep := range component.ComponentDependencies {
-			if dep.Name == "protobuf-runtime" && dep.Manifest == "../protobufruntime/component.textproto" {
+			if dep.Name == "protobuf-runtime" && (dep.Manifest == "../protobufruntime/component.textproto" || dep.Manifest == "../../protobufruntime/component.textproto") {
 				found = true
 				break
 			}
@@ -536,6 +541,7 @@ var purePackages = []string{
 	"internal/facts",
 	"internal/hostpolicy",
 	"internal/manifest",
+	"internal/schema",
 	"internal/schema/gen",
 	"internal/report",
 	"internal/stdlibauthority",

@@ -1,0 +1,11 @@
+name: "schema-gen"
+interface_files: "component.pb.go"
+interface_files: "stdlibmap.pb.go"
+interface_files: "surface.pb.go"
+members: "github.com/ono-sendai-labs/architectural-contracts/go/internal/schema/gen"
+component_dependencies {
+  name: "protobuf-runtime"
+  manifest: "../../protobufruntime/component.textproto"
+}
+# generated protoc-gen-go code uses unsafe.Slice/StringData and sync.Once; WARN keeps the 15 boilerplate sites visible without failing the gate; regenerate, never hand-edit.
+analysis_defeating_policy: WARN
