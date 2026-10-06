@@ -1,34 +1,30 @@
 // Package artifactio encodes and decodes the persisted archcontracts
 // artifacts — surface manifests, standard-library maps, and reports — as
-// canonical, byte-stable JSON, hashes them, and replaces files atomically.
+// canonical, byte-stable JSON, and hashes them.
 //
 // Component Contract (FR10):
 //   - What it does: Normalizes artifact messages (sorting every repeated field by
 //     its documented canonical sort key and rejecting non-canonical states),
 //     encodes them so semantically identical artifacts serialize to identical
 //     bytes, decodes them with bounded reads and semantic validation, reads the
-//     persisted report artifact, computes lowercase SHA-256 digests over the
-//     canonical bytes, and replaces target files atomically via a temporary
-//     sibling and rename. It also hosts the shell-side filesystem boundary of
+//     persisted report artifact, and computes lowercase SHA-256 digests over the
+//     canonical bytes. It also hosts the shell-side filesystem boundary of
 //     surface emission: ReadSources reads exactly the caller-supplied member
 //     source paths (so dependency, test and unrelated files never reach the
-//     digest), WriteSurface encodes a surface canonically and replaces its
-//     target atomically, and SurfacePath/ReportPath locate native companion
+//     digest), and SurfacePath/ReportPath locate native companion
 //     artifacts by replacing a dependency manifest path's extension with
 //     .surface.json / .report.json by convention.
 //   - What it requires: The generated artifact message types and known
 //     capability taxonomy (schema), the SymbolID grammar (symbol), the
-//     surface emission model (surface) for the shell adapter, the report
-//     artifact vocabulary (report) for validation, and write access to
-//     the target directory for atomic replacement.
+//     surface emission model (surface) for the shell adapter, and the report
+//     artifact vocabulary (report) for validation.
 //   - What it provides: MarshalSurface/MarshalMap, DecodeSurface/DecodeMap,
 //     ReadReportFile/ReadVerdictGoldenFile, MarshalVerdict,
-//     surfaceDigest/MapDigest, WriteFileAtomic with injectable write seams,
-//     WriteSurface, ReadSources, and the
+//     surfaceDigest/MapDigest, ReadSources, and the
 //     SurfacePath/ReportPath conventions. No cache regeneration policy,
 //     CLI commands, Bazel actions, or dependency freshness computation.
 //   - Ambient Authority: This is a shell component holding FILES,
-//     REFLECT, and UNSAFE_POINTER for filesystem writes and protobuf unmarshaling.
+//     REFLECT, and UNSAFE_POINTER for filesystem reads and protobuf unmarshaling.
 package artifactio
 
 import (

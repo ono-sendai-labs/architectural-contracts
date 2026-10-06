@@ -13,6 +13,7 @@ import (
 
 	"github.com/ono-sendai-labs/architectural-contracts/go/cmd/arcc/app"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/artifactio"
+	"github.com/ono-sendai-labs/architectural-contracts/go/internal/atomicfile"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/facts"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/goanalysis"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/report"
@@ -1288,7 +1289,7 @@ component_dependencies {
 				return facts.PackageFacts{Packages: []facts.PackageFact{{ImportPath: "example.com/temp/consumer"}}}, nil
 			})
 			runner.ArtifactWriter = func(path string, data []byte) error {
-				return artifactio.WriteFileAtomic(path, data, 0o644, nil)
+				return atomicfile.WriteFileAtomic(path, data, 0o644, nil)
 			}
 			outputDir := t.TempDir()
 			reportPath := filepath.Join(outputDir, "consumer.report.json")

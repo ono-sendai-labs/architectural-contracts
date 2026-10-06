@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/artifactio"
+	"github.com/ono-sendai-labs/architectural-contracts/go/internal/atomicfile"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/schema/gen"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/stdlibauthority"
 )
@@ -535,7 +536,7 @@ func TestConcurrentReadersNeverObservePartialOutput(t *testing.T) {
 				if i%2 == 1 {
 					next = mapB
 				}
-				if err := artifactio.WriteFileAtomic(path, next.Bytes, 0o644, nil); err != nil {
+				if err := atomicfile.WriteFileAtomic(path, next.Bytes, 0o644, nil); err != nil {
 					t.Errorf("delayed writer: %v", err)
 					return
 				}

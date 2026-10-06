@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/artifactio"
+	"github.com/ono-sendai-labs/architectural-contracts/go/internal/atomicfile"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/capanalyzer"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/checker"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/facts"
@@ -55,7 +56,7 @@ type AuthorityResolver func(AuthorityRequest) (stdlibauthority.StdlibAuthority, 
 type SurfaceInputsLoader func(goanalysis.LoadRequest) (goanalysis.SurfaceInputs, error)
 
 // ArtifactWriter replaces path with data atomically. The production
-// implementation is artifactio.WriteFileAtomic, so an interrupted or failed
+// implementation is atomicfile.WriteFileAtomic, so an interrupted or failed
 // write never exposes a partial file and leaves any previous target intact
 // (technical requirement 6).
 type ArtifactWriter func(path string, data []byte) error
@@ -525,7 +526,7 @@ func (r *Runner) artifactWriter() ArtifactWriter {
 		return r.ArtifactWriter
 	}
 	return func(path string, data []byte) error {
-		return artifactio.WriteFileAtomic(path, data, 0o644, nil)
+		return atomicfile.WriteFileAtomic(path, data, 0o644, nil)
 	}
 }
 

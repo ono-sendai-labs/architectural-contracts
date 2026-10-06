@@ -1,4 +1,8 @@
-package artifactio
+// Package atomicfile is the one place in the system that replaces a
+// file on disk: callers hand it bytes, and it writes them atomically via
+// a temporary sibling and rename so partial writes never corrupt existing
+// target files.
+package atomicfile
 
 import (
 	"errors"

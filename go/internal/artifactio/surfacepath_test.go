@@ -7,6 +7,7 @@ import (
 	"testing/fstest"
 
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/artifactio"
+	"github.com/ono-sendai-labs/architectural-contracts/go/internal/atomicfile"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/manifest"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/schema/gen"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/stdlibauthority"
@@ -95,8 +96,12 @@ func TestWriteSurface(t *testing.T) {
 	if err := os.MkdirAll("/tmp/opencode/task02-write", 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
-	if err := artifactio.WriteSurface(path, m); err != nil {
-		t.Fatalf("WriteSurface: %v", err)
+	surfaceBytes, err := artifactio.MarshalSurface(m)
+	if err != nil {
+		t.Fatalf("MarshalSurface: %v", err)
+	}
+	if err := atomicfile.WriteFileAtomic(path, surfaceBytes, 0o644, nil); err != nil {
+		t.Fatalf("WriteFileAtomic: %v", err)
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {

@@ -92,7 +92,7 @@ func TestProjectPackagesSingleOwner(t *testing.T) {
 
 	// The slice under repair; every other component (e.g. goanalysis, which
 	// predates the slice and is remediated separately) is out of scope here.
-	slice := []string{"artifactio", "manifest", "schema", "stdlibauthority", "symbol"}
+	slice := []string{"artifactio", "atomicfile", "manifest", "schema", "stdlibauthority", "symbol"}
 
 	owner := map[string]string{}
 	for _, name := range slice {
@@ -114,6 +114,7 @@ func TestProjectPackagesSingleOwner(t *testing.T) {
 
 	wantOwner := map[string]string{
 		modulePrefix + "internal/artifactio":      "artifactio",
+		modulePrefix + "internal/atomicfile":      "atomicfile",
 		modulePrefix + "internal/manifest":        "manifest",
 		modulePrefix + "internal/schema":          "schema",
 		modulePrefix + "internal/schema/gen":      "schema",

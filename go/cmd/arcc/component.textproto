@@ -19,6 +19,10 @@ component_dependencies {
   manifest: "../../internal/artifactio/component.textproto"
 }
 component_dependencies {
+  name: "atomicfile"
+  manifest: "../../internal/atomicfile/component.textproto"
+}
+component_dependencies {
   name: "facts"
   manifest: "../../internal/facts/component.textproto"
 }

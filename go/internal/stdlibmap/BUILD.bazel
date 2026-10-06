@@ -24,6 +24,7 @@ go_library(
     visibility = ["//go:__subpackages__"],
     deps = [
         "//go/internal/artifactio",
+        "//go/internal/atomicfile",
         "//go/internal/capslockadapter",
         "//go/internal/hostpolicy",
         "//go/internal/packagelayout",
@@ -52,6 +53,7 @@ go_test(
     embed = [":stdlibmap"],
     deps = [
         "//go/internal/artifactio",
+        "//go/internal/atomicfile",
         "//go/internal/capslockadapter",
         "//go/internal/packagelayout",
         "//go/internal/schema/gen",

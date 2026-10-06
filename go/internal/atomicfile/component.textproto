@@ -1,0 +1,4 @@
+name: "atomicfile"
+interface_files: "atomicfile.go"
+members: "github.com/ono-sendai-labs/architectural-contracts/go/internal/atomicfile"
+declared_authority: "FILES"

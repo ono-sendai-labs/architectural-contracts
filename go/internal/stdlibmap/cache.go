@@ -16,6 +16,7 @@ import (
 	"strings"
 
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/artifactio"
+	"github.com/ono-sendai-labs/architectural-contracts/go/internal/atomicfile"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/schema/gen"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/stdlibauthority"
 )
@@ -89,7 +90,7 @@ type cacheSeams struct {
 	// MkdirAll creates the artifact directory (os.MkdirAll).
 	MkdirAll func(path string, perm os.FileMode) error
 	// WriteAtomic replaces the artifact path with bytes atomically
-	// (artifactio.WriteFileAtomic semantics).
+	// (atomicfile.WriteFileAtomic semantics).
 	WriteAtomic func(path string, data []byte, mode os.FileMode) error
 	// Generate runs map generation on a cache miss (stdlibmap.Generate).
 	Generate func(in GenerationInput) (*GeneratedMap, error)
@@ -180,7 +181,7 @@ func (s *cacheSeams) writeAtomic() func(string, []byte, os.FileMode) error {
 		return s.WriteAtomic
 	}
 	return func(path string, data []byte, mode os.FileMode) error {
-		return artifactio.WriteFileAtomic(path, data, mode, nil)
+		return atomicfile.WriteFileAtomic(path, data, mode, nil)
 	}
 }
 
@@ -329,7 +330,7 @@ func isNotExistUnwrap(err error, depth int) bool {
 // legacy native dependency resolution cannot load beneath another component's
 // root (design §schema, migration interval).
 func WriteArtifactAtomic(path string, data []byte, mode os.FileMode) error {
-	return artifactio.WriteFileAtomic(path, data, mode, nil)
+	return atomicfile.WriteFileAtomic(path, data, mode, nil)
 }
 
 // DecodeMapArtifact reads and validates a persisted stdlib map from r: the

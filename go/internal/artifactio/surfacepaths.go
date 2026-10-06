@@ -7,7 +7,6 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/ono-sendai-labs/architectural-contracts/go/internal/schema/gen"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/surface"
 )
 
@@ -31,19 +30,6 @@ func ReportPath(manifestPath string) string {
 func replaceManifestExt(manifestPath, suffix string) string {
 	ext := filepath.Ext(manifestPath)
 	return strings.TrimSuffix(manifestPath, ext) + suffix
-}
-
-// WriteSurface encodes m with the canonical surface encoder and replaces path
-// atomically, so an interrupted emission leaves the previous artifact intact.
-func WriteSurface(path string, m *gen.SurfaceManifest) error {
-	data, err := MarshalSurface(m)
-	if err != nil {
-		return fmt.Errorf("encode surface: %w", err)
-	}
-	if err := WriteFileAtomic(path, data, 0o644, nil); err != nil {
-		return fmt.Errorf("write surface %s: %w", path, err)
-	}
-	return nil
 }
 
 // ReadSources is the shell-side filesystem boundary of surface emission

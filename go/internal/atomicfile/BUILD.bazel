@@ -1,0 +1,29 @@
+load("@rules_arcc//bazel_rules/go:defs.bzl", "go_component")
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "atomicfile",
+    srcs = ["atomicfile.go"],
+    importpath = "github.com/ono-sendai-labs/architectural-contracts/go/internal/atomicfile",
+    visibility = [
+        "//bazel_rules:__subpackages__",
+        "//go:__subpackages__",
+    ],
+)
+
+go_test(
+    name = "atomicfile_test",
+    size = "small",
+    srcs = ["write_test.go"],
+    embed = [":atomicfile"],
+)
+
+go_component(
+    name = "atomicfile_component",
+    declared_authority = ["FILES"],
+    interface_files = ["atomicfile.go"],
+    members = [":atomicfile"],
+    visibility = ["//go:__subpackages__"],
+)
+
+exports_files(["component.textproto"])

@@ -26,6 +26,10 @@ component_dependencies {
   manifest: "../artifactio/component.textproto"
 }
 component_dependencies {
+  name: "atomicfile"
+  manifest: "../atomicfile/component.textproto"
+}
+component_dependencies {
   name: "capslockadapter"
   manifest: "../capslockadapter/component.textproto"
 }

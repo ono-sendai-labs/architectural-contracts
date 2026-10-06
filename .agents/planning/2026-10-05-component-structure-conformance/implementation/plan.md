@@ -94,7 +94,7 @@ says the component declares — no more and no fewer. Record the probe summary
 - [x] **Step 1** — Conventions, authority probe script, spikes S2/S3 *(done 2026-10-05; S2: both imports charged; S3: `fs.FS` free)*
 - [x] **Step 2** — `go_component.interface_files` attribute; parity set-equality; `goanalysis`/`checker` converted (spike S4) *(done 2026-10-05; `csvfile` also converted — real divergence found)*
 - [x] **Step 3** — Hygiene: honest declarations, unexports, explicit members *(done 2026-10-05; `report` dropped from `goanalysis`, `x-tools` dropped from `cli`, `hostpolicy` explicit member, unexports across 8 packages)*
-- [ ] **Step 4** — New component `atomicfile`
+- [x] **Step 4** — New component `atomicfile` *(done 2026-10-05; lifted from `artifactio/write.go`, `FILES` ×4)*
 - [ ] **Step 5** — `artifactio` authority-free + new `reportio`
 - [ ] **Step 6** — `checker`: file-list interface = `checker.go`
 - [ ] **Step 7** — `symbol` → `symbol` + `capslocksymbol`
@@ -317,6 +317,15 @@ single reviewed `FILES` component (§5.1).
 
 **Demo.** `bazel-bin/go/internal/atomicfile/atomicfile_component.report.json`: pass,
 zero findings.
+
+**Status: DONE 2026-10-05.**
+- Extracted `go/internal/atomicfile/{atomicfile.go,write_test.go,BUILD.bazel,component.textproto}` (`interface_files = ["atomicfile.go"]`, `declared_authority = ["FILES"]`).
+- Deleted `go/internal/artifactio/{write.go,write_test.go}` and removed test-only `WriteSurface` from `go/internal/artifactio/surfacepaths.go`.
+- Switched consumers (`go/cmd/arcc/app/check.go`, `go/internal/stdlibmap/cache.go`, and tests across `go/cmd/arcc`, `go/internal/artifactio`, `go/internal/goanalysis`, `go/internal/stdlibmap`) to `atomicfile.WriteFileAtomic`.
+- Updated `justfile` (21 staged components, 20 pass, 17 Bazel gates), `go/cmd/arcc/app/BUILD.bazel` (`self_manifest_parity_test`), and `go/internal/manifestparity/ownership_test.go`.
+- Probes:
+  - `atomicfile`: `FILES` ×4 (`atomicfile.go:41,60,64,68`).
+  - `artifactio`: `FILES` ×2 (`report.go:363,389`), `REFLECT` ×6 (`golden.go:570,579`, `report.go:78,114,139,157`), `UNSAFE_POINTER` ×6 (same sites).
 
 ---
 

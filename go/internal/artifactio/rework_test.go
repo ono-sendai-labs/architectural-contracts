@@ -1,6 +1,7 @@
 package artifactio
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -8,6 +9,7 @@ import (
 
 	"google.golang.org/protobuf/proto"
 
+	"github.com/ono-sendai-labs/architectural-contracts/go/internal/atomicfile"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/schema/gen"
 )
 
@@ -290,6 +292,19 @@ func TestSurfaceRejectsNonCanonicalShape(t *testing.T) {
 	}
 }
 
+var errSeam = errors.New("injected seam failure")
+
+func writeHarness(t *testing.T) (dir, target, previous string) {
+	t.Helper()
+	dir = t.TempDir()
+	target = filepath.Join(dir, "artifact.json")
+	previous = "{\"previous\":true}"
+	if err := os.WriteFile(target, []byte(previous), 0o644); err != nil {
+		t.Fatalf("write previous target: %v", err)
+	}
+	return dir, target, previous
+}
+
 // TestWriteFileAtomicAppliesRequestedMode pins rework finding "atomic writer
 // ignores the requested file mode": both a new and an existing target end up
 // with the requested permission bits.
@@ -297,7 +312,7 @@ func TestWriteFileAtomicAppliesRequestedMode(t *testing.T) {
 	dir := t.TempDir()
 	target := filepath.Join(dir, "artifact.json")
 	next := []byte("{\"next\":true}")
-	if err := WriteFileAtomic(target, next, 0o640, nil); err != nil {
+	if err := atomicfile.WriteFileAtomic(target, next, 0o640, nil); err != nil {
 		t.Fatalf("WriteFileAtomic (new target): %v", err)
 	}
 	info, err := os.Stat(target)
@@ -308,7 +323,7 @@ func TestWriteFileAtomicAppliesRequestedMode(t *testing.T) {
 		t.Errorf("new target mode = %v, want 0640", got)
 	}
 
-	if err := WriteFileAtomic(target, next, 0o600, nil); err != nil {
+	if err := atomicfile.WriteFileAtomic(target, next, 0o600, nil); err != nil {
 		t.Fatalf("WriteFileAtomic (existing target): %v", err)
 	}
 	info, err = os.Stat(target)
@@ -325,11 +340,11 @@ func TestWriteFileAtomicAppliesRequestedMode(t *testing.T) {
 // original error, without losing either.
 func TestAtomicWriteSurfacesCleanupFailure(t *testing.T) {
 	_, target, previous := writeHarness(t)
-	seams := &WriteSeams{
+	seams := &atomicfile.WriteSeams{
 		Rename: func(string, string) error { return errSeam },
 		Remove: func(string) error { return errCleanup },
 	}
-	err := WriteFileAtomic(target, []byte("{\"next\":true}"), 0o644, seams)
+	err := atomicfile.WriteFileAtomic(target, []byte("{\"next\":true}"), 0o644, seams)
 	if err == nil {
 		t.Fatal("WriteFileAtomic succeeded despite injected failures")
 	}

@@ -15,6 +15,7 @@ go_library(
     visibility = ["//visibility:public"],
     deps = [
         "//go/internal/artifactio",
+        "//go/internal/atomicfile",
         "//go/internal/capanalyzer",
         "//go/internal/checker",
         "//go/internal/facts",
@@ -51,6 +52,7 @@ go_test(
     deps = [
         ":app",
         "//go/internal/artifactio",
+        "//go/internal/atomicfile",
         "//go/internal/capanalyzer",
         "//go/internal/facts",
         "//go/internal/goanalysis",
@@ -69,6 +71,7 @@ go_test(
     size = "small",
     srcs = ["self_manifest_parity_test.go"],
     args = [
+        "$(rootpaths //go/internal/atomicfile:atomicfile_component)",
         "$(rootpaths //go/internal/capanalyzer:capanalyzer_component)",
         "$(rootpaths //go/internal/report:report_component)",
         "$(rootpaths //go/internal/facts:facts_component)",
@@ -80,6 +83,7 @@ go_test(
         "$(rootpaths //go/internal/goanalysis:goanalysis_component)",
         "$(rootpaths //go/internal/packagelayout:packagelayout_component)",
         "$(rootpaths //go/internal/protobufruntime:protobuf-runtime)",
+        "$(rootpath //go/internal/atomicfile:component.textproto)",
         "$(rootpath //go/internal/capanalyzer:component.textproto)",
         "$(rootpath //go/internal/report:component.textproto)",
         "$(rootpath //go/internal/facts:component.textproto)",
@@ -93,6 +97,8 @@ go_test(
         "$(rootpath //go/internal/protobufruntime:component.textproto)",
     ],
     data = [
+        "//go/internal/atomicfile:atomicfile_component",
+        "//go/internal/atomicfile:component.textproto",
         "//go/internal/capanalyzer:capanalyzer_component",
         "//go/internal/capanalyzer:component.textproto",
         "//go/internal/checker:checker_component",
