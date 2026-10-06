@@ -66,20 +66,20 @@ probe component:
 	bash scripts/authority-probe.sh {{component}}
 
 # Self-check coverage:
-# Native `just selfcheck` stages 24 analyzed production components in dependency
-# order. All 24 must pass:
+# Native `just selfcheck` stages 25 analyzed production components in dependency
+# order. All 25 must pass:
 #   capanalyzer, atomicfile, hostpolicy, symbol, capslocksymbol, packagelayout,
 #   schema, schema-gen, manifest, report, reportio, stdlibauthority, facts,
 #   surface, artifactio, checker, capslockadapter, stdlibmap,
-#   goanalysis, parsecsv, csvfile, toprow, app, cli.
+#   goanalysis-hostfs, goanalysis, parsecsv, csvfile, toprow, app, cli.
 # The `protobuf-runtime`, `x-tools`, and `capslock-runtime` wrappers are
 # asserted UNKNOWN package surfaces: they provide a checked-in surface and
 # intentionally produce no report or analysis.
 #
-# The Bazel wildcard has 21 checked component gates: the seventeen internal
+# The Bazel wildcard has 22 checked component gates: the eighteen internal
 # components capanalyzer, atomicfile, hostpolicy, symbol, capslocksymbol,
 # packagelayout, schema, schema-gen, stdlibauthority, facts, report, reportio,
-# checker, manifest, goanalysis, artifactio, and surface, plus
+# checker, manifest, goanalysis-hostfs, goanalysis, artifactio, and surface, plus
 # the four CSV components parsecsv, csvfile, toprow, and app. The two Bazel
 # wrappers use `authority = UNKNOWN` for asserted surfaces; capslock-runtime,
 # capslockadapter, and cli have no Bazel component gate because their closure
@@ -152,6 +152,7 @@ selfcheck:
 	selfcheck_asserted_component internal/capslockruntime/component.textproto; \
 	selfcheck_stage_component "$arcc_bin" "$map_path" internal/capslockadapter/component.textproto; \
 	selfcheck_stage_component "$arcc_bin" "$map_path" internal/stdlibmap/component.textproto; \
+	selfcheck_stage_component "$arcc_bin" "$map_path" internal/goanalysis/internal/hostfs/component.textproto; \
 	selfcheck_stage_component "$arcc_bin" "$map_path" internal/goanalysis/component.textproto; \
 	selfcheck_stage_component "$arcc_bin" "$map_path" examples/csvtool/internal/parsecsv/component.textproto; \
 	selfcheck_stage_component "$arcc_bin" "$map_path" examples/csvtool/csvfile/component.textproto; \

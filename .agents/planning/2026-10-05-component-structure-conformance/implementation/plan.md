@@ -100,7 +100,7 @@ says the component declares — no more and no fewer. Record the probe summary
 - [x] **Step 7** — `symbol` → `symbol` + `capslocksymbol` *(done 2026-10-05; `symbol` 653 LOC, `capslocksymbol` 1,105 LOC, both pure)*
 - [x] **Step 8** — `schema` → `schema` + `schema-gen` (WARN; last in-tree `PACKAGE_SURFACE` removed) *(done 2026-10-05; `schema` pure, `schema-gen` WARN with 15-site assertion; 0 `TrueAuthority` so `UNSAFE_POINTER` omitted)*
 - [x] **Step 9** — `capslock-runtime` wrapper; `capslockadapter` shrinks *(done 2026-10-05; `capslock-runtime` native-only asserted UNKNOWN surface, `capslockadapter` strict with `REFLECT` ×2)*
-- [ ] **Step 10** — `goanalysis-hostfs` sub-component (spike S1)
+- [x] **Step 10** — `goanalysis-hostfs` sub-component (spike S1) *(done 2026-10-05; S1 passed: `FILES` removed from `goanalysis`, `hostfs` holds `FILES` ×4 + `READ_SYSTEM_STATE` ×1)*
 - [ ] **Step 11** — `packagelayout-hostenv` sub-component, `layout-driver-hook`, `BuildTags` (+ `goanalysis` drops `RUNTIME`/`READ_SYSTEM_STATE`)
 - [ ] **Step 12** — `goanalysis`: file splits + three interface files
 - [ ] **Step 13** — `packagelayout`: file splits, `fs.FS` passing, two interface files
@@ -589,6 +589,15 @@ parent `declared_authority` has lost `FILES`.
 
 **If S1 fails:** stop, write `../research/spike-s1-nested.md`, ask. Fallback is sibling
 components (`goanalysishostfs`), which changes later steps' paths.
+
+**Status: DONE 2026-10-05 (S1 passed).**
+- Created `go/internal/goanalysis/internal/hostfs/{hostfs.go,hostfs_test.go,BUILD.bazel,component.textproto}` (`name = "hostfs_component"` / `name: "goanalysis-hostfs"`, `interface_files = ["hostfs.go"]`, `declared_authority = ["FILES", "READ_SYSTEM_STATE"]`).
+- Rewired all 10 filesystem/path authority sites across `goanalysis.go`, `defeatscan.go`, and `surface_resolver.go` to `hostfs`; zero production imports of `"os"` remain in `go/internal/goanalysis/*.go`.
+- Updated `go/internal/goanalysis/{BUILD.bazel,component.textproto}` to depend on `goanalysis-hostfs` (`:hostfs_component`) and removed `FILES` from `declared_authority`.
+- Updated `go/internal/manifestparity/manifestparity.go` (nested sub-component name/dependency identity matching, tested in `manifestparity_test.go`), `ownership_test.go`, `go/cmd/arcc/app/BUILD.bazel`, and `justfile` (25 analyzed components, 22 Bazel gates).
+- Probes:
+  - `goanalysis-hostfs`: `FILES` ×4 (`hostfs.go:13,14,15,16`), `READ_SYSTEM_STATE` ×1 (`hostfs.go:17` `path/filepath.Abs`).
+  - `goanalysis`: `READ_SYSTEM_STATE` ×1 (`goanalysis.go:15` `go/build.init`), `RUNTIME` ×1 (`goanalysis.go:21` `runtime.init`); zero `FILES` findings.
 
 ---
 

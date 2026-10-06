@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
-	"os"
 	pathpkg "path"
 	"path/filepath"
 	"slices"
@@ -16,6 +15,7 @@ import (
 
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/artifactio"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/facts"
+	"github.com/ono-sendai-labs/architectural-contracts/go/internal/goanalysis/internal/hostfs"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/hostpolicy"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/manifest"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/packagelayout"
@@ -100,7 +100,7 @@ func ResolveDependencySurface(req DependencySurfaceRequest) (facts.DependencyInt
 
 	readFile := req.ReadFile
 	if readFile == nil {
-		readFile = os.ReadFile
+		readFile = hostfs.ReadFile
 	}
 	readArtifact := func(path string) ([]byte, error) {
 		data, err := readFile(path)
@@ -618,7 +618,7 @@ func isNotExistDepth(err error, depth int) bool {
 	if err == nil || depth > 100 {
 		return false
 	}
-	if os.IsNotExist(err) || err == fs.ErrNotExist {
+	if err == fs.ErrNotExist {
 		return true
 	}
 	switch unwrapped := err.(type) {
@@ -704,7 +704,7 @@ func deriveStatuses(req DependencySurfaceRequest, decoded validatedDependencySur
 	}
 	readFile := req.ReadFile
 	if readFile == nil {
-		readFile = os.ReadFile
+		readFile = hostfs.ReadFile
 	}
 	manifestPath := filepath.Clean(filepath.Join(req.DeclaringRoot, req.Dependency.Manifest))
 	manifestBytes, err := readFile(manifestPath)
@@ -715,7 +715,7 @@ func deriveStatuses(req DependencySurfaceRequest, decoded validatedDependencySur
 	if readSources == nil {
 		readDir := req.ReadDir
 		if readDir == nil {
-			readDir = os.ReadDir
+			readDir = hostfs.ReadDir
 		}
 		readSources = func(root string, packages []string) ([]surface.SourceFile, error) {
 			return readNativeDependencySources(root, packages, readFile, readDir)

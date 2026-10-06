@@ -1,0 +1,5 @@
+name: "goanalysis-hostfs"
+interface_files: "hostfs.go"
+members: "github.com/ono-sendai-labs/architectural-contracts/go/internal/goanalysis/internal/hostfs"
+declared_authority: "FILES"
+declared_authority: "READ_SYSTEM_STATE"

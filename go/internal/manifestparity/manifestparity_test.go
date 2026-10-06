@@ -492,3 +492,65 @@ func TestCompareManifests_DependencyFilenameConvention(t *testing.T) {
 		}
 	})
 }
+
+func TestCompareManifests_NestedSubComponentParity(t *testing.T) {
+	// A sub-component like hostfs living under internal/hostfs has a Bazel
+	// target name `hostfs_component` (normalized to `hostfs`) and checked-in
+	// name `goanalysis-hostfs`. Its parent references it as `goanalysis-hostfs`
+	// with manifest `./internal/hostfs/component.textproto`, whereas the Bazel
+	// parent references `hostfs_component` with manifest
+	// `go/internal/goanalysis/internal/hostfs/hostfs_component.component.textproto`.
+	// Both must match under CompareManifests.
+
+	// 1. Direct sub-component manifest comparison.
+	genSub := manifest.Manifest{
+		Name:              "hostfs_component",
+		InterfaceFiles:    []string{"hostfs.go"},
+		DeclaredAuthority: []string{"FILES", "READ_SYSTEM_STATE"},
+		Authority: manifest.AuthorityDeclaration{
+			Known: true,
+			Set:   []string{"FILES", "READ_SYSTEM_STATE"},
+		},
+	}
+	chkSub := manifest.Manifest{
+		Name:              "goanalysis-hostfs",
+		InterfaceFiles:    []string{"hostfs.go"},
+		DeclaredAuthority: []string{"FILES", "READ_SYSTEM_STATE"},
+		Authority: manifest.AuthorityDeclaration{
+			Known: true,
+			Set:   []string{"FILES", "READ_SYSTEM_STATE"},
+		},
+	}
+	spySub := &spyTB{TB: t}
+	manifestparity.CompareManifests(spySub, "hostfs", genSub, chkSub)
+	if len(spySub.errors) > 0 {
+		t.Fatalf("unexpected errors comparing sub-component: %v", spySub.errors)
+	}
+
+	// 2. Parent component dependency comparison.
+	genParent := manifest.Manifest{
+		Name:           "goanalysis_component",
+		InterfaceFiles: []string{"goanalysis.go"},
+		ComponentDependencies: []manifest.ComponentDependency{
+			{
+				Name:     "hostfs_component",
+				Manifest: "go/internal/goanalysis/internal/hostfs/hostfs_component.component.textproto",
+			},
+		},
+	}
+	chkParent := manifest.Manifest{
+		Name:           "goanalysis",
+		InterfaceFiles: []string{"goanalysis.go"},
+		ComponentDependencies: []manifest.ComponentDependency{
+			{
+				Name:     "goanalysis-hostfs",
+				Manifest: "./internal/hostfs/component.textproto",
+			},
+		},
+	}
+	spyParent := &spyTB{TB: t}
+	manifestparity.CompareManifests(spyParent, "goanalysis", genParent, chkParent)
+	if len(spyParent.errors) > 0 {
+		t.Fatalf("unexpected errors comparing parent dependency to sub-component: %v", spyParent.errors)
+	}
+}

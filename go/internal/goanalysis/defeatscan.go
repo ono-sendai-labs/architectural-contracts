@@ -5,7 +5,6 @@ import (
 	"go/ast"
 	"go/scanner"
 	"go/token"
-	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -13,6 +12,7 @@ import (
 	"golang.org/x/tools/go/packages"
 
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/facts"
+	"github.com/ono-sendai-labs/architectural-contracts/go/internal/goanalysis/internal/hostfs"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/hostpolicy"
 )
 
@@ -225,7 +225,7 @@ func scanBypassSourceFile(
 	member bool,
 	observer scanObservationObserver,
 ) error {
-	src, err := os.ReadFile(file)
+	src, err := hostfs.ReadFile(file)
 	if err != nil {
 		return fmt.Errorf("scan analysis defeats: read member file %q: %w", file, err)
 	}

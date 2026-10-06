@@ -1,0 +1,31 @@
+load("@rules_arcc//bazel_rules/go:defs.bzl", "FILES", "READ_SYSTEM_STATE", "go_component")
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "hostfs",
+    srcs = ["hostfs.go"],
+    importpath = "github.com/ono-sendai-labs/architectural-contracts/go/internal/goanalysis/internal/hostfs",
+    visibility = [
+        "//bazel_rules:__subpackages__",
+        "//go:__subpackages__",
+    ],
+)
+
+go_test(
+    name = "hostfs_test",
+    srcs = ["hostfs_test.go"],
+    embed = [":hostfs"],
+)
+
+go_component(
+    name = "hostfs_component",
+    declared_authority = [
+        FILES,
+        READ_SYSTEM_STATE,
+    ],
+    interface_files = ["hostfs.go"],
+    members = [":hostfs"],
+    visibility = ["//go:__subpackages__"],
+)
+
+exports_files(["component.textproto"])

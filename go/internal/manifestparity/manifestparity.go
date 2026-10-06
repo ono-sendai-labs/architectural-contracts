@@ -114,7 +114,7 @@ func CompareManifests(t testing.TB, dir string, gen, chk manifest.Manifest) {
 	t.Helper()
 
 	// Name: the generated name is the Bazel target, which suffixes `_component`.
-	if got := normalizeComponentName(gen.Name); got != chk.Name {
+	if got := normalizeComponentName(gen.Name); got != chk.Name && !(got == dir && strings.HasSuffix(chk.Name, "-"+dir)) {
 		t.Errorf("%s: name = %q (normalized %q), want %q", dir, gen.Name, got, chk.Name)
 	}
 
@@ -255,8 +255,12 @@ func normalizeComponentName(name string) string {
 func depIdentities(deps []manifest.ComponentDependency) []string {
 	out := make([]string, len(deps))
 	for i, d := range deps {
-		dir := filepath.Base(filepath.Dir(filepath.ToSlash(d.Manifest)))
+		cleanPath := "/" + strings.TrimPrefix(filepath.ToSlash(d.Manifest), "./")
+		dir := filepath.Base(filepath.Dir(cleanPath))
 		name := normalizeComponentName(d.Name)
+		if strings.Contains(cleanPath, "/internal/"+dir+"/") && strings.HasSuffix(name, "-"+dir) {
+			name = dir
+		}
 		out[i] = fmt.Sprintf("%s->%s, auto_attached=%t", name, dir, d.AutoAttached)
 	}
 	sort.Strings(out)

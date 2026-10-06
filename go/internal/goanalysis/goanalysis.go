@@ -16,7 +16,6 @@ import (
 	"go/build/constraint"
 	"go/token"
 	"go/types"
-	"os"
 	"path/filepath"
 	"reflect"
 	"runtime"
@@ -28,6 +27,7 @@ import (
 	"time"
 
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/facts"
+	"github.com/ono-sendai-labs/architectural-contracts/go/internal/goanalysis/internal/hostfs"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/hostpolicy"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/packagelayout"
 	"golang.org/x/tools/go/gcexportdata"
@@ -39,7 +39,7 @@ var (
 	loadedFiles  = make(map[uintptr]map[string]bool)
 	// exportDataStat is a seam for checking fail-closed size accounting without
 	// constructing multi-terabyte fixtures in tests.
-	exportDataStat = os.Stat
+	exportDataStat = hostfs.Stat
 	// loadPackages is a loader seam for exercising driver-specific package
 	// provenance. Production loads use go/packages directly; integration tests
 	// can model a rewriting host without replacing the package analysis graph.
@@ -554,7 +554,7 @@ func collectExportDataDiagnostics(pkgs []*packages.Package, memberPaths map[stri
 		if !filepath.IsAbs(resolved) {
 			resolved = filepath.Join(baseDir, resolved)
 		}
-		absolute, err := filepath.Abs(resolved)
+		absolute, err := hostfs.Abs(resolved)
 		if err != nil {
 			missing = append(missing, fmt.Sprintf("export artifact %q for package %q cannot be resolved: %v", pkg.ExportFile, pkg.PkgPath, err))
 			return
@@ -655,7 +655,7 @@ func completeLoadedExportTypes(pkgs []*packages.Package, memberPaths map[string]
 		if pkg.ExportFile == "" {
 			continue
 		}
-		file, err := os.Open(pkg.ExportFile)
+		file, err := hostfs.OpenExportData(pkg.ExportFile)
 		if err != nil {
 			return fmt.Errorf("reading export data for package %q from %q: %w", pkg.PkgPath, pkg.ExportFile, err)
 		}
@@ -686,7 +686,7 @@ func validateExportProducerVersion(path string) error {
 	if path == "" {
 		return nil
 	}
-	file, err := os.Open(path)
+	file, err := hostfs.OpenExportData(path)
 	if err != nil {
 		return fmt.Errorf("read export artifact %q: %w", path, err)
 	}
@@ -1015,9 +1015,9 @@ func ValidateInterfaceFiles(componentRoot string, interfaceFiles []string, loade
 		cleanedSlash := filepath.ToSlash(cleaned)
 
 		absPath := filepath.Join(root, cleaned)
-		info, err := os.Stat(absPath)
+		info, err := hostfs.Stat(absPath)
 		if err != nil {
-			if os.IsNotExist(err) {
+			if isNotExist(err) {
 				return nil, fmt.Errorf("interface file %q does not exist", f)
 			}
 			return nil, fmt.Errorf("failed to check interface file %q: %w", f, err)
@@ -1075,17 +1075,16 @@ func describeInterfaceFileConstraintWithContext(path string, bctx build.Context)
 }
 
 func leadingBuildConstraint(path string) (string, constraint.Expr, bool) {
-	file, err := os.Open(path)
+	src, err := hostfs.ReadFile(path)
 	if err != nil {
 		return "", nil, false
 	}
-	defer file.Close()
 
 	var legacy string
 	var legacyExpr constraint.Expr
 	var goBuild string
 	var goBuildExpr constraint.Expr
-	scanner := bufio.NewScanner(file)
+	scanner := bufio.NewScanner(bytes.NewReader(src))
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
 		if line == "" {

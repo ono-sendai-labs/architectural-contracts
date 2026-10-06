@@ -1,6 +1,5 @@
 load(
     "@rules_arcc//bazel_rules/go:defs.bzl",
-    "FILES",
     "READ_SYSTEM_STATE",
     "RUNTIME",
     "go_component",
@@ -25,6 +24,7 @@ go_library(
     deps = [
         "//go/internal/artifactio",
         "//go/internal/facts",
+        "//go/internal/goanalysis/internal/hostfs",
         "//go/internal/hostpolicy",
         "//go/internal/manifest",
         "//go/internal/packagelayout",
@@ -40,18 +40,19 @@ go_library(
 
 # Mirrors the checked-in goanalysis/component.textproto: depends on the pure
 # facts/manifest/symbol contracts plus the artifactio, schema,
-# stdlibauthority, surface, x-tools, report, hostpolicy, and packagelayout
-# component boundaries; retains local member ownership only of goanalysis;
-# declares the three capabilities exercised by its member code. The foreign
-# x/tools implementation and the in-tree
-# package-layout loader are explicit package-surface boundaries rather than
-# duplicated member source, so this component's own analysis does not charge
-# either dependency's internals to it.
+# stdlibauthority, surface, x-tools, report, hostpolicy, packagelayout, and
+# hostfs component boundaries; retains local member ownership only of
+# goanalysis; declares the two capabilities exercised by its member code. The
+# foreign x/tools implementation and the in-tree package-layout loader are
+# explicit package-surface boundaries rather than duplicated member source, so
+# this component's own analysis does not charge either dependency's internals
+# to it.
 go_component(
     name = "goanalysis_component",
     component_deps = [
         "//go/internal/artifactio:artifactio_component",
         "//go/internal/facts:facts_component",
+        "//go/internal/goanalysis/internal/hostfs:hostfs_component",
         "//go/internal/manifest:manifest_component",
         "//go/internal/reportio:reportio_component",
         "//go/internal/schema/gen:schema_gen_component",
@@ -63,7 +64,7 @@ go_component(
         "//go/internal/packagelayout:packagelayout_component",
     ],
     declared_authority = [
-        FILES,
+        # READ_SYSTEM_STATE and RUNTIME are the go/build and runtime import charges per F12, removed in Step 11.
         READ_SYSTEM_STATE,
         RUNTIME,
     ],
