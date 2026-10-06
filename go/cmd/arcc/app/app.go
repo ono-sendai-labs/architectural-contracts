@@ -16,6 +16,7 @@ import (
 
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/facts"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/goanalysis"
+	"github.com/ono-sendai-labs/architectural-contracts/go/internal/stdlibauthority"
 )
 
 const version = "0.0.0-dev"
@@ -28,6 +29,43 @@ type PackageLoader func(goanalysis.LoadRequest) (facts.PackageFacts, error)
 // integration tests wrap its byte readers and prove that dependency freshness
 // does not reuse the component package loader.
 type DependencySurfaceResolver func(goanalysis.DependencySurfaceRequest) (facts.DependencyInterface, error)
+
+// AuthorityRequest names the inputs the check's stdlib-authority resolver may
+// consult. LayoutPlatform is the active package layout's pinned platform
+// declaration (nil when the layout declares no platform or the check runs in
+// native mode). StdlibMapPath is the declared Step 4 stdlib-map artifact path
+// (--stdlib-map), mandatory in layout/Bazel mode: the map is the declared,
+// configuration-keyed source of every standard-library decision (N3), and its
+// full target SDK key is validated before any verdict forms.
+type AuthorityRequest struct {
+	// LayoutPlatform is the active layout's pinned target declaration as
+	// plain values (nil/unset when the layout is unpinned or the check runs
+	// in native mode); see activePlatformIdentity.
+	LayoutPlatform *goanalysis.PlatformIdentity
+	// InLayoutMode reports whether a package layout driver environment is
+	// active; native mode is its negation.
+	InLayoutMode  bool
+	StdlibMapPath string
+}
+
+// AuthorityResolver resolves the check's stdlib authority: the validated
+// StdlibAuthority port every stdlib membership and classification decision
+// reads. It fails closed before any verdict or artifact when the map is
+// missing, corrupt, format- or classifier-mismatched, key-mismatched, or
+// inventory-incomplete (AC 2). The production implementation opens the
+// declared map in layout/Bazel mode and the Step 4 native on-demand
+// cache/generator path in native mode.
+type AuthorityResolver func(AuthorityRequest) (stdlibauthority.StdlibAuthority, error)
+
+// SurfaceInputsLoader loads the component's member packages for surface
+// derivation. The production implementation is goanalysis.LoadSurfaceInputs.
+type SurfaceInputsLoader func(goanalysis.LoadRequest) (goanalysis.SurfaceInputs, error)
+
+// ArtifactWriter replaces path with data atomically. The production
+// implementation is atomicfile.WriteFileAtomic, so an interrupted or failed
+// write never exposes a partial file and leaves any previous target intact
+// (technical requirement 6).
+type ArtifactWriter func(path string, data []byte) error
 
 // Runner orchestrates the CLI execution of the architectural contracts check.
 // The Loader, AuthorityResolver, DependencySurfaceResolver, SurfaceInputsLoader,

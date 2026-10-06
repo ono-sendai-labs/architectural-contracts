@@ -1,6 +1,6 @@
 # Component structure conformance — summary
 
-**Date:** 2026-10-05 · **Revised:** 2026-10-06 (R1, R2) · **Status:** Steps 1–13 of 16
+**Date:** 2026-10-05 · **Revised:** 2026-10-06 (R1, R2) · **Status:** Steps 1–14 of 16
 done (probe script, conventions, spikes S1/S2/S3/S4 resolved, `interface_files` landed,
 Step 3 hygiene/unexports/dead-dep removal complete, Step 4 `atomicfile` extracted,
 Step 5 `artifactio` authority-free + `reportio` split, Step 6 `checker` interface
@@ -11,7 +11,8 @@ nested sub-component landed and `FILES` removed from `goanalysis`, Step 11
 `packagelayout-hostenv`, `layout-driver-hook`, and `BuildTags` landed and `goanalysis`
 now authority-free, Step 12 `goanalysis` split into 3 interface files totaling 222 LOC,
 Step 13 `packagelayout` converted to declared style with `api.go` + `layout.go` and
-`[REFLECT, UNSAFE_POINTER]` only); Steps 14–16 in progress
+`[REFLECT, UNSAFE_POINTER]` only, Step 14 `cli` converted to declared style with
+`interface_files: "app/app.go"`); Steps 15–16 in progress
 
 ## What this is
 
@@ -81,5 +82,8 @@ projects to follow. This planning set restructures them so that:
    non-interface files (`boundary.go`, `classify.go`) with explicit test-only doc
    comments (allowed under C4), and the full test rewrite will be recorded in
    `follow-ups.md` in Step 16.
-2. Native error message when an interface file sits in a package missing from
-   `members` is the generic member-only-load one; Step 14 confirms or improves it.
+2. *(Resolved in Step 14)* Native loader accepts `interface_files: "app/app.go"` in
+   `go/cmd/arcc/component.textproto` with canonical Go import paths in `members:`, and
+   `validateInterfaceFiles` (`go/internal/goanalysis/ifacefiles.go:85`) already emits the
+   specific diagnostic `"interface file %q does not belong to any loaded Go package under
+   component root"` when an interface file sits in a package missing from `members`.

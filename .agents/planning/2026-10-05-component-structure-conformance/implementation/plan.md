@@ -104,7 +104,7 @@ says the component declares — no more and no fewer. Record the probe summary
 - [x] **Step 11** — `packagelayout-hostenv` sub-component, `layout-driver-hook`, `BuildTags` (+ `goanalysis` drops `RUNTIME`/`READ_SYSTEM_STATE`) *(done 2026-10-05; `goanalysis` now authority-free; only `hostenv.go` imports `runtime`, zero non-test files import `go/build`)*
 - [x] **Step 12** — `goanalysis`: file splits + three interface files *(done 2026-10-05; `interface_files = ["dependency_surface.go", "goanalysis.go", "surfaceinputs.go"]`, 222 LOC total, 17 exported symbols, authority empty)*
 - [x] **Step 13** — `packagelayout`: file splits, `fs.FS` passing, two interface files *(done 2026-10-06; `interface_files = ["api.go", "layout.go"]`, 397 LOC total, `declared_authority = [REFLECT, UNSAFE_POINTER]`)*
-- [ ] **Step 14** — `cli`: declared style with `app/app.go` as the interface
+- [x] **Step 14** — `cli`: declared style with `app/app.go` as the interface *(done 2026-10-06; `interface_files = ["app/app.go"]`, 205 LOC, `declared_authority = [FILES, MODIFY_SYSTEM_STATE, OPERATING_SYSTEM, READ_SYSTEM_STATE, REFLECT, UNSAFE_POINTER]`)*
 - [ ] **Step 15** — `stdlibmap`: `hosttoolchain` sub-component + two interface files
 - [ ] **Step 16** — Final audit, README counts, conventions cross-check
 
@@ -851,6 +851,11 @@ the documented exit code if not already present.
 
 **Demo.** `wc -l go/cmd/arcc/app/app.go` ≤ ~300; the staged `cli` report lists
 `interface_files: app/app.go`.
+
+**Observed (2026-10-06):**
+- Converted `go/cmd/arcc/component.textproto` (`cli`) from `PACKAGE_SURFACE` to declared style with `interface_files: "app/app.go"` and canonical package import paths `members: "github.com/ono-sendai-labs/architectural-contracts/go/cmd/arcc"` and `members: "github.com/ono-sendai-labs/architectural-contracts/go/cmd/arcc/app"` (native `manifest.Parse` requires canonical Go import paths in `members:`, and the native loader accepts `interface_files: "app/app.go"` in the member subdirectory; when an interface file sits in a directory missing from `members`, `validateInterfaceFiles` already returns `"interface file %q does not belong to any loaded Go package under component root"`).
+- Moved the 4 check seam types (`AuthorityRequest`, `AuthorityResolver`, `SurfaceInputsLoader`, `ArtifactWriter`) from `go/cmd/arcc/app/check.go` into `go/cmd/arcc/app/app.go` (205 LOC), leaving zero exported declarations in `check.go`, `artifactshape.go`, `layoutshape.go`, `package_imports.go`, `stdlibmap.go`, or `verdict.go`.
+- **Probe summary (`cli`):** `FILES` ×15 (`app/artifactshape.go:64,83,103,121`, `app/check.go:149,434,521`, `app/package_imports.go:19,42,47`, `app/stdlibmap.go:88`, `app/verdict.go:94,107`, `main.go:24,24`), `MODIFY_SYSTEM_STATE` ×2 (`main.go:24,24`), `OPERATING_SYSTEM` ×2 (`main.go:24,24`), `READ_SYSTEM_STATE` ×3 (`app/app.go:151,156`, `app/check.go:161`), `REFLECT` ×5 (`app/check.go:266`, `app/layoutshape.go:106,109,118,198`), `UNSAFE_POINTER` ×5 (`app/check.go:266`, `app/layoutshape.go:106,109,118,198`).
 
 ---
 
