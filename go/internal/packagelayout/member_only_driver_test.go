@@ -37,9 +37,9 @@ func TestHandleDriverRequest_ProjectsMemberOnlyPackageRoles(t *testing.T) {
 		Packages: []*packages.Package{root, dependency},
 	}
 
-	response, err := HandleDriverRequest(layout, &packages.DriverRequest{}, []string{"example.com/member"})
+	response, err := handleDriverRequest(layout, &packages.DriverRequest{}, []string{"example.com/member"})
 	if err != nil {
-		t.Fatalf("HandleDriverRequest() error = %v", err)
+		t.Fatalf("handleDriverRequest() error = %v", err)
 	}
 	byPath := make(map[string]*packages.Package, len(response.Packages))
 	for _, pkg := range response.Packages {
@@ -107,9 +107,9 @@ func TestRunDriver_ValidatesExportLayoutWithoutReadingNonMemberSources(t *testin
 	}
 
 	var output bytes.Buffer
-	err = RunDriver(layoutPath, workspace, []string{"example.com/member"}, strings.NewReader(`{"Mode":0}`), &output)
+	err = runDriver(layoutPath, workspace, []string{"example.com/member"}, strings.NewReader(`{"Mode":0}`), &output)
 	if err != nil {
-		t.Fatalf("RunDriver() error = %v", err)
+		t.Fatalf("runDriver() error = %v", err)
 	}
 	var response packages.DriverResponse
 	if err := json.Unmarshal(output.Bytes(), &response); err != nil {

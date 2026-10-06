@@ -39,14 +39,14 @@ func TestDecodeIgnoresUnknownFields(t *testing.T) {
 func TestDecodeRejectsVersionAndMalformed(t *testing.T) {
 	s := validSurface()
 	s.FormatVersion = 2
-	if _, err := DecodeSurface(strings.NewReader(`{"formatVersion": 2}`)); !errors.Is(err, ErrUnsupportedVersion) {
-		t.Errorf("DecodeSurface(format_version=2) error = %v, want ErrUnsupportedVersion", err)
+	if _, err := DecodeSurface(strings.NewReader(`{"formatVersion": 2}`)); !errors.Is(err, errUnsupportedVersion) {
+		t.Errorf("DecodeSurface(format_version=2) error = %v, want errUnsupportedVersion", err)
 	}
 	if _, err := DecodeSurface(strings.NewReader(`{not json`)); err == nil {
 		t.Error("DecodeSurface accepted malformed JSON")
 	}
-	if _, err := DecodeMap(strings.NewReader(`{"formatVersion": 99}`)); !errors.Is(err, ErrUnsupportedVersion) {
-		t.Errorf("DecodeMap(format_version=99) error = %v, want ErrUnsupportedVersion", err)
+	if _, err := DecodeMap(strings.NewReader(`{"formatVersion": 99}`)); !errors.Is(err, errUnsupportedVersion) {
+		t.Errorf("DecodeMap(format_version=99) error = %v, want errUnsupportedVersion", err)
 	}
 	if _, err := DecodeMap(strings.NewReader(`[]`)); err == nil {
 		t.Error("DecodeMap accepted malformed content")
@@ -146,18 +146,18 @@ func TestDecodeSizeCaps(t *testing.T) {
 		if err != nil {
 			t.Fatalf("marshal seed surface: %v", err)
 		}
-		if delta := int(MaxSurfaceBytes) - len(encoded); delta > 0 {
+		if delta := int(maxSurfaceBytes) - len(encoded); delta > 0 {
 			s.ProducerVersion += strings.Repeat("p", delta)
 			encoded, err = MarshalSurface(s)
 			if err != nil {
 				t.Fatalf("marshal padded surface: %v", err)
 			}
 		}
-		if int64(len(encoded)) != MaxSurfaceBytes {
-			t.Fatalf("test setup: padded surface is %d bytes, want exactly %d", len(encoded), MaxSurfaceBytes)
+		if int64(len(encoded)) != maxSurfaceBytes {
+			t.Fatalf("test setup: padded surface is %d bytes, want exactly %d", len(encoded), maxSurfaceBytes)
 		}
 		if _, err := DecodeSurface(bytes.NewReader(encoded)); err != nil {
-			t.Fatalf("DecodeSurface at %d bytes (limit %d): %v", len(encoded), MaxSurfaceBytes, err)
+			t.Fatalf("DecodeSurface at %d bytes (limit %d): %v", len(encoded), maxSurfaceBytes, err)
 		}
 
 		s.ProducerVersion += "p"
@@ -165,8 +165,8 @@ func TestDecodeSizeCaps(t *testing.T) {
 		if err != nil {
 			t.Fatalf("marshal oversize surface: %v", err)
 		}
-		if int64(len(oversize)) != MaxSurfaceBytes+1 {
-			t.Fatalf("test setup: oversize surface is %d bytes, want exactly %d", len(oversize), MaxSurfaceBytes+1)
+		if int64(len(oversize)) != maxSurfaceBytes+1 {
+			t.Fatalf("test setup: oversize surface is %d bytes, want exactly %d", len(oversize), maxSurfaceBytes+1)
 		}
 		_, err = DecodeSurface(bytes.NewReader(oversize))
 		if err == nil || !strings.Contains(err.Error(), "limit") {
@@ -251,13 +251,13 @@ func TestDigestCanonicalEquivalence(t *testing.T) {
 	b.Packages = []string{"b.example/pkg", "a.example/pkg"}
 	b.Symbols = []string{"(a.example/pkg.T).M", "a.example/pkg.F"}
 
-	da, err := SurfaceDigest(a)
+	da, err := surfaceDigest(a)
 	if err != nil {
-		t.Fatalf("SurfaceDigest(a): %v", err)
+		t.Fatalf("surfaceDigest(a): %v", err)
 	}
-	db, err := SurfaceDigest(b)
+	db, err := surfaceDigest(b)
 	if err != nil {
-		t.Fatalf("SurfaceDigest(b): %v", err)
+		t.Fatalf("surfaceDigest(b): %v", err)
 	}
 	if da != db {
 		t.Errorf("digests differ for equivalent surfaces: %s vs %s", da, db)
@@ -271,9 +271,9 @@ func TestDigestCanonicalEquivalence(t *testing.T) {
 
 	changed := validSurface()
 	changed.Component = "gadget"
-	dc, err := SurfaceDigest(changed)
+	dc, err := surfaceDigest(changed)
 	if err != nil {
-		t.Fatalf("SurfaceDigest(changed): %v", err)
+		t.Fatalf("surfaceDigest(changed): %v", err)
 	}
 	if dc == da {
 		t.Error("a semantic field change produced the same digest")
@@ -289,11 +289,11 @@ func TestDigestOnDecodedArtifact(t *testing.T) {
 	if err != nil {
 		t.Fatalf("decode non-canonical source: %v", err)
 	}
-	dDecoded, err := SurfaceDigest(decoded)
+	dDecoded, err := surfaceDigest(decoded)
 	if err != nil {
 		t.Fatalf("digest decoded: %v", err)
 	}
-	dFixture, err := SurfaceDigest(validSurface())
+	dFixture, err := surfaceDigest(validSurface())
 	if err != nil {
 		t.Fatalf("digest fixture: %v", err)
 	}

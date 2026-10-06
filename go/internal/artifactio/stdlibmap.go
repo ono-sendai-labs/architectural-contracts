@@ -142,7 +142,7 @@ func symPackage(id string) (string, bool) {
 // normalization's pointer accesses are safe.
 func validateMap(m *gen.StdlibMap) error {
 	if m.FormatVersion != MapFormatVersion {
-		return fmt.Errorf("stdlib map %w: got %d, supported: %d", ErrUnsupportedVersion, m.FormatVersion, MapFormatVersion)
+		return fmt.Errorf("stdlib map %w: got %d, supported: %d", errUnsupportedVersion, m.FormatVersion, MapFormatVersion)
 	}
 	if m.Key == nil {
 		return fmt.Errorf("stdlib map has no SDK key")

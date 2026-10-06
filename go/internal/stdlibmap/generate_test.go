@@ -136,7 +136,7 @@ func buildFixtureMapWith(t *testing.T, findings []capslockadapter.GenerationFind
 
 func buildFixtureMapCurated(t *testing.T, findings []capslockadapter.GenerationFinding, curated map[string]bool) (*gen.StdlibMap, error) {
 	t.Helper()
-	m, err := BuildAuthorityMap(genInventory(t), findings, curated)
+	m, err := buildAuthorityMap(genInventory(t), findings, curated)
 	if err != nil {
 		return nil, err
 	}
@@ -304,7 +304,7 @@ func TestBuildAuthorityMapFailsOnUnresolvableExportedRoot(t *testing.T) {
 	findings := append(genFindings(), capslockadapter.GenerationFinding{
 		RootName: "os.Undef", RootPackage: "os", Capability: "FILES",
 	})
-	if _, err := BuildAuthorityMap(genInventory(t), findings, nil); err == nil {
+	if _, err := buildAuthorityMap(genInventory(t), findings, nil); err == nil {
 		t.Fatalf("BuildAuthorityMap: want an error for the unresolvable exported root os.Undef")
 	} else if !strings.Contains(err.Error(), "os.Undef") {
 		t.Fatalf("error %v: want it to name the unresolvable root", err)
@@ -315,7 +315,7 @@ func TestBuildAuthorityMapFailsOnUnknownRootPackage(t *testing.T) {
 	findings := append(genFindings(), capslockadapter.GenerationFinding{
 		RootName: "example.com/other.Thing", RootPackage: "example.com/other", Capability: "FILES",
 	})
-	if _, err := BuildAuthorityMap(genInventory(t), findings, nil); err == nil {
+	if _, err := buildAuthorityMap(genInventory(t), findings, nil); err == nil {
 		t.Fatalf("BuildAuthorityMap: want an error for a root in an unqueried package")
 	}
 }
@@ -357,7 +357,7 @@ func TestEvidenceIsOrderedAndDeterministic(t *testing.T) {
 	// Two generations with findings in different orders produce identical bytes.
 	m2, err := buildFixtureMapWith(t, reversedFindings())
 	if err != nil {
-		t.Fatalf("BuildAuthorityMap(reversed): %v", err)
+		t.Fatalf("buildAuthorityMap(reversed): %v", err)
 	}
 	b1, err := artifactio.MarshalMap(m)
 	if err != nil {
@@ -531,7 +531,7 @@ func TestClassifierFingerprintSemanticDrift(t *testing.T) {
 		if err != nil {
 			t.Fatalf("CanonicalClassifierText: %v", err)
 		}
-		return ClassifierHash(GenerationDescriptor{ClassifierText: text, RuleVersion: "v1"})
+		return classifierHash(GenerationDescriptor{ClassifierText: text, RuleVersion: "v1"})
 	}
 	base := fingerprint(pinA, overlayA, rulesA)
 
@@ -548,7 +548,7 @@ func TestClassifierFingerprintSemanticDrift(t *testing.T) {
 	ruleCases := map[string]func(*completionRules){
 		"unsafe builtin classification": func(r *completionRules) { r.Unsafe.BuiltinClassification = "SAFE" },
 		"unsafe type classification":    func(r *completionRules) { r.Unsafe.TypeClassification = "SAFE" },
-		"unsafe provenance":             func(r *completionRules) { r.Unsafe.Provenance = ProvenanceCapslockCurated },
+		"unsafe provenance":             func(r *completionRules) { r.Unsafe.Provenance = provenanceCapslockCurated },
 		"var pointer dereference":       func(r *completionRules) { r.Var.PointerDereference = false },
 		"var method set":                func(r *completionRules) { r.Var.MethodSet = "value" },
 		"var exported-only":             func(r *completionRules) { r.Var.ExportedOnly = false },
@@ -576,7 +576,7 @@ func TestClassifierFingerprintSemanticDrift(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CanonicalClassifierText: %v", err)
 	}
-	if ClassifierHash(GenerationDescriptor{ClassifierText: text, RuleVersion: "v2"}) == base {
+	if classifierHash(GenerationDescriptor{ClassifierText: text, RuleVersion: "v2"}) == base {
 		t.Fatalf("changing the rule version did not change the fingerprint")
 	}
 
@@ -600,7 +600,7 @@ func TestCompletionRulesDriveExecution(t *testing.T) {
 	if err != nil {
 		t.Fatalf("classifyBuiltin: %v", err)
 	}
-	if cls != gen.Classification_UNANALYZED || provenance != ProvenanceProjectOverride {
+	if cls != gen.Classification_UNANALYZED || provenance != provenanceProjectOverride {
 		t.Fatalf("classifyBuiltin = %v, %q; want UNANALYZED, project-override", cls, provenance)
 	}
 	// A changed unsafe rule changes the executed classification.
@@ -644,7 +644,7 @@ func TestGenerateRoundTripsAndKeysTheMap(t *testing.T) {
 	in := GenerationInput{
 		Target:      TargetConfig{ToolchainVersion: "go1.26.4", GOOS: "linux", GOARCH: "amd64", CgoEnabled: false},
 		RuleVersion: "test-rules-v1",
-		Oracle:      ExplicitPackageList([]string{"os", "example.com/genpkg", "example.com/internal/seed"}),
+		Oracle:      explicitPackageList([]string{"os", "example.com/genpkg", "example.com/internal/seed"}),
 		Loader:      typeCheckLoader(t, map[string]string{"os": genOsSrc, "example.com/genpkg": genGenSrc, "example.com/internal/seed": "package seed\n"}),
 		Findings:    FindingSourceFunc(func([]string) ([]capslockadapter.GenerationFinding, error) { return genFindings(), nil }),
 	}
@@ -699,7 +699,7 @@ func TestGenerateBatchesFindingsPerPackage(t *testing.T) {
 	in := GenerationInput{
 		Target:      TargetConfig{ToolchainVersion: "go1.26.4", GOOS: "linux", GOARCH: "amd64"},
 		RuleVersion: "test-rules-v1",
-		Oracle:      ExplicitPackageList([]string{"os", "example.com/genpkg"}),
+		Oracle:      explicitPackageList([]string{"os", "example.com/genpkg"}),
 		Loader:      loader,
 		Findings: FindingSourceFunc(func(paths []string) ([]capslockadapter.GenerationFinding, error) {
 			calls++
@@ -770,7 +770,7 @@ func TestVarRuleCoversPromotedAndAliasExposedMethods(t *testing.T) {
 	if err != nil {
 		t.Fatalf("BuildInventory: %v", err)
 	}
-	m, err := BuildAuthorityMap(inv, varFindings(), varCuratedSafe())
+	m, err := buildAuthorityMap(inv, varFindings(), varCuratedSafe())
 	if err != nil {
 		t.Fatalf("BuildAuthorityMap: %v", err)
 	}
@@ -793,9 +793,9 @@ func TestVarRuleCoversPromotedAndAliasExposedMethods(t *testing.T) {
 // --- round-1: SAFE provenance precedence is order-independent -------------------
 
 func TestVarProvenancePrecedenceIndependentOfOrder(t *testing.T) {
-	override := &symbolResult{classification: gen.Classification_SAFE, provenance: ProvenanceProjectOverride}
-	curated := &symbolResult{classification: gen.Classification_SAFE, provenance: ProvenanceCapslockCurated}
-	proved := &symbolResult{classification: gen.Classification_SAFE, provenance: ProvenanceProvedPure}
+	override := &symbolResult{classification: gen.Classification_SAFE, provenance: provenanceProjectOverride}
+	curated := &symbolResult{classification: gen.Classification_SAFE, provenance: provenanceCapslockCurated}
+	proved := &symbolResult{classification: gen.Classification_SAFE, provenance: provenanceProvedPure}
 	forward := &symbolResult{}
 	forward.mergeFrom(proved)
 	forward.mergeFrom(curated)
@@ -806,7 +806,7 @@ func TestVarProvenancePrecedenceIndependentOfOrder(t *testing.T) {
 	reverse.mergeFrom(proved)
 	for name, r := range map[string]*symbolResult{"forward": forward, "reverse": reverse} {
 		r.finish()
-		if r.provenance != ProvenanceProjectOverride {
+		if r.provenance != provenanceProjectOverride {
 			t.Fatalf("%s merge = %q; want project-override regardless of visit order", name, r.provenance)
 		}
 	}
@@ -814,7 +814,7 @@ func TestVarProvenancePrecedenceIndependentOfOrder(t *testing.T) {
 	curatedOnly.mergeFrom(proved)
 	curatedOnly.mergeFrom(curated)
 	curatedOnly.finish()
-	if curatedOnly.provenance != ProvenanceCapslockCurated {
+	if curatedOnly.provenance != provenanceCapslockCurated {
 		t.Fatalf("proved-then-curated merge = %q; want capslock-curated", curatedOnly.provenance)
 	}
 }
@@ -825,7 +825,7 @@ func TestUnknownPackageClosureFailsGeneration(t *testing.T) {
 	findings := append(genFindings(), capslockadapter.GenerationFinding{
 		RootName: "example.com/other.Load$1", RootPackage: "example.com/other", Capability: "NETWORK",
 	})
-	if _, err := BuildAuthorityMap(genInventory(t), findings, classifierCuratedSafe()); err == nil {
+	if _, err := buildAuthorityMap(genInventory(t), findings, classifierCuratedSafe()); err == nil {
 		t.Fatalf("BuildAuthorityMap: want an error for an unknown-package closure root")
 	} else if !strings.Contains(err.Error(), "example.com/other") {
 		t.Fatalf("error %v: want it to name the unknown package", err)
@@ -854,12 +854,12 @@ func TestMintingEvidenceFrameIsFullyQualified(t *testing.T) {
 
 func TestCuratedInitProvenance(t *testing.T) {
 	inv := genInventory(t)
-	curatedOnly, err := BuildAuthorityMap(inv, []capslockadapter.GenerationFinding{
+	curatedOnly, err := buildAuthorityMap(inv, []capslockadapter.GenerationFinding{
 		{RootName: "example.com/genpkg.Load", RootPackage: "example.com/genpkg", Capability: "FILES",
 			Path: []stdlibauthority.Frame{{Function: "example.com/genpkg.Load"}}},
 	}, map[string]bool{"os.init": true})
 	if err != nil {
-		t.Fatalf("BuildAuthorityMap(curated init): %v", err)
+		t.Fatalf("buildAuthorityMap(curated init): %v", err)
 	}
 	// The InitRecord provenance field (round-2 finding) keeps a curated SAFE
 	// init visibly distinct from a proved-pure one in the persisted artifact.
@@ -928,8 +928,8 @@ func TestMalformedBracketedRootFailsClosed(t *testing.T) {
 		findings := append(genFindings(), capslockadapter.GenerationFinding{
 			RootName: name, RootPackage: "example.com/genpkg", Capability: "NETWORK",
 		})
-		if _, err := BuildAuthorityMap(genInventory(t), findings, classifierCuratedSafe()); err == nil {
-			t.Fatalf("BuildAuthorityMap(%q): want a fail-closed error for the malformed bracketed root", name)
+		if _, err := buildAuthorityMap(genInventory(t), findings, classifierCuratedSafe()); err == nil {
+			t.Fatalf("buildAuthorityMap(%q): want a fail-closed error for the malformed bracketed root", name)
 		}
 	}
 }
@@ -969,8 +969,8 @@ func TestInvalidTypeArgumentRootFailsClosed(t *testing.T) {
 		findings := append(genFindings(), capslockadapter.GenerationFinding{
 			RootName: name, RootPackage: "example.com/genpkg", Capability: "NETWORK",
 		})
-		if _, err := BuildAuthorityMap(genInventory(t), findings, classifierCuratedSafe()); err == nil {
-			t.Fatalf("BuildAuthorityMap(%q): want a fail-closed error for the invalid type argument", name)
+		if _, err := buildAuthorityMap(genInventory(t), findings, classifierCuratedSafe()); err == nil {
+			t.Fatalf("buildAuthorityMap(%q): want a fail-closed error for the invalid type argument", name)
 		}
 	}
 }
@@ -982,7 +982,7 @@ func TestUnknownExportedGenericRootFailsClosed(t *testing.T) {
 	findings := append(genFindings(), capslockadapter.GenerationFinding{
 		RootName: "example.com/genpkg.Missing[int]", RootPackage: "example.com/genpkg", Capability: "NETWORK",
 	})
-	_, err := BuildAuthorityMap(genInventory(t), findings, classifierCuratedSafe())
+	_, err := buildAuthorityMap(genInventory(t), findings, classifierCuratedSafe())
 	if err == nil {
 		t.Fatalf("BuildAuthorityMap: want a fail-closed error for the unknown exported generic root")
 	}
@@ -998,7 +998,7 @@ func TestUnexportedGenericOriginRootIsDropped(t *testing.T) {
 	findings := append(genFindings(), capslockadapter.GenerationFinding{
 		RootName: "example.com/genpkg.load[int]", RootPackage: "example.com/genpkg", Capability: "NETWORK",
 	})
-	if _, err := BuildAuthorityMap(genInventory(t), findings, classifierCuratedSafe()); err != nil {
+	if _, err := buildAuthorityMap(genInventory(t), findings, classifierCuratedSafe()); err != nil {
 		t.Fatalf("BuildAuthorityMap: %v", err)
 	}
 }

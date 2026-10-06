@@ -123,7 +123,7 @@ func TestValidateAndResolveRejectsDirectLayoutDependencyArtifactBinding(t *testi
 			Provenance: DependencyArtifactProvenanceChecked,
 		}},
 	}
-	if err := ValidateAndResolve(layout, t.TempDir()); err == nil || !strings.Contains(err.Error(), "non-normalized dependency artifact path") {
-		t.Fatalf("ValidateAndResolve() error = %v, want binding validation error", err)
+	if err := validateAndResolve(layout, t.TempDir()); err == nil || !strings.Contains(err.Error(), "non-normalized dependency artifact path") {
+		t.Fatalf("validateAndResolve() error = %v, want binding validation error", err)
 	}
 }

@@ -38,40 +38,40 @@ func (p AnalysisDefeatingPolicy) String() string {
 	}
 }
 
-// UnknownAnalysisDefeatingPolicyError reports a persisted policy value this
+// unknownAnalysisDefeatingPolicyError reports a persisted policy value this
 // version does not understand.
-type UnknownAnalysisDefeatingPolicyError struct {
+type unknownAnalysisDefeatingPolicyError struct {
 	Value int32
 }
 
-func (e *UnknownAnalysisDefeatingPolicyError) Error() string {
+func (e *unknownAnalysisDefeatingPolicyError) Error() string {
 	return fmt.Sprintf("unknown analysis-defeating policy: %d", e.Value)
 }
 
-// FromPersistedAnalysisDefeatingPolicy converts the versioned schema enum to
+// fromPersistedAnalysisDefeatingPolicy converts the versioned schema enum to
 // the pure manifest model and rejects unknown numeric values at the parse
 // boundary rather than treating them as the strict zero value.
-func FromPersistedAnalysisDefeatingPolicy(policy gen.AnalysisDefeatingPolicy) (AnalysisDefeatingPolicy, error) {
+func fromPersistedAnalysisDefeatingPolicy(policy gen.AnalysisDefeatingPolicy) (AnalysisDefeatingPolicy, error) {
 	switch policy {
 	case gen.AnalysisDefeatingPolicy_STRICT:
 		return AnalysisDefeatingPolicyStrict, nil
 	case gen.AnalysisDefeatingPolicy_WARN:
 		return AnalysisDefeatingPolicyWarn, nil
 	default:
-		return AnalysisDefeatingPolicyStrict, &UnknownAnalysisDefeatingPolicyError{Value: int32(policy)}
+		return AnalysisDefeatingPolicyStrict, &unknownAnalysisDefeatingPolicyError{Value: int32(policy)}
 	}
 }
 
-// ToPersistedAnalysisDefeatingPolicy converts the pure model to its schema
+// toPersistedAnalysisDefeatingPolicy converts the pure model to its schema
 // representation and refuses an invalid value instead of normalizing it.
-func ToPersistedAnalysisDefeatingPolicy(policy AnalysisDefeatingPolicy) (gen.AnalysisDefeatingPolicy, error) {
+func toPersistedAnalysisDefeatingPolicy(policy AnalysisDefeatingPolicy) (gen.AnalysisDefeatingPolicy, error) {
 	switch policy {
 	case AnalysisDefeatingPolicyStrict:
 		return gen.AnalysisDefeatingPolicy_STRICT, nil
 	case AnalysisDefeatingPolicyWarn:
 		return gen.AnalysisDefeatingPolicy_WARN, nil
 	default:
-		return gen.AnalysisDefeatingPolicy_STRICT, &UnknownAnalysisDefeatingPolicyError{Value: int32(policy)}
+		return gen.AnalysisDefeatingPolicy_STRICT, &unknownAnalysisDefeatingPolicyError{Value: int32(policy)}
 	}
 }
 
@@ -99,11 +99,11 @@ func NewDeclared(capabilities ...Capability) (AuthorityDeclaration, error) {
 	seen := make(map[Capability]bool, len(capabilities))
 	for _, c := range capabilities {
 		if seen[c] {
-			return AuthorityDeclaration{}, &DuplicateDeclarationError{Kind: "declared authority", Value: c}
+			return AuthorityDeclaration{}, &duplicateDeclarationError{Kind: "declared authority", Value: c}
 		}
 		seen[c] = true
 		if !schema.KnownCapabilities[c] {
-			return AuthorityDeclaration{}, &UnknownCapabilityError{Capability: c}
+			return AuthorityDeclaration{}, &unknownCapabilityError{Capability: c}
 		}
 	}
 	set := slices.Clone(capabilities)

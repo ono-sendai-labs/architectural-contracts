@@ -1,8 +1,8 @@
 # Component structure conformance — summary
 
-**Date:** 2026-10-05 · **Revised:** 2026-10-05 (R1, R2) · **Status:** Steps 1–2 of 16
-done (probe script, conventions, spikes S2/S3/S4 resolved, `interface_files` landed);
-Steps 3–16 ready for hand-off
+**Date:** 2026-10-05 · **Revised:** 2026-10-05 (R1, R2) · **Status:** Steps 1–3 of 16
+done (probe script, conventions, spikes S2/S3/S4 resolved, `interface_files` landed,
+Step 3 hygiene/unexports/dead-dep removal complete); Steps 4–16 in progress
 
 ## What this is
 

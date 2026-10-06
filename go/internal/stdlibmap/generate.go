@@ -22,9 +22,9 @@ import (
 // UNANALYZED records carry no provenance — their classification is not a
 // trust decision.
 const (
-	ProvenanceCapslockCurated = "capslock-curated"
-	ProvenanceProjectOverride = "project-override"
-	ProvenanceProvedPure      = "proved-pure"
+	provenanceCapslockCurated = "capslock-curated"
+	provenanceProjectOverride = "project-override"
+	provenanceProvedPure      = "proved-pure"
 )
 
 // provenanceStructural is the empty provenance of structurally safe records
@@ -94,7 +94,7 @@ func Generate(in GenerationInput) (*GeneratedMap, error) {
 	if err != nil {
 		return nil, fmt.Errorf("generating the stdlib map: %w", err)
 	}
-	inv, err := BuildInventory(entries, in.Loader)
+	inv, err := buildInventory(entries, in.Loader)
 	if err != nil {
 		return nil, fmt.Errorf("generating the stdlib map: %w", err)
 	}
@@ -151,7 +151,7 @@ func Generate(in GenerationInput) (*GeneratedMap, error) {
 	if err != nil {
 		return nil, fmt.Errorf("generating the stdlib map: %w", err)
 	}
-	m, err := BuildAuthorityMap(inv, findings, curated)
+	m, err := buildAuthorityMap(inv, findings, curated)
 	if err != nil {
 		return nil, err
 	}
@@ -238,7 +238,7 @@ func GenerationClassifierRules() ([]ClassifierRule, error) {
 // renderUnsafeRule renders the executed unsafe-completion rule's canonical
 // machine-readable effect: the classifications and provenance the execution
 // path applies, key=value form, deterministic.
-func renderUnsafeRule(u UnsafeRuleSemantics) string {
+func renderUnsafeRule(u unsafeRuleSemantics) string {
 	return fmt.Sprintf("builtin-classification=%s type-classification=%s provenance=%s",
 		u.BuiltinClassification, u.TypeClassification, u.Provenance)
 }
@@ -246,7 +246,7 @@ func renderUnsafeRule(u UnsafeRuleSemantics) string {
 // renderVarRule renders the executed variable-completion rule's canonical
 // machine-readable effect: the full policy plus the minting table, sorted for
 // order independence.
-func renderVarRule(v VarRuleSemantics) string {
+func renderVarRule(v varRuleSemantics) string {
 	var minted []string
 	for recv, cap := range v.Minting {
 		minted = append(minted, recv+" → "+cap)
@@ -349,7 +349,7 @@ var initSubPattern = regexp.MustCompile(`\.init#\d+$`)
 // the structured package/inventory API (symbol.ParseCapslockFunction over the
 // Step 3 Inventory), so normalization fails closed unless the inventory
 // confirms exactly the one canonical declaration.
-func normalizeRoot(inv *Inventory, f capslockadapter.GenerationFinding) (symbol.SymbolID, dropReason, error) {
+func normalizeRoot(inv *inventory, f capslockadapter.GenerationFinding) (symbol.SymbolID, dropReason, error) {
 	name := f.RootName
 	pkg := f.RootPackage
 	// Drops only apply inside a known package: Capslock roots come from the
@@ -487,7 +487,7 @@ func tokenIsExported(name string) bool {
 // the type's FULL method set (including promoted methods) to the declaring
 // *types.Func's inventoried SymbolID. ok=false unless the declaring object is
 // itself inventoried.
-func promotedMethodOwner(inv *Inventory, pkg, typeName, method string) (symbol.SymbolID, bool) {
+func promotedMethodOwner(inv *inventory, pkg, typeName, method string) (symbol.SymbolID, bool) {
 	p := inv.loaded[pkg]
 	if p == nil {
 		return "", false
@@ -594,7 +594,7 @@ const (
 
 // resolveSymbol maps an inventoried ID to its object kind (and, for vars and
 // methods, the declaring object) using the inventory's loaded typed packages.
-func resolveSymbol(inv *Inventory, id symbol.SymbolID) (symbolKind, error) {
+func resolveSymbol(inv *inventory, id symbol.SymbolID) (symbolKind, error) {
 	text := id.String()
 	if strings.HasSuffix(text, ".init") {
 		return kindInit, nil
@@ -629,7 +629,7 @@ func resolveSymbol(inv *Inventory, id symbol.SymbolID) (symbolKind, error) {
 // provenance come from the canonical completion rules
 // (projectCompletionRules), the same source the classifier fingerprint
 // hashes (review: assembly-to-execution drift).
-func classifyBuiltin(rules UnsafeRuleSemantics) (gen.Classification, string, error) {
+func classifyBuiltin(rules unsafeRuleSemantics) (gen.Classification, string, error) {
 	classification, err := classificationFor(rules.BuiltinClassification)
 	if err != nil {
 		return 0, "", fmt.Errorf("the unsafe-builtin completion rule: %w", err)
@@ -652,13 +652,13 @@ func classificationFor(name string) (gen.Classification, error) {
 	return 0, fmt.Errorf("classification %q is not a known classification spelling", name)
 }
 
-// UnsafeRuleSemantics is the executed unsafe-completion rule's
+// unsafeRuleSemantics is the executed unsafe-completion rule's
 // machine-readable semantics (review: the fingerprint must carry the executed
 // rule, not prose). Both the execution paths (classifyBuiltin and the
 // unsafe.* named-type branch of BuildAuthorityMap) and the canonical
 // classifier fingerprint derive from one canonical instance
 // (projectCompletionRules).
-type UnsafeRuleSemantics struct {
+type unsafeRuleSemantics struct {
 	// BuiltinClassification is the terminal classification applied to
 	// exported unsafe.* compiler builtins (*types.Builtin with no SSA roots).
 	BuiltinClassification string
@@ -667,16 +667,16 @@ type UnsafeRuleSemantics struct {
 	// e.g. unsafe.Pointer).
 	TypeClassification string
 	// Provenance is the SAFE-provenance vocabulary entry the rule records
-	// (ProvenanceProjectOverride); the rule is this project's overriding
+	// (provenanceProjectOverride); the rule is this project's overriding
 	// trust decision, not Capslock's curation or proved purity.
 	Provenance string
 }
 
-// VarRuleSemantics is the executed variable-completion rule's
+// varRuleSemantics is the executed variable-completion rule's
 // machine-readable policy (DR-05, task req 5; review: the fingerprint must
 // carry the executed policy). classifyVar derives from the same canonical
 // instance the classifier fingerprint hashes.
-type VarRuleSemantics struct {
+type varRuleSemantics struct {
 	// PointerDereference dereferences a variable's static pointer type before
 	// classification (a *File variable is classified via File's method set).
 	PointerDereference bool
@@ -702,8 +702,8 @@ type VarRuleSemantics struct {
 // (projectCompletionRules); no independently maintained description may drift
 // from it (review: project completion rules must not remain prose-only).
 type completionRules struct {
-	Unsafe UnsafeRuleSemantics
-	Var    VarRuleSemantics
+	Unsafe unsafeRuleSemantics
+	Var    varRuleSemantics
 }
 
 // projectCompletionRules returns the canonical instance of the executed
@@ -711,12 +711,12 @@ type completionRules struct {
 // variable/minting policy (task reqs 1, 5, 7).
 func projectCompletionRules() completionRules {
 	return completionRules{
-		Unsafe: UnsafeRuleSemantics{
+		Unsafe: unsafeRuleSemantics{
 			BuiltinClassification: "UNANALYZED",
 			TypeClassification:    "UNANALYZED",
-			Provenance:            ProvenanceProjectOverride,
+			Provenance:            provenanceProjectOverride,
 		},
-		Var: VarRuleSemantics{
+		Var: varRuleSemantics{
 			PointerDereference: true,
 			MethodSet:          "pointer",
 			ExportedOnly:       true,
@@ -734,7 +734,7 @@ func projectCompletionRules() completionRules {
 // SAFE provenance when the union is empty ("" otherwise, a capability record).
 // Every branch derives from the canonical completion rules, which the
 // classifier fingerprint also hashes (review: assembly-to-execution drift).
-func classifyVar(inv *Inventory, varID symbol.SymbolID, obj *types.Var, records map[symbol.SymbolID]*symbolResult, rules VarRuleSemantics) (*symbolResult, error) {
+func classifyVar(inv *inventory, varID symbol.SymbolID, obj *types.Var, records map[symbol.SymbolID]*symbolResult, rules varRuleSemantics) (*symbolResult, error) {
 	t := obj.Type()
 	if rules.PointerDereference {
 		if ptr, ok := t.(*types.Pointer); ok {
@@ -833,11 +833,11 @@ func (r *symbolResult) addCapability(cap string) {
 // independent of the method-set iteration order (round-1 finding).
 func provenanceRank(p string) int {
 	switch p {
-	case ProvenanceProjectOverride:
+	case provenanceProjectOverride:
 		return 3
-	case ProvenanceCapslockCurated:
+	case provenanceCapslockCurated:
 		return 2
-	case ProvenanceProvedPure:
+	case provenanceProvedPure:
 		return 1
 	}
 	return 0
@@ -886,7 +886,7 @@ func (r *symbolResult) finish() {
 }
 
 // hasInit reports whether the inventory holds an aggregate init for pkgPath.
-func (inv *Inventory) hasInit(pkgPath string) bool {
+func (inv *inventory) hasInit(pkgPath string) bool {
 	for _, id := range inv.Inits {
 		if strings.TrimSuffix(id.String(), ".init") == pkgPath {
 			return true
@@ -954,14 +954,14 @@ func compareFrames(a, b stdlibauthority.Frame) int {
 	return 0
 }
 
-// BuildAuthorityMap converts the per-package Capslock responses into the
+// buildAuthorityMap converts the per-package Capslock responses into the
 // classified map message (task reqs 3–8): findings are grouped by their
 // `Path[0]` root, normalized through the structured inventory, and every
 // inventoried symbol and init is completed with a terminal classification.
 // Reconciliation is exact: every inventory symbol carries exactly one record,
 // every analyzer root is accounted for (mapped or dropped for a sanctioned
 // cause), and every capability carries deterministic evidence.
-func BuildAuthorityMap(inv *Inventory, findings []capslockadapter.GenerationFinding, curatedSafe map[string]bool) (*gen.StdlibMap, error) {
+func buildAuthorityMap(inv *inventory, findings []capslockadapter.GenerationFinding, curatedSafe map[string]bool) (*gen.StdlibMap, error) {
 	if inv == nil {
 		return nil, fmt.Errorf("building the authority map: the inventory is required")
 	}
@@ -1042,11 +1042,11 @@ func BuildAuthorityMap(inv *Inventory, findings []capslockadapter.GenerationFind
 					if result.classification == gen.Classification_SAFE {
 						switch {
 						case reclassified[id]:
-							result.provenance = ProvenanceProjectOverride
+							result.provenance = provenanceProjectOverride
 						case agg.safe:
-							result.provenance = ProvenanceCapslockCurated
+							result.provenance = provenanceCapslockCurated
 						default:
-							result.provenance = ProvenanceProvedPure
+							result.provenance = provenanceProvedPure
 						}
 					}
 				}
@@ -1059,11 +1059,11 @@ func BuildAuthorityMap(inv *Inventory, findings []capslockadapter.GenerationFind
 				result.classification = gen.Classification_SAFE
 				switch {
 				case reclassified[id]:
-					result.provenance = ProvenanceProjectOverride
+					result.provenance = provenanceProjectOverride
 				case isCuratedSafe(curatedSafe, id):
-					result.provenance = ProvenanceCapslockCurated
+					result.provenance = provenanceCapslockCurated
 				default:
-					result.provenance = ProvenanceProvedPure
+					result.provenance = provenanceProvedPure
 				}
 			}
 			records[id] = result
@@ -1130,18 +1130,18 @@ func BuildAuthorityMap(inv *Inventory, findings []capslockadapter.GenerationFind
 					// field keeps the distinction visible in the artifact
 					// (round-2 finding).
 					if isCuratedSafe(curatedSafe, id) {
-						result.provenance = ProvenanceCapslockCurated
+						result.provenance = provenanceCapslockCurated
 					} else {
-						result.provenance = ProvenanceProvedPure
+						result.provenance = provenanceProvedPure
 					}
 				}
 			}
 		} else {
 			result.classification = gen.Classification_SAFE
 			if isCuratedSafe(curatedSafe, id) {
-				result.provenance = ProvenanceCapslockCurated
+				result.provenance = provenanceCapslockCurated
 			} else {
-				result.provenance = ProvenanceProvedPure
+				result.provenance = provenanceProvedPure
 			}
 		}
 		records[id] = result

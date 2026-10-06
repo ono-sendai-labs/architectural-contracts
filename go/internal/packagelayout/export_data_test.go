@@ -16,8 +16,8 @@ import (
 func TestValidateAndResolveForMemberOnlyAcceptsDeepExportClosure(t *testing.T) {
 	layout, workspace := exportLayoutFixture(t)
 
-	if err := ValidateAndResolveForMemberOnly(layout, workspace); err != nil {
-		t.Fatalf("ValidateAndResolveForMemberOnly() error = %v", err)
+	if err := validateAndResolveForMemberOnly(layout, workspace); err != nil {
+		t.Fatalf("validateAndResolveForMemberOnly() error = %v", err)
 	}
 
 	for _, want := range []struct {
@@ -48,8 +48,8 @@ func TestValidateAndResolveForMemberOnlyRecoversOmittedRootImports(t *testing.T)
 	root := packageByPath(layout, "example.com/member")
 	root.Imports = nil
 
-	if err := ValidateAndResolveForMemberOnly(layout, workspace); err != nil {
-		t.Fatalf("ValidateAndResolveForMemberOnly() error = %v", err)
+	if err := validateAndResolveForMemberOnly(layout, workspace); err != nil {
+		t.Fatalf("validateAndResolveForMemberOnly() error = %v", err)
 	}
 	if got := root.Imports["example.com/dep"].ID; got != "dep-id" {
 		t.Errorf("recovered dependency ID = %q, want dep-id", got)
@@ -68,9 +68,9 @@ func TestValidateAndResolveForMemberOnlyRejectsIncompleteGraph(t *testing.T) {
 		"example.com/missing": {ID: "missing-id"},
 	}
 
-	err := ValidateAndResolveForMemberOnly(layout, workspace)
+	err := validateAndResolveForMemberOnly(layout, workspace)
 	if err == nil {
-		t.Fatal("ValidateAndResolveForMemberOnly() error = nil, want missing graph node error")
+		t.Fatal("validateAndResolveForMemberOnly() error = nil, want missing graph node error")
 	}
 	for _, want := range []string{"example.com/member", "example.com/missing", "missing-id"} {
 		if !strings.Contains(err.Error(), want) {
@@ -160,9 +160,9 @@ func TestValidateAndResolveForMemberOnlyRejectsInvalidExportArtifacts(t *testing
 				defer func() { osOpen = oldOpen }()
 			}
 
-			err := ValidateAndResolveForMemberOnly(layout, workspace)
+			err := validateAndResolveForMemberOnly(layout, workspace)
 			if err == nil || !strings.Contains(err.Error(), tt.want) {
-				t.Fatalf("ValidateAndResolveForMemberOnly() error = %v, want substring %q", err, tt.want)
+				t.Fatalf("validateAndResolveForMemberOnly() error = %v, want substring %q", err, tt.want)
 			}
 			if !strings.Contains(err.Error(), "example.com/dep") {
 				t.Errorf("error = %q, want package name", err)
@@ -175,9 +175,9 @@ func TestValidateAndResolveForMemberOnlyRequiresExplicitExportImports(t *testing
 	layout, workspace := exportLayoutFixture(t)
 	packageByPath(layout, "example.com/leaf").Imports = nil
 
-	err := ValidateAndResolveForMemberOnly(layout, workspace)
+	err := validateAndResolveForMemberOnly(layout, workspace)
 	if err == nil || !strings.Contains(err.Error(), "omitted Imports map") {
-		t.Fatalf("ValidateAndResolveForMemberOnly() error = %v, want omitted Imports error", err)
+		t.Fatalf("validateAndResolveForMemberOnly() error = %v, want omitted Imports error", err)
 	}
 }
 
@@ -205,8 +205,8 @@ func TestValidateAndResolveSourceBackedDoesNotRequireExportFiles(t *testing.T) {
 			},
 		},
 	}
-	if err := ValidateAndResolve(layout, workspace); err != nil {
-		t.Fatalf("ValidateAndResolve() error = %v", err)
+	if err := validateAndResolve(layout, workspace); err != nil {
+		t.Fatalf("validateAndResolve() error = %v", err)
 	}
 }
 
@@ -277,8 +277,8 @@ func TestExportDataLayoutJSONIsDeterministicAndPreservesBindings(t *testing.T) {
 func TestValidateAndResolveForMemberOnlyMergesStdlibExportMetadata(t *testing.T) {
 	layout, workspace := stdlibExportLayoutFixture(t, false)
 
-	if err := ValidateAndResolveForMemberOnly(layout, workspace); err != nil {
-		t.Fatalf("ValidateAndResolveForMemberOnly() error = %v", err)
+	if err := validateAndResolveForMemberOnly(layout, workspace); err != nil {
+		t.Fatalf("validateAndResolveForMemberOnly() error = %v", err)
 	}
 
 	fmtPackage := packageByPath(layout, "fmt")
@@ -335,10 +335,10 @@ func TestValidateAndResolveForMemberOnlyMergesOrdinaryImportDataWithoutSource(t 
 		t.Fatal(err)
 	}
 	layout.OrdinaryImportData = &OrdinaryImportData{Metadata: "ordinary.pkg.json"}
-	graph := ImportGraph{
+	graph := importGraph{
 		FormatVersion: ordinaryImportDataFormatVersion,
 		Platform:      layout.Platform,
-		Packages: []ImportGraphPackage{
+		Packages: []importGraphPackage{
 			{ID: "member-id", PkgPath: "example.com/member", Imports: []string{"example.com/dep", "fmt"}},
 			{ID: "dep-id", PkgPath: "example.com/dep", Imports: []string{"strings"}},
 		},
@@ -351,8 +351,8 @@ func TestValidateAndResolveForMemberOnlyMergesOrdinaryImportDataWithoutSource(t 
 		t.Fatal(err)
 	}
 
-	if err := ValidateAndResolveForMemberOnly(layout, workspace); err != nil {
-		t.Fatalf("ValidateAndResolveForMemberOnly() error = %v", err)
+	if err := validateAndResolveForMemberOnly(layout, workspace); err != nil {
+		t.Fatalf("validateAndResolveForMemberOnly() error = %v", err)
 	}
 	dep := packageByPath(layout, "example.com/dep")
 	if got := dep.Imports["strings"].ID; got != "strings" {
@@ -377,9 +377,9 @@ func TestValidateAndResolveRejectsMaliciousStdlibPackagePath(t *testing.T) {
 		t.Fatal(err)
 	}
 	layout.Component = "member_component"
-	err := ValidateAndResolveForMemberOnly(layout, workspace)
+	err := validateAndResolveForMemberOnly(layout, workspace)
 	if err == nil {
-		t.Fatal("ValidateAndResolveForMemberOnly() error = nil, want malicious package path rejection")
+		t.Fatal("validateAndResolveForMemberOnly() error = nil, want malicious package path rejection")
 	}
 	for _, want := range []string{"member_component", "../../outside", "invalid standard-library package import path"} {
 		if !strings.Contains(err.Error(), want) {
@@ -399,9 +399,9 @@ func TestWriteImportGraphPreservesDirectStdlibImports(t *testing.T) {
 		t.Fatal(err)
 	}
 	version := "go1.26.4"
-	config := ImportGraphRequest{
+	config := importGraphRequest{
 		Platform: &Platform{GOOS: "linux", GOARCH: "amd64", CgoEnabled: false, ToolchainVersion: &version},
-		Packages: []ImportGraphPackageInput{
+		Packages: []importGraphPackageInput{
 			{ID: "dep-id", PkgPath: "example.com/dep", Files: []string{depFile}},
 			{ID: "member-id", PkgPath: "example.com/member", Files: []string{memberFile}},
 		},
@@ -422,7 +422,7 @@ func TestWriteImportGraphPreservesDirectStdlibImports(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var graph ImportGraph
+	var graph importGraph
 	if err := json.Unmarshal(outputBytes, &graph); err != nil {
 		t.Fatal(err)
 	}
@@ -453,10 +453,10 @@ func TestMergeImportGraphLayoutEmitsDirectStdlibEdge(t *testing.T) {
 		t.Fatal(err)
 	}
 	graphPath := filepath.Join(workspace, "imports.json")
-	graphBytes, err := json.Marshal(ImportGraph{
+	graphBytes, err := json.Marshal(importGraph{
 		FormatVersion: ordinaryImportDataFormatVersion,
 		Platform:      layout.Platform,
-		Packages: []ImportGraphPackage{
+		Packages: []importGraphPackage{
 			{ID: "member-id", PkgPath: "example.com/member", Imports: []string{"example.com/dep"}},
 			{ID: "dep-id", PkgPath: "example.com/dep", Imports: []string{"strings"}},
 		},
@@ -535,9 +535,9 @@ func TestRunDriverNamesDerivedComponentOnMetadataError(t *testing.T) {
 	if err := os.WriteFile(layoutPath, layoutBytes, 0644); err != nil {
 		t.Fatal(err)
 	}
-	err = RunDriver(layoutPath, workspace, []string{"example.com/member"}, strings.NewReader(`{"Mode":0}`), new(bytes.Buffer))
+	err = runDriver(layoutPath, workspace, []string{"example.com/member"}, strings.NewReader(`{"Mode":0}`), new(bytes.Buffer))
 	if err == nil {
-		t.Fatal("RunDriver() error = nil, want missing metadata failure")
+		t.Fatal("runDriver() error = nil, want missing metadata failure")
 	}
 	for _, want := range []string{"broken_component", "missing.stdlib.pkg.json", "does not exist"} {
 		if !strings.Contains(err.Error(), want) {
@@ -615,9 +615,9 @@ func TestValidateAndResolveForMemberOnlyRejectsMalformedStdlibExportMetadata(t *
 				tt.configure(layout, workspace)
 			}
 
-			err := ValidateAndResolveForMemberOnly(layout, workspace)
+			err := validateAndResolveForMemberOnly(layout, workspace)
 			if err == nil {
-				t.Fatal("ValidateAndResolveForMemberOnly() error = nil, want metadata error")
+				t.Fatal("validateAndResolveForMemberOnly() error = nil, want metadata error")
 			}
 			for _, want := range tt.wantErrors {
 				if !strings.Contains(err.Error(), want) {
@@ -637,8 +637,8 @@ func TestStdlibExportMetadataMergeIsDeterministic(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := ValidateAndResolveForMemberOnly(first, workspace); err != nil {
-		t.Fatalf("first ValidateAndResolveForMemberOnly() error = %v", err)
+	if err := validateAndResolveForMemberOnly(first, workspace); err != nil {
+		t.Fatalf("first validateAndResolveForMemberOnly() error = %v", err)
 	}
 
 	second := &Layout{
@@ -658,8 +658,8 @@ func TestStdlibExportMetadataMergeIsDeterministic(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(workspace, "stdlib.pkg.json"), reverseStdlibExportMetadata(firstMetadata), 0644); err != nil {
 		t.Fatal(err)
 	}
-	if err := ValidateAndResolveForMemberOnly(second, workspace); err != nil {
-		t.Fatalf("second ValidateAndResolveForMemberOnly() error = %v", err)
+	if err := validateAndResolveForMemberOnly(second, workspace); err != nil {
+		t.Fatalf("second validateAndResolveForMemberOnly() error = %v", err)
 	}
 
 	firstJSON, err := json.Marshal(first)
@@ -691,8 +691,8 @@ func TestStdlibExportMetadataMapsExecrootArtifactsToRunfilesFrame(t *testing.T) 
 		ExecPath:     "bazel-out/exports",
 	}}
 
-	if err := ValidateAndResolveForMemberOnly(layout, workspace); err != nil {
-		t.Fatalf("ValidateAndResolveForMemberOnly() error = %v", err)
+	if err := validateAndResolveForMemberOnly(layout, workspace); err != nil {
+		t.Fatalf("validateAndResolveForMemberOnly() error = %v", err)
 	}
 	for _, importPath := range []string{"fmt", "io"} {
 		pkg := packageByPath(layout, importPath)
@@ -710,9 +710,9 @@ func TestStdlibExportMetadataRejectsConflictingExportRoots(t *testing.T) {
 		{RunfilesPath: "rules_go+/stdlib_/pkg", ExecPath: "bazel-out/exports"},
 	}
 
-	err := ValidateAndResolveForMemberOnly(layout, workspace)
+	err := validateAndResolveForMemberOnly(layout, workspace)
 	if err == nil || !strings.Contains(err.Error(), "conflicting standard-library export root") {
-		t.Fatalf("ValidateAndResolveForMemberOnly() error = %v, want conflicting-root error", err)
+		t.Fatalf("validateAndResolveForMemberOnly() error = %v, want conflicting-root error", err)
 	}
 }
 

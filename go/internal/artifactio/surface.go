@@ -27,13 +27,13 @@ func MarshalSurface(m *gen.SurfaceManifest) ([]byte, error) {
 	return canonicalJSON(canonical)
 }
 
-// DecodeSurface reads at most MaxSurfaceBytes bytes from r, parses them as a
+// DecodeSurface reads at most maxSurfaceBytes bytes from r, parses them as a
 // surface manifest, and validates its semantic invariants. Unknown JSON fields
 // are ignored (forward-compatible minor additions); malformed JSON, an
 // unsupported major format_version, or a non-canonical semantic state fails
 // with a specific error.
 func DecodeSurface(r io.Reader) (*gen.SurfaceManifest, error) {
-	data, err := boundedRead(r, MaxSurfaceBytes)
+	data, err := boundedRead(r, maxSurfaceBytes)
 	if err != nil {
 		return nil, err
 	}
@@ -47,10 +47,10 @@ func DecodeSurface(r io.Reader) (*gen.SurfaceManifest, error) {
 	return &m, nil
 }
 
-// SurfaceDigest returns the lowercase hex SHA-256 digest of the canonical
+// surfaceDigest returns the lowercase hex SHA-256 digest of the canonical
 // encoding of m. Hashing a decoded artifact operates on its re-canonicalized
 // representation, not on the source's whitespace or entry ordering.
-func SurfaceDigest(m *gen.SurfaceManifest) (string, error) {
+func surfaceDigest(m *gen.SurfaceManifest) (string, error) {
 	canonical, err := normalizeSurface(m)
 	if err != nil {
 		return "", err
@@ -96,7 +96,7 @@ func validateSurface(m *gen.SurfaceManifest) error {
 		return fmt.Errorf("PACKAGE_SURFACE surface must not declare symbols (schema reserves symbols for declared-interface style)")
 	}
 	if m.FormatVersion != SurfaceFormatVersion {
-		return fmt.Errorf("surface %w: got %d, supported: %d", ErrUnsupportedVersion, m.FormatVersion, SurfaceFormatVersion)
+		return fmt.Errorf("surface %w: got %d, supported: %d", errUnsupportedVersion, m.FormatVersion, SurfaceFormatVersion)
 	}
 	if err := rejectDuplicates("surface package", m.Packages); err != nil {
 		return err

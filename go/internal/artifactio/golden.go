@@ -20,18 +20,18 @@ type ShapeKind string
 
 const (
 	ShapeReport  ShapeKind = "report"
-	ShapeSurface ShapeKind = "surface"
-	ShapeMap     ShapeKind = "stdlib-map"
+	shapeSurface ShapeKind = "surface"
+	shapeMap     ShapeKind = "stdlib-map"
 )
 
-// ShapeMismatchError identifies a valid artifact/golden pair whose snapshots
+// shapeMismatchError identifies a valid artifact/golden pair whose snapshots
 // differ. Callers can map this assertion result to a test failure while still
 // treating decoder, filesystem, and canonicality errors as tool errors.
-type ShapeMismatchError struct {
+type shapeMismatchError struct {
 	Detail string
 }
 
-func (e *ShapeMismatchError) Error() string {
+func (e *shapeMismatchError) Error() string {
 	return "artifact shape mismatch: " + e.Detail
 }
 
@@ -40,7 +40,7 @@ func (e *ShapeMismatchError) Error() string {
 // hosts depend on this small semantic port without importing another
 // standard-library error traversal edge into their component boundary.
 func IsShapeMismatch(err error) bool {
-	_, ok := err.(*ShapeMismatchError)
+	_, ok := err.(*shapeMismatchError)
 	return ok
 }
 
@@ -81,13 +81,13 @@ func Snapshot(kind ShapeKind, r io.Reader) ([]byte, error) {
 			return nil, err
 		}
 		return marshalShape(reportShape(persisted))
-	case ShapeSurface:
+	case shapeSurface:
 		surface, err := readCanonicalSurface(r)
 		if err != nil {
 			return nil, err
 		}
 		return marshalSurfaceShape(surface)
-	case ShapeMap:
+	case shapeMap:
 		stdlibMap, err := readCanonicalMap(r)
 		if err != nil {
 			return nil, err
@@ -118,7 +118,7 @@ func CompareShape(kind ShapeKind, artifact io.Reader, golden io.Reader) error {
 	if bytes.Equal(actual, want) {
 		return nil
 	}
-	return &ShapeMismatchError{Detail: fmt.Sprintf("%s shape snapshot differs: %s", kind, shapeDiff(want, actual))}
+	return &shapeMismatchError{Detail: fmt.Sprintf("%s shape snapshot differs: %s", kind, shapeDiff(want, actual))}
 }
 
 func readCanonicalReport(r io.Reader) (PersistedReport, error) {
@@ -141,7 +141,7 @@ func readCanonicalReport(r io.Reader) (PersistedReport, error) {
 }
 
 func readCanonicalSurface(r io.Reader) (*gen.SurfaceManifest, error) {
-	data, err := boundedRead(r, MaxSurfaceBytes)
+	data, err := boundedRead(r, maxSurfaceBytes)
 	if err != nil {
 		return nil, err
 	}

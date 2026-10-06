@@ -59,7 +59,7 @@ func cannedGeneration(t *testing.T, key stdlibauthority.SDKKey, provenanceFlip b
 	m.Key = genKeyProto(key)
 	if provenanceFlip {
 		for _, s := range m.Symbols {
-			if s.Provenance == ProvenanceProvedPure {
+			if s.Provenance == provenanceProvedPure {
 				s.Provenance = ""
 				break
 			}
@@ -103,9 +103,9 @@ func (s *generatorSpy) count() int {
 // cacheSeams wires a temp-dir cache root and a spy generator; filesystem
 // operations stay real so the atomic-write and concurrency behavior is
 // exercised end to end.
-func cacheSeams(t *testing.T, root string, spy *generatorSpy) *CacheSeams {
+func newTestCacheSeams(t *testing.T, root string, spy *generatorSpy) *cacheSeams {
 	t.Helper()
-	return &CacheSeams{
+	return &cacheSeams{
 		UserCacheDir: func() (string, error) { return root, nil },
 		Generate:     spy.generate,
 	}
@@ -186,7 +186,7 @@ func TestOpenCachedMapGeneratesOnceThenReuses(t *testing.T) {
 	root := t.TempDir()
 	key := cacheKey()
 	spy := &generatorSpy{results: cannedGeneration(t, key, false)}
-	seams := cacheSeams(t, root, spy)
+	seams := newTestCacheSeams(t, root, spy)
 
 	in := CachedMapInput{Key: key, Generation: GenerationInput{Target: TargetConfig{ToolchainVersion: "go-test", GOOS: "linux", GOARCH: "amd64"}}, Seams: seams}
 	first, err := OpenCachedMap(in)
@@ -197,7 +197,7 @@ func TestOpenCachedMapGeneratesOnceThenReuses(t *testing.T) {
 		t.Fatalf("generator invocations after first open = %d; want 1", got)
 	}
 	// The artifact must be on disk under the arcc-specific subtree.
-	data, err := os.ReadFile(filepath.Join(root, "arcc", "stdlibmap", CacheKeyDigest(key)+".json"))
+	data, err := os.ReadFile(filepath.Join(root, "arcc", "stdlibmap", cacheKeyDigest(key)+".json"))
 	if err != nil {
 		t.Fatalf("reading cached artifact: %v", err)
 	}
@@ -219,7 +219,7 @@ func TestDistinctKeysSelectDistinctEntries(t *testing.T) {
 	root := t.TempDir()
 	base := cacheKey()
 	spy := &generatorSpy{}
-	seams := cacheSeams(t, root, spy)
+	seams := newTestCacheSeams(t, root, spy)
 
 	variations := map[string]stdlibauthority.SDKKey{
 		"baseline":        base,
@@ -234,7 +234,7 @@ func TestDistinctKeysSelectDistinctEntries(t *testing.T) {
 	// canned-generation variations above (a persisted map must carry the
 	// format version its key declares), so its digest difference is asserted
 	// directly.
-	if CacheKeyDigest(mutateKey(base, func(k *stdlibauthority.SDKKey) { k.MapFormatVersion = base.MapFormatVersion + 1 })) == CacheKeyDigest(base) {
+	if cacheKeyDigest(mutateKey(base, func(k *stdlibauthority.SDKKey) { k.MapFormatVersion = base.MapFormatVersion + 1 })) == cacheKeyDigest(base) {
 		t.Fatalf("format version does not change the cache digest")
 	}
 	paths := map[string]bool{}
@@ -244,7 +244,7 @@ func TestDistinctKeysSelectDistinctEntries(t *testing.T) {
 		if err != nil {
 			t.Fatalf("%s: OpenCachedMap: %v", name, err)
 		}
-		path := filepath.Join(root, "arcc", "stdlibmap", CacheKeyDigest(key)+".json")
+		path := filepath.Join(root, "arcc", "stdlibmap", cacheKeyDigest(key)+".json")
 		if paths[path] {
 			t.Fatalf("%s: cache path %q collides with another key's path", name, path)
 		}
@@ -255,7 +255,7 @@ func TestDistinctKeysSelectDistinctEntries(t *testing.T) {
 	}
 	// Tag order must not change the digest: the key is canonicalized.
 	reordered := mutateKey(base, func(k *stdlibauthority.SDKKey) { k.BuildTags = []string{"perf"} })
-	if CacheKeyDigest(reordered) != CacheKeyDigest(variations["tags"]) {
+	if cacheKeyDigest(reordered) != cacheKeyDigest(variations["tags"]) {
 		t.Fatalf("build-tag ordering changed the cache digest")
 	}
 }
@@ -288,7 +288,7 @@ func TestSemanticClassifierInputsSelectDistinctCacheEntries(t *testing.T) {
 	if keyA.ClassifierHash == keyB.ClassifierHash {
 		t.Fatalf("two classifier semantic inputs produced the same classifier_hash")
 	}
-	if CacheKeyDigest(keyA) == CacheKeyDigest(keyB) {
+	if cacheKeyDigest(keyA) == cacheKeyDigest(keyB) {
 		t.Fatalf("two classifier semantic inputs selected the same cache digest")
 	}
 
@@ -297,8 +297,8 @@ func TestSemanticClassifierInputsSelectDistinctCacheEntries(t *testing.T) {
 	root := t.TempDir()
 	mapA := cannedGeneration(t, keyA, false)
 	spy := &generatorSpy{results: cannedGeneration(t, keyB, false)}
-	seams := cacheSeams(t, root, spy)
-	pathB := filepath.Join(root, "arcc", "stdlibmap", CacheKeyDigest(keyB)+".json")
+	seams := newTestCacheSeams(t, root, spy)
+	pathB := filepath.Join(root, "arcc", "stdlibmap", cacheKeyDigest(keyB)+".json")
 	if err := os.MkdirAll(filepath.Dir(pathB), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -324,16 +324,16 @@ func mutateKey(base stdlibauthority.SDKKey, mutate func(*stdlibauthority.SDKKey)
 }
 
 func TestDefaultCacheRootIsUserCacheDirArccSubtree(t *testing.T) {
-	root, err := DefaultCacheRoot()
+	root, err := defaultCacheRoot()
 	if err != nil {
-		t.Fatalf("DefaultCacheRoot: %v", err)
+		t.Fatalf("defaultCacheRoot: %v", err)
 	}
 	base, err := os.UserCacheDir()
 	if err != nil {
 		t.Skipf("no user cache dir on this host: %v", err)
 	}
 	if !strings.HasSuffix(filepath.ToSlash(root), "/arcc") {
-		t.Fatalf("DefaultCacheRoot = %q; want the user cache dir's arcc subtree (under %q)", root, base)
+		t.Fatalf("defaultCacheRoot = %q; want the user cache dir's arcc subtree (under %q)", root, base)
 	}
 }
 
@@ -352,12 +352,12 @@ func TestCorruptCacheRegenerates(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			root := t.TempDir()
 			spy := &generatorSpy{results: valid}
-			seams := cacheSeams(t, root, spy)
+			seams := newTestCacheSeams(t, root, spy)
 			dir := filepath.Join(root, "arcc", "stdlibmap")
 			if err := os.MkdirAll(dir, 0o755); err != nil {
 				t.Fatal(err)
 			}
-			path := filepath.Join(dir, CacheKeyDigest(key)+".json")
+			path := filepath.Join(dir, cacheKeyDigest(key)+".json")
 			if err := os.WriteFile(path, content, 0o644); err != nil {
 				t.Fatal(err)
 			}
@@ -391,11 +391,11 @@ func TestFailedGenerationPreservesPriorBytes(t *testing.T) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	path := filepath.Join(dir, CacheKeyDigest(key)+".json")
+	path := filepath.Join(dir, cacheKeyDigest(key)+".json")
 	// A generation that produces a different key's map is refused, and the
 	// prior bytes stay untouched (checked before any bytes exist, so the
 	// cache-miss path actually runs).
-	mismatchSeams := &CacheSeams{
+	mismatchSeams := &cacheSeams{
 		UserCacheDir: func() (string, error) { return root, nil },
 		Generate: func(in GenerationInput) (*GeneratedMap, error) {
 			return cannedGeneration(t, mutateKey(key, func(k *stdlibauthority.SDKKey) { k.GOARCH = "arm64" }), false), nil
@@ -415,7 +415,7 @@ func TestFailedGenerationPreservesPriorBytes(t *testing.T) {
 	failing := &generatorSpy{err: errors.New("capslock exploded")}
 	_, err = OpenCachedMap(CachedMapInput{
 		Key:   key,
-		Seams: &CacheSeams{UserCacheDir: func() (string, error) { return root, nil }, Generate: failing.generate},
+		Seams: &cacheSeams{UserCacheDir: func() (string, error) { return root, nil }, Generate: failing.generate},
 	})
 	if err == nil {
 		t.Fatalf("OpenCachedMap with failing generator: want error, got nil")
@@ -441,12 +441,12 @@ func TestOversizedCacheEntryIsAMissAndRegenerated(t *testing.T) {
 	key := cacheKey()
 	valid := cannedGeneration(t, key, false)
 	spy := &generatorSpy{results: valid}
-	seams := cacheSeams(t, root, spy)
+	seams := newTestCacheSeams(t, root, spy)
 	dir := filepath.Join(root, "arcc", "stdlibmap")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	path := filepath.Join(dir, CacheKeyDigest(key)+".json")
+	path := filepath.Join(dir, cacheKeyDigest(key)+".json")
 	f, err := os.Create(path)
 	if err != nil {
 		t.Fatal(err)
@@ -482,7 +482,7 @@ func TestCacheReadErrorSurfacesWithoutGeneration(t *testing.T) {
 	root := t.TempDir()
 	key := cacheKey()
 	spy := &generatorSpy{results: cannedGeneration(t, key, false)}
-	seams := cacheSeams(t, root, spy)
+	seams := newTestCacheSeams(t, root, spy)
 	// A filesystem fault (permission, I/O) is not corrupt content: it must
 	// surface as an error, and it must never trigger a costly regeneration
 	// on top of a broken cache (review finding).
@@ -505,7 +505,7 @@ func TestConcurrentReadersNeverObservePartialOutput(t *testing.T) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	path := filepath.Join(dir, CacheKeyDigest(key)+".json")
+	path := filepath.Join(dir, cacheKeyDigest(key)+".json")
 	if err := os.WriteFile(path, mapA.Bytes, 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -547,7 +547,7 @@ func TestConcurrentReadersNeverObservePartialOutput(t *testing.T) {
 	// in-flight content as a miss it re-enters generation, which must still
 	// produce a complete valid map — never an error from partial bytes.
 	spy := &generatorSpy{results: mapA}
-	seams := cacheSeams(t, root, spy)
+	seams := newTestCacheSeams(t, root, spy)
 	var readWG sync.WaitGroup
 	errCh := make(chan error, 64)
 	for r := 0; r < 8; r++ {

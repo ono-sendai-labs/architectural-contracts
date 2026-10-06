@@ -73,7 +73,7 @@ func TestParseGoListOutputWhitespacePortable(t *testing.T) {
 }
 
 func TestExplicitPackageList(t *testing.T) {
-	oracle := ExplicitPackageList([]string{"b", "internal/x", "a", "b"})
+	oracle := explicitPackageList([]string{"b", "internal/x", "a", "b"})
 	raw, err := oracle.Packages()
 	if err != nil {
 		t.Fatalf("ExplicitPackageList.Packages: %v", err)

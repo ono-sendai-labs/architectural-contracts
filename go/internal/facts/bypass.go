@@ -47,9 +47,9 @@ func (o BypassObservation) Validate() error {
 	return nil
 }
 
-// CompareBypassObservations totally orders two observations by site (file,
+// compareBypassObservations totally orders two observations by site (file,
 // then line — the finding-site order), then kind.
-func CompareBypassObservations(a, b BypassObservation) int {
+func compareBypassObservations(a, b BypassObservation) int {
 	if c := CompareSourceSite(a.Site, b.Site); c != 0 {
 		return c
 	}
@@ -60,7 +60,7 @@ func CompareBypassObservations(a, b BypassObservation) int {
 func SortBypassObservations(obs []BypassObservation) []BypassObservation {
 	out := make([]BypassObservation, len(obs))
 	copy(out, obs)
-	slices.SortStableFunc(out, CompareBypassObservations)
+	slices.SortStableFunc(out, compareBypassObservations)
 	return out
 }
 
@@ -69,7 +69,7 @@ func SortBypassObservations(obs []BypassObservation) []BypassObservation {
 func DedupBypassObservations(obs []BypassObservation) []BypassObservation {
 	out := obs[:0:0]
 	for i, o := range obs {
-		if i > 0 && CompareBypassObservations(obs[i-1], o) == 0 {
+		if i > 0 && compareBypassObservations(obs[i-1], o) == 0 {
 			continue
 		}
 		out = append(out, o)

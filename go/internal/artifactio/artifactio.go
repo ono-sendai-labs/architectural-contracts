@@ -23,13 +23,12 @@
 //     the target directory for atomic replacement.
 //   - What it provides: MarshalSurface/MarshalMap, DecodeSurface/DecodeMap,
 //     ReadReportFile/ReadVerdictGoldenFile, MarshalVerdict,
-//     SurfaceDigest/MapDigest, WriteFileAtomic with injectable write seams,
+//     surfaceDigest/MapDigest, WriteFileAtomic with injectable write seams,
 //     WriteSurface, ReadSources, and the
 //     SurfacePath/ReportPath conventions. No cache regeneration policy,
 //     CLI commands, Bazel actions, or dependency freshness computation.
 //   - Ambient Authority: This is a shell component holding FILES,
-//     READ_SYSTEM_STATE, MODIFY_SYSTEM_STATE, REFLECT, RUNTIME, SYSTEM_CALLS,
-//     and UNSAFE_POINTER for filesystem writes and protobuf unmarshaling.
+//     REFLECT, and UNSAFE_POINTER for filesystem writes and protobuf unmarshaling.
 package artifactio
 
 import (
@@ -57,15 +56,15 @@ const (
 	// MapFormatVersion is the only supported major stdlib-map format
 	// version; readers and writers reject any other value.
 	MapFormatVersion = 1
-	// MaxSurfaceBytes caps a surface read before decoding (DR-15).
-	MaxSurfaceBytes = 16 << 20 // 16 MiB
+	// maxSurfaceBytes caps a surface read before decoding (DR-15).
+	maxSurfaceBytes = 16 << 20 // 16 MiB
 	// MaxMapBytes caps a stdlib-map read before decoding (DR-15).
 	MaxMapBytes = 64 << 20 // 64 MiB
 )
 
-// ErrUnsupportedVersion reports an artifact whose major format_version is not
+// errUnsupportedVersion reports an artifact whose major format_version is not
 // one this build understands.
-var ErrUnsupportedVersion = fmt.Errorf("unsupported artifact format version")
+var errUnsupportedVersion = fmt.Errorf("unsupported artifact format version")
 
 // canonicalJSON renders msg as the canonical artifact bytes described in the
 // package contract.

@@ -33,10 +33,6 @@ type DependencySurfaceMode string
 const (
 	DependencySurfaceNative DependencySurfaceMode = "native"
 	DependencySurfaceLayout DependencySurfaceMode = "layout"
-	// The longer names make call sites self-documenting and preserve a stable
-	// vocabulary for hosts that prefer not to rely on the short aliases.
-	DependencySurfaceModeNative = DependencySurfaceNative
-	DependencySurfaceModeLayout = DependencySurfaceLayout
 )
 
 // DependencySurfaceReadFile is the narrow byte-reader seam used for artifacts,
@@ -86,10 +82,6 @@ type DependencySurfaceRequest struct {
 	ReadDir         DependencySurfaceReadDir
 	ReadSourceFiles DependencySurfaceReadSources
 }
-
-// SurfaceResolutionRequest is an alternate name kept for the shell-facing
-// request type; both names describe the same operation.
-type SurfaceResolutionRequest = DependencySurfaceRequest
 
 // ResolveDependencySurface consumes one validated surface and its optional
 // report into exact facts.DependencyInterface values. This is the production
@@ -246,9 +238,9 @@ func alternateLayoutArtifactPath(req DependencySurfaceRequest, path string) stri
 	return filepath.Join(filepath.Dir(filepath.Clean(workspace)), filepath.FromSlash(frame))
 }
 
-// ResolveValidatedDependencySurface is the explicit fail-closed spelling for
+// resolveValidatedDependencySurface is the explicit fail-closed spelling for
 // callers that want the validation boundary named in their code.
-func ResolveValidatedDependencySurface(req DependencySurfaceRequest) (facts.DependencyInterface, error) {
+func resolveValidatedDependencySurface(req DependencySurfaceRequest) (facts.DependencyInterface, error) {
 	return ResolveDependencySurface(req)
 }
 
@@ -605,8 +597,8 @@ func readDependencyReport(req DependencySurfaceRequest, path string, readFile De
 	if err != nil {
 		return "", false, fmt.Errorf("dependency %q report %q is invalid: %w", req.Dependency.Name, path, err)
 	}
-	if persisted.Report.Component != req.Dependency.Name {
-		return "", false, fmt.Errorf("dependency %q report component mismatch: got %q", req.Dependency.Name, persisted.Report.Component)
+	if persisted.ComponentName() != req.Dependency.Name {
+		return "", false, fmt.Errorf("dependency %q report component mismatch: got %q", req.Dependency.Name, persisted.ComponentName())
 	}
 	return string(persisted.Verdict), true, nil
 }

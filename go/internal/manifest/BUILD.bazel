@@ -38,6 +38,7 @@ go_test(
     size = "small",
     srcs = [
         "authority_test.go",
+        "export_test.go",
         "manifest_test.go",
         "schema_test.go",
     ],
@@ -46,7 +47,7 @@ go_test(
     # it needs the working copy rather than a runfiles tree. It runs under
     # `just ci`'s `go test ./...`; `manual` keeps it out of `bazel test //...`.
     tags = ["manual"],
-    deps = [":manifest"],
+    embed = [":manifest"],
 )
 
 # Mirrors the checked-in manifest/component.textproto. The generated schema

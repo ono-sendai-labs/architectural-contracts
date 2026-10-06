@@ -40,7 +40,7 @@ import (
 // "gopkg.in/yaml.v2.Unmarshal") are ambiguous without outside knowledge: a
 // dot could equally be a dotted method separator, and Capslock's text carries
 // no object-kind information. ParseCapslock rejects them; callers that know
-// the package inventory use ParseCapslockWithPackages to disambiguate.
+// the package inventory use ParseCapslockFunction to disambiguate.
 func ParseCapslock(name string) (SymbolID, error) {
 	return parseCapslock(name, nil, nil, nil)
 }
@@ -112,21 +112,6 @@ func ParseCapslockFunction(fn CapslockFunction, inv CapslockInventory) (SymbolID
 		return "", false
 	}
 	return parseCapslock(fn.Name, knownPackage, inv, resolve)
-}
-
-// ParseCapslockWithPackages is ParseCapslock with one piece of structured
-// context: knownPackage reports whether an import path names a package in the
-// caller's world (typed declarations, a manifest, a module inventory). An
-// unparenthesized spelling whose package path contains a dot is accepted as a
-// top-level symbol only when knownPackage confirms that package; otherwise
-// the spelling could be an unprinted dotted method name and is rejected
-// instead of guessed. Dotless package paths ("os.ReadFile") are unambiguous
-// and need no resolver.
-func ParseCapslockWithPackages(name string, knownPackage func(importPath string) bool) (SymbolID, error) {
-	if knownPackage == nil {
-		return "", fmt.Errorf("capslock name %q: disambiguating a dotful unparenthesized spelling requires a known-package resolver", name)
-	}
-	return parseCapslock(name, knownPackage, nil, nil)
 }
 
 func parseCapslock(name string, knownPackage func(string) bool, inv CapslockInventory, resolve func(string) (string, bool)) (SymbolID, error) {
@@ -207,7 +192,7 @@ func parseCapslock(name string, knownPackage func(string) bool, inv CapslockInve
 		// dotful package. Without a known-package confirmation there is no
 		// safe mapping.
 		if knownPackage == nil {
-			return "", fmt.Errorf("capslock name %q: %q is ambiguous — a dotful unparenthesized spelling could equally be a dotted method spelling; confirm the package with ParseCapslockWithPackages", name, rest)
+			return "", fmt.Errorf("capslock name %q: %q is ambiguous — a dotful unparenthesized spelling could equally be a dotted method spelling; confirm the package with ParseCapslockFunction", name, rest)
 		}
 		if !knownPackage(pkg) {
 			return "", fmt.Errorf("capslock name %q: package %q is not known, so %q cannot be mapped safely to a top-level symbol", name, pkg, rest)

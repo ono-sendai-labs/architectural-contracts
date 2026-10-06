@@ -26,12 +26,13 @@ go_test(
         "capslock_corpus_test.go",
         "capslock_inventory_test.go",
         "capslock_test.go",
+        "export_test.go",
         "extract_test.go",
         "symbol_test.go",
         "typesconv_test.go",
     ],
+    embed = [":symbol"],
     deps = [
-        ":symbol",
         "//go/internal/hostpolicy",
     ],
 )

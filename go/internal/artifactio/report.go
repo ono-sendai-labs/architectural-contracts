@@ -24,9 +24,9 @@ const (
 	MaxReportBytes      = 16 << 20 // 16 MiB
 	verdictGoldenPass   = "pass\n"
 	verdictGoldenFail   = "fail\n"
-	// MaxVerdictGoldenBytes is the exact size of either canonical verdict
+	// maxVerdictGoldenBytes is the exact size of either canonical verdict
 	// representation (`pass\n` or `fail\n`).
-	MaxVerdictGoldenBytes int64 = int64(len(verdictGoldenPass))
+	maxVerdictGoldenBytes int64 = int64(len(verdictGoldenPass))
 )
 
 // Sentinels classifying persisted-report failures for `arcc verdict` and
@@ -50,6 +50,11 @@ type PersistedReport struct {
 	FormatVersion int
 	Verdict       report.Verdict
 	Report        report.ConformanceReport
+}
+
+// ComponentName returns the component name recorded in the report.
+func (p PersistedReport) ComponentName() string {
+	return p.Report.Component
 }
 
 // wirePersistedReport is the private JSON representation; unexported so no
@@ -387,7 +392,7 @@ func ReadVerdictGoldenFile(path string) (report.Verdict, error) {
 	}
 	defer f.Close()
 
-	data, err := boundedRead(f, MaxVerdictGoldenBytes)
+	data, err := boundedRead(f, maxVerdictGoldenBytes)
 	if err != nil {
 		return "", fmt.Errorf("%w %q: %v", ErrInvalidVerdictGolden, path, err)
 	}

@@ -134,7 +134,7 @@ func TestShapeSnapshotSurfaceMakesDefaultSemanticsExplicit(t *testing.T) {
 	if err != nil {
 		t.Fatalf("MarshalSurface: %v", err)
 	}
-	got, err := Snapshot(ShapeSurface, bytes.NewReader(data))
+	got, err := Snapshot(shapeSurface, bytes.NewReader(data))
 	if err != nil {
 		t.Fatalf("Snapshot(surface): %v", err)
 	}
@@ -163,7 +163,7 @@ func TestShapeSnapshotMapRetainsTerminalClassesAndOrdering(t *testing.T) {
 	if err != nil {
 		t.Fatalf("MarshalMap: %v", err)
 	}
-	got, err := Snapshot(ShapeMap, bytes.NewReader(data))
+	got, err := Snapshot(shapeMap, bytes.NewReader(data))
 	if err != nil {
 		t.Fatalf("Snapshot(map): %v", err)
 	}
@@ -209,7 +209,7 @@ func TestShapeSnapshotsAreByteIdenticalAcrossLogicalOrderings(t *testing.T) {
 		if err != nil {
 			t.Fatalf("MarshalSurface: %v", err)
 		}
-		snapshot, err := Snapshot(ShapeSurface, bytes.NewReader(data))
+		snapshot, err := Snapshot(shapeSurface, bytes.NewReader(data))
 		if err != nil {
 			t.Fatalf("Snapshot(surface): %v", err)
 		}
@@ -234,7 +234,7 @@ func TestShapeSnapshotsAreByteIdenticalAcrossLogicalOrderings(t *testing.T) {
 		if err != nil {
 			t.Fatalf("MarshalMap: %v", err)
 		}
-		snapshot, err := Snapshot(ShapeMap, bytes.NewReader(data))
+		snapshot, err := Snapshot(shapeMap, bytes.NewReader(data))
 		if err != nil {
 			t.Fatalf("Snapshot(map): %v", err)
 		}
@@ -311,10 +311,10 @@ func TestShapeSnapshotCanonicalizesOnlyThroughProductionBoundary(t *testing.T) {
 		{name: "wrong report version", kind: ShapeReport, data: []byte(`{"format_version":2,"verdict":"pass","report":{"component":"clean"}}`), want: "unsupported report format version"},
 		{name: "oversized report", kind: ShapeReport, data: []byte(strings.Repeat("x", int(MaxReportBytes)+1)), want: "byte limit"},
 		{name: "non-canonical report", kind: ShapeReport, data: append(reportData, '\n'), want: "not canonical"},
-		{name: "wrong surface version", kind: ShapeSurface, data: []byte(`{"formatVersion":2}`), want: "unsupported artifact format version"},
-		{name: "non-canonical surface", kind: ShapeSurface, data: append(surfaceData, ' '), want: "not canonical"},
-		{name: "wrong map version", kind: ShapeMap, data: []byte(`{"formatVersion":99}`), want: "unsupported artifact format version"},
-		{name: "non-canonical map", kind: ShapeMap, data: append(mapData, ' '), want: "not canonical"},
+		{name: "wrong surface version", kind: shapeSurface, data: []byte(`{"formatVersion":2}`), want: "unsupported artifact format version"},
+		{name: "non-canonical surface", kind: shapeSurface, data: append(surfaceData, ' '), want: "not canonical"},
+		{name: "wrong map version", kind: shapeMap, data: []byte(`{"formatVersion":99}`), want: "unsupported artifact format version"},
+		{name: "non-canonical map", kind: shapeMap, data: append(mapData, ' '), want: "not canonical"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -338,7 +338,7 @@ func TestShapeSnapshotRequiresCompleteSDKKey(t *testing.T) {
 	if err != nil {
 		t.Fatalf("MarshalSurface: %v", err)
 	}
-	if _, err := Snapshot(ShapeSurface, bytes.NewReader(surfaceData)); err == nil || !strings.Contains(err.Error(), "classifier_hash") {
+	if _, err := Snapshot(shapeSurface, bytes.NewReader(surfaceData)); err == nil || !strings.Contains(err.Error(), "classifier_hash") {
 		t.Errorf("Snapshot(surface with incomplete key) error = %v, want classifier_hash validation", err)
 	}
 
@@ -348,7 +348,7 @@ func TestShapeSnapshotRequiresCompleteSDKKey(t *testing.T) {
 	if err != nil {
 		t.Fatalf("MarshalMap: %v", err)
 	}
-	if _, err := Snapshot(ShapeMap, bytes.NewReader(mapData)); err == nil || !strings.Contains(err.Error(), "classifier_hash") {
+	if _, err := Snapshot(shapeMap, bytes.NewReader(mapData)); err == nil || !strings.Contains(err.Error(), "classifier_hash") {
 		t.Errorf("Snapshot(map with incomplete key) error = %v, want classifier_hash validation", err)
 	}
 }
@@ -366,7 +366,7 @@ func TestCompareShapeReportsFocusedDiff(t *testing.T) {
 	if err != nil {
 		t.Fatalf("MarshalSurface: %v", err)
 	}
-	golden, err := Snapshot(ShapeSurface, bytes.NewReader(data))
+	golden, err := Snapshot(shapeSurface, bytes.NewReader(data))
 	if err != nil {
 		t.Fatalf("Snapshot(surface): %v", err)
 	}
@@ -374,7 +374,7 @@ func TestCompareShapeReportsFocusedDiff(t *testing.T) {
 	if changed == string(golden) {
 		t.Fatal("test setup did not change the component")
 	}
-	err = CompareShape(ShapeSurface, bytes.NewReader(data), strings.NewReader(changed))
+	err = CompareShape(shapeSurface, bytes.NewReader(data), strings.NewReader(changed))
 	if err == nil {
 		t.Fatal("CompareShape accepted a changed stable field")
 	}

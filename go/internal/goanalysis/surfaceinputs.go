@@ -36,10 +36,6 @@ type SurfaceInputs struct {
 	SourcePaths []string
 }
 
-// DependencyArtifactBinding is the layout's structural binding record,
-// re-exported through goanalysis so CLI orchestration keeps one shell port.
-type DependencyArtifactBinding = packagelayout.DependencyArtifactBinding
-
 // LoadSurfaceInputs loads the component's member packages once and returns
 // the surface-emission inputs derived from them: the surviving interface
 // files' ASTs with their package's type info, the member import paths, and

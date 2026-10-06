@@ -27,11 +27,11 @@ type LoaderFunc func(paths []string) (map[string]*types.Package, error)
 // Load implements Loader.
 func (f LoaderFunc) Load(paths []string) (map[string]*types.Package, error) { return f(paths) }
 
-// Inventory is the independent declaration oracle for one SDK configuration
+// inventory is the independent declaration oracle for one SDK configuration
 // (design I3, DR-05): the total package list and, for every importable
 // package, its complete externally referencable exported symbol set plus
 // exactly one aggregate init. Every collection is sorted and duplicate-free.
-type Inventory struct {
+type inventory struct {
 	// Packages is the total normalized package enumeration, sorted by path.
 	Packages []PackageEntry
 	// Symbols is the total symbol inventory over all importable packages:
@@ -55,7 +55,7 @@ type Inventory struct {
 // KnownPackage implements symbol.CapslockInventory: an import path is known
 // exactly when it is an importable package of the inventory (non-importable
 // packages have no symbols, so their names must not normalize).
-func (inv *Inventory) KnownPackage(importPath string) bool {
+func (inv *inventory) KnownPackage(importPath string) bool {
 	if inv == nil {
 		return false
 	}
@@ -66,7 +66,7 @@ func (inv *Inventory) KnownPackage(importPath string) bool {
 // name as an inventoried top-level declaration (exported objects, same-
 // package alias targets, and unsafe builtins; never unexported helpers,
 // which Capslock reports but the map drops).
-func (inv *Inventory) Declares(pkg, name string) bool {
+func (inv *inventory) Declares(pkg, name string) bool {
 	if inv == nil {
 		return false
 	}
@@ -79,7 +79,7 @@ func (inv *Inventory) Declares(pkg, name string) bool {
 // (aliases resolve to the declaring target type) and "pkg.Interface" for an
 // interface method spec. ok=false unless the resolved declaring object is
 // itself inventoried.
-func (inv *Inventory) MethodOwner(pkg, typeName, method string) (string, bool) {
+func (inv *inventory) MethodOwner(pkg, typeName, method string) (string, bool) {
 	if inv == nil || !inv.Declares(pkg, typeName) {
 		return "", false
 	}
@@ -120,7 +120,7 @@ func (inv *Inventory) MethodOwner(pkg, typeName, method string) (string, bool) {
 }
 
 // hasSymbol reports whether id is in the inventoried symbol set.
-func (inv *Inventory) hasSymbol(id symbol.SymbolID) bool {
+func (inv *inventory) hasSymbol(id symbol.SymbolID) bool {
 	for _, s := range inv.Symbols {
 		if s == id {
 			return true
@@ -154,7 +154,7 @@ func normalizeEntries(entries []PackageEntry) ([]PackageEntry, error) {
 		if err := validatePackagePath(e.Path); err != nil {
 			return nil, fmt.Errorf("normalizing the package inventory: %w", err)
 		}
-		if IsInternalPath(e.Path) && e.Importable {
+		if isInternalPath(e.Path) && e.Importable {
 			return nil, fmt.Errorf("normalizing the package inventory: internal package %q cannot be importable", e.Path)
 		}
 		if seen[e.Path] {
@@ -167,14 +167,14 @@ func normalizeEntries(entries []PackageEntry) ([]PackageEntry, error) {
 	return out, nil
 }
 
-// BuildInventory inventories packages through loader (task reqs 3–6): the
+// buildInventory inventories packages through loader (task reqs 3–6): the
 // package list is normalized and validated first, every importable package
 // is loaded and its exported surface walked, and every non-importable
 // (internal) package is retained in the package list but contributes no
 // symbols or init. Any load error, type error, malformed object conversion,
 // or canonical-ID collision fails the whole generation with an actionable
-// error and a nil Inventory — a partial inventory is never returned.
-func BuildInventory(packages []PackageEntry, loader Loader) (*Inventory, error) {
+// error and a nil inventory — a partial inventory is never returned.
+func buildInventory(packages []PackageEntry, loader Loader) (*inventory, error) {
 	if loader == nil {
 		return nil, fmt.Errorf("building the stdlib inventory: the package loader is required")
 	}
@@ -233,7 +233,7 @@ func BuildInventory(packages []PackageEntry, loader Loader) (*Inventory, error) 
 		dot := strings.LastIndexByte(text, '.')
 		topNames[text[:dot]][text[dot+1:]] = true
 	}
-	return &Inventory{
+	return &inventory{
 		Packages: packages,
 		Symbols:  symbols,
 		Inits:    inits,

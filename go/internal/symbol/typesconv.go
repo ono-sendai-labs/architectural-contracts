@@ -42,12 +42,12 @@ func FromObject(obj types.Object) (SymbolID, error) {
 	}
 }
 
-// FromSelection converts a field or method selection to the SymbolID of the
+// fromSelection converts a field or method selection to the SymbolID of the
 // top-level declaration that owns the selected member (DR-04): fields and
 // interface method specs key their declaring type; promoted selections key
 // the object that actually declares the member (via Selection.Obj and the
 // selection index path); generic methods resolve to their origin.
-func FromSelection(sel *types.Selection) (SymbolID, error) {
+func fromSelection(sel *types.Selection) (SymbolID, error) {
 	if sel == nil {
 		return "", fmt.Errorf("selection is nil")
 	}

@@ -37,10 +37,6 @@ component_dependencies {
   manifest: "../xtools/component.textproto"
 }
 component_dependencies {
-  name: "report"
-  manifest: "../report/component.textproto"
-}
-component_dependencies {
   name: "hostpolicy"
   manifest: "../hostpolicy/component.textproto"
 }

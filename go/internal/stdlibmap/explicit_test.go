@@ -50,15 +50,15 @@ func fixtureSDKLayout(t *testing.T, sdkRoot string) *packagelayout.Layout {
 
 func TestParseTargetConfig(t *testing.T) {
 	valid := "toolchain_version=go1.26.4\ngoos=linux\ngoarch=amd64\ncgo_enabled=false\nbuild_tags=probe,extra\ngoexperiment=\n"
-	got, err := ParseTargetConfig(strings.NewReader(valid))
+	got, err := parseTargetConfig(strings.NewReader(valid))
 	if err != nil {
-		t.Fatalf("ParseTargetConfig() error = %v", err)
+		t.Fatalf("parseTargetConfig() error = %v", err)
 	}
 	want := TargetConfig{ToolchainVersion: "go1.26.4", GOOS: "linux", GOARCH: "amd64", BuildTags: []string{"probe", "extra"}}
 	if got.ToolchainVersion != want.ToolchainVersion || got.GOOS != want.GOOS || got.GOARCH != want.GOARCH ||
 		got.CgoEnabled != want.CgoEnabled || got.GOEXPERIMENT != want.GOEXPERIMENT ||
 		fmt.Sprint(got.BuildTags) != fmt.Sprint(want.BuildTags) {
-		t.Fatalf("ParseTargetConfig() = %+v, want %+v", *got, want)
+		t.Fatalf("parseTargetConfig() = %+v, want %+v", *got, want)
 	}
 
 	for _, tc := range []struct {
@@ -74,9 +74,9 @@ func TestParseTargetConfig(t *testing.T) {
 		{"missing toolchain value", "toolchain_version=\ngoos=linux\ngoarch=amd64\ncgo_enabled=false\nbuild_tags=\ngoexperiment=\n", "toolchain_version"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			_, err := ParseTargetConfig(strings.NewReader(tc.content))
+			_, err := parseTargetConfig(strings.NewReader(tc.content))
 			if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
-				t.Fatalf("ParseTargetConfig() error = %v, want containing %q", err, tc.wantErr)
+				t.Fatalf("parseTargetConfig() error = %v, want containing %q", err, tc.wantErr)
 			}
 		})
 	}
@@ -87,9 +87,9 @@ func TestParseTargetConfig(t *testing.T) {
 		if err != nil {
 			t.Fatalf("RenderTargetConfig() error = %v", err)
 		}
-		out, err := ParseTargetConfig(strings.NewReader(rendered))
+		out, err := parseTargetConfig(strings.NewReader(rendered))
 		if err != nil {
-			t.Fatalf("ParseTargetConfig() error = %v", err)
+			t.Fatalf("parseTargetConfig() error = %v", err)
 		}
 		if out.ToolchainVersion != in.ToolchainVersion || out.GOOS != in.GOOS || out.GOARCH != in.GOARCH ||
 			out.CgoEnabled != in.CgoEnabled || out.GOEXPERIMENT != in.GOEXPERIMENT ||
@@ -103,15 +103,15 @@ func TestParseTargetConfig(t *testing.T) {
 
 func TestReadToolchainPackageList(t *testing.T) {
 	list := "fmt\nstrings\nunsafe\n\ninternal/testcap\nruntime/cgo\ncmd/compile\n_internal/scratch\nvendor/golang.org/x/net/http2/hpack\n"
-	paths, err := ReadToolchainPackageList(strings.NewReader(list))
+	paths, err := readToolchainPackageList(strings.NewReader(list))
 	if err != nil {
-		t.Fatalf("ReadToolchainPackageList() error = %v", err)
+		t.Fatalf("readToolchainPackageList() error = %v", err)
 	}
 	want := []string{"fmt", "strings", "unsafe", "internal/testcap", "runtime/cgo", "vendor/golang.org/x/net/http2/hpack"}
 	if fmt.Sprint(paths) != fmt.Sprint(want) {
 		t.Fatalf("paths = %v, want %v", paths, want)
 	}
-	if _, err := ReadToolchainPackageList(strings.NewReader("with space\n")); err == nil {
+	if _, err := readToolchainPackageList(strings.NewReader("with space\n")); err == nil {
 		t.Fatal("a malformed path must fail with an actionable error")
 	}
 }
@@ -125,17 +125,17 @@ func TestReconcilePackageList(t *testing.T) {
 	// The layout discovers fmt, strings, unsafe, internal/testcap; the
 	// build-constrained pinned directory is not discovered.
 	reconcile := func(list string) ([]PackageEntry, error) {
-		paths, err := ReadToolchainPackageList(strings.NewReader(list))
+		paths, err := readToolchainPackageList(strings.NewReader(list))
 		if err != nil {
 			return nil, err
 		}
-		return ReconcilePackageList(paths, layout, sdkRoot)
+		return reconcilePackageList(paths, layout, sdkRoot)
 	}
 
 	t.Run("total agreement", func(t *testing.T) {
 		entries, err := reconcile("fmt\nstrings\nunsafe\ninternal/testcap\n")
 		if err != nil {
-			t.Fatalf("ReconcilePackageList() error = %v", err)
+			t.Fatalf("reconcilePackageList() error = %v", err)
 		}
 		got := map[string]bool{}
 		for _, e := range entries {
@@ -152,7 +152,7 @@ func TestReconcilePackageList(t *testing.T) {
 	t.Run("build-excluded listed package is importable false", func(t *testing.T) {
 		entries, err := reconcile("fmt\nstrings\nunsafe\ninternal/testcap\npinned\n")
 		if err != nil {
-			t.Fatalf("ReconcilePackageList() error = %v", err)
+			t.Fatalf("reconcilePackageList() error = %v", err)
 		}
 		for _, e := range entries {
 			if e.Path == "pinned" && e.Importable {
@@ -164,14 +164,14 @@ func TestReconcilePackageList(t *testing.T) {
 	t.Run("listed package with no directory fails naming it", func(t *testing.T) {
 		_, err := reconcile("fmt\nnosuchpkg\n")
 		if err == nil || !strings.Contains(err.Error(), "nosuchpkg") {
-			t.Fatalf("ReconcilePackageList() error = %v, want naming nosuchpkg", err)
+			t.Fatalf("reconcilePackageList() error = %v, want naming nosuchpkg", err)
 		}
 	})
 
 	t.Run("omitted discovered package fails naming it", func(t *testing.T) {
 		_, err := reconcile("fmt\ninternal/testcap\nunsafe\n")
 		if err == nil || !strings.Contains(err.Error(), "strings") {
-			t.Fatalf("ReconcilePackageList() error = %v, want naming strings", err)
+			t.Fatalf("reconcilePackageList() error = %v, want naming strings", err)
 		}
 	})
 }
@@ -182,12 +182,12 @@ func TestReconcilePackageList(t *testing.T) {
 // symbols), while generation still succeeds.
 func TestGenerateExplicitKeepsBuildExcludedPackage(t *testing.T) {
 	sdkRoot := fixtureSDK(t)
-	out, err := GenerateExplicit(
+	out, err := generateExplicit(
 		TargetConfig{ToolchainVersion: "go1.26.4", GOOS: "linux", GOARCH: "amd64"},
 		[]string{"fmt", "strings", "unsafe", "internal/testcap", "pinned"},
 		sdkRoot)
 	if err != nil {
-		t.Fatalf("GenerateExplicit() error = %v", err)
+		t.Fatalf("generateExplicit() error = %v", err)
 	}
 	found := false
 	for _, p := range out.Map.Packages {

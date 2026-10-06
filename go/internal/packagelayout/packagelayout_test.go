@@ -58,8 +58,8 @@ func TestValidateAndResolveHonorsExplicitNonStdlibProvenance(t *testing.T) {
 			CompiledGoFiles: []string{"dep.go"}, Imports: map[string]*packages.Package{},
 		}},
 	}
-	if err := ValidateAndResolve(l, workspace); err != nil {
-		t.Fatalf("ValidateAndResolve() error = %v, want explicit non-stdlib provenance to win", err)
+	if err := validateAndResolve(l, workspace); err != nil {
+		t.Fatalf("validateAndResolve() error = %v, want explicit non-stdlib provenance to win", err)
 	}
 	pkg := packageByID(l.Packages, "local/dep")
 	if pkg == nil {
@@ -101,8 +101,8 @@ func TestValidateAndResolveUsesSDKDiscoveryAsStructuralStdlib(t *testing.T) {
 			GoFiles: []string{"member.go"}, CompiledGoFiles: []string{"member.go"},
 		}},
 	}
-	if err := ValidateAndResolve(l, workspace); err != nil {
-		t.Fatalf("ValidateAndResolve() error = %v", err)
+	if err := validateAndResolve(l, workspace); err != nil {
+		t.Fatalf("validateAndResolve() error = %v", err)
 	}
 	for _, path := range []string{"fmt", "os"} {
 		pkg := packageByID(l.Packages, path)
@@ -134,8 +134,8 @@ func TestValidateAndResolveDoesNotVendorResolveNonStdlibPackage(t *testing.T) {
 			{ID: "vendor/acme/dep", Name: "dep", PkgPath: "vendor/acme/dep", GoFiles: []string{"vendor/acme/dep/dep.go"}, CompiledGoFiles: []string{"vendor/acme/dep/dep.go"}},
 		},
 	}
-	if err := ValidateAndResolve(l, workspace); err != nil {
-		t.Fatalf("ValidateAndResolve() error = %v", err)
+	if err := validateAndResolve(l, workspace); err != nil {
+		t.Fatalf("validateAndResolve() error = %v", err)
 	}
 	if len(l.UnresolvedImports) != 1 || l.UnresolvedImports[0].ImportPath != "acme/dep" {
 		t.Fatalf("UnresolvedImports = %+v, want unresolved acme/dep", l.UnresolvedImports)
@@ -164,8 +164,8 @@ func TestValidateAndResolveHonorsStructuralProvenanceUnderCanonicalization(t *te
 			CompiledGoFiles: []string{"dep.go"}, Imports: map[string]*packages.Package{},
 		}},
 	}
-	if err := ValidateAndResolve(l, workspace); err != nil {
-		t.Fatalf("ValidateAndResolve() error = %v, want structural provenance to ignore path spelling", err)
+	if err := validateAndResolve(l, workspace); err != nil {
+		t.Fatalf("validateAndResolve() error = %v, want structural provenance to ignore path spelling", err)
 	}
 	pkg := packageByID(l.Packages, "host/dep")
 	if pkg == nil {
@@ -413,7 +413,7 @@ func TestValidateAndResolve_Valid(t *testing.T) {
 		},
 	}
 
-	err := ValidateAndResolve(l, workspace)
+	err := validateAndResolve(l, workspace)
 	if err != nil {
 		t.Fatalf("unexpected validation error: %v", err)
 	}
@@ -459,10 +459,10 @@ func TestValidateAndResolve_RootSourceFiles(t *testing.T) {
 					{ID: "root-id", Name: "root", PkgPath: "example.com/root"},
 				},
 			}
-			if err := ValidateAndResolve(layout, t.TempDir()); err == nil {
+			if err := validateAndResolve(layout, t.TempDir()); err == nil {
 				t.Fatal("expected bodiless root validation error")
 			} else if err.Error() != tt.wantError {
-				t.Fatalf("ValidateAndResolve() error = %q, want %q", err, tt.wantError)
+				t.Fatalf("validateAndResolve() error = %q, want %q", err, tt.wantError)
 			}
 		})
 	}
@@ -479,8 +479,8 @@ func TestValidateAndResolve_RootSourceFiles(t *testing.T) {
 				{ID: "root-id", Name: "root", PkgPath: "example.com/root", GoFiles: []string{"root.go"}},
 			},
 		}
-		if err := ValidateAndResolve(layout, workspace); err != nil {
-			t.Fatalf("ValidateAndResolve() unexpected error: %v", err)
+		if err := validateAndResolve(layout, workspace); err != nil {
+			t.Fatalf("validateAndResolve() unexpected error: %v", err)
 		}
 	})
 
@@ -499,8 +499,8 @@ func TestValidateAndResolve_RootSourceFiles(t *testing.T) {
 				{ID: "dep-id", Name: "dep", PkgPath: "example.com/dep"},
 			},
 		}
-		if err := ValidateAndResolve(layout, workspace); err != nil {
-			t.Fatalf("ValidateAndResolve() rejected bodiless non-root: %v", err)
+		if err := validateAndResolve(layout, workspace); err != nil {
+			t.Fatalf("validateAndResolve() rejected bodiless non-root: %v", err)
 		}
 	})
 }
@@ -748,7 +748,7 @@ func TestValidateAndResolve_Errors(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			defer setupMockStat(tt.exist)()
-			err := ValidateAndResolve(tt.layout, "/workspace")
+			err := validateAndResolve(tt.layout, "/workspace")
 			if err == nil {
 				t.Fatal("expected validation error, got nil")
 			}
@@ -793,7 +793,7 @@ func TestHandleDriverRequest(t *testing.T) {
 		}
 
 		req := &packages.DriverRequest{}
-		resp, err := HandleDriverRequest(testLayout, req, []string{"example.com/foo"})
+		resp, err := handleDriverRequest(testLayout, req, []string{"example.com/foo"})
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -851,7 +851,7 @@ func TestHandleDriverRequest(t *testing.T) {
 
 	t.Run("std query", func(t *testing.T) {
 		req := &packages.DriverRequest{}
-		resp, err := HandleDriverRequest(l, req, []string{"std"})
+		resp, err := handleDriverRequest(l, req, []string{"std"})
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -864,7 +864,7 @@ func TestHandleDriverRequest(t *testing.T) {
 
 	t.Run("mixed query", func(t *testing.T) {
 		req := &packages.DriverRequest{}
-		resp, err := HandleDriverRequest(l, req, []string{"example.com/foo", "std"})
+		resp, err := handleDriverRequest(l, req, []string{"example.com/foo", "std"})
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -877,7 +877,7 @@ func TestHandleDriverRequest(t *testing.T) {
 
 	t.Run("unknown pattern error", func(t *testing.T) {
 		req := &packages.DriverRequest{}
-		_, err := HandleDriverRequest(l, req, []string{"example.com/unknown"})
+		_, err := handleDriverRequest(l, req, []string{"example.com/unknown"})
 		if err == nil {
 			t.Fatal("expected error, got nil")
 		}
@@ -926,7 +926,7 @@ func TestRunDriver_Integration(t *testing.T) {
 	stdin := strings.NewReader(`{"Mode": 0}`)
 	var stdout bytes.Buffer
 
-	err = RunDriver(tmpFile.Name(), workspaceDir, []string{"example.com/foo"}, stdin, &stdout)
+	err = runDriver(tmpFile.Name(), workspaceDir, []string{"example.com/foo"}, stdin, &stdout)
 	if err != nil {
 		t.Fatalf("RunDriver returned error: %v", err)
 	}
@@ -966,7 +966,7 @@ func TestRunDriver_NullPackageEntry(t *testing.T) {
 	stdin := strings.NewReader(`{"Mode": 0}`)
 	var stdout bytes.Buffer
 
-	err = RunDriver(tmpFile.Name(), "/workspace", []string{"foo"}, stdin, &stdout)
+	err = runDriver(tmpFile.Name(), "/workspace", []string{"foo"}, stdin, &stdout)
 	if err == nil {
 		t.Fatal("expected RunDriver to fail with null package entry, got nil")
 	}
@@ -1243,7 +1243,7 @@ func TestDiscoverStdlib_RealSDK(t *testing.T) {
 			GoFiles: []string{"member.go"},
 		}},
 	}
-	if err := ValidateAndResolve(l, workspace); err != nil {
+	if err := validateAndResolve(l, workspace); err != nil {
 		t.Fatalf("minimal layout with real SDK failed validation: %v", err)
 	}
 }
@@ -1283,7 +1283,7 @@ func TestValidateAndResolve_ImportRecovery(t *testing.T) {
 		},
 	}
 
-	err := ValidateAndResolve(l, workspace)
+	err := validateAndResolve(l, workspace)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1361,7 +1361,7 @@ func TestValidateAndResolve_LayoutWinsOnCollision(t *testing.T) {
 		},
 	}
 
-	err := ValidateAndResolve(l, workspace)
+	err := validateAndResolve(l, workspace)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1403,7 +1403,7 @@ func TestValidateAndResolve_SDKRootFailureClasses(t *testing.T) {
 
 	t.Run("absent root fails before walking", func(t *testing.T) {
 		nonexistent := filepath.Join(tmpDir, "does-not-exist")
-		err := ValidateAndResolve(fixture(nonexistent), tmpDir)
+		err := validateAndResolve(fixture(nonexistent), tmpDir)
 		if err == nil {
 			t.Fatal("expected error for nonexistent SDK root, got nil")
 		}
@@ -1423,7 +1423,7 @@ func TestValidateAndResolve_SDKRootFailureClasses(t *testing.T) {
 		if err := os.WriteFile(filePath, []byte("package fmt"), 0644); err != nil {
 			t.Fatalf("failed to write file: %v", err)
 		}
-		err := ValidateAndResolve(fixture(filePath), tmpDir)
+		err := validateAndResolve(fixture(filePath), tmpDir)
 		if err == nil {
 			t.Fatal("expected error for non-directory SDK root, got nil")
 		}
@@ -1539,7 +1539,7 @@ func TestDriverQueries_EndToEnd(t *testing.T) {
 		},
 	}
 
-	err := ValidateAndResolve(l, filepath.Join(tmpDir, "workspace"))
+	err := validateAndResolve(l, filepath.Join(tmpDir, "workspace"))
 	if err != nil {
 		t.Fatalf("ValidateAndResolve failed: %v", err)
 	}
@@ -1624,19 +1624,19 @@ func TestDriverQueries_EndToEnd(t *testing.T) {
 		req := &packages.DriverRequest{}
 
 		// Query exact.
-		resp1, err := HandleDriverRequest(l, req, []string{"net"})
+		resp1, err := handleDriverRequest(l, req, []string{"net"})
 		if err != nil {
 			t.Fatalf("HandleDriverRequest for exact 'net' failed: %v", err)
 		}
 		if !reflect.DeepEqual(resp1.Roots, []string{"net"}) {
 			t.Errorf("unexpected roots for exact query: %v", resp1.Roots)
 		}
-		if _, err := HandleDriverRequest(l, req, []string{vendorPath}); err != nil {
+		if _, err := handleDriverRequest(l, req, []string{vendorPath}); err != nil {
 			t.Fatalf("HandleDriverRequest for exact vendor package failed: %v", err)
 		}
 
 		// Query std
-		resp2, err := HandleDriverRequest(l, req, []string{"std"})
+		resp2, err := handleDriverRequest(l, req, []string{"std"})
 		if err != nil {
 			t.Fatalf("HandleDriverRequest for 'std' failed: %v", err)
 		}
@@ -1694,7 +1694,7 @@ func TestValidateAndResolve_ImportRecovery_Focused(t *testing.T) {
 			GoFiles: []string{"api.go"},
 		}},
 	}
-	if err := ValidateAndResolve(l, workspace); err != nil {
+	if err := validateAndResolve(l, workspace); err != nil {
 		t.Fatalf("ValidateAndResolve failed: %v", err)
 	}
 
@@ -1734,8 +1734,8 @@ func TestValidateAndResolve_PlatformImportShapes(t *testing.T) {
 
 	t.Run("filtered declared imports pass", func(t *testing.T) {
 		layout := newLayout(map[string]*packages.Package{"example.com/linux": {ID: "example.com/linux"}})
-		if err := ValidateAndResolve(layout, workspace); err != nil {
-			t.Fatalf("ValidateAndResolve() error = %v", err)
+		if err := validateAndResolve(layout, workspace); err != nil {
+			t.Fatalf("validateAndResolve() error = %v", err)
 		}
 		api := packageByID(layout.Packages, "example.com/api")
 		if _, ok := api.Imports["example.com/linux"]; !ok {
@@ -1745,8 +1745,8 @@ func TestValidateAndResolve_PlatformImportShapes(t *testing.T) {
 
 	t.Run("imports omitted are recovered after filtering", func(t *testing.T) {
 		layout := newLayout(nil)
-		if err := ValidateAndResolve(layout, workspace); err != nil {
-			t.Fatalf("ValidateAndResolve() error = %v", err)
+		if err := validateAndResolve(layout, workspace); err != nil {
+			t.Fatalf("validateAndResolve() error = %v", err)
 		}
 		api := packageByID(layout.Packages, "example.com/api")
 		if got := sortedImportIDs(api); !reflect.DeepEqual(got, []string{"example.com/linux"}) {
@@ -1766,8 +1766,8 @@ func TestValidateAndResolve_PlatformImportShapes(t *testing.T) {
 			api := packageByID(layout.Packages, "example.com/api")
 			api.CompiledGoFiles = append([]string{}, api.GoFiles...)
 			api.GoFiles = nil
-			if err := ValidateAndResolve(layout, workspace); err != nil {
-				t.Fatalf("ValidateAndResolve() error = %v", err)
+			if err := validateAndResolve(layout, workspace); err != nil {
+				t.Fatalf("validateAndResolve() error = %v", err)
 			}
 			if got := sortedImportIDs(api); !reflect.DeepEqual(got, []string{"example.com/linux"}) {
 				t.Fatalf("imports = %v, want linux import", got)
@@ -1780,17 +1780,17 @@ func TestValidateAndResolve_PlatformImportShapes(t *testing.T) {
 			"example.com/linux":   {ID: "example.com/linux"},
 			"example.com/windows": {ID: "example.com/windows"},
 		})
-		err := ValidateAndResolve(layout, workspace)
+		err := validateAndResolve(layout, workspace)
 		if err == nil || !strings.Contains(err.Error(), "example.com/windows") || !strings.Contains(err.Error(), "not contributed") {
-			t.Fatalf("ValidateAndResolve() error = %v, want union mismatch naming windows", err)
+			t.Fatalf("validateAndResolve() error = %v, want union mismatch naming windows", err)
 		}
 	})
 
 	t.Run("surviving import missing from declarations is rejected", func(t *testing.T) {
 		layout := newLayout(map[string]*packages.Package{})
-		err := ValidateAndResolve(layout, workspace)
+		err := validateAndResolve(layout, workspace)
 		if err == nil || !strings.Contains(err.Error(), "example.com/api") || !strings.Contains(err.Error(), "api_linux.go") || !strings.Contains(err.Error(), "example.com/linux") {
-			t.Fatalf("ValidateAndResolve() error = %v, want source import mismatch, got %v", err, err)
+			t.Fatalf("validateAndResolve() error = %v, want source import mismatch, got %v", err, err)
 		}
 	})
 }
@@ -1832,8 +1832,8 @@ func TestValidateAndResolve_UnresolvedImportsAreFacts(t *testing.T) {
 				api.CompiledGoFiles = append([]string{}, api.GoFiles...)
 				api.GoFiles = nil
 			}
-			if err := ValidateAndResolve(layout, workspace); err != nil {
-				t.Fatalf("ValidateAndResolve() error = %v", err)
+			if err := validateAndResolve(layout, workspace); err != nil {
+				t.Fatalf("validateAndResolve() error = %v", err)
 			}
 			want := []UnresolvedImport{
 				{Package: "example.com/api", SourceFile: filepath.Join(workspace, "api_a.go"), ImportPath: "example.com/missing"},
@@ -1881,7 +1881,7 @@ func TestValidateAndResolve_LayoutPrecedence_Focused(t *testing.T) {
 			Dir:             "layout-authority",
 		}},
 	}
-	if err := ValidateAndResolve(l, workspace); err != nil {
+	if err := validateAndResolve(l, workspace); err != nil {
 		t.Fatalf("ValidateAndResolve failed: %v", err)
 	}
 
@@ -1912,7 +1912,7 @@ func TestHandleDriverRequest_DeterministicOutput_Focused(t *testing.T) {
 		{ID: "fmt", Name: "fmt", PkgPath: "fmt"},
 	}}
 	req := &packages.DriverRequest{}
-	resp, err := HandleDriverRequest(l, req, []string{"z.example/root", "std"})
+	resp, err := handleDriverRequest(l, req, []string{"z.example/root", "std"})
 	if err != nil {
 		t.Fatalf("HandleDriverRequest failed: %v", err)
 	}
@@ -2021,7 +2021,7 @@ func TestValidateAndResolve_ImportRecovery_Comprehensive(t *testing.T) {
 		},
 	}
 
-	err := ValidateAndResolve(l, workspace)
+	err := validateAndResolve(l, workspace)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -2089,7 +2089,7 @@ func TestValidateAndResolve_ImportRecovery_Errors(t *testing.T) {
 			},
 		}
 
-		err := ValidateAndResolve(l, workspace)
+		err := validateAndResolve(l, workspace)
 		if err == nil {
 			t.Fatal("expected error for malformed source syntax, got nil")
 		}
@@ -2120,7 +2120,7 @@ func TestValidateAndResolve_ImportRecovery_Errors(t *testing.T) {
 			},
 		}
 
-		err := ValidateAndResolve(l, workspace)
+		err := validateAndResolve(l, workspace)
 		if err == nil {
 			t.Fatal("expected error for malformed import literal, got nil")
 		}
@@ -2144,7 +2144,7 @@ func TestValidateAndResolve_ImportRecovery_Errors(t *testing.T) {
 				GoFiles: []string{"api_bad_package_import.go"},
 			}},
 		}
-		if err := ValidateAndResolve(l, workspace); err == nil {
+		if err := validateAndResolve(l, workspace); err == nil {
 			t.Fatal("expected malformed package/import declaration to fail")
 		} else if !strings.Contains(err.Error(), "api_bad_package_import.go") {
 			t.Errorf("error = %v, want malformed file name", err)
@@ -2166,7 +2166,7 @@ func TestValidateAndResolve_ImportRecovery_Errors(t *testing.T) {
 				GoFiles: []string{"api_duplicate_package.go"},
 			}},
 		}
-		if err := ValidateAndResolve(l, workspace); err == nil {
+		if err := validateAndResolve(l, workspace); err == nil {
 			t.Fatal("expected duplicate package clause to fail")
 		} else if !strings.Contains(err.Error(), "api_duplicate_package.go") {
 			t.Errorf("error = %v, want malformed file name", err)
@@ -2192,8 +2192,8 @@ func TestValidateAndResolve_ExcludedUnresolvedImportIsIgnored(t *testing.T) {
 			GoFiles: []string{"api_linux.go", "api_windows.go"},
 		}},
 	}
-	if err := ValidateAndResolve(layout, workspace); err != nil {
-		t.Fatalf("ValidateAndResolve() error = %v", err)
+	if err := validateAndResolve(layout, workspace); err != nil {
+		t.Fatalf("validateAndResolve() error = %v", err)
 	}
 	if len(layout.UnresolvedImports) != 0 {
 		t.Fatalf("UnresolvedImports = %#v, want none from excluded source", layout.UnresolvedImports)
@@ -2266,7 +2266,7 @@ func TestValidateAndResolve_ImportRecovery_IncompleteGraph(t *testing.T) {
 				t.Fatalf("failed to write layout file: %v", err)
 			}
 
-			err = ValidateAndResolve(l, workspace)
+			err = validateAndResolve(l, workspace)
 			if err != nil {
 				t.Fatalf("unexpected error during ValidateAndResolve: %v", err)
 			}
@@ -2360,7 +2360,7 @@ func TestValidateAndResolveFiltersBuildConstraints(t *testing.T) {
 		}},
 	}
 
-	if err := ValidateAndResolve(layout, ws); err != nil {
+	if err := validateAndResolve(layout, ws); err != nil {
 		t.Fatalf("ValidateAndResolve: %v", err)
 	}
 
@@ -2420,8 +2420,8 @@ func TestFileMatchesBuildConstraints(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := FileMatchesBuildConstraints(tc.path); got != tc.want {
-				t.Errorf("FileMatchesBuildConstraints(%q) = %v, want %v", tc.path, got, tc.want)
+			if got := fileMatchesBuildConstraints(tc.path); got != tc.want {
+				t.Errorf("fileMatchesBuildConstraints(%q) = %v, want %v", tc.path, got, tc.want)
 			}
 		})
 	}
@@ -2569,8 +2569,8 @@ func TestValidateAndResolveRejectsConstraintEmptyPackage(t *testing.T) {
 			Imports:         map[string]*packages.Package{},
 		}},
 	}
-	if err := ValidateAndResolve(layout, workspace); err == nil || !strings.Contains(err.Error(), `example.com/pkg`) || !strings.Contains(err.Error(), "excluded every Go source") {
-		t.Fatalf("ValidateAndResolve() error = %v, want package-specific constraint-empty error", err)
+	if err := validateAndResolve(layout, workspace); err == nil || !strings.Contains(err.Error(), `example.com/pkg`) || !strings.Contains(err.Error(), "excluded every Go source") {
+		t.Fatalf("validateAndResolve() error = %v, want package-specific constraint-empty error", err)
 	}
 }
 
@@ -2588,8 +2588,8 @@ func TestValidateAndResolveAllowsPreExistingBodilessNonRoot(t *testing.T) {
 			{ID: "example.com/empty", Name: "empty", PkgPath: "example.com/empty", Imports: map[string]*packages.Package{}},
 		},
 	}
-	if err := ValidateAndResolve(layout, workspace); err != nil {
-		t.Fatalf("ValidateAndResolve() rejected pre-existing bodiless non-root: %v", err)
+	if err := validateAndResolve(layout, workspace); err != nil {
+		t.Fatalf("validateAndResolve() rejected pre-existing bodiless non-root: %v", err)
 	}
 }
 
@@ -2700,7 +2700,7 @@ func TestStdlibLayoutBuilder(t *testing.T) {
 	// files are all excluded for the target, so discovery omits its sources
 	// but keeps the graph valid. ValidateAndResolve already ran inside the
 	// builder; assert the import graph is complete by re-validating.
-	if err := ValidateAndResolve(layout, ""); err != nil {
+	if err := validateAndResolve(layout, ""); err != nil {
 		t.Fatalf("the built layout does not re-validate: %v", err)
 	}
 	// The excluded-constraint file must not survive into the package's files.
@@ -2859,9 +2859,9 @@ func TestDriverArchReportsPlatformGOARCH(t *testing.T) {
 	req := &packages.DriverRequest{Mode: packages.NeedName}
 	layout := fixtureStdlibSDKLayout(t)
 	layout.Platform = &Platform{GOOS: "linux", GOARCH: "arm64", ToolchainVersion: strPtr("go1.26.4")}
-	resp, err := HandleDriverRequest(layout, req, []string{"fmt"})
+	resp, err := handleDriverRequest(layout, req, []string{"fmt"})
 	if err != nil {
-		t.Fatalf("HandleDriverRequest() error = %v", err)
+		t.Fatalf("handleDriverRequest() error = %v", err)
 	}
 	if resp.Arch != "arm64" {
 		t.Fatalf("driver Arch = %q, want the platform's arm64", resp.Arch)
@@ -2870,9 +2870,9 @@ func TestDriverArchReportsPlatformGOARCH(t *testing.T) {
 	// Without a platform block the response reports the running binary's arch.
 	hostFixture := fixtureStdlibSDKLayout(t)
 	hostFixture.Platform = nil
-	resp, err = HandleDriverRequest(hostFixture, req, []string{"fmt"})
+	resp, err = handleDriverRequest(hostFixture, req, []string{"fmt"})
 	if err != nil {
-		t.Fatalf("HandleDriverRequest() error = %v", err)
+		t.Fatalf("handleDriverRequest() error = %v", err)
 	}
 	if resp.Arch != runtime.GOARCH {
 		t.Fatalf("driver Arch = %q, want the host arch %q", resp.Arch, runtime.GOARCH)

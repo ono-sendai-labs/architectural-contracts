@@ -1,2 +1,3 @@
 name: "hostpolicy"
+members: "github.com/ono-sendai-labs/architectural-contracts/go/internal/hostpolicy"
 interface_files: "hostpolicy.go"

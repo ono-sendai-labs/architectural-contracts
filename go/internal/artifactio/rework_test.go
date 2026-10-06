@@ -136,13 +136,13 @@ func TestSurfaceCanonicalizesSDKBuildTags(t *testing.T) {
 	if string(gotA) != string(gotB) {
 		t.Errorf("reordered SDK build tags produced different bytes:\nA: %s\nB: %s", gotA, gotB)
 	}
-	da, err := SurfaceDigest(a)
+	da, err := surfaceDigest(a)
 	if err != nil {
-		t.Fatalf("SurfaceDigest(a): %v", err)
+		t.Fatalf("surfaceDigest(a): %v", err)
 	}
-	db, err := SurfaceDigest(b)
+	db, err := surfaceDigest(b)
 	if err != nil {
-		t.Fatalf("SurfaceDigest(b): %v", err)
+		t.Fatalf("surfaceDigest(b): %v", err)
 	}
 	if da != db {
 		t.Errorf("digests differ for tag-reordered equivalents: %s vs %s", da, db)

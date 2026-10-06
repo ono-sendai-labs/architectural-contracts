@@ -86,11 +86,11 @@ type GenerationDescriptor struct {
 // inside the hashed material; the separators never appear in either field.
 const classifierHashSeparator = "\x00"
 
-// ClassifierHash returns the deterministic classifier fingerprint (task req
+// classifierHash returns the deterministic classifier fingerprint (task req
 // 7): SHA-256 over the complete generation classifier text plus the explicit
 // rule-version string, hex-encoded. Any change to either input changes the
 // hash.
-func ClassifierHash(d GenerationDescriptor) string {
+func classifierHash(d GenerationDescriptor) string {
 	h := sha256.New()
 	h.Write([]byte(d.ClassifierText))
 	h.Write([]byte(classifierHashSeparator))
@@ -113,7 +113,7 @@ func DeriveSDKKey(d GenerationDescriptor) stdlibauthority.SDKKey {
 		CgoEnabled:       d.Target.CgoEnabled,
 		BuildTags:        tags,
 		GOEXPERIMENT:     d.Target.GOEXPERIMENT,
-		ClassifierHash:   ClassifierHash(d),
+		ClassifierHash:   classifierHash(d),
 		MapFormatVersion: d.MapFormatVersion,
 	}
 }

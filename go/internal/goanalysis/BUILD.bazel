@@ -57,7 +57,6 @@ go_component(
         "//go/internal/surface:surface_component",
         "//go/internal/symbol:symbol_component",
         "//go/internal/xtools:x-tools",
-        "//go/internal/report:report_component",
         "//go/internal/hostpolicy:hostpolicy_component",
         "//go/internal/packagelayout:packagelayout_component",
     ],

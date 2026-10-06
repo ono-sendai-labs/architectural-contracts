@@ -191,14 +191,14 @@ func SymbolIDPackage(id SymbolID) string {
 	return text[:dot]
 }
 
-// CompareSymbolIDs totally orders two SymbolIDs byte-wise, mirroring
+// compareSymbolIDs totally orders two SymbolIDs byte-wise, mirroring
 // symbol.Compare for deterministic artifact ordering.
-func CompareSymbolIDs(a, b SymbolID) int {
+func compareSymbolIDs(a, b SymbolID) int {
 	return symbol.Compare(a, b)
 }
 
-// CompareReferenceEdges totally orders two edges by their full identity.
-func CompareReferenceEdges(a, b ReferenceEdge) int {
+// compareReferenceEdges totally orders two edges by their full identity.
+func compareReferenceEdges(a, b ReferenceEdge) int {
 	ka, kb := a.Key(), b.Key()
 	if c := strings.Compare(string(ka.Kind), string(kb.Kind)); c != 0 {
 		return c
@@ -220,7 +220,7 @@ func CompareReferenceEdges(a, b ReferenceEdge) int {
 func SortReferenceEdges(edges []ReferenceEdge) []ReferenceEdge {
 	out := make([]ReferenceEdge, len(edges))
 	copy(out, edges)
-	slices.SortStableFunc(out, CompareReferenceEdges)
+	slices.SortStableFunc(out, compareReferenceEdges)
 	return out
 }
 
@@ -237,7 +237,7 @@ func CloneReferenceEdges(edges []ReferenceEdge) []ReferenceEdge {
 func DedupReferenceEdges(edges []ReferenceEdge) []ReferenceEdge {
 	out := edges[:0:0]
 	for i, e := range edges {
-		if i > 0 && CompareReferenceEdges(edges[i-1], e) == 0 {
+		if i > 0 && compareReferenceEdges(edges[i-1], e) == 0 {
 			continue
 		}
 		out = append(out, e)
@@ -323,8 +323,8 @@ func (e ImportEdge) Validate() error {
 	return nil
 }
 
-// CompareImportEdges totally orders two edges by their full identity.
-func CompareImportEdges(a, b ImportEdge) int {
+// compareImportEdges totally orders two edges by their full identity.
+func compareImportEdges(a, b ImportEdge) int {
 	ka, kb := a.Key(), b.Key()
 	if c := strings.Compare(ka.ImportingPackage, kb.ImportingPackage); c != 0 {
 		return c
@@ -342,7 +342,7 @@ func CompareImportEdges(a, b ImportEdge) int {
 func SortImportEdges(edges []ImportEdge) []ImportEdge {
 	out := make([]ImportEdge, len(edges))
 	copy(out, edges)
-	slices.SortStableFunc(out, CompareImportEdges)
+	slices.SortStableFunc(out, compareImportEdges)
 	return out
 }
 
@@ -351,7 +351,7 @@ func SortImportEdges(edges []ImportEdge) []ImportEdge {
 func DedupImportEdges(edges []ImportEdge) []ImportEdge {
 	out := edges[:0:0]
 	for i, e := range edges {
-		if i > 0 && CompareImportEdges(edges[i-1], e) == 0 {
+		if i > 0 && compareImportEdges(edges[i-1], e) == 0 {
 			continue
 		}
 		out = append(out, e)

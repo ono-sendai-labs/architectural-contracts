@@ -31,10 +31,6 @@ component_dependencies {
   manifest: "../../internal/hostpolicy/component.textproto"
 }
 component_dependencies {
-  name: "x-tools"
-  manifest: "../../internal/xtools/component.textproto"
-}
-component_dependencies {
   name: "manifest"
   manifest: "../../internal/manifest/component.textproto"
 }

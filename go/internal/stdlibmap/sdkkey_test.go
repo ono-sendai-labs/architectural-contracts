@@ -77,13 +77,13 @@ func TestClassifierHashDrift(t *testing.T) {
 
 	changedText := baseDescriptor()
 	changedText.ClassifierText += "minting-site\x1fchanged\x1e"
-	if ClassifierHash(changedText) == ClassifierHash(base) {
+	if classifierHash(changedText) == classifierHash(base) {
 		t.Fatalf("changing the classifier text did not change the hash")
 	}
 
 	changedRules := baseDescriptor()
 	changedRules.RuleVersion = "rules/2"
-	if ClassifierHash(changedRules) == ClassifierHash(base) {
+	if classifierHash(changedRules) == classifierHash(base) {
 		t.Fatalf("changing the rule version did not change the hash")
 	}
 

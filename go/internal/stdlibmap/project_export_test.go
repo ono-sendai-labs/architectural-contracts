@@ -40,8 +40,8 @@ func TestProjectExportFilesCopiesOnlyMetadataReferencedArtifacts(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := ProjectExportFiles(metadataPath, sourceRoot, outputRoot); err != nil {
-		t.Fatalf("ProjectExportFiles() error = %v", err)
+	if err := projectExportFiles(metadataPath, sourceRoot, outputRoot); err != nil {
+		t.Fatalf("projectExportFiles() error = %v", err)
 	}
 
 	var got []string
@@ -76,9 +76,9 @@ func TestProjectExportFilesRejectsExportOutsideDeclaredRoot(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	err := ProjectExportFiles(metadataPath, sourceRoot, filepath.Join(workspace, "projected"))
+	err := projectExportFiles(metadataPath, sourceRoot, filepath.Join(workspace, "projected"))
 	if err == nil || !strings.Contains(err.Error(), "outside declared export root") {
-		t.Fatalf("ProjectExportFiles() error = %v, want outside-root diagnostic", err)
+		t.Fatalf("projectExportFiles() error = %v, want outside-root diagnostic", err)
 	}
 }
 
@@ -94,9 +94,9 @@ func TestProjectExportFilesFailsWhenMetadataArtifactIsMissing(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	err := ProjectExportFiles(metadataPath, sourceRoot, filepath.Join(workspace, "projected"))
+	err := projectExportFiles(metadataPath, sourceRoot, filepath.Join(workspace, "projected"))
 	if err == nil || !strings.Contains(err.Error(), "is not available below declared root") {
-		t.Fatalf("ProjectExportFiles() error = %v, want missing-artifact diagnostic", err)
+		t.Fatalf("projectExportFiles() error = %v, want missing-artifact diagnostic", err)
 	}
 }
 
@@ -124,8 +124,8 @@ func TestProjectExportFilesRejectsSymlinkEscape(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	err := ProjectExportFiles(metadataPath, sourceRoot, filepath.Join(workspace, "projected"))
+	err := projectExportFiles(metadataPath, sourceRoot, filepath.Join(workspace, "projected"))
 	if err == nil || !strings.Contains(err.Error(), "resolves outside declared root") {
-		t.Fatalf("ProjectExportFiles() error = %v, want symlink-escape diagnostic", err)
+		t.Fatalf("projectExportFiles() error = %v, want symlink-escape diagnostic", err)
 	}
 }

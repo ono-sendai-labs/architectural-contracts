@@ -213,9 +213,10 @@ func buildLayoutShape(layout *packagelayout.Layout) (layoutShapeSnapshot, error)
 	}
 	sort.Strings(roots)
 
-	packages := make([]layoutPackageShape, len(layout.Packages))
-	for i, pkg := range layout.Packages {
-		imports, err := packagelayout.ShapeImports(pkg.Imports, hostpolicy.CanonicalizePath)
+	packageViews := layout.PackageViews()
+	packages := make([]layoutPackageShape, len(packageViews))
+	for i, pkg := range packageViews {
+		imports, err := pkg.ShapeImports(hostpolicy.CanonicalizePath)
 		if err != nil {
 			return layoutShapeSnapshot{}, fmt.Errorf("package %q imports: %w", pkg.ID, err)
 		}
@@ -249,7 +250,7 @@ func buildLayoutShape(layout *packagelayout.Layout) (layoutShapeSnapshot, error)
 			Name:            pkg.Name,
 			OtherFiles:      otherFiles,
 			PkgPath:         hostpolicy.CanonicalizePath(pkg.PkgPath),
-			IsStdlib:        layout.IsStdlibPackage(pkg),
+			IsStdlib:        pkg.IsStdlib,
 		}
 	}
 	slices.SortFunc(packages, func(a, b layoutPackageShape) int {
@@ -489,15 +490,16 @@ func validateLayoutShape(layout *packagelayout.Layout) error {
 		}
 		roots[canonical] = true
 	}
-	if len(layout.Packages) == 0 {
+	packageViews := layout.PackageViews()
+	if len(packageViews) == 0 {
 		return fmt.Errorf("packages is empty")
 	}
-	packageByID := make(map[string]layoutPackageIdentity, len(layout.Packages))
-	packageByPath := make(map[string]layoutPackageIdentity, len(layout.Packages))
-	seenIDs := make(map[string]bool, len(layout.Packages))
-	seenPaths := make(map[string]bool, len(layout.Packages))
-	for _, pkg := range layout.Packages {
-		if pkg == nil {
+	packageByID := make(map[string]layoutPackageIdentity, len(packageViews))
+	packageByPath := make(map[string]layoutPackageIdentity, len(packageViews))
+	seenIDs := make(map[string]bool, len(packageViews))
+	seenPaths := make(map[string]bool, len(packageViews))
+	for _, pkg := range packageViews {
+		if pkg.IsNull {
 			return fmt.Errorf("packages contains a null package")
 		}
 		if pkg.ID == "" || pkg.PkgPath == "" || pkg.Name == "" {
@@ -523,7 +525,7 @@ func validateLayoutShape(layout *packagelayout.Layout) error {
 			return fmt.Errorf("root package path %q does not resolve to a declared package", root)
 		}
 	}
-	for _, pkg := range layout.Packages {
+	for _, pkg := range packageViews {
 		canonicalPath := hostpolicy.CanonicalizePath(pkg.PkgPath)
 		roles := []struct {
 			name  string

@@ -35,8 +35,8 @@ func TestValidateAndResolveForMemberOnlyPreservesMemberAnalysisFileRoles(t *test
 		}},
 	}
 
-	if err := ValidateAndResolveForMemberOnly(layout, workspace); err != nil {
-		t.Fatalf("ValidateAndResolveForMemberOnly() error = %v", err)
+	if err := validateAndResolveForMemberOnly(layout, workspace); err != nil {
+		t.Fatalf("validateAndResolveForMemberOnly() error = %v", err)
 	}
 
 	pkg := layout.Packages[0]
@@ -83,9 +83,9 @@ func TestHandleDriverRequestProjectsEveryMemberAnalysisFileRole(t *testing.T) {
 		Packages: []*packages.Package{root, dependency},
 	}
 
-	response, err := HandleDriverRequest(layout, &packages.DriverRequest{}, []string{"example.com/member"})
+	response, err := handleDriverRequest(layout, &packages.DriverRequest{}, []string{"example.com/member"})
 	if err != nil {
-		t.Fatalf("HandleDriverRequest() error = %v", err)
+		t.Fatalf("handleDriverRequest() error = %v", err)
 	}
 	byPath := make(map[string]*packages.Package, len(response.Packages))
 	for _, pkg := range response.Packages {

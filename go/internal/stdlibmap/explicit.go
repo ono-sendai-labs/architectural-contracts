@@ -33,11 +33,11 @@ func RenderTargetConfig(t TargetConfig) (string, error) {
 	return sb.String(), nil
 }
 
-// ParseTargetConfig parses RenderTargetConfig's file format back into a
+// parseTargetConfig parses RenderTargetConfig's file format back into a
 // TargetConfig (task req 7): every key must be present exactly once; an
 // unknown, missing, duplicate, or malformed key is an error naming it. The
 // cgo_enabled value must be exactly true or false.
-func ParseTargetConfig(r io.Reader) (*TargetConfig, error) {
+func parseTargetConfig(r io.Reader) (*TargetConfig, error) {
 	fields := map[string]string{}
 	order := []string{}
 	scanner := bufio.NewScanner(r)
@@ -97,7 +97,7 @@ func ParseTargetConfig(r io.Reader) (*TargetConfig, error) {
 	}, nil
 }
 
-// ReadToolchainPackageList reads the explicit-input mode's package-list file —
+// readToolchainPackageList reads the explicit-input mode's package-list file —
 // the toolchain's stdlib enumeration, one import path per line — and applies
 // the `go list std` filter the layout discovery mirrors for free: no `cmd/…`
 // tool tree and no path segment beginning with `_` or `.` (build-tool scratch
@@ -105,7 +105,7 @@ func ParseTargetConfig(r io.Reader) (*TargetConfig, error) {
 // `go list std` and the layout discovery. Every retained path must be a
 // canonical import path, so a malformed listing fails with an actionable error
 // naming it instead of entering generation.
-func ReadToolchainPackageList(r io.Reader) ([]string, error) {
+func readToolchainPackageList(r io.Reader) ([]string, error) {
 	var paths []string
 	scanner := bufio.NewScanner(r)
 	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
@@ -140,7 +140,7 @@ func isToolScratchPath(path string) bool {
 	return false
 }
 
-// ReconcilePackageList reconciles the explicit-input oracle — the toolchain's
+// reconcilePackageList reconciles the explicit-input oracle — the toolchain's
 // package list — against the whole-stdlib layout's discovery (task req 6,
 // design I3): a listed package the layout discovers is enumerated under the
 // existing internal/… rule; a listed package whose directory exists under the
@@ -149,7 +149,7 @@ func isToolScratchPath(path string) bool {
 // directory, and a discovered package the list omits, fail with an error
 // naming the package. The result is the total, canonical enumeration
 // Generate's normalization consumes.
-func ReconcilePackageList(listed []string, layout *packagelayout.Layout, sdkRoot string) ([]PackageEntry, error) {
+func reconcilePackageList(listed []string, layout *packagelayout.Layout, sdkRoot string) ([]PackageEntry, error) {
 	discovered := make(map[string]bool, len(layout.Packages))
 	for _, p := range layout.Packages {
 		discovered[p.PkgPath] = true
@@ -160,12 +160,12 @@ func ReconcilePackageList(listed []string, layout *packagelayout.Layout, sdkRoot
 		listedSet[path] = true
 		switch {
 		case discovered[path]:
-			entries = append(entries, PackageEntry{Path: path, Importable: !IsInternalPath(path)})
+			entries = append(entries, PackageEntry{Path: path, Importable: !isInternalPath(path)})
 		case discovered["vendor/"+path]:
 			// A list may spell a vendored package by its bare import path;
 			// the discovered node is the vendored copy, which is the
 			// enumerated package.
-			entries = append(entries, PackageEntry{Path: "vendor/" + path, Importable: !IsInternalPath(path)})
+			entries = append(entries, PackageEntry{Path: "vendor/" + path, Importable: !isInternalPath(path)})
 		case directoryExists(filepath.Join(sdkRoot, filepath.FromSlash(path))):
 			// The directory exists but the target's build constraints
 			// excluded every file (or it carries no Go sources): enumerated,

@@ -17,7 +17,7 @@ func TestLayoutLoaderLoadsThroughDriver(t *testing.T) {
 
 	sdkRoot := fixtureSDK(t)
 	layout := fixtureSDKLayout(t, sdkRoot)
-	loader := &LayoutLoader{Layout: layout}
+	loader := &layoutLoader{Layout: layout}
 	loaded, err := loader.Load([]string{"fmt"})
 	if err != nil {
 		t.Fatalf("Load() error = %v", err)
@@ -26,7 +26,8 @@ func TestLayoutLoaderLoadsThroughDriver(t *testing.T) {
 	if !ok || pkg == nil {
 		t.Fatalf("Load() returned no types package for fmt: %v", loaded)
 	}
-	if pkg.Path() != "fmt" {
+	pkgPath := pkg.Path()
+	if pkgPath != "fmt" {
 		t.Fatalf("loaded package path = %q, want fmt", pkg.Path())
 	}
 	if pkg.Scope().Lookup("Println") == nil {
@@ -45,17 +46,17 @@ func TestGenerateViaLayoutRunsUnderDriver(t *testing.T) {
 
 	sdkRoot := fixtureSDK(t)
 	layout := fixtureSDKLayout(t, sdkRoot)
-	entries, err := ReconcilePackageList([]string{"fmt", "strings", "unsafe", "internal/testcap"}, layout, sdkRoot)
+	entries, err := reconcilePackageList([]string{"fmt", "strings", "unsafe", "internal/testcap"}, layout, sdkRoot)
 	if err != nil {
-		t.Fatalf("ReconcilePackageList() error = %v", err)
+		t.Fatalf("reconcilePackageList() error = %v", err)
 	}
-	out, err := GenerateViaLayout(GenerationInput{
+	out, err := generateViaLayout(GenerationInput{
 		Target:      TargetConfig{ToolchainVersion: "go1.26.4", GOOS: "linux", GOARCH: "amd64"},
 		RuleVersion: RuleVersion,
 		Oracle:      PackageOracleFunc(func() ([]PackageEntry, error) { return entries, nil }),
 	}, layout)
 	if err != nil {
-		t.Fatalf("GenerateViaLayout() error = %v", err)
+		t.Fatalf("generateViaLayout() error = %v", err)
 	}
 	if out.Map.Key == nil || out.Map.Key.ToolchainVersion != "go1.26.4" {
 		t.Fatalf("generated key does not match the config: %+v", out.Map.Key)

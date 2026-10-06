@@ -20,10 +20,10 @@ import (
 )
 
 var (
-	ErrEmptyName                     = errors.New("manifest name cannot be empty")
-	ErrEmptyInterfaceFiles           = errors.New("manifest must declare at least one interface file")
-	ErrPackageSurfaceRequiresMembers = errors.New("package-surface component requires at least one member")
-	ErrPackageSurfaceInterfaceFiles  = errors.New("package-surface component must not declare interface files")
+	errEmptyName                     = errors.New("manifest name cannot be empty")
+	errEmptyInterfaceFiles           = errors.New("manifest must declare at least one interface file")
+	errPackageSurfaceRequiresMembers = errors.New("package-surface component requires at least one member")
+	errPackageSurfaceInterfaceFiles  = errors.New("package-surface component must not declare interface files")
 )
 
 // InterfaceStyle controls how a component's interface is determined.
@@ -36,24 +36,24 @@ const (
 	InterfaceStylePackageSurface
 )
 
-// UnknownInterfaceStyleError reports an interface style value not understood by this version.
-type UnknownInterfaceStyleError struct {
+// unknownInterfaceStyleError reports an interface style value not understood by this version.
+type unknownInterfaceStyleError struct {
 	Value int32
 }
 
-func (e *UnknownInterfaceStyleError) Error() string {
+func (e *unknownInterfaceStyleError) Error() string {
 	return fmt.Sprintf("unknown interface style: %d", e.Value)
 }
 
-// RemovedFieldError reports a manifest field that existed in an earlier schema
+// removedFieldError reports a manifest field that existed in an earlier schema
 // version but has been removed. Stale manifests must fail loudly rather than
 // have the removed declaration silently ignored by the lenient textproto
 // unmarshaler.
-type RemovedFieldError struct {
+type removedFieldError struct {
 	Field string
 }
 
-func (e *RemovedFieldError) Error() string {
+func (e *removedFieldError) Error() string {
 	hint, ok := removedFieldHints[e.Field]
 	if !ok {
 		hint = "this field was removed"
@@ -98,7 +98,7 @@ func checkRemovedFields(text []byte) error {
 	scrubbed := scrubCommentsAndStrings(text)
 	for _, rf := range removedFields {
 		if rf.pattern.Match(scrubbed) {
-			return &RemovedFieldError{Field: rf.field}
+			return &removedFieldError{Field: rf.field}
 		}
 	}
 	return nil
@@ -137,33 +137,33 @@ func scrubCommentsAndStrings(text []byte) []byte {
 	return scrubbed
 }
 
-// InvalidMemberError reports a member that is empty or is not a literal
+// invalidMemberError reports a member that is empty or is not a literal
 // import path (it contains glob metacharacters).
-type InvalidMemberError struct {
+type invalidMemberError struct {
 	Member string
 	Reason string
 }
 
-func (e *InvalidMemberError) Error() string {
+func (e *invalidMemberError) Error() string {
 	return fmt.Sprintf("invalid member %q: %s", e.Member, e.Reason)
 }
 
-// DuplicateDeclarationError represents a duplicate declaration error.
-type DuplicateDeclarationError struct {
+// duplicateDeclarationError represents a duplicate declaration error.
+type duplicateDeclarationError struct {
 	Kind  string // "interface file", "component dependency", "member", "declared authority"
 	Value string
 }
 
-func (e *DuplicateDeclarationError) Error() string {
+func (e *duplicateDeclarationError) Error() string {
 	return fmt.Sprintf("duplicate %s: %s", e.Kind, e.Value)
 }
 
-// UnknownCapabilityError represents an unknown capability error.
-type UnknownCapabilityError struct {
+// unknownCapabilityError represents an unknown capability error.
+type unknownCapabilityError struct {
 	Capability string
 }
 
-func (e *UnknownCapabilityError) Error() string {
+func (e *unknownCapabilityError) Error() string {
 	return fmt.Sprintf("unknown capability: %s", e.Capability)
 }
 
@@ -222,7 +222,7 @@ func Parse(r io.Reader) (Manifest, error) {
 	if err != nil {
 		return Manifest{}, err
 	}
-	analysisDefeatingPolicy, err := FromPersistedAnalysisDefeatingPolicy(pbComponent.GetAnalysisDefeatingPolicy())
+	analysisDefeatingPolicy, err := fromPersistedAnalysisDefeatingPolicy(pbComponent.GetAnalysisDefeatingPolicy())
 	if err != nil {
 		return Manifest{}, err
 	}
@@ -304,36 +304,36 @@ func nativeInterfaceStyle(style gen.InterfaceStyle) (InterfaceStyle, error) {
 	case gen.InterfaceStyle_INTERFACE_STYLE_PACKAGE_SURFACE:
 		return InterfaceStylePackageSurface, nil
 	default:
-		return InterfaceStyleUnspecified, &UnknownInterfaceStyleError{Value: int32(style)}
+		return InterfaceStyleUnspecified, &unknownInterfaceStyleError{Value: int32(style)}
 	}
 }
 
 // validate enforces manifest shape and membership invariants before checking.
 func validate(m Manifest) error {
 	if m.Name == "" {
-		return ErrEmptyName
+		return errEmptyName
 	}
 
 	switch m.InterfaceStyle {
 	case InterfaceStyleUnspecified:
 		if len(m.InterfaceFiles) == 0 {
-			return ErrEmptyInterfaceFiles
+			return errEmptyInterfaceFiles
 		}
 	case InterfaceStylePackageSurface:
 		if len(m.Members) == 0 {
-			return ErrPackageSurfaceRequiresMembers
+			return errPackageSurfaceRequiresMembers
 		}
 		if len(m.InterfaceFiles) > 0 {
-			return ErrPackageSurfaceInterfaceFiles
+			return errPackageSurfaceInterfaceFiles
 		}
 	default:
-		return &UnknownInterfaceStyleError{Value: int32(m.InterfaceStyle)}
+		return &unknownInterfaceStyleError{Value: int32(m.InterfaceStyle)}
 	}
 
 	seenFiles := make(map[string]bool)
 	for _, file := range m.InterfaceFiles {
 		if seenFiles[file] {
-			return &DuplicateDeclarationError{Kind: "interface file", Value: file}
+			return &duplicateDeclarationError{Kind: "interface file", Value: file}
 		}
 		seenFiles[file] = true
 	}
@@ -341,7 +341,7 @@ func validate(m Manifest) error {
 	seenDeps := make(map[string]bool)
 	for _, dep := range m.ComponentDependencies {
 		if seenDeps[dep.Name] {
-			return &DuplicateDeclarationError{Kind: "component dependency", Value: dep.Name}
+			return &duplicateDeclarationError{Kind: "component dependency", Value: dep.Name}
 		}
 		seenDeps[dep.Name] = true
 	}
@@ -349,26 +349,26 @@ func validate(m Manifest) error {
 	seenMembers := make(map[string]bool)
 	for _, member := range m.Members {
 		if seenMembers[member] {
-			return &DuplicateDeclarationError{Kind: "member", Value: member}
+			return &duplicateDeclarationError{Kind: "member", Value: member}
 		}
 		seenMembers[member] = true
 
 		if member == "" {
-			return &InvalidMemberError{Member: member, Reason: "import path cannot be empty"}
+			return &invalidMemberError{Member: member, Reason: "import path cannot be empty"}
 		}
 		if strings.ContainsAny(member, "*?[]\\") {
-			return &InvalidMemberError{Member: member, Reason: "members must be literal import paths; glob patterns are not accepted"}
+			return &invalidMemberError{Member: member, Reason: "members must be literal import paths; glob patterns are not accepted"}
 		}
 	}
 
 	seenAuth := make(map[string]bool)
 	for _, auth := range m.DeclaredAuthority {
 		if seenAuth[auth] {
-			return &DuplicateDeclarationError{Kind: "declared authority", Value: auth}
+			return &duplicateDeclarationError{Kind: "declared authority", Value: auth}
 		}
 		seenAuth[auth] = true
 		if !schema.KnownCapabilities[auth] {
-			return &UnknownCapabilityError{Capability: auth}
+			return &unknownCapabilityError{Capability: auth}
 		}
 	}
 

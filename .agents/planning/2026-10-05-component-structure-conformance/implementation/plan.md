@@ -93,7 +93,7 @@ says the component declares — no more and no fewer. Record the probe summary
 
 - [x] **Step 1** — Conventions, authority probe script, spikes S2/S3 *(done 2026-10-05; S2: both imports charged; S3: `fs.FS` free)*
 - [x] **Step 2** — `go_component.interface_files` attribute; parity set-equality; `goanalysis`/`checker` converted (spike S4) *(done 2026-10-05; `csvfile` also converted — real divergence found)*
-- [ ] **Step 3** — Hygiene: honest declarations, unexports, explicit members
+- [x] **Step 3** — Hygiene: honest declarations, unexports, explicit members *(done 2026-10-05; `report` dropped from `goanalysis`, `x-tools` dropped from `cli`, `hostpolicy` explicit member, unexports across 8 packages)*
 - [ ] **Step 4** — New component `atomicfile`
 - [ ] **Step 5** — `artifactio` authority-free + new `reportio`
 - [ ] **Step 6** — `checker`: file-list interface = `checker.go`
@@ -279,6 +279,13 @@ exports (C4) *before* restructuring.
 **Demo.** Probe output for `goanalysis` shows no capability that is not declared and no
 declared capability without a finding (`FILES`, `READ_SYSTEM_STATE`, `RUNTIME` — all
 three measured); gate item 4 no longer matches `goanalysis_component.report.json`.
+
+**Status: DONE 2026-10-05.**
+- Removed dead `report` dependency from `go/internal/goanalysis/{component.textproto,BUILD.bazel}`; added `(PersistedReport).ComponentName()` in `artifactio/report.go` so `goanalysis/surface_resolver.go` does not select fields on `report.ConformanceReport` (F3).
+- Removed `x-tools` dependency from `go/cmd/arcc/component.textproto`; added `(Layout).PackageViews()` (`PackageShapeView`) in `packagelayout/shape_imports.go` so `cmd/arcc/app/layoutshape.go` does not select fields on `packages.Package` (F3), eliminating both `UNUSED_DEPENDENCY` and `UNDECLARED_DEPENDENCY` on `cli`.
+- Added explicit `members: "github.com/ono-sendai-labs/architectural-contracts/go/internal/hostpolicy"` to `go/internal/hostpolicy/component.textproto`; rewrote `go/internal/artifactio/artifactio.go` package doc to list only `FILES`, `REFLECT`, `UNSAFE_POINTER`; deleted `symbol.ParseCapslockWithPackages`.
+- Unexported internal-only symbols across `artifactio`, `manifest`, `facts`, `report`, `packagelayout`, `goanalysis`, `stdlibmap`, and `symbol` (`FromSelection`, `GrammarVersion`), using `export_test.go` bridges in `symbol`, `manifest`, and `stdlibmap` for black-box tests; kept external-test-referenced symbols exported (`SurfaceFormatVersion`, `ShapeReport`, `MarshalVerdict` in `artifactio`; `AnalysisDefeatingPolicyStrict`, `InterfaceStyleDeclared` in `manifest`; `ResolveDependencySurface` in `goanalysis`; `OrdinaryImportData`, `StdlibExportData`, `StdlibExportRoot` in `packagelayout`; `WriteArtifactAtomic`, `RenderTargetConfig`, `FindingSource`, `FindingSourceFunc`, `Generate`, `GeneratedMap`, `Loader`, `LoaderFunc` in `stdlibmap`).
+- Probes: `goanalysis` → `FILES` ×9 (`defeatscan.go:228`, `goanalysis.go:42,658,689,1018,1078`, `surface_resolver.go:102,706,717`), `READ_SYSTEM_STATE` ×2 (`goanalysis.go:15,557`), `RUNTIME` ×1 (`goanalysis.go:22`); `cli` → `FILES` ×10, `MODIFY_SYSTEM_STATE` ×2, `OPERATING_SYSTEM` ×2, `READ_SYSTEM_STATE` ×3, `REFLECT` ×5, `UNSAFE_POINTER` ×5; `hostpolicy` → empty. Gate item 4 prints nothing.
 
 ---
 

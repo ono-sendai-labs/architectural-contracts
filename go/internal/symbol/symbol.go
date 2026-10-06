@@ -12,9 +12,8 @@
 //     types.Info; extraction canonicalizes package paths through
 //     hostpolicy.CanonicalizePath.
 //   - What it provides: Parse, Format, Compare, ParseCapslock,
-//     ParseCapslockWithPackages, ParseCapslockFunction (with
-//     CapslockFunction/CapslockInventory), FromObject, FromSelection and
-//     ExtractSurface.
+//     ParseCapslockFunction (with CapslockFunction/CapslockInventory),
+//     FromObject, fromSelection and ExtractSurface.
 //     All pure and deterministic; results are sorted and duplicate-free.
 //     Nothing here reaches a call graph: the check consumes the declaring-
 //     object facts these conversions produce.
@@ -31,14 +30,14 @@ import (
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/hostpolicy"
 )
 
-// GrammarVersion is the version of the textual grammar Parse accepts and
+// grammarVersion is the version of the textual grammar Parse accepts and
 // Format produces. The design (DR-04) fixes one v1 grammar whose persisted
 // keys are the bare spellings of the design's grammar table; the version of a
 // persisted artifact as a whole is carried by that artifact's format_version
 // field (DR-15). Parse rejects anything outside the v1 grammar — including
 // spellings only a later version could introduce (pointer markers, type
 // arguments, dotted method names) — rather than guessing.
-const GrammarVersion = 1
+const grammarVersion = 1
 
 // SymbolID identifies one declared Go symbol — a package-level function,
 // variable, constant or named/alias type, a declared method, or a package's
@@ -51,7 +50,7 @@ const GrammarVersion = 1
 // pkg is always a canonical package import path. Interface method specs and
 // struct fields have no SymbolID of their own: references to them are
 // authorised by the declaring interface or struct type's ID (the
-// declaring-object rule, DR-04); FromSelection and FromObject return that ID.
+// declaring-object rule, DR-04); fromSelection and FromObject return that ID.
 //
 // A SymbolID is a plain string value: two IDs are equal when their bytes are,
 // and ordering is the byte-wise string order, which is the order used by

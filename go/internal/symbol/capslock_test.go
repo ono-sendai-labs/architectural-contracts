@@ -5,6 +5,7 @@ import (
 	"go/parser"
 	"go/token"
 	"go/types"
+	"strings"
 	"testing"
 
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/hostpolicy"
@@ -66,17 +67,21 @@ func TestParseCapslock_Convergence(t *testing.T) {
 				// covered by the rejection table below
 				return
 			}
-			// Top-level spellings with a dotful package path are ambiguous
-			// without package knowledge (round-3 finding 1); the table's
-			// resolver confirms their packages.
-			got, err := symbol.ParseCapslockWithPackages(tt.input, func(pkg string) bool {
-				return pkg == "example.com/store" || pkg == "store"
-			})
+			var got symbol.SymbolID
+			var err error
+			if strings.HasPrefix(tt.input, "example.com/store.") {
+				got, err = symbol.ParseCapslockFunction(symbol.CapslockFunction{
+					Name:    tt.input,
+					Package: "example.com/store",
+				}, convergenceInventory{})
+			} else {
+				got, err = symbol.ParseCapslock(tt.input)
+			}
 			if err != nil {
-				t.Fatalf("ParseCapslockWithPackages(%q) error = %v", tt.input, err)
+				t.Fatalf("ParseCapslock(%q) error = %v", tt.input, err)
 			}
 			if string(got) != tt.want {
-				t.Fatalf("ParseCapslockWithPackages(%q) = %q; want %q", tt.input, got, tt.want)
+				t.Fatalf("ParseCapslock(%q) = %q; want %q", tt.input, got, tt.want)
 			}
 		})
 	}
@@ -153,46 +158,11 @@ func TestParseCapslock_Rejected(t *testing.T) {
 	}
 }
 
-// TestParseCapslockWithPackages pins review-round-3 finding 1: an
-// unparenthesized spelling whose package path contains a dot is ambiguous
-// (it could be a dotted method spelling, which Capslock never prints, or a
-// top-level symbol in a dotful package), so plain ParseCapslock rejects it
-// and ParseCapslockWithPackages accepts it only when the caller's
-// known-package resolver confirms the top-level package.
-func TestParseCapslockWithPackages(t *testing.T) {
-	if _, err := symbol.ParseCapslockWithPackages("gopkg.in/yaml.v2.Unmarshal", nil); err == nil {
-		t.Fatalf("ParseCapslockWithPackages with a nil resolver = nil error; want rejection")
-	}
+type convergenceInventory struct{}
 
-	known := map[string]bool{"gopkg.in/yaml.v2": true, "example.com/p.private": true}
-	resolver := func(pkg string) bool { return known[pkg] }
-
-	for _, tc := range []struct {
-		name  string
-		input string
-		want  string
-	}{
-		{"dotted versioned module path", "gopkg.in/yaml.v2.Unmarshal", "gopkg.in/yaml.v2.Unmarshal"},
-		{"dotted subdirectory package", "example.com/p.private.Read", "example.com/p.private.Read"},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			got, err := symbol.ParseCapslockWithPackages(tc.input, resolver)
-			if err != nil {
-				t.Fatalf("ParseCapslockWithPackages(%q) error = %v", tc.input, err)
-			}
-			if string(got) != tc.want {
-				t.Fatalf("ParseCapslockWithPackages(%q) = %q; want %q", tc.input, got, tc.want)
-			}
-		})
-	}
-
-	// Without the package being known, the ambiguous spellings stay rejected.
-	for _, in := range []string{"gopkg.in/yaml.v2.Unmarshal", "example.com/p.private.Read"} {
-		if _, err := symbol.ParseCapslockWithPackages(in, func(string) bool { return false }); err == nil {
-			t.Fatalf("ParseCapslockWithPackages(%q, unknown-package resolver) = nil error; want rejection", in)
-		}
-	}
-}
+func (convergenceInventory) KnownPackage(string) bool                          { return true }
+func (convergenceInventory) Declares(string, string) bool                      { return true }
+func (convergenceInventory) MethodOwner(string, string, string) (string, bool) { return "", false }
 
 // TestParseCapslock_CanonicalizesNamespace pins review-round-1 finding 1:
 // Capslock spellings are canonicalized through the same host-policy hook as

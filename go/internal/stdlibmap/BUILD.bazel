@@ -41,6 +41,7 @@ go_test(
     srcs = [
         "cache_test.go",
         "explicit_test.go",
+        "export_test.go",
         "generate_test.go",
         "inventory_test.go",
         "layoutloader_test.go",

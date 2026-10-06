@@ -15,24 +15,23 @@
 //     canonically sorted PackageEntry list with importable flags (internal path
 //     segments and target-excluded/no-source packages are non-importable),
 //     reconciles the explicit oracle against
-//     the layout's discovery (ReconcilePackageList), inventories every
+//     the layout's discovery, inventories every
 //     externally referencable exported declaration of every importable
 //     package via go/types under the declaring-object rule (including one
 //     aggregate pkg.init per importable package), derives the
 //     target-configuration SDKKey with a deterministic classifier_hash,
-//     generates the total authority map (Generate; GenerateViaLayout serves
-//     every load through the packagelayout layout driver; GenerateExplicit is
+//     generates the total authority map (Generate; generateViaLayout serves
+//     every load through the packagelayout layout driver; generateExplicit is
 //     the CLI-facing explicit-input entry point), parses and renders the
 //     deterministic key=value target-configuration file
-//     (ParseTargetConfig/RenderTargetConfig) and toolchain package-list file
-//     (ReadToolchainPackageList), and opens it from the native cache on
+//     and toolchain package-list file, and opens it from the native cache on
 //     demand (OpenCachedMap): a digest of the complete SDKKey names the cache
 //     entry, every hit is revalidated against the requested key, corrupt or
 //     mismatched content is regenerated, and fresh bytes are written
 //     atomically so a failed generation leaves the previous artifact intact.
 //   - What it requires: A package oracle, a batch package Loader for the
 //     target configuration (native: the toolchain via go/packages; explicit:
-//     LayoutLoader through the self-exec driver), the target toolchain
+//     the self-exec layout driver), the target toolchain
 //     version and build environment, and the generation classifier text plus
 //     an explicit rule-version string. Every inventoried identifier must be
 //     grammar-valid under the canonical SymbolID constructors. Cache
@@ -40,21 +39,18 @@
 //     writes, generation) so tests neither mutate the real user cache nor run
 //     a full SDK analysis.
 //   - What it provides: PackageEntry, PackageOracle, NormalizePackageList,
-//     ExplicitPackageList, NativeStdPackageList (target-environment aware),
-//     ReconcilePackageList, ReadToolchainPackageList, ParseTargetConfig,
-//     RenderTargetConfig, GenerateExplicit, GenerateViaLayout, LayoutLoader,
+//     NativeStdPackageList (target-environment aware), RenderTargetConfig,
 //     IsInternalPath, Loader, BuildInventory with its total Inventory
 //     (Packages/Symbols/Inits, sorted and duplicate-free; the Inventory is
 //     also the inventory-backed Capslock normalization context —
 //     symbol.CapslockInventory — for the generator's reconciliation),
 //     TargetConfig, GenerationDescriptor, ClassifierRule,
-//     CanonicalClassifierText, ClassifierHash, DeriveSDKKey,
+//     CanonicalClassifierText, DeriveSDKKey,
 //     GenerationClassifierRules, RuleVersion, FindingSource(Func),
-//     GeneratedMap, Generate, BuildAuthorityMap, the Provenance vocabulary,
+//     GeneratedMap, Generate,
 //     NativeToolchainVersion, NativeTargetConfig, TargetEnv,
 //     NativeEnvironment, NativeLoader,
-//     CacheKeyDigest, DefaultCacheRoot, CacheSeams, CachedMapInput, and
-//     OpenCachedMap.
+//     CachedMapInput, and OpenCachedMap.
 //   - Ambient Authority: This is a shell generation component. It holds FILES
 //     (reads SDK sources and export data through the loader; reads and
 //     atomically writes the native cache artifacts under the user cache
@@ -111,10 +107,10 @@ type PackageOracleFunc func() ([]PackageEntry, error)
 // Packages implements PackageOracle.
 func (f PackageOracleFunc) Packages() ([]PackageEntry, error) { return f() }
 
-// IsInternalPath reports whether any import-path segment of path is
+// isInternalPath reports whether any import-path segment of path is
 // `internal` (task req 3). Such packages are enumerated but never loaded or
 // inventoried.
-func IsInternalPath(path string) bool {
+func isInternalPath(path string) bool {
 	for _, seg := range strings.Split(path, "/") {
 		if seg == "internal" {
 			return true
@@ -123,29 +119,29 @@ func IsInternalPath(path string) bool {
 	return false
 }
 
-// ExplicitPackageList returns a PackageOracle backed by a Bazel-supplied
+// explicitPackageList returns a PackageOracle backed by a Bazel-supplied
 // toolchain package list (task req 2): the host passes the pinned toolchain's
 // package paths, in any order. Normalization happens at build-inventory time,
 // so malformed entries fail generation with an actionable error rather than
 // being silently dropped here.
-func ExplicitPackageList(paths []string) PackageOracle {
+func explicitPackageList(paths []string) PackageOracle {
 	return PackageOracleFunc(func() ([]PackageEntry, error) {
 		entries := make([]PackageEntry, len(paths))
 		for i, p := range paths {
-			entries[i] = PackageEntry{Path: p, Importable: !IsInternalPath(p)}
+			entries[i] = PackageEntry{Path: p, Importable: !isInternalPath(p)}
 		}
 		return entries, nil
 	})
 }
 
-// NormalizePackageList canonicalizes an oracle's raw enumeration into the
+// normalizePackageList canonicalizes an oracle's raw enumeration into the
 // total, deterministic package list (task req 2): every unique path is
 // emitted exactly once in lexicographic byte order, internal-segment packages
 // are retained as non-importable, and malformed paths fail with an actionable
 // error. Empty strings, path escapes, separators-as-segments, whitespace, and
 // non-canonical path spellings are rejected so a malformed oracle output can
 // never enter an artifact as a package path.
-func NormalizePackageList(paths []string) ([]PackageEntry, error) {
+func normalizePackageList(paths []string) ([]PackageEntry, error) {
 	seen := make(map[string]bool, len(paths))
 	entries := make([]PackageEntry, 0, len(paths))
 	for _, p := range paths {
@@ -156,7 +152,7 @@ func NormalizePackageList(paths []string) ([]PackageEntry, error) {
 			continue
 		}
 		seen[p] = true
-		entries = append(entries, PackageEntry{Path: p, Importable: !IsInternalPath(p)})
+		entries = append(entries, PackageEntry{Path: p, Importable: !isInternalPath(p)})
 	}
 	slices.SortFunc(entries, func(a, b PackageEntry) int { return strings.Compare(a.Path, b.Path) })
 	if err := hostpolicy.ValidateStdlibPaths(pathsOf(entries)); err != nil {
@@ -235,14 +231,14 @@ func NativeStdPackageList(ctx context.Context, env []string) ([]PackageEntry, er
 // and tabs included — so CRLF or tab-separated tool output never leaves a
 // stray separator attached to a package path.
 func parseGoListOutput(out string) ([]PackageEntry, error) {
-	return NormalizePackageList(strings.Fields(out))
+	return normalizePackageList(strings.Fields(out))
 }
 
-// NativeToolchainVersion reports the exact toolchain version of the Go
+// nativeToolchainVersion reports the exact toolchain version of the Go
 // toolchain on PATH via `go env GOVERSION` (task req 7's toolchain_version
 // input; task req 9's injectable seam — callers with a pinned toolchain pass
 // the version directly in TargetConfig instead).
-func NativeToolchainVersion(ctx context.Context) (string, error) {
+func nativeToolchainVersion(ctx context.Context) (string, error) {
 	cmd := exec.CommandContext(ctx, "go", "env", "GOVERSION")
 	var stderr strings.Builder
 	cmd.Stderr = &stderr

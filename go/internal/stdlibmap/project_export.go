@@ -12,12 +12,12 @@ import (
 
 const bazelExecrootPlaceholder = "__BAZEL_EXECROOT__/"
 
-// ProjectExportFiles copies exactly the compiler export artifacts named by a
+// projectExportFiles copies exactly the compiler export artifacts named by a
 // rules_go stdlib metadata stream into an output tree. The input tree may be a
 // rules_go build-cache-shaped artifact, but the result is deliberately
 // export-only: action IDs, dependency records, SDK files and tool binaries are
 // never copied across the producer boundary (design I5/N2).
-func ProjectExportFiles(metadataPath, sourceRoot, outputRoot string) error {
+func projectExportFiles(metadataPath, sourceRoot, outputRoot string) error {
 	if metadataPath == "" || sourceRoot == "" || outputRoot == "" {
 		return fmt.Errorf("projecting standard-library export files requires metadata, source root and output root")
 	}
@@ -218,7 +218,7 @@ func RunProjectExportCommand(args []string, stdout, stderr io.Writer) int {
 			return 2
 		}
 	}
-	if err := ProjectExportFiles(values["--metadata"], values["--source-root"], values["--output"]); err != nil {
+	if err := projectExportFiles(values["--metadata"], values["--source-root"], values["--output"]); err != nil {
 		fmt.Fprintf(stderr, "error: %v\n", err)
 		return 2
 	}

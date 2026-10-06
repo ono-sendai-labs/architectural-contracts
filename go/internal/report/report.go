@@ -93,14 +93,14 @@ const (
 	DependencyFreshnessUnknown    DependencyFreshness = "UNKNOWN"
 )
 
-// DependencyAuthority identifies the structural authority declaration carried
+// dependencyAuthority identifies the structural authority declaration carried
 // by a dependency surface. DeclaredAuthority is meaningful for DECLARED and
 // remains empty for UNKNOWN.
-type DependencyAuthority string
+type dependencyAuthority string
 
 const (
-	DependencyAuthorityDeclared DependencyAuthority = "DECLARED"
-	DependencyAuthorityUnknown  DependencyAuthority = "UNKNOWN"
+	DependencyAuthorityDeclared dependencyAuthority = "DECLARED"
+	DependencyAuthorityUnknown  dependencyAuthority = "UNKNOWN"
 )
 
 // DependencyBoundary represents a component dependency boundary annotation
@@ -110,7 +110,7 @@ type DependencyBoundary struct {
 	Component         string               `json:"component"`
 	Provenance        DependencyProvenance `json:"provenance,omitempty"`
 	Freshness         DependencyFreshness  `json:"freshness,omitempty"`
-	Authority         DependencyAuthority  `json:"authority,omitempty"`
+	Authority         dependencyAuthority  `json:"authority,omitempty"`
 	DeclaredAuthority []string             `json:"declared_authority,omitempty"`
 }
 

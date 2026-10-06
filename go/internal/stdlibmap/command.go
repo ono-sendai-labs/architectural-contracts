@@ -27,7 +27,7 @@ func RunGenerateCommand(args []string, stdout, stderr io.Writer) int {
 			fmt.Fprintf(stderr, "error: opening the target config file: %v\n", err)
 			return 2
 		}
-		target, err := ParseTargetConfig(configFile)
+		target, err := parseTargetConfig(configFile)
 		configFile.Close()
 		if err != nil {
 			fmt.Fprintf(stderr, "error: %v\n", err)
@@ -38,13 +38,13 @@ func RunGenerateCommand(args []string, stdout, stderr io.Writer) int {
 			fmt.Fprintf(stderr, "error: opening the toolchain package list file: %v\n", err)
 			return 2
 		}
-		paths, err := ReadToolchainPackageList(listFile)
+		paths, err := readToolchainPackageList(listFile)
 		listFile.Close()
 		if err != nil {
 			fmt.Fprintf(stderr, "error: %v\n", err)
 			return 2
 		}
-		out, err := GenerateExplicit(*target, paths, opts.sdkRoot)
+		out, err := generateExplicit(*target, paths, opts.sdkRoot)
 		if err != nil {
 			fmt.Fprintf(stderr, "error: %v\n", err)
 			return 2

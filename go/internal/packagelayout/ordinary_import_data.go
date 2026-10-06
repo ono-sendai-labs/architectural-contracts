@@ -31,35 +31,35 @@ type OrdinaryImportData struct {
 	Metadata string `json:"metadata"`
 }
 
-// ImportGraphRequest is the input to WriteImportGraph. File paths are
+// importGraphRequest is the input to WriteImportGraph. File paths are
 // execroot-relative paths in a Bazel action (and may be absolute for a native
 // caller). The request is deliberately source-only: it records no compiler or
 // toolchain executable and is safe to process with arcc's own binary.
-type ImportGraphRequest struct {
+type importGraphRequest struct {
 	Platform *Platform                 `json:"platform,omitempty"`
-	Packages []ImportGraphPackageInput `json:"packages"`
+	Packages []importGraphPackageInput `json:"packages"`
 }
 
-// ImportGraphPackageInput identifies the source files belonging to one
+// importGraphPackageInput identifies the source files belonging to one
 // ordinary package for the target configuration.
-type ImportGraphPackageInput struct {
+type importGraphPackageInput struct {
 	ID      string   `json:"id"`
 	PkgPath string   `json:"pkg_path"`
 	Files   []string `json:"files"`
 }
 
-// ImportGraph is the canonical output of WriteImportGraph. Its imports are
+// importGraph is the canonical output of WriteImportGraph. Its imports are
 // exact direct source imports, rather than the broader set of declared
 // rules_go archive dependencies.
-type ImportGraph struct {
+type importGraph struct {
 	FormatVersion int                  `json:"format_version"`
 	Platform      *Platform            `json:"platform,omitempty"`
-	Packages      []ImportGraphPackage `json:"packages"`
+	Packages      []importGraphPackage `json:"packages"`
 	Errors        []string             `json:"errors,omitempty"`
 }
 
-// ImportGraphPackage carries one package's exact direct import paths.
-type ImportGraphPackage struct {
+// importGraphPackage carries one package's exact direct import paths.
+type importGraphPackage struct {
 	ID      string   `json:"id"`
 	PkgPath string   `json:"pkg_path"`
 	Imports []string `json:"imports"`
@@ -137,11 +137,11 @@ func ordinaryImportMetadataSibling(layoutPath, workspaceDir string) (string, err
 	return filepath.ToSlash(rel), nil
 }
 
-// ResolveOrdinaryImportData reads and applies the generated exact source-import
+// resolveOrdinaryImportData reads and applies the generated exact source-import
 // graph. It runs after the stdlib descriptor has been merged so every import
 // path can be resolved to the final package identity before validation or
 // packages.Load.
-func ResolveOrdinaryImportData(l *Layout, workspaceDir string) error {
+func resolveOrdinaryImportData(l *Layout, workspaceDir string) error {
 	if l == nil || l.OrdinaryImportData == nil || l.ordinaryImportDataResolved {
 		return nil
 	}
@@ -195,8 +195,8 @@ func ResolveOrdinaryImportData(l *Layout, workspaceDir string) error {
 		rootIDs[pkg.ID] = true
 	}
 
-	byID := make(map[string]ImportGraphPackage, len(graph.Packages))
-	byPath := make(map[string]ImportGraphPackage, len(graph.Packages))
+	byID := make(map[string]importGraphPackage, len(graph.Packages))
+	byPath := make(map[string]importGraphPackage, len(graph.Packages))
 	pending := make(map[string]map[string]*packages.Package, len(graph.Packages))
 	for _, record := range graph.Packages {
 		if record.ID == "" {
@@ -276,34 +276,34 @@ func ResolveOrdinaryImportData(l *Layout, workspaceDir string) error {
 	return nil
 }
 
-func readImportGraph(metadataPath string) (ImportGraph, error) {
+func readImportGraph(metadataPath string) (importGraph, error) {
 	f, err := os.Open(metadataPath)
 	if err != nil {
-		return ImportGraph{}, err
+		return importGraph{}, err
 	}
 	defer f.Close()
 
-	var graph ImportGraph
+	var graph importGraph
 	decoder := json.NewDecoder(f)
 	if err := decoder.Decode(&graph); err != nil {
-		return ImportGraph{}, err
+		return importGraph{}, err
 	}
 	var extra any
 	if err := decoder.Decode(&extra); err != io.EOF {
 		if err == nil {
-			return ImportGraph{}, errors.New("ordinary import metadata contains multiple JSON values")
+			return importGraph{}, errors.New("ordinary import metadata contains multiple JSON values")
 		}
-		return ImportGraph{}, fmt.Errorf("decoding trailing JSON: %w", err)
+		return importGraph{}, fmt.Errorf("decoding trailing JSON: %w", err)
 	}
 	if graph.FormatVersion != ordinaryImportDataFormatVersion {
-		return ImportGraph{}, fmt.Errorf("unsupported ordinary import metadata format version %d", graph.FormatVersion)
+		return importGraph{}, fmt.Errorf("unsupported ordinary import metadata format version %d", graph.FormatVersion)
 	}
 	return graph, nil
 }
 
 // MergeImportGraphLayout applies the exact ordinary source-import graph to a
 // base layout artifact. The action-time merge makes the emitted package-layout
-// JSON self-describing for inspection; ResolveOrdinaryImportData repeats the
+// JSON self-describing for inspection; resolveOrdinaryImportData repeats the
 // identity resolution at the runtime boundary and replaces placeholder IDs for
 // target-configured stdlib records.
 func MergeImportGraphLayout(baseLayoutPath, graphPath, outputPath string) error {
@@ -471,7 +471,7 @@ func WriteImportGraph(configPath, outputPath string) error {
 	if err != nil {
 		return fmt.Errorf("reading import graph request %q: %w", configPath, err)
 	}
-	var request ImportGraphRequest
+	var request importGraphRequest
 	if err := json.Unmarshal(configBytes, &request); err != nil {
 		return fmt.Errorf("decoding import graph request %q: %w", configPath, err)
 	}
@@ -479,17 +479,17 @@ func WriteImportGraph(configPath, outputPath string) error {
 	if err != nil {
 		return fmt.Errorf("building import graph target context: %w", err)
 	}
-	inputs := append([]ImportGraphPackageInput(nil), request.Packages...)
-	slices.SortFunc(inputs, func(a, b ImportGraphPackageInput) int {
+	inputs := append([]importGraphPackageInput(nil), request.Packages...)
+	slices.SortFunc(inputs, func(a, b importGraphPackageInput) int {
 		if a.PkgPath != b.PkgPath {
 			return strings.Compare(a.PkgPath, b.PkgPath)
 		}
 		return strings.Compare(a.ID, b.ID)
 	})
-	graph := ImportGraph{
+	graph := importGraph{
 		FormatVersion: ordinaryImportDataFormatVersion,
 		Platform:      clonePlatform(request.Platform),
-		Packages:      make([]ImportGraphPackage, 0, len(inputs)),
+		Packages:      make([]importGraphPackage, 0, len(inputs)),
 	}
 	seenIDs := make(map[string]bool, len(inputs))
 	seenPaths := make(map[string]bool, len(inputs))
@@ -546,7 +546,7 @@ func WriteImportGraph(configPath, outputPath string) error {
 		if sortedImports == nil {
 			sortedImports = []string{}
 		}
-		graph.Packages = append(graph.Packages, ImportGraphPackage{
+		graph.Packages = append(graph.Packages, importGraphPackage{
 			ID:      input.ID,
 			PkgPath: input.PkgPath,
 			Imports: sortedImports,

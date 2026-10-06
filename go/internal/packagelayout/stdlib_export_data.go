@@ -126,12 +126,12 @@ type stdlibExportPackage struct {
 	Standard        bool              `json:"Standard"`
 }
 
-// ResolveStdlibExportData merges a host adapter's generated standard-library
+// resolveStdlibExportData merges a host adapter's generated standard-library
 // package descriptor into l. It is intentionally separate from descriptor
 // discovery: the adapter chooses and declares the files, while this package
 // validates the wire graph, normalizes rules_go's execroot marker, and owns
 // the package-layout representation consumed by the driver.
-func ResolveStdlibExportData(l *Layout, workspaceDir string) error {
+func resolveStdlibExportData(l *Layout, workspaceDir string) error {
 	if l == nil || l.StdlibExportData == nil || l.stdlibExportDataResolved {
 		return nil
 	}
