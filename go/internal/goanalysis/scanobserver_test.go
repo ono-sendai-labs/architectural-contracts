@@ -253,11 +253,11 @@ func TestScanObserver_ReportsMemberOnlyWorkForBothScanners(t *testing.T) {
 		t.Fatalf("disabled observer received %d events", len(observed))
 	}
 
-	refs, imports, err := ScanReferences(pkgs, members, root)
+	refs, imports, err := scanReferences(pkgs, members, root)
 	if err != nil {
 		t.Fatalf("unexpected observed reference scan error: %v", err)
 	}
-	bypasses, err := ScanAnalysisDefeats(pkgs, members, root)
+	bypasses, err := scanAnalysisDefeats(pkgs, members, root)
 	if err != nil {
 		t.Fatalf("unexpected observed analysis-defeat scan error: %v", err)
 	}
@@ -295,10 +295,10 @@ func TestScanObserver_ReportsMemberOnlyWorkForBothScanners(t *testing.T) {
 
 	ordered := snapshotScanObserver(observed)
 	observed = nil
-	if _, _, err := ScanReferences([]*packages.Package{pkgs[1], pkgs[0]}, members, root); err != nil {
+	if _, _, err := scanReferences([]*packages.Package{pkgs[1], pkgs[0]}, members, root); err != nil {
 		t.Fatalf("unexpected reordered observed reference scan error: %v", err)
 	}
-	if _, err := ScanAnalysisDefeats([]*packages.Package{pkgs[1], pkgs[0]}, members, root); err != nil {
+	if _, err := scanAnalysisDefeats([]*packages.Package{pkgs[1], pkgs[0]}, members, root); err != nil {
 		t.Fatalf("unexpected reordered observed analysis-defeat scan error: %v", err)
 	}
 	if got := snapshotScanObserver(observed); !reflect.DeepEqual(got, ordered) {
@@ -334,7 +334,7 @@ func TestScanObserver_ReportsIgnoredMemberSourceWork(t *testing.T) {
 	scanObserver = capture.observe
 	defer func() { scanObserver = previous }()
 
-	bypasses, err := ScanAnalysisDefeats(packages, members, root)
+	bypasses, err := scanAnalysisDefeats(packages, members, root)
 	if err != nil {
 		t.Fatalf("unexpected ignored-source analysis-defeat scan error: %v", err)
 	}
@@ -352,14 +352,14 @@ func scanReferencesWithoutObserver(pkgs []*packages.Package, members facts.Membe
 	previous := scanObserver
 	scanObserver = nil
 	defer func() { scanObserver = previous }()
-	return ScanReferences(pkgs, members, root)
+	return scanReferences(pkgs, members, root)
 }
 
 func scanAnalysisDefeatsWithoutObserver(pkgs []*packages.Package, members facts.MemberSet, root string) ([]facts.BypassObservation, error) {
 	previous := scanObserver
 	scanObserver = nil
 	defer func() { scanObserver = previous }()
-	return ScanAnalysisDefeats(pkgs, members, root)
+	return scanAnalysisDefeats(pkgs, members, root)
 }
 
 func assertScanObserverCount(t *testing.T, events []scanObserverEvent, scanner scanObserverScanner, operation scanObserverOperation, pkg string, member bool, want int) {

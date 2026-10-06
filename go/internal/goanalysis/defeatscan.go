@@ -16,7 +16,7 @@ import (
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/hostpolicy"
 )
 
-// ScanAnalysisDefeats scans member packages for the analysis-defeating
+// scanAnalysisDefeats scans member packages for the analysis-defeating
 // constructs of DR-11 — `//go:linkname` directives, assembly source files and
 // cgo use — which create edges typed reference analysis cannot see and must
 // never silently pass.
@@ -34,7 +34,7 @@ import (
 // identical output in any enumeration order (N4). Malformed input — a
 // declared member file that cannot be read or parsed, or a position outside
 // the component root — is an error: the scan returns no partial facts.
-func ScanAnalysisDefeats(
+func scanAnalysisDefeats(
 	pkgs []*packages.Package,
 	members facts.MemberSet,
 	root string,

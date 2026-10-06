@@ -1,6 +1,6 @@
 //go:build integration
 
-package goanalysis_test
+package goanalysis
 
 import (
 	"path/filepath"
@@ -11,7 +11,6 @@ import (
 	"golang.org/x/tools/go/packages"
 
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/facts"
-	"github.com/ono-sendai-labs/architectural-contracts/go/internal/goanalysis"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/hostpolicy"
 )
 
@@ -81,7 +80,7 @@ func edgeSet(edges []facts.ReferenceEdge) map[facts.ReferenceKey]int {
 func TestScanReferences_ObservesAllSites(t *testing.T) {
 	pkgs, ms, root := loadRefScan(t)
 
-	refs, imports, err := goanalysis.ScanReferences(pkgs, ms, root)
+	refs, imports, err := scanReferences(pkgs, ms, root)
 	if err != nil {
 		t.Fatalf("unexpected error scanning references: %v", err)
 	}
@@ -187,7 +186,7 @@ func TestScanReferences_ObservesAllSites(t *testing.T) {
 func TestScanReferences_UnsafeBuiltinsAndUniverseBuiltins(t *testing.T) {
 	pkgs, ms, root := loadUnsafeRefScan(t)
 
-	refs, _, err := goanalysis.ScanReferences(pkgs, ms, root)
+	refs, _, err := scanReferences(pkgs, ms, root)
 	if err != nil {
 		t.Fatalf("unexpected error scanning unsafe references: %v", err)
 	}
@@ -226,7 +225,7 @@ func TestScanReferences_UnsafeBuiltinsAndUniverseBuiltins(t *testing.T) {
 func TestScanReferences_DedupsUsesAndSelections(t *testing.T) {
 	pkgs, ms, root := loadRefScan(t)
 
-	refs, _, err := goanalysis.ScanReferences(pkgs, ms, root)
+	refs, _, err := scanReferences(pkgs, ms, root)
 	if err != nil {
 		t.Fatalf("unexpected error scanning references: %v", err)
 	}
@@ -260,7 +259,7 @@ func TestScanReferences_DedupsUsesAndSelections(t *testing.T) {
 	}
 
 	// Repeated scans over nondeterministic map order yield identical output.
-	refs2, _, err := goanalysis.ScanReferences(pkgs, ms, root)
+	refs2, _, err := scanReferences(pkgs, ms, root)
 	if err != nil {
 		t.Fatalf("unexpected error on second scan: %v", err)
 	}
@@ -279,7 +278,7 @@ func baseAt(base facts.ReferenceKey, line int) facts.ReferenceKey {
 func TestScanReferences_MemberOnlyInspection(t *testing.T) {
 	pkgs, ms, root := loadRefScan(t)
 
-	refs, imports, err := goanalysis.ScanReferences(pkgs, ms, root)
+	refs, imports, err := scanReferences(pkgs, ms, root)
 	if err != nil {
 		t.Fatalf("unexpected error scanning references: %v", err)
 	}
@@ -303,7 +302,7 @@ func TestScanReferences_BadRoot(t *testing.T) {
 	for _, p := range pkgs {
 		p.Module = nil
 	}
-	_, _, err := goanalysis.ScanReferences(pkgs, ms, filepath.Join(root, "nowhere"))
+	_, _, err := scanReferences(pkgs, ms, filepath.Join(root, "nowhere"))
 	if err == nil || !strings.Contains(err.Error(), "outside the component root") {
 		t.Errorf("expected an actionable error naming the escaping site, got: %v", err)
 	}
@@ -319,7 +318,7 @@ func TestScanReferences_IncompleteMemberTypeInfo(t *testing.T) {
 			p.TypesInfo = nil
 		}
 	}
-	_, _, err := goanalysis.ScanReferences(pkgs, ms, root)
+	_, _, err := scanReferences(pkgs, ms, root)
 	if err == nil || !strings.Contains(err.Error(), refscanMember+"/kinds") {
 		t.Errorf("expected a fail-closed error naming the incomplete member package, got: %v", err)
 	}
@@ -334,7 +333,7 @@ func TestScanReferences_IncompleteImportPackageData(t *testing.T) {
 			p.Imports["fmt"] = nil
 		}
 	}
-	_, imports, err := goanalysis.ScanReferences(pkgs, ms, root)
+	_, imports, err := scanReferences(pkgs, ms, root)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -356,7 +355,7 @@ func TestScanReferences_NilTypeInfoMaps(t *testing.T) {
 			p.TypesInfo.Uses = nil
 		}
 	}
-	_, _, err := goanalysis.ScanReferences(pkgs, ms, root)
+	_, _, err := scanReferences(pkgs, ms, root)
 	if err == nil || !strings.Contains(err.Error(), refscanMember+"/kinds") {
 		t.Errorf("expected a fail-closed error for nil Uses map, got: %v", err)
 	}
@@ -367,7 +366,7 @@ func TestScanReferences_NilTypeInfoMaps(t *testing.T) {
 			p.TypesInfo.Selections = nil
 		}
 	}
-	_, _, err = goanalysis.ScanReferences(pkgs, ms, root)
+	_, _, err = scanReferences(pkgs, ms, root)
 	if err == nil || !strings.Contains(err.Error(), refscanMember+"/kinds") {
 		t.Errorf("expected a fail-closed error for nil Selections map, got: %v", err)
 	}
@@ -380,7 +379,7 @@ func TestScanReferences_NilTypeInfoMaps(t *testing.T) {
 			p.Imports = nil
 		}
 	}
-	_, _, err = goanalysis.ScanReferences(pkgs, ms, root)
+	_, _, err = scanReferences(pkgs, ms, root)
 	if err == nil || !strings.Contains(err.Error(), refscanMember+"/kinds") {
 		t.Errorf("expected a fail-closed error for a nil Imports map, got: %v", err)
 	}
@@ -410,7 +409,7 @@ func TestScanReferences_ImportResolvedByCanonicalKey(t *testing.T) {
 	if err != nil {
 		t.Fatalf("invalid member set: %v", err)
 	}
-	_, imports, err := goanalysis.ScanReferences(pkgs, ms, root)
+	_, imports, err := scanReferences(pkgs, ms, root)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

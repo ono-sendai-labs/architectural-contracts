@@ -1,6 +1,6 @@
 //go:build integration
 
-package goanalysis_test
+package goanalysis
 
 import (
 	"bytes"
@@ -16,7 +16,6 @@ import (
 
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/checker"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/facts"
-	"github.com/ono-sendai-labs/architectural-contracts/go/internal/goanalysis"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/packagelayout"
 	"golang.org/x/tools/go/packages"
 )
@@ -60,7 +59,7 @@ func TestLoadPackageFacts_RejectsIncompatibleExportData(t *testing.T) {
 	}
 
 	err = packagelayout.WithDriverEnv(layoutPath, workspace, func() error {
-		_, err := goanalysis.LoadPackageFacts(goanalysis.LoadRequest{
+		_, err := LoadPackageFacts(LoadRequest{
 			ComponentRoot: workspace,
 			Members:       []string{"example.com/member"},
 		})
@@ -214,7 +213,7 @@ type Value struct { Name string }
 	var loaded facts.PackageFacts
 	err = packagelayout.WithDriverEnv(layoutPath, workspace, func() error {
 		var err error
-		loaded, err = goanalysis.LoadPackageFacts(goanalysis.LoadRequest{ComponentRoot: workspace, Members: []string{root.PkgPath}})
+		loaded, err = LoadPackageFacts(LoadRequest{ComponentRoot: workspace, Members: []string{root.PkgPath}})
 		return err
 	})
 	if err != nil {
@@ -369,7 +368,7 @@ func TestLoadPackageFacts_RefscanMatrixWithDependencySourcesAbsent(t *testing.T)
 	var loaded facts.PackageFacts
 	err = packagelayout.WithDriverEnv(layoutPath, workspace, func() error {
 		var err error
-		loaded, err = goanalysis.LoadPackageFacts(goanalysis.LoadRequest{ComponentRoot: workspace, Members: rootPaths})
+		loaded, err = LoadPackageFacts(LoadRequest{ComponentRoot: workspace, Members: rootPaths})
 		return err
 	})
 	if err != nil {

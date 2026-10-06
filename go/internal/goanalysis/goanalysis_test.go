@@ -27,6 +27,67 @@ func loadPackageFacts(root string) (facts.PackageFacts, error) {
 	return goanalysis.LoadPackageFacts(goanalysis.LoadRequest{ComponentRoot: root})
 }
 
+type fixtureAuthority struct {
+	key      stdlibauthority.SDKKey
+	packages map[string]bool
+	symbols  map[facts.SymbolID]stdlibauthority.Classification
+	inits    map[string]stdlibauthority.Classification
+	evidence map[string][]stdlibauthority.Frame
+}
+
+func testSDKKey() stdlibauthority.SDKKey {
+	return stdlibauthority.SDKKey{ToolchainVersion: "go1.26.4", GOOS: "linux", GOARCH: "amd64", MapFormatVersion: 1}
+}
+
+func newFixtureAuthority(t *testing.T) *fixtureAuthority {
+	t.Helper()
+	auth := &fixtureAuthority{
+		key:      testSDKKey(),
+		packages: map[string]bool{},
+		symbols:  map[facts.SymbolID]stdlibauthority.Classification{},
+		inits:    map[string]stdlibauthority.Classification{},
+		evidence: map[string][]stdlibauthority.Frame{},
+	}
+	for _, pkg := range []string{"os", "io", "image/png", "go/ast"} {
+		auth.packages[pkg] = true
+	}
+	auth.symbols[facts.SymbolID("os.ReadFile")] = stdlibauthority.Classification{Capabilities: []string{"FILES"}}
+	auth.symbols[facts.SymbolID("os.Stdin")] = stdlibauthority.Classification{Capabilities: []string{"CHDIR", "FILES"}}
+	auth.symbols[facts.SymbolID("io.EOF")] = stdlibauthority.Classification{Safe: true}
+	auth.inits["image/png"] = stdlibauthority.Classification{Capabilities: []string{"FILES"}}
+	auth.inits["go/ast"] = stdlibauthority.Classification{Unanalyzed: true}
+	auth.inits["os"] = stdlibauthority.Classification{Safe: true}
+	auth.inits["io"] = stdlibauthority.Classification{Safe: true}
+	auth.evidence["os.ReadFile FILES"] = []stdlibauthority.Frame{{Function: "os.ReadFile", File: "os/file.go", Line: 331}}
+	auth.evidence["image/png.init FILES"] = []stdlibauthority.Frame{{Function: "image/png.init", File: "image/png/reader.go", Line: 10}}
+	return auth
+}
+
+func (f *fixtureAuthority) IsStdlibPackage(pkgPath string) bool { return f.packages[pkgPath] }
+
+func (f *fixtureAuthority) SymbolAuthority(id symbol.SymbolID) (stdlibauthority.Classification, error) {
+	if class, ok := f.symbols[id]; ok {
+		return class, nil
+	}
+	return stdlibauthority.Classification{}, &stdlibauthority.InventoryGapError{
+		Package: facts.SymbolIDPackage(id),
+		Symbol:  id.Format(),
+	}
+}
+
+func (f *fixtureAuthority) PackageInitAuthority(pkgPath string) (stdlibauthority.Classification, error) {
+	if class, ok := f.inits[pkgPath]; ok {
+		return class, nil
+	}
+	return stdlibauthority.Classification{}, &stdlibauthority.InventoryGapError{Package: pkgPath}
+}
+
+func (f *fixtureAuthority) Evidence(id symbol.SymbolID, cap stdlibauthority.Capability) []stdlibauthority.Frame {
+	return f.evidence[id.Format()+" "+cap]
+}
+
+func (f *fixtureAuthority) Key() stdlibauthority.SDKKey { return f.key }
+
 // verticalSliceAuthority is the fixture authority extended with the fmt
 // closure the success fixture legitimately imports: the stdlib enumeration
 // decides membership, not the path.

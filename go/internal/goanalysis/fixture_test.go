@@ -1,6 +1,6 @@
 //go:build integration
 
-package goanalysis_test
+package goanalysis
 
 import (
 	"path/filepath"
@@ -13,7 +13,6 @@ import (
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/capanalyzer"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/checker"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/facts"
-	"github.com/ono-sendai-labs/architectural-contracts/go/internal/goanalysis"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/manifest"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/stdlibauthority"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/symbol"
@@ -50,7 +49,7 @@ func loadScanFixture(t *testing.T) (members facts.MemberSet, refs []facts.Refere
 	if packages.PrintErrors(pkgs) > 0 {
 		t.Fatalf("member packages have load errors")
 	}
-	refs, imports, err = goanalysis.ScanReferences(pkgs, members, root)
+	refs, imports, err = scanReferences(pkgs, members, root)
 	if err != nil {
 		t.Fatalf("unexpected error scanning references: %v", err)
 	}
@@ -392,7 +391,7 @@ func scanClassifyFixture(t *testing.T, pkgs []*packages.Package) (facts.MemberSe
 	if err != nil {
 		t.Fatalf("failed to resolve classify fixture root: %v", err)
 	}
-	refs, imports, err := goanalysis.ScanReferences(pkgs, members, root)
+	refs, imports, err := scanReferences(pkgs, members, root)
 	if err != nil {
 		t.Fatalf("unexpected error scanning references: %v", err)
 	}

@@ -102,7 +102,7 @@ says the component declares — no more and no fewer. Record the probe summary
 - [x] **Step 9** — `capslock-runtime` wrapper; `capslockadapter` shrinks *(done 2026-10-05; `capslock-runtime` native-only asserted UNKNOWN surface, `capslockadapter` strict with `REFLECT` ×2)*
 - [x] **Step 10** — `goanalysis-hostfs` sub-component (spike S1) *(done 2026-10-05; S1 passed: `FILES` removed from `goanalysis`, `hostfs` holds `FILES` ×4 + `READ_SYSTEM_STATE` ×1)*
 - [x] **Step 11** — `packagelayout-hostenv` sub-component, `layout-driver-hook`, `BuildTags` (+ `goanalysis` drops `RUNTIME`/`READ_SYSTEM_STATE`) *(done 2026-10-05; `goanalysis` now authority-free; only `hostenv.go` imports `runtime`, zero non-test files import `go/build`)*
-- [ ] **Step 12** — `goanalysis`: file splits + three interface files
+- [x] **Step 12** — `goanalysis`: file splits + three interface files *(done 2026-10-05; `interface_files = ["dependency_surface.go", "goanalysis.go", "surfaceinputs.go"]`, 222 LOC total, 17 exported symbols, authority empty)*
 - [ ] **Step 13** — `packagelayout`: file splits, `fs.FS` passing, two interface files
 - [ ] **Step 14** — `cli`: declared style with `app/app.go` as the interface
 - [ ] **Step 15** — `stdlibmap`: `hosttoolchain` sub-component + two interface files
@@ -747,6 +747,13 @@ Probe `goanalysis` → empty. `wc -l` of the three IF files ≤ ~450 non-test LO
 
 **Demo.** `go doc ./internal/goanalysis` lists ≈ 13 symbols; Bazel report shows
 `interface_files` = three files and empty `declared_authority`.
+
+**Observed (2026-10-05):**
+- Split `goanalysis.go` into `goanalysis.go` (IF, 69 LOC), `loader.go` (NIF, 1,063 LOC), `ifacefiles.go` (NIF, 284 LOC), and `symcanon.go` (NIF, 370 LOC); extracted `dependency_surface.go` (IF, 93 LOC) from `surface_resolver.go` (NIF); slimmed `surfaceinputs.go` (IF, 60 LOC) and removed the 4 forwarding shims (`ActivePlatformIdentity`, `LayoutModeActive`, `ActiveDependencyArtifactBindings`, `CanonicalNamespace`), rewiring `go/cmd/arcc/app/check.go` directly to `packagelayout` and `hostpolicy`.
+- Unexported `ScanReferences` → `scanReferences` and `ScanAnalysisDefeats` → `scanAnalysisDefeats`; converted `defeat_test.go`, `refscan_test.go`, `fixture_test.go`, and `member_only_integration_test.go` to internal `package goanalysis` tests while keeping `goanalysis_test.go` in external `package goanalysis_test`.
+- Kept `loadedFiles` cache as-is (optional 12.5 skipped so `facts.PackageFacts` and `LoadPackageFacts` signatures remain unchanged; `reflect.ValueOf` is `SAFE` in the stdlib map).
+- Combined IF LOC = 222 lines across `dependency_surface.go`, `goanalysis.go`, and `surfaceinputs.go` (17 exported symbols: 6 funcs, 9 types, 2 consts).
+- **Probe summary (`goanalysis`):** **empty** (0 findings).
 
 ---
 

@@ -1,6 +1,6 @@
 //go:build integration
 
-package goanalysis_test
+package goanalysis
 
 import (
 	"os"
@@ -12,7 +12,6 @@ import (
 	"golang.org/x/tools/go/packages"
 
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/facts"
-	"github.com/ono-sendai-labs/architectural-contracts/go/internal/goanalysis"
 )
 
 const (
@@ -68,7 +67,7 @@ func TestScanAnalysisDefeatsFindsEveryBypass(t *testing.T) {
 	if !containsFile(pkg.IgnoredFiles, "cgo.go") {
 		t.Fatalf("the hermetic load must ignore the cgo source (declared metadata path), got ignored=%v", pkg.IgnoredFiles)
 	}
-	got, err := goanalysis.ScanAnalysisDefeats([]*packages.Package{pkg}, members, root)
+	got, err := scanAnalysisDefeats([]*packages.Package{pkg}, members, root)
 	if err != nil {
 		t.Fatalf("unexpected scan error: %v", err)
 	}
@@ -106,7 +105,7 @@ func TestScanAnalysisDefeatsMalformedIgnoredFileFailsClosed(t *testing.T) {
 	if err != nil {
 		t.Fatalf("invalid member set: %v", err)
 	}
-	got, err := goanalysis.ScanAnalysisDefeats([]*packages.Package{pkg}, members, dir)
+	got, err := scanAnalysisDefeats([]*packages.Package{pkg}, members, dir)
 	if err == nil {
 		t.Fatalf("malformed declared member file must fail the scan closed, got %+v", got)
 	}

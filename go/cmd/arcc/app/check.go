@@ -17,7 +17,9 @@ import (
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/checker"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/facts"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/goanalysis"
+	"github.com/ono-sendai-labs/architectural-contracts/go/internal/hostpolicy"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/manifest"
+	"github.com/ono-sendai-labs/architectural-contracts/go/internal/packagelayout"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/report"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/reportio"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/stdlibauthority"
@@ -35,7 +37,7 @@ import (
 type AuthorityRequest struct {
 	// LayoutPlatform is the active layout's pinned target declaration as
 	// plain values (nil/unset when the layout is unpinned or the check runs
-	// in native mode); see goanalysis.ActivePlatformIdentity.
+	// in native mode); see activePlatformIdentity.
 	LayoutPlatform *goanalysis.PlatformIdentity
 	// InLayoutMode reports whether a package layout driver environment is
 	// active; native mode is its negation.
@@ -203,13 +205,10 @@ func (r *Runner) runCheck(opts checkOptions, stdout, stderr io.Writer) int {
 	// dependency. The target SDK key is part of every surface comparison, so a
 	// missing or mismatched map must fail before dependency artifacts can affect
 	// the invocation (N3, DR-03).
-	layoutPlatform := (*goanalysis.PlatformIdentity)(nil)
-	if identity, ok := goanalysis.ActivePlatformIdentity(); ok {
-		layoutPlatform = &identity
-	}
+	layoutPlatform, _ := activePlatformIdentity()
 	authority, err := r.authorityResolver()(AuthorityRequest{
 		LayoutPlatform: layoutPlatform,
-		InLayoutMode:   goanalysis.LayoutModeActive(),
+		InLayoutMode:   packagelayout.IsLayoutMode(),
 		StdlibMapPath:  opts.stdlibMap,
 	})
 	if err != nil {
@@ -343,10 +342,11 @@ func policyForManifest(m manifest.Manifest) capanalyzer.CapabilityPolicy {
 func (r *Runner) resolveDependencySurfaces(deps []manifest.ComponentDependency, declaringRoot string, expectedSDKKey stdlibauthority.SDKKey) ([]facts.DependencyInterface, error) {
 	mode := goanalysis.DependencySurfaceNative
 	workspaceDir := ""
-	if bindings, activeWorkspace, active := goanalysis.ActiveDependencyArtifactBindings(); active {
+	if packagelayout.IsLayoutMode() {
 		mode = goanalysis.DependencySurfaceLayout
-		workspaceDir = activeWorkspace
-		if bindings == nil && workspaceDir == "" {
+		workspaceDir = packagelayout.GetActiveWorkspaceDir()
+		layout := packagelayout.GetActiveLayout()
+		if layout == nil && workspaceDir == "" {
 			return nil, fmt.Errorf("layout mode is active without an active package layout")
 		}
 	}
@@ -356,7 +356,7 @@ func (r *Runner) resolveDependencySurfaces(deps []manifest.ComponentDependency, 
 		resolvedDependency, err := r.dependencySurfaceResolver()(goanalysis.DependencySurfaceRequest{
 			DeclaringRoot:  declaringRoot,
 			Dependency:     dep,
-			Namespace:      goanalysis.CanonicalNamespace(),
+			Namespace:      hostpolicy.NamespaceID,
 			ExpectedSDKKey: expectedSDKKey,
 			Mode:           mode,
 			WorkspaceDir:   workspaceDir,
@@ -421,7 +421,7 @@ func (r *Runner) publishArtifacts(
 			Component:       parsedManifest.Name,
 			Style:           parsedManifest.InterfaceStyle,
 			Authority:       parsedManifest.Authority,
-			Namespace:       goanalysis.CanonicalNamespace(),
+			Namespace:       hostpolicy.NamespaceID,
 			Key:             sdkKey,
 			ProducerVersion: producerVersion(),
 			MemberPackages:  surf.MemberPackages,
@@ -639,6 +639,33 @@ func authorityFromNativeDiscovery() (stdlibauthority.StdlibAuthority, error) {
 			Loader: &stdlibmap.NativeLoader{Env: stdlibmap.TargetEnv(target)},
 		},
 	})
+}
+
+func activePlatformIdentity() (*goanalysis.PlatformIdentity, bool) {
+	if !packagelayout.IsLayoutMode() {
+		return nil, false
+	}
+	layout := packagelayout.GetActiveLayout()
+	if layout == nil || layout.Platform == nil {
+		return nil, false
+	}
+	platform := layout.Platform
+	goexperiment := ""
+	if platform.GOEXPERIMENT != nil {
+		goexperiment = *platform.GOEXPERIMENT
+	}
+	toolchain := ""
+	if platform.ToolchainVersion != nil {
+		toolchain = *platform.ToolchainVersion
+	}
+	return &goanalysis.PlatformIdentity{
+		ToolchainVersion: toolchain,
+		GOOS:             platform.GOOS,
+		GOARCH:           platform.GOARCH,
+		CgoEnabled:       platform.CgoEnabled,
+		BuildTags:        platform.BuildTags,
+		GOEXPERIMENT:     goexperiment,
+	}, true
 }
 
 // layoutTarget converts a pinned layout platform identity into the target

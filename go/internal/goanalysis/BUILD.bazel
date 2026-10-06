@@ -8,11 +8,15 @@ go_library(
     name = "goanalysis",
     srcs = [
         "defeatscan.go",
+        "dependency_surface.go",
         "goanalysis.go",
+        "ifacefiles.go",
+        "loader.go",
         "refscan.go",
         "scanobserver.go",
         "surface_resolver.go",
         "surfaceinputs.go",
+        "symcanon.go",
     ],
     importpath = "github.com/ono-sendai-labs/architectural-contracts/go/internal/goanalysis",
     visibility = [
@@ -63,9 +67,8 @@ go_component(
     ],
     declared_authority = [],
     interface_files = [
-        "defeatscan.go",
+        "dependency_surface.go",
         "goanalysis.go",
-        "surface_resolver.go",
         "surfaceinputs.go",
     ],
     members = [":goanalysis"],

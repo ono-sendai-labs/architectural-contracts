@@ -16,7 +16,7 @@ import (
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/symbol"
 )
 
-// ScanReferences scans member sources and emits the typed reference and
+// scanReferences scans member sources and emits the typed reference and
 // import edges of the Step 6 reference vocabulary (design R1–R4, DR-04).
 //
 // Only member packages are inspected, even though the loaded package set
@@ -48,7 +48,7 @@ import (
 // a loaded package, ImportUnresolved otherwise. The layout-aware
 // ImportMissingTypeData refinement is applied by the Step 6 classifier, which
 // owns the layout/SDK knowledge this scanner deliberately does not consult.
-func ScanReferences(
+func scanReferences(
 	pkgs []*packages.Package,
 	members facts.MemberSet,
 	root string,
