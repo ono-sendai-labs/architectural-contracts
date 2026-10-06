@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"os"
 
+	_ "github.com/ono-sendai-labs/architectural-contracts/go/internal/layoutdriverhook"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/stdlibmap"
 )
 

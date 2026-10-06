@@ -66,22 +66,24 @@ probe component:
 	bash scripts/authority-probe.sh {{component}}
 
 # Self-check coverage:
-# Native `just selfcheck` stages 25 analyzed production components in dependency
-# order. All 25 must pass:
-#   capanalyzer, atomicfile, hostpolicy, symbol, capslocksymbol, packagelayout,
-#   schema, schema-gen, manifest, report, reportio, stdlibauthority, facts,
-#   surface, artifactio, checker, capslockadapter, stdlibmap,
-#   goanalysis-hostfs, goanalysis, parsecsv, csvfile, toprow, app, cli.
+# Native `just selfcheck` stages 27 analyzed production components in dependency
+# order. All 27 must pass:
+#   capanalyzer, atomicfile, hostpolicy, symbol, capslocksymbol,
+#   packagelayout-hostenv, packagelayout, layout-driver-hook, schema, schema-gen,
+#   manifest, report, reportio, stdlibauthority, facts, surface, artifactio,
+#   checker, capslockadapter, stdlibmap, goanalysis-hostfs, goanalysis,
+#   parsecsv, csvfile, toprow, app, cli.
 # The `protobuf-runtime`, `x-tools`, and `capslock-runtime` wrappers are
 # asserted UNKNOWN package surfaces: they provide a checked-in surface and
 # intentionally produce no report or analysis.
 #
-# The Bazel wildcard has 22 checked component gates: the eighteen internal
+# The Bazel wildcard has 24 checked component gates: the twenty internal
 # components capanalyzer, atomicfile, hostpolicy, symbol, capslocksymbol,
-# packagelayout, schema, schema-gen, stdlibauthority, facts, report, reportio,
-# checker, manifest, goanalysis-hostfs, goanalysis, artifactio, and surface, plus
-# the four CSV components parsecsv, csvfile, toprow, and app. The two Bazel
-# wrappers use `authority = UNKNOWN` for asserted surfaces; capslock-runtime,
+# packagelayout-hostenv, packagelayout, layout-driver-hook, schema, schema-gen,
+# stdlibauthority, facts, report, reportio, checker, manifest,
+# goanalysis-hostfs, goanalysis, artifactio, and surface, plus the four CSV
+# components parsecsv, csvfile, toprow, and app. The two Bazel wrappers use
+# `authority = UNKNOWN` for asserted surfaces; capslock-runtime,
 # capslockadapter, and cli have no Bazel component gate because their closure
 # contains cgo; and stdlibmap is covered by dedicated map-generation tests
 # rather than a go_component check.
@@ -137,7 +139,9 @@ selfcheck:
 	selfcheck_stage_component "$arcc_bin" "$map_path" internal/capslocksymbol/component.textproto; \
 	selfcheck_asserted_component internal/protobufruntime/component.textproto; \
 	selfcheck_asserted_component internal/xtools/component.textproto; \
+	selfcheck_stage_component "$arcc_bin" "$map_path" internal/packagelayout/internal/hostenv/component.textproto; \
 	selfcheck_stage_component "$arcc_bin" "$map_path" internal/packagelayout/component.textproto; \
+	selfcheck_stage_component "$arcc_bin" "$map_path" internal/layoutdriverhook/component.textproto; \
 	selfcheck_stage_component "$arcc_bin" "$map_path" internal/schema/component.textproto; \
 	selfcheck_stage_component "$arcc_bin" "$map_path" internal/schema/gen/component.textproto; \
 	selfcheck_assert_analysis_defeating_sites internal/schema/gen/component.report.json 15; \

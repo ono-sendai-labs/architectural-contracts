@@ -42,6 +42,7 @@ go_test(
     size = "small",
     srcs = [
         "cache_test.go",
+        "driverhook_test.go",
         "explicit_test.go",
         "export_test.go",
         "generate_test.go",
@@ -57,6 +58,7 @@ go_test(
         "//go/internal/atomicfile",
         "//go/internal/capslockadapter",
         "//go/internal/capslocksymbol",
+        "//go/internal/layoutdriverhook",
         "//go/internal/packagelayout",
         "//go/internal/schema/gen",
         "//go/internal/stdlibauthority",

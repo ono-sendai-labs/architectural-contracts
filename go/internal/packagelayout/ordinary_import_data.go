@@ -475,7 +475,7 @@ func WriteImportGraph(configPath, outputPath string) error {
 	if err := json.Unmarshal(configBytes, &request); err != nil {
 		return fmt.Errorf("decoding import graph request %q: %w", configPath, err)
 	}
-	bctx, err := BuildContextForLayout(&Layout{Platform: request.Platform})
+	tags, err := BuildTagsForLayout(&Layout{Platform: request.Platform})
 	if err != nil {
 		return fmt.Errorf("building import graph target context: %w", err)
 	}
@@ -515,7 +515,7 @@ func WriteImportGraph(configPath, outputPath string) error {
 				continue
 			}
 			seenFiles[file] = true
-			if !FileMatchesBuildConstraintsWithContext(file, bctx) {
+			if !fileMatchesBuildConstraintsWithTags(file, tags) {
 				continue
 			}
 			source, err := os.ReadFile(file)

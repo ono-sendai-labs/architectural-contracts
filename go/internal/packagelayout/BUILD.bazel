@@ -3,13 +3,14 @@ load("@rules_go//go:def.bzl", "go_library", "go_test")
 
 go_library(
     name = "packagelayout",
-    srcs = ["cgo_disabled.go", "cgo_enabled.go", "ordinary_import_data.go", "packagelayout.go", "shape_imports.go", "stdlib_export_data.go"],
+    srcs = ["buildtags.go", "ordinary_import_data.go", "packagelayout.go", "shape_imports.go", "stdlib_export_data.go"],
     importpath = "github.com/ono-sendai-labs/architectural-contracts/go/internal/packagelayout",
     visibility = [
         "//bazel_rules:__subpackages__",
         "//go:__subpackages__",
     ],
     deps = [
+        "//go/internal/packagelayout/internal/hostenv",
         "@org_golang_x_tools//go/packages",
     ],
 )
@@ -17,7 +18,14 @@ go_library(
 go_test(
     name = "packagelayout_test",
     size = "small",
-    srcs = ["dependency_artifacts_test.go", "export_data_test.go", "member_only_driver_test.go", "packagelayout_test.go"],
+    srcs = [
+        "buildtags_test.go",
+        "dependency_artifacts_test.go",
+        "driverhook_test.go",
+        "export_data_test.go",
+        "member_only_driver_test.go",
+        "packagelayout_test.go",
+    ],
     embed = [":packagelayout"],
     deps = [
         "//go/internal/hostpolicy",
@@ -31,14 +39,14 @@ go_test(
 go_component(
     name = "packagelayout_component",
     interface_style = "PACKAGE_SURFACE",
-    component_deps = ["//go/internal/xtools:x-tools"],
+    component_deps = [
+        "//go/internal/packagelayout/internal/hostenv:hostenv_component",
+        "//go/internal/xtools:x-tools",
+    ],
     declared_authority = [
         "FILES",
         "READ_SYSTEM_STATE",
-        "OPERATING_SYSTEM",
-        "MODIFY_SYSTEM_STATE",
         "REFLECT",
-        "RUNTIME",
         "UNSAFE_POINTER",
     ],
     members = ["//go/internal/packagelayout"],

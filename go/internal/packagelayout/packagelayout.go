@@ -32,9 +32,9 @@
 //   - What it provides: Layout/Platform and direct dependency artifact bindings,
 //     Parse, MarshalJSON/UnmarshalJSON,
 //     validateAndResolve (source-backed), validateAndResolveForMemberOnly
-//     (root source plus reachable export data), BuildContextForLayout
-//     (target-derived release and tool tags), FileMatchesBuildConstraintsWithContext,
-//     survivingSourceFiles, discoverStdlibWithContext, StdlibLayout,
+//     (root source plus reachable export data), BuildTagsForLayout
+//     (target-derived release and tool tags), FileMatchesBuildConstraints,
+//     survivingSourceFiles, discoverStdlibWithTags, StdlibLayout,
 //     IsStdlibPackage, ShapeImports, WriteImportGraph, MergeImportGraphLayout,
 //     WithDriverEnv, IsLayoutMode/GetActiveLayout, and CheckMu.
 //   - Ambient Authority: This is a shell component serving package loading.
@@ -51,12 +51,10 @@
 package packagelayout
 
 import (
-	"bufio"
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"go/build"
-	"go/build/constraint"
 	"go/scanner"
 	"go/token"
 	"go/types"
@@ -64,7 +62,6 @@ import (
 	"os"
 	"path"
 	"path/filepath"
-	"runtime"
 	"slices"
 	"sort"
 	"strconv"
@@ -72,6 +69,7 @@ import (
 	"sync"
 	"unicode"
 
+	"github.com/ono-sendai-labs/architectural-contracts/go/internal/packagelayout/internal/hostenv"
 	"golang.org/x/tools/go/packages"
 )
 
@@ -182,8 +180,8 @@ type UnresolvedImport struct {
 //
 // When present, goos and goarch are required target values, build_tags are the
 // user-supplied build tags, and cgo_enabled controls the cgo build constraint.
-// When absent, validation uses a copy of build.Default for compatibility with
-// hand-written layouts. The remaining build.Context defaults, including GOROOT,
+// When absent, validation uses native defaults for compatibility with
+// hand-written layouts. The remaining BuildTags defaults, including GOROOT,
 // compiler, tool tags, and release tags, are retained in either case.
 type Platform struct {
 	// GOOS is the target operating system, such as linux or windows.
@@ -236,9 +234,9 @@ func discoverStdlib(sdkRoot string) ([]*packages.Package, error) {
 		return nil, nil
 	}
 
-	bctx := nativeBuildContext()
-	bctx.GOROOT = filepath.Dir(sdkRoot)
-	return discoverStdlibWithContext(sdkRoot, bctx)
+	tags := nativeBuildTags()
+	tags.GOROOT = filepath.Dir(sdkRoot)
+	return discoverStdlibWithTags(sdkRoot, tags)
 }
 
 // supportedGoTargets mirrors the Go 1.26 target list reported by
@@ -293,86 +291,6 @@ func supportedGoTarget(goos, goarch string) bool {
 		}
 	}
 	return false
-}
-
-// BuildContextForLayout returns the build context declared by l. Its native
-// baseline is assembled from the running toolchain identity rather than the
-// mutable build.Default value: the latter is itself an unanalyzable source
-// boundary, while this package needs its own target-context operations to be
-// visible to the component checker.
-func BuildContextForLayout(l *Layout) (build.Context, error) {
-	bctx := nativeBuildContext()
-	bctx.BuildTags = slices.Clone(bctx.BuildTags)
-	bctx.ToolTags = slices.Clone(bctx.ToolTags)
-	bctx.ReleaseTags = slices.Clone(bctx.ReleaseTags)
-	if l == nil || l.Platform == nil {
-		return bctx, nil
-	}
-
-	platform := l.Platform
-	if !supportedGOOS(platform.GOOS) {
-		return build.Context{}, fmt.Errorf("platform.goos has invalid value %q", platform.GOOS)
-	}
-	if !supportedGOARCH(platform.GOARCH) {
-		return build.Context{}, fmt.Errorf("platform.goarch has invalid value %q", platform.GOARCH)
-	}
-	if !supportedGoTarget(platform.GOOS, platform.GOARCH) {
-		return build.Context{}, fmt.Errorf("platform.goarch has unsupported value %q for goos %q", platform.GOARCH, platform.GOOS)
-	}
-	bctx.GOOS = platform.GOOS
-	bctx.GOARCH = platform.GOARCH
-	bctx.BuildTags = append([]string(nil), platform.BuildTags...)
-	bctx.CgoEnabled = platform.CgoEnabled
-
-	// A pinned platform describes a target toolchain, so the tool-derived
-	// tags derive from the target instead of the binary that produced the
-	// layout. A platform block that names neither optional field keeps the
-	// legacy behaviour exactly (host-default release and tool tags).
-	pinned := platform.ToolchainVersion != nil || platform.GOEXPERIMENT != nil
-	if pinned {
-		if platform.ToolchainVersion != nil {
-			tags, err := releaseTagsForVersion(*platform.ToolchainVersion)
-			if err != nil {
-				return build.Context{}, err
-			}
-			bctx.ReleaseTags = tags
-		}
-		goexperiment := ""
-		if platform.GOEXPERIMENT != nil {
-			goexperiment = *platform.GOEXPERIMENT
-		}
-		experiments, err := effectiveExperimentTags(platform.GOOS, platform.GOARCH, goexperiment)
-		if err != nil {
-			return build.Context{}, err
-		}
-		// The target GOARCH's default arch feature tags; a non-default arch
-		// feature level (GOAMD64=v2+, GOARM64=v9, …) is out of scope and must
-		// not be silently taken from the host.
-		bctx.ToolTags = defaultArchToolTags(platform.GOARCH)
-		bctx.ToolTags = append(bctx.ToolTags, experiments...)
-		sort.Strings(bctx.ToolTags)
-	}
-	return bctx, nil
-}
-
-// nativeBuildContext reconstructs the fields of build.Default that the layout
-// code consumes. The target-specific release and experiment helpers below are
-// also used for pinned layouts, so native and explicit-input modes share one
-// deterministic context shape without reading build.Default.
-func nativeBuildContext() build.Context {
-	releaseTags, _ := releaseTagsForVersion(runtime.Version())
-	toolTags := baselineExperimentTags(runtime.GOOS, runtime.GOARCH)
-	toolTags = append(toolTags, defaultArchToolTags(runtime.GOARCH)...)
-	return build.Context{
-		GOOS:        runtime.GOOS,
-		GOARCH:      runtime.GOARCH,
-		GOROOT:      runtime.GOROOT(),
-		GOPATH:      os.Getenv("GOPATH"),
-		CgoEnabled:  nativeCgoEnabled,
-		Compiler:    runtime.Compiler,
-		ToolTags:    toolTags,
-		ReleaseTags: releaseTags,
-	}
 }
 
 // baselineExperimentTags mirrors internal/buildcfg's baseline experiment
@@ -500,18 +418,18 @@ func defaultArchToolTags(goarch string) []string {
 	}
 }
 
-func discoverStdlibWithContext(sdkRoot string, bctx build.Context) ([]*packages.Package, error) {
-	pkgs, _, err := discoverStdlibTree(sdkRoot, bctx)
+func discoverStdlibWithTags(sdkRoot string, tags BuildTags) ([]*packages.Package, error) {
+	pkgs, _, err := discoverStdlibTree(sdkRoot, tags)
 	return pkgs, err
 }
 
 // discoverStdlibTree walks the standard library source tree rooted at sdkRoot
-// and classifies every directory under the go/build rules for bctx: pkgs are
+// and classifies every directory under the go/build rules for tags: pkgs are
 // the discovered packages (sorted, with the resolved import graph), noGoDirs
 // the directories that exist but whose every Go file the target's build
 // constraints exclude or that carry no Go sources at all (`go list std` still
 // lists such packages, with no files).
-func discoverStdlibTree(sdkRoot string, bctx build.Context) ([]*packages.Package, []string, error) {
+func discoverStdlibTree(sdkRoot string, tags BuildTags) ([]*packages.Package, []string, error) {
 
 	fi, err := os.Stat(sdkRoot)
 	if err != nil {
@@ -556,7 +474,7 @@ func discoverStdlibTree(sdkRoot string, bctx build.Context) ([]*packages.Package
 			// With cgo disabled, the go tool's std-package walk ignores the
 			// runtime/cgo directory entirely (its non-cgo Go files would
 			// otherwise make the package look buildable).
-			if importPath == "runtime/cgo" && !bctx.CgoEnabled {
+			if importPath == "runtime/cgo" && !tags.CgoEnabled {
 				return filepath.SkipDir
 			}
 			packageDirs = append(packageDirs, path)
@@ -578,7 +496,7 @@ func discoverStdlibTree(sdkRoot string, bctx build.Context) ([]*packages.Package
 	discovered := make([]discoveredPackage, 0, len(packageDirs)+1)
 
 	for _, path := range packageDirs {
-		name, goFiles, imports, err := scanSDKPackageDir(path, bctx)
+		name, goFiles, imports, err := scanSDKPackageDir(path, tags)
 		if err != nil {
 			if _, ok := err.(*noGoPackageError); ok {
 				noGoDirs = append(noGoDirs, path)
@@ -697,7 +615,7 @@ func (e *noGoPackageError) Error() string {
 // walk does not need a typed AST: go/scanner is sufficient for the compiler's
 // file-selection metadata and avoids making package discovery itself an
 // analysis-defeating parser edge.
-func scanSDKPackageDir(dir string, bctx build.Context) (string, []string, []string, error) {
+func scanSDKPackageDir(dir string, tags BuildTags) (string, []string, []string, error) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return "", nil, nil, err
@@ -712,7 +630,7 @@ func scanSDKPackageDir(dir string, bctx build.Context) (string, []string, []stri
 			continue
 		}
 		path := filepath.Join(dir, name)
-		if !FileMatchesBuildConstraintsWithContext(path, bctx) {
+		if !fileMatchesBuildConstraintsWithTags(path, tags) {
 			continue
 		}
 		source, err := os.ReadFile(path)
@@ -723,7 +641,7 @@ func scanSDKPackageDir(dir string, bctx build.Context) (string, []string, []stri
 		if err != nil {
 			return "", nil, nil, err
 		}
-		if usesCgo && !bctx.CgoEnabled {
+		if usesCgo && !tags.CgoEnabled {
 			continue
 		}
 		if packageName == "" {
@@ -984,7 +902,7 @@ func noGoPackageName(dir string) (string, bool) {
 // `go list std` omits a package whose every non-test file the target's
 // constraints exclude, but it still names a test-only package (one whose
 // every .go file is a _test.go file), so only the latter becomes a node.
-func hasNonTestGoSource(dir string, bctx build.Context) bool {
+func hasNonTestGoSource(dir string, tags BuildTags) bool {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return false
@@ -1002,7 +920,7 @@ func hasNonTestGoSource(dir string, bctx build.Context) bool {
 			return true
 		}
 		_, _, usesCgo, err := scanGoSource(filepath.Join(dir, name), source)
-		if err != nil || !usesCgo || bctx.CgoEnabled {
+		if err != nil || !usesCgo || tags.CgoEnabled {
 			return true
 		}
 	}
@@ -1013,7 +931,7 @@ func hasNonTestGoSource(dir string, bctx build.Context) bool {
 	return false
 }
 
-func hasBuildableTestSource(dir string, bctx build.Context) bool {
+func hasBuildableTestSource(dir string, tags BuildTags) bool {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return false
@@ -1024,7 +942,7 @@ func hasBuildableTestSource(dir string, bctx build.Context) bool {
 			continue
 		}
 		path := filepath.Join(dir, name)
-		if !FileMatchesBuildConstraintsWithContext(path, bctx) {
+		if !fileMatchesBuildConstraintsWithTags(path, tags) {
 			continue
 		}
 		source, err := os.ReadFile(path)
@@ -1032,7 +950,7 @@ func hasBuildableTestSource(dir string, bctx build.Context) bool {
 			continue
 		}
 		_, _, usesCgo, err := scanGoSource(path, source)
-		if err == nil && (!usesCgo || bctx.CgoEnabled) {
+		if err == nil && (!usesCgo || tags.CgoEnabled) {
 			return true
 		}
 	}
@@ -1426,7 +1344,7 @@ func validateAndResolve(l *Layout, workspaceDir string) (err error) {
 	}
 	l.DependencyArtifactBindings = bindingCloned
 
-	bctx, err := BuildContextForLayout(l)
+	tags, err := BuildTagsForLayout(l)
 	if err != nil {
 		return err
 	}
@@ -1460,9 +1378,9 @@ func validateAndResolve(l *Layout, workspaceDir string) (err error) {
 
 	// First, discover and merge standard library packages if GoSDKRoot is set.
 	if l.GoSDKRoot != "" {
-		stdlibContext := bctx
-		stdlibContext.GOROOT = filepath.Dir(l.GoSDKRoot)
-		stdPkgs, err := discoverStdlibWithContext(l.GoSDKRoot, stdlibContext)
+		stdlibTags := tags
+		stdlibTags.GOROOT = filepath.Dir(l.GoSDKRoot)
+		stdPkgs, err := discoverStdlibWithTags(l.GoSDKRoot, stdlibTags)
 		if err != nil {
 			return fmt.Errorf("discovering standard library: %w", err)
 		}
@@ -1536,8 +1454,8 @@ func validateAndResolve(l *Layout, workspaceDir string) (err error) {
 			continue
 		}
 		hadGoSources := hasGoSources(p.GoFiles) || hasGoSources(p.CompiledGoFiles)
-		p.GoFiles = filterByBuildConstraintsWithContext(p.GoFiles, bctx)
-		p.CompiledGoFiles = filterByBuildConstraintsWithContext(p.CompiledGoFiles, bctx)
+		p.GoFiles = filterByBuildConstraintsWithTags(p.GoFiles, tags)
+		p.CompiledGoFiles = filterByBuildConstraintsWithTags(p.CompiledGoFiles, tags)
 		if hadGoSources && !hasGoSources(p.GoFiles) && !hasGoSources(p.CompiledGoFiles) {
 			return fmt.Errorf("package %q has no Go sources after the declared platform excluded every Go source", p.PkgPath)
 		}
@@ -1753,7 +1671,7 @@ func validateAndResolveForMemberOnly(l *Layout, workspaceDir string) (err error)
 		l.DependencyArtifactBindings = bindingCloned
 	}
 
-	bctx, err := BuildContextForLayout(l)
+	tags, err := BuildTagsForLayout(l)
 	if err != nil {
 		return err
 	}
@@ -1824,8 +1742,8 @@ func validateAndResolveForMemberOnly(l *Layout, workspaceDir string) (err error)
 		if !l.IsStdlibPackage(p) {
 			hadGoSources := hasGoSources(p.GoFiles) || hasGoSources(p.CompiledGoFiles)
 			var ignoredByConstraints []string
-			p.GoFiles, ignoredByConstraints = splitGoFilesByBuildConstraints(p.GoFiles, bctx)
-			selectedCompiledFiles, ignoredCompiledFiles := splitGoFilesByBuildConstraints(p.CompiledGoFiles, bctx)
+			p.GoFiles, ignoredByConstraints = splitGoFilesByBuildConstraints(p.GoFiles, tags)
+			selectedCompiledFiles, ignoredCompiledFiles := splitGoFilesByBuildConstraints(p.CompiledGoFiles, tags)
 			p.CompiledGoFiles = selectedCompiledFiles
 			p.IgnoredFiles = mergeFileRoles(p.IgnoredFiles, ignoredByConstraints, ignoredCompiledFiles)
 			if hadGoSources && !hasGoSources(p.GoFiles) && !hasGoSources(p.CompiledGoFiles) {
@@ -1939,13 +1857,13 @@ func sourceImportsForPackage(p *packages.Package) (map[string]bool, error) {
 // existence) is kept rather than dropped, so this never removes a file it failed
 // to read. Non-.go entries are passed through unchanged.
 func filterByBuildConstraints(files []string) []string {
-	return filterByBuildConstraintsWithContext(files, nativeBuildContext())
+	return filterByBuildConstraintsWithTags(files, nativeBuildTags())
 }
 
-func filterByBuildConstraintsWithContext(files []string, bctx build.Context) []string {
+func filterByBuildConstraintsWithTags(files []string, tags BuildTags) []string {
 	kept := make([]string, 0, len(files))
 	for _, f := range files {
-		if FileMatchesBuildConstraintsWithContext(f, bctx) {
+		if fileMatchesBuildConstraintsWithTags(f, tags) {
 			kept = append(kept, f)
 		}
 	}
@@ -1956,7 +1874,7 @@ func filterByBuildConstraintsWithContext(files []string, bctx build.Context) []s
 // from the files the target declares but excludes. The latter are still member
 // metadata: ScanAnalysisDefeats must inspect them for directives and cgo syntax,
 // while go/packages must never receive them as source roots (DR-11).
-func splitGoFilesByBuildConstraints(files []string, bctx build.Context) (selected, ignored []string) {
+func splitGoFilesByBuildConstraints(files []string, tags BuildTags) (selected, ignored []string) {
 	selected = make([]string, 0, len(files))
 	ignored = make([]string, 0, len(files))
 	seen := make(map[string]bool, len(files))
@@ -1965,7 +1883,7 @@ func splitGoFilesByBuildConstraints(files []string, bctx build.Context) (selecte
 			continue
 		}
 		seen[file] = true
-		if FileMatchesBuildConstraintsWithContext(file, bctx) {
+		if fileMatchesBuildConstraintsWithTags(file, tags) {
 			selected = append(selected, file)
 		} else {
 			ignored = append(ignored, file)
@@ -2002,72 +1920,7 @@ func mergeFileRoles(lists ...[]string) []string {
 // constraints cannot be evaluated (e.g. unreadable), are reported as matching,
 // so this never reports a file as excluded merely because it failed to read it.
 func fileMatchesBuildConstraints(path string) bool {
-	return FileMatchesBuildConstraintsWithContext(path, nativeBuildContext())
-}
-
-func leadingBuildConstraint(path string) (string, constraint.Expr, bool) {
-	file, err := os.Open(path)
-	if err != nil {
-		return "", nil, false
-	}
-	defer file.Close()
-
-	var legacy string
-	var legacyExpr constraint.Expr
-	var goBuild string
-	var goBuildExpr constraint.Expr
-	sourceScanner := bufio.NewScanner(file)
-	for sourceScanner.Scan() {
-		line := strings.TrimSpace(sourceScanner.Text())
-		if line == "" {
-			continue
-		}
-		if !strings.HasPrefix(line, "//") {
-			break
-		}
-		if constraint.IsGoBuild(line) {
-			if expression, err := constraint.Parse(line); err == nil && goBuild == "" {
-				goBuild = strings.Join(strings.Fields(line), " ")
-				goBuildExpr = expression
-			}
-		}
-		if constraint.IsPlusBuild(line) && legacy == "" {
-			if expression, err := constraint.Parse(line); err == nil {
-				legacy = strings.Join(strings.Fields(line), " ")
-				legacyExpr = expression
-			}
-		}
-	}
-	if sourceScanner.Err() != nil {
-		return "", nil, false
-	}
-	if goBuildExpr != nil {
-		return goBuild, goBuildExpr, true
-	}
-	if legacyExpr != nil {
-		return legacy, legacyExpr, true
-	}
-	return "", nil, false
-}
-
-func filenameMatchesBuildContext(name string, bctx build.Context) bool {
-	if !strings.HasSuffix(name, ".go") {
-		return true
-	}
-	base := strings.TrimSuffix(name, ".go")
-	base = strings.TrimSuffix(base, "_test")
-	parts := strings.Split(base, "_")
-	if len(parts) < 2 {
-		return true
-	}
-	last := parts[len(parts)-1]
-	if len(parts) >= 3 && isFilenameGOOS(parts[len(parts)-2]) && isFilenameGOARCH(last) {
-		return buildContextHasTag(bctx, parts[len(parts)-2]) && buildContextHasTag(bctx, last)
-	}
-	if isFilenameGOOS(last) || isFilenameGOARCH(last) {
-		return buildContextHasTag(bctx, last)
-	}
-	return true
+	return fileMatchesBuildConstraintsWithTags(path, nativeBuildTags())
 }
 
 func isFilenameGOOS(value string) bool {
@@ -2086,53 +1939,6 @@ func isFilenameGOARCH(value string) bool {
 	default:
 		return false
 	}
-}
-
-func buildContextHasTag(bctx build.Context, tag string) bool {
-	if tag == "cgo" {
-		return bctx.CgoEnabled
-	}
-	if tag == bctx.GOOS || tag == bctx.GOARCH || tag == bctx.Compiler {
-		return true
-	}
-	if (bctx.GOOS == "android" && tag == "linux") ||
-		(bctx.GOOS == "illumos" && tag == "solaris") ||
-		(bctx.GOOS == "ios" && tag == "darwin") {
-		return true
-	}
-	if tag == "unix" {
-		switch bctx.GOOS {
-		case "aix", "android", "darwin", "dragonfly", "freebsd", "illumos", "ios", "linux", "netbsd", "openbsd", "solaris":
-			return true
-		}
-	}
-	if tag == "boringcrypto" {
-		tag = "goexperiment.boringcrypto"
-	}
-	for _, candidate := range append(append(append([]string{}, bctx.BuildTags...), bctx.ToolTags...), bctx.ReleaseTags...) {
-		if candidate == tag {
-			return true
-		}
-	}
-	return false
-}
-
-// FileMatchesBuildConstraintsWithContext is FileMatchesBuildConstraints for an
-// explicit analysis context. Non-Go paths, and files whose constraints cannot
-// be evaluated because they cannot be read, are reported as matching.
-func FileMatchesBuildConstraintsWithContext(path string, bctx build.Context) bool {
-	if !strings.HasSuffix(path, ".go") {
-		return true
-	}
-	if !filenameMatchesBuildContext(filepath.Base(path), bctx) {
-		return false
-	}
-	if _, expression, ok := leadingBuildConstraint(path); ok {
-		return expression.Eval(func(tag string) bool {
-			return buildContextHasTag(bctx, tag)
-		})
-	}
-	return true
 }
 
 func hasGoSources(files []string) bool {
@@ -2497,7 +2303,7 @@ func handleDriverRequest(l *Layout, req *packages.DriverRequest, patterns []stri
 	// layout that pins a platform describes that target, not the binary
 	// serving the layout, so the platform's GOARCH wins; layouts without a
 	// platform block keep the running binary's arch.
-	arch := runtime.GOARCH
+	arch := hostenv.NativeTargetDefaults().GOARCH
 	if l.Platform != nil {
 		arch = l.Platform.GOARCH
 	}
@@ -2523,12 +2329,12 @@ func StdlibLayout(sdkRoot string, platform *Platform) (*Layout, error) {
 		return nil, errors.New("computing the whole-stdlib layout: a target platform is required")
 	}
 	pseudo := &Layout{GoSDKRoot: sdkRoot, Platform: platform}
-	bctx, err := BuildContextForLayout(pseudo)
+	tags, err := BuildTagsForLayout(pseudo)
 	if err != nil {
 		return nil, fmt.Errorf("computing the whole-stdlib layout: %w", err)
 	}
-	bctx.GOROOT = filepath.Dir(sdkRoot)
-	pkgs, noGoDirs, err := discoverStdlibTree(sdkRoot, bctx)
+	tags.GOROOT = filepath.Dir(sdkRoot)
+	pkgs, noGoDirs, err := discoverStdlibTree(sdkRoot, tags)
 	if err != nil {
 		return nil, fmt.Errorf("computing the whole-stdlib layout: %w", err)
 	}
@@ -2538,7 +2344,7 @@ func StdlibLayout(sdkRoot string, platform *Platform) (*Layout, error) {
 	// off, arena without its experiment), so the driver must be able to serve
 	// its pattern — with no files, exactly as go list reports it.
 	for _, dir := range noGoDirs {
-		if hasNonTestGoSource(dir, bctx) || !hasBuildableTestSource(dir, bctx) {
+		if hasNonTestGoSource(dir, tags) || !hasBuildableTestSource(dir, tags) {
 			// A non-test directory whose every file the target's constraints
 			// exclude is not listed by `go list std`; no node.
 			continue
@@ -2587,10 +2393,20 @@ func StdlibLayout(sdkRoot string, platform *Platform) (*Layout, error) {
 }
 
 // runDriver executes the complete GOPACKAGESDRIVER protocol logic. It reads
-// the DriverRequest from stdin, resolves patterns from args, reads the layout
-// file, validates and resolves paths, processes the query, and writes the
-// JSON response to stdout.
+// the layout file and delegates to RunDriver.
 func runDriver(layoutPath string, workspaceDir string, patterns []string, stdin io.Reader, stdout io.Writer) error {
+	if layoutPath == "" {
+		return errors.New("package-layout file path is required")
+	}
+	layout, err := os.ReadFile(layoutPath)
+	if err != nil {
+		return fmt.Errorf("opening package-layout: %w", err)
+	}
+	return RunDriver(layout, layoutPath, workspaceDir, patterns, stdin, stdout)
+}
+
+// RunDriver executes the complete GOPACKAGESDRIVER protocol logic against parsed layout bytes.
+func RunDriver(layout []byte, layoutPath, workspaceDir string, patterns []string, stdin io.Reader, stdout io.Writer) error {
 	// Read and parse DriverRequest.
 	var req packages.DriverRequest
 	if err := json.NewDecoder(stdin).Decode(&req); err != nil {
@@ -2599,29 +2415,19 @@ func runDriver(layoutPath string, workspaceDir string, patterns []string, stdin 
 		}
 	}
 
-	if layoutPath == "" {
-		return errors.New("package-layout file path is required")
-	}
-
-	f, err := os.Open(layoutPath)
-	if err != nil {
-		return fmt.Errorf("opening package-layout: %w", err)
-	}
-	defer f.Close()
-
-	layout, err := Parse(f)
+	parsed, err := Parse(bytes.NewReader(layout))
 	if err != nil {
 		return err
 	}
-	if err := attachLayoutPathContext(layout, layoutPath, workspaceDir); err != nil {
+	if err := attachLayoutPathContext(parsed, layoutPath, workspaceDir); err != nil {
 		return fmt.Errorf("resolving layout runtime metadata: %w", err)
 	}
 
-	if err := validateForDriver(layout, workspaceDir); err != nil {
+	if err := validateForDriver(parsed, workspaceDir); err != nil {
 		return fmt.Errorf("validating layout: %w", err)
 	}
 
-	resp, err := handleDriverRequest(layout, &req, patterns)
+	resp, err := handleDriverRequest(parsed, &req, patterns)
 	if err != nil {
 		return fmt.Errorf("handling driver request: %w", err)
 	}
@@ -2706,33 +2512,24 @@ func withTemporaryLayout(layoutPath string, fn func() error) error {
 		return fmt.Errorf("validating dependency layout file: %w", err)
 	}
 
-	// Capture original layout state and env
-	origLayoutPath := activeLayoutPath
-	origLayout := activeLayout
-	origEnvLayout, hasEnvLayout := os.LookupEnv("ARCC_PACKAGE_LAYOUT")
+	return hostenv.WithLayoutEnv(layoutPath, func() error {
+		activeMu.Lock()
+		origLayoutPath := activeLayoutPath
+		origLayout := activeLayout
 
-	// Set temporary layout
-	activeLayoutPath = layoutPath
-	activeLayout = layout
-	os.Setenv("ARCC_PACKAGE_LAYOUT", layoutPath)
+		activeLayoutPath = layoutPath
+		activeLayout = layout
+		activeMu.Unlock()
 
-	activeMu.Unlock()
+		defer func() {
+			activeMu.Lock()
+			activeLayoutPath = origLayoutPath
+			activeLayout = origLayout
+			activeMu.Unlock()
+		}()
 
-	// Run callback
-	err = fn()
-
-	activeMu.Lock()
-	// Restore original layout state and env
-	activeLayoutPath = origLayoutPath
-	activeLayout = origLayout
-	if !hasEnvLayout {
-		os.Unsetenv("ARCC_PACKAGE_LAYOUT")
-	} else {
-		os.Setenv("ARCC_PACKAGE_LAYOUT", origEnvLayout)
-	}
-	activeMu.Unlock()
-
-	return err
+		return fn()
+	})
 }
 
 // WithDriverEnv configures GOPACKAGESDRIVER to point to the current executable
@@ -2760,94 +2557,30 @@ func WithDriverEnv(layoutPath, workspaceDir string, fn func() error) error {
 		return fmt.Errorf("validating layout file: %w", err)
 	}
 
-	// Capture original environment presence and values
-	origDriver, hasDriver := os.LookupEnv("GOPACKAGESDRIVER")
-	origLayout, hasLayout := os.LookupEnv("ARCC_PACKAGE_LAYOUT")
-	origWorkspace, hasWorkspace := os.LookupEnv("ARCC_WORKSPACE_DIR")
-	origDriverMode, hasDriverMode := os.LookupEnv("ARCC_DRIVER_MODE")
+	return hostenv.WithDriverEnv(layoutPath, workspaceDir, func() error {
+		activeMu.Lock()
+		origActiveLayout := activeLayout
+		origActiveLayoutPath := activeLayoutPath
+		origActiveWorkspaceDir := activeWorkspaceDir
 
-	activeMu.Lock()
-	origActiveLayout := activeLayout
-	origActiveLayoutPath := activeLayoutPath
-	origActiveWorkspaceDir := activeWorkspaceDir
-
-	executable, err := os.Executable()
-	if err != nil {
+		activeLayout = layout
+		activeLayoutPath = layoutPath
+		activeWorkspaceDir = workspaceDir
 		activeMu.Unlock()
-		return fmt.Errorf("getting executable path: %w", err)
-	}
 
-	// Set environment variables
-	os.Setenv("GOPACKAGESDRIVER", executable)
-	os.Setenv("ARCC_PACKAGE_LAYOUT", layoutPath)
-	os.Setenv("ARCC_WORKSPACE_DIR", workspaceDir)
-	os.Setenv("ARCC_DRIVER_MODE", "1")
+		defer func() {
+			activeMu.Lock()
+			activeLayout = origActiveLayout
+			activeLayoutPath = origActiveLayoutPath
+			activeWorkspaceDir = origActiveWorkspaceDir
+			activeMu.Unlock()
+		}()
 
-	activeLayout = layout
-	activeLayoutPath = layoutPath
-	activeWorkspaceDir = workspaceDir
-	activeMu.Unlock()
-
-	// Run the callback
-	err = fn()
-
-	activeMu.Lock()
-	// Restore original environment and variables
-	if !hasDriver {
-		os.Unsetenv("GOPACKAGESDRIVER")
-	} else {
-		os.Setenv("GOPACKAGESDRIVER", origDriver)
-	}
-
-	if !hasLayout {
-		os.Unsetenv("ARCC_PACKAGE_LAYOUT")
-	} else {
-		os.Setenv("ARCC_PACKAGE_LAYOUT", origLayout)
-	}
-
-	if !hasWorkspace {
-		os.Unsetenv("ARCC_WORKSPACE_DIR")
-	} else {
-		os.Setenv("ARCC_WORKSPACE_DIR", origWorkspace)
-	}
-
-	if !hasDriverMode {
-		os.Unsetenv("ARCC_DRIVER_MODE")
-	} else {
-		os.Setenv("ARCC_DRIVER_MODE", origDriverMode)
-	}
-
-	activeLayout = origActiveLayout
-	activeLayoutPath = origActiveLayoutPath
-	activeWorkspaceDir = origActiveWorkspaceDir
-	activeMu.Unlock()
-
-	return err
+		return fn()
+	})
 }
 
-// init serves the GOPACKAGESDRIVER self-exec protocol when this process was
-// spawned as the driver, then exits without returning to the caller.
-//
-// The dispatch is deliberately an init rather than a call from cmd/arcc's main.
-// WithDriverEnv points GOPACKAGESDRIVER at os.Executable(), so the driver
-// subprocess is whatever binary ran the check — and for the in-process
-// layout-mode integration tests that binary is the `go test` binary, whose main
-// belongs to the testing framework. An init is the only hook that runs before
-// it in both cases.
-//
-// Selection is keyed solely on the private ARCC_DRIVER_MODE marker, which
-// WithDriverEnv sets and restores, so driver mode can never be reached through
-// a user-facing subcommand. No blank import is needed to keep this alive:
-// cmd/arcc/app depends on this package directly.
-func init() {
-	if os.Getenv("ARCC_DRIVER_MODE") == "1" {
-		layoutPath := os.Getenv("ARCC_PACKAGE_LAYOUT")
-		workspaceDir := os.Getenv("ARCC_WORKSPACE_DIR")
-		patterns := os.Args[1:]
-		if err := runDriver(layoutPath, workspaceDir, patterns, os.Stdin, os.Stdout); err != nil {
-			fmt.Fprintf(os.Stderr, "GOPACKAGESDRIVER error: %v\n", err)
-			os.Exit(1)
-		}
-		os.Exit(0)
-	}
-}
+// The GOPACKAGESDRIVER self-exec protocol hook is owned by
+// github.com/ono-sendai-labs/architectural-contracts/go/internal/layoutdriverhook.
+// When a process is spawned as the driver, that package's init() intercepts execution,
+// runs RunDriver, and exits.

@@ -39,6 +39,10 @@ component_dependencies {
   manifest: "../../internal/manifest/component.textproto"
 }
 component_dependencies {
+  name: "layout-driver-hook"
+  manifest: "../../internal/layoutdriverhook/component.textproto"
+}
+component_dependencies {
   name: "packagelayout"
   manifest: "../../internal/packagelayout/component.textproto"
 }

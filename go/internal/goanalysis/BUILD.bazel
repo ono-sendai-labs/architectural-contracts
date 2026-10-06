@@ -1,7 +1,5 @@
 load(
     "@rules_arcc//bazel_rules/go:defs.bzl",
-    "READ_SYSTEM_STATE",
-    "RUNTIME",
     "go_component",
 )
 load("@rules_go//go:def.bzl", "go_library")
@@ -63,11 +61,7 @@ go_component(
         "//go/internal/hostpolicy:hostpolicy_component",
         "//go/internal/packagelayout:packagelayout_component",
     ],
-    declared_authority = [
-        # READ_SYSTEM_STATE and RUNTIME are the go/build and runtime import charges per F12, removed in Step 11.
-        READ_SYSTEM_STATE,
-        RUNTIME,
-    ],
+    declared_authority = [],
     interface_files = [
         "defeatscan.go",
         "goanalysis.go",

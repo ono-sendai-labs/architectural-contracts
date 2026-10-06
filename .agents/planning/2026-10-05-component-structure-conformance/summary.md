@@ -1,13 +1,15 @@
 # Component structure conformance — summary
 
-**Date:** 2026-10-05 · **Revised:** 2026-10-05 (R1, R2) · **Status:** Steps 1–10 of 16
+**Date:** 2026-10-05 · **Revised:** 2026-10-05 (R1, R2) · **Status:** Steps 1–11 of 16
 done (probe script, conventions, spikes S1/S2/S3/S4 resolved, `interface_files` landed,
 Step 3 hygiene/unexports/dead-dep removal complete, Step 4 `atomicfile` extracted,
 Step 5 `artifactio` authority-free + `reportio` split, Step 6 `checker` interface
 shrunk to `checker.go`, Step 7 `capslocksymbol` split from `symbol`, Step 8 `schema` +
 `schema-gen` split and expected-fail gate retired, Step 9 `capslock-runtime` wrapper
 extracted and `capslockadapter` shrunk to strict `REFLECT`, Step 10 `goanalysis-hostfs`
-nested sub-component landed and `FILES` removed from `goanalysis`); Steps 11–16 in progress
+nested sub-component landed and `FILES` removed from `goanalysis`, Step 11
+`packagelayout-hostenv`, `layout-driver-hook`, and `BuildTags` landed and `goanalysis`
+now authority-free); Steps 12–16 in progress
 
 ## What this is
 

@@ -52,6 +52,3 @@ component_dependencies {
   name: "goanalysis-hostfs"
   manifest: "./internal/hostfs/component.textproto"
 }
-# READ_SYSTEM_STATE and RUNTIME are the go/build and runtime import charges per F12, removed in Step 11.
-declared_authority: "READ_SYSTEM_STATE"
-declared_authority: "RUNTIME"

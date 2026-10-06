@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/hostpolicy"
+	"github.com/ono-sendai-labs/architectural-contracts/go/internal/packagelayout/internal/hostenv"
 	"golang.org/x/tools/go/packages"
 )
 
@@ -1130,12 +1131,11 @@ func TestDiscoverStdlib_DropsCgoPseudoImport(t *testing.T) {
 		t.Fatalf("failed to write cgo fixture: %v", err)
 	}
 
-	bctx := build.Default
-	bctx.GOROOT = filepath.Dir(sdkSrc)
+	bctx := nativeBuildTags()
 	bctx.CgoEnabled = true
-	pkgs, err := discoverStdlibWithContext(sdkSrc, bctx)
+	pkgs, err := discoverStdlibWithTags(sdkSrc, bctx)
 	if err != nil {
-		t.Fatalf("discoverStdlibWithContext failed: %v", err)
+		t.Fatalf("discoverStdlibWithTags failed: %v", err)
 	}
 
 	cgoPkg := packageByID(pkgs, "cgo")
@@ -1147,7 +1147,7 @@ func TestDiscoverStdlib_DropsCgoPseudoImport(t *testing.T) {
 	}
 }
 
-func TestDiscoverStdlibWithContextUsesDeclaredPlatform(t *testing.T) {
+func TestDiscoverStdlibWithTagsUsesDeclaredPlatform(t *testing.T) {
 	tmpDir := t.TempDir()
 	sdkSrc := filepath.Join(tmpDir, "src")
 	pkgDir := filepath.Join(sdkSrc, "platformpkg")
@@ -1162,13 +1162,12 @@ func TestDiscoverStdlibWithContextUsesDeclaredPlatform(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	ctx := build.Default
-	ctx.GOROOT = filepath.Dir(sdkSrc)
+	ctx := nativeBuildTags()
 	ctx.GOOS = "windows"
 	ctx.GOARCH = "amd64"
-	pkgs, err := discoverStdlibWithContext(sdkSrc, ctx)
+	pkgs, err := discoverStdlibWithTags(sdkSrc, ctx)
 	if err != nil {
-		t.Fatalf("discoverStdlibWithContext() error = %v", err)
+		t.Fatalf("discoverStdlibWithTags() error = %v", err)
 	}
 	platformPkg := packageByID(pkgs, "platformpkg")
 	if platformPkg == nil || !reflect.DeepEqual(platformPkg.GoFiles, []string{"platformpkg_windows.go"}) {
@@ -2433,7 +2432,7 @@ func TestFileMatchesBuildConstraints_ExperimentTag(t *testing.T) {
 	if err := os.WriteFile(path, []byte("//go:build goexperiment.jsonv2\n\npackage p\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	ctx, err := BuildContextForLayout(&Layout{Platform: &Platform{
+	tags, err := BuildTagsForLayout(&Layout{Platform: &Platform{
 		GOOS:             "linux",
 		GOARCH:           "amd64",
 		ToolchainVersion: strPtr("go1.26.4"),
@@ -2441,24 +2440,25 @@ func TestFileMatchesBuildConstraints_ExperimentTag(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Logf("target context tool tags: %v", ctx.ToolTags)
-	if FileMatchesBuildConstraintsWithContext(path, ctx) {
-		t.Fatalf("experiment-gated source matched without goexperiment.jsonv2: %#v", ctx.ToolTags)
+	t.Logf("target context tool tags: %v", tags.ToolTags)
+	if fileMatchesBuildConstraintsWithTags(path, tags) {
+		t.Fatalf("experiment-gated source matched without goexperiment.jsonv2: %#v", tags.ToolTags)
 	}
 	sdkFile := filepath.Join(build.Default.GOROOT, "src", "encoding", "json", "internal", "internal.go")
-	if _, err := os.Stat(sdkFile); err == nil && FileMatchesBuildConstraintsWithContext(sdkFile, ctx) {
+	if _, err := os.Stat(sdkFile); err == nil && fileMatchesBuildConstraintsWithTags(sdkFile, tags) {
 		t.Fatalf("real SDK experiment-gated source matched without goexperiment.jsonv2: %s", sdkFile)
 	}
 }
 
-func TestBuildContextForLayout(t *testing.T) {
+func TestBuildTagsForLayout(t *testing.T) {
 	t.Run("absent platform copies defaults", func(t *testing.T) {
-		got, err := BuildContextForLayout(&Layout{})
+		got, err := BuildTagsForLayout(&Layout{})
 		if err != nil {
-			t.Fatalf("BuildContextForLayout() error = %v", err)
+			t.Fatalf("BuildTagsForLayout() error = %v", err)
 		}
-		if got.GOOS != runtime.GOOS || got.GOARCH != runtime.GOARCH || got.CgoEnabled != nativeCgoEnabled {
-			t.Fatalf("default context = %#v, want GOOS=%q GOARCH=%q CgoEnabled=%v", got, runtime.GOOS, runtime.GOARCH, nativeCgoEnabled)
+		defaults := hostenv.NativeTargetDefaults()
+		if got.GOOS != defaults.GOOS || got.GOARCH != defaults.GOARCH || got.CgoEnabled != defaults.CgoEnabled {
+			t.Fatalf("default context = %#v, want GOOS=%q GOARCH=%q CgoEnabled=%v", got, defaults.GOOS, defaults.GOARCH, defaults.CgoEnabled)
 		}
 		got.BuildTags = append(got.BuildTags, "mutated")
 		if slicesEqual(got.BuildTags, build.Default.BuildTags) {
@@ -2473,15 +2473,12 @@ func TestBuildContextForLayout(t *testing.T) {
 			BuildTags:  []string{"purego"},
 			CgoEnabled: true,
 		}}
-		got, err := BuildContextForLayout(layout)
+		got, err := BuildTagsForLayout(layout)
 		if err != nil {
-			t.Fatalf("BuildContextForLayout() error = %v", err)
+			t.Fatalf("BuildTagsForLayout() error = %v", err)
 		}
 		if got.GOOS != "windows" || got.GOARCH != "386" || !got.CgoEnabled || !slicesEqual(got.BuildTags, []string{"purego"}) {
 			t.Fatalf("declared context = %#v", got)
-		}
-		if got.GOROOT != build.Default.GOROOT || got.Compiler != build.Default.Compiler {
-			t.Fatalf("declared context discarded default toolchain fields: %#v", got)
 		}
 	})
 
@@ -2499,9 +2496,9 @@ func TestBuildContextForLayout(t *testing.T) {
 		{name: "unsupported target combination", platform: Platform{GOOS: "windows", GOARCH: "arm"}, want: `platform.goarch has unsupported value "arm" for goos "windows"`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			_, err := BuildContextForLayout(&Layout{Platform: &tc.platform})
+			_, err := BuildTagsForLayout(&Layout{Platform: &tc.platform})
 			if err == nil || err.Error() != tc.want {
-				t.Fatalf("BuildContextForLayout() error = %v, want %q", err, tc.want)
+				t.Fatalf("BuildTagsForLayout() error = %v, want %q", err, tc.want)
 			}
 		})
 	}
@@ -2532,16 +2529,16 @@ func TestPlatformConstraintsUseDeclaredContext(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			ctx, err := BuildContextForLayout(&Layout{Platform: &tc.platform})
+			tags, err := BuildTagsForLayout(&Layout{Platform: &tc.platform})
 			if err != nil {
 				t.Fatal(err)
 			}
-			if got := FileMatchesBuildConstraintsWithContext(tc.file, ctx); got != tc.want {
-				t.Errorf("FileMatchesBuildConstraintsWithContext() = %v, want %v", got, tc.want)
+			if got := fileMatchesBuildConstraintsWithTags(tc.file, tags); got != tc.want {
+				t.Errorf("fileMatchesBuildConstraintsWithTags() = %v, want %v", got, tc.want)
 			}
-			bulk := filterByBuildConstraintsWithContext([]string{tc.file}, ctx)
+			bulk := filterByBuildConstraintsWithTags([]string{tc.file}, tags)
 			if (len(bulk) == 1) != tc.want {
-				t.Errorf("filterByBuildConstraintsWithContext() kept %v, want kept=%v", bulk, tc.want)
+				t.Errorf("filterByBuildConstraintsWithTags() kept %v, want kept=%v", bulk, tc.want)
 			}
 		})
 	}
@@ -2731,15 +2728,15 @@ func TestPlatformToolchainVersionDerivesReleaseTags(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			layout := &Layout{Platform: &Platform{GOOS: "linux", GOARCH: "amd64", ToolchainVersion: optionalStr(tc.version)}}
-			ctx, err := BuildContextForLayout(layout)
+			ctx, err := BuildTagsForLayout(layout)
 			if tc.wantErr != "" {
 				if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
-					t.Fatalf("BuildContextForLayout() error = %v, want containing %q", err, tc.wantErr)
+					t.Fatalf("BuildTagsForLayout() error = %v, want containing %q", err, tc.wantErr)
 				}
 				return
 			}
 			if err != nil {
-				t.Fatalf("BuildContextForLayout() error = %v", err)
+				t.Fatalf("BuildTagsForLayout() error = %v", err)
 			}
 			if tc.version == "" {
 				// Absent toolchain_version keeps the host's release tags.
@@ -2770,9 +2767,9 @@ func TestPlatformGoexperimentDerivesToolTags(t *testing.T) {
 		GOEXPERIMENT:     strPtr("greenteagc,arenayaslicit"),
 		ToolchainVersion: strPtr("go1.26.4"),
 	}}
-	ctx, err := BuildContextForLayout(layout)
+	ctx, err := BuildTagsForLayout(layout)
 	if err != nil {
-		t.Fatalf("BuildContextForLayout() error = %v", err)
+		t.Fatalf("BuildTagsForLayout() error = %v", err)
 	}
 	for _, want := range []string{"goexperiment.greenteagc", "goexperiment.arenayaslicit"} {
 		if !slicesEqual(ctx.ToolTags, appendUnique(ctx.ToolTags, want)) && !containsTag(ctx.ToolTags, want) {
@@ -2798,7 +2795,7 @@ func TestPlatformGoexperimentDerivesToolTags(t *testing.T) {
 	}
 
 	t.Run("no goexperiment keeps the toolchain baseline", func(t *testing.T) {
-		ctx, err := BuildContextForLayout(&Layout{Platform: &Platform{GOOS: "linux", GOARCH: "amd64"}})
+		ctx, err := BuildTagsForLayout(&Layout{Platform: &Platform{GOOS: "linux", GOARCH: "amd64"}})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -2812,7 +2809,7 @@ func TestPlatformGoexperimentDerivesToolTags(t *testing.T) {
 		}
 	})
 	t.Run("goexperiment=none disables every experiment", func(t *testing.T) {
-		ctx, err := BuildContextForLayout(&Layout{Platform: &Platform{GOOS: "linux", GOARCH: "amd64", GOEXPERIMENT: strPtr("none")}})
+		ctx, err := BuildTagsForLayout(&Layout{Platform: &Platform{GOOS: "linux", GOARCH: "amd64", GOEXPERIMENT: strPtr("none")}})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -2821,16 +2818,16 @@ func TestPlatformGoexperimentDerivesToolTags(t *testing.T) {
 		}
 	})
 	t.Run("malformed experiment name fails naming it", func(t *testing.T) {
-		_, err := BuildContextForLayout(&Layout{Platform: &Platform{GOOS: "linux", GOARCH: "amd64", GOEXPERIMENT: strPtr("no-9bad")}})
+		_, err := BuildTagsForLayout(&Layout{Platform: &Platform{GOOS: "linux", GOARCH: "amd64", GOEXPERIMENT: strPtr("no-9bad")}})
 		if err == nil || !strings.Contains(err.Error(), "platform.goexperiment") {
-			t.Fatalf("BuildContextForLayout() error = %v, want naming platform.goexperiment", err)
+			t.Fatalf("BuildTagsForLayout() error = %v, want naming platform.goexperiment", err)
 		}
 	})
 	t.Run("legacy platform without optional fields keeps host behavior", func(t *testing.T) {
 		// A hand-written platform block naming only the pre-task fields must
 		// behave exactly as before (task req 1): host-default release and
 		// tool tags, not target-derived ones.
-		ctx, err := BuildContextForLayout(&Layout{Platform: &Platform{GOOS: "windows", GOARCH: "386", BuildTags: []string{"purego"}}})
+		ctx, err := BuildTagsForLayout(&Layout{Platform: &Platform{GOOS: "windows", GOARCH: "386", BuildTags: []string{"purego"}}})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -2842,7 +2839,7 @@ func TestPlatformGoexperimentDerivesToolTags(t *testing.T) {
 		}
 	})
 	t.Run("no-prefixed override disables a baseline experiment", func(t *testing.T) {
-		ctx, err := BuildContextForLayout(&Layout{Platform: &Platform{GOOS: "linux", GOARCH: "amd64", GOEXPERIMENT: strPtr("nogreenteagc")}})
+		ctx, err := BuildTagsForLayout(&Layout{Platform: &Platform{GOOS: "linux", GOARCH: "amd64", GOEXPERIMENT: strPtr("nogreenteagc")}})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -2874,8 +2871,8 @@ func TestDriverArchReportsPlatformGOARCH(t *testing.T) {
 	if err != nil {
 		t.Fatalf("handleDriverRequest() error = %v", err)
 	}
-	if resp.Arch != runtime.GOARCH {
-		t.Fatalf("driver Arch = %q, want the host arch %q", resp.Arch, runtime.GOARCH)
+	if resp.Arch != hostenv.NativeTargetDefaults().GOARCH {
+		t.Fatalf("driver Arch = %q, want the host arch %q", resp.Arch, hostenv.NativeTargetDefaults().GOARCH)
 	}
 }
 
@@ -2887,12 +2884,12 @@ func TestPlatformFidelityThroughFixtureFiles(t *testing.T) {
 		GOEXPERIMENT:     strPtr("greenteagc"),
 		ToolchainVersion: strPtr("go1.26.4"),
 	}
-	ctx, err := BuildContextForLayout(sdk)
+	ctx, err := BuildTagsForLayout(sdk)
 	if err != nil {
 		t.Fatal(err)
 	}
 	match := func(rel string) bool {
-		return FileMatchesBuildConstraintsWithContext(filepath.Join(sdk.GoSDKRoot, "pinned", rel), ctx)
+		return fileMatchesBuildConstraintsWithTags(filepath.Join(sdk.GoSDKRoot, "pinned", rel), ctx)
 	}
 	if match("future.go") {
 		t.Error("a file constrained to go1.27 must be excluded by a go1.26 toolchain")

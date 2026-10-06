@@ -1,0 +1,42 @@
+load(
+    "@rules_arcc//bazel_rules/go:defs.bzl",
+    "MODIFY_SYSTEM_STATE",
+    "READ_SYSTEM_STATE",
+    "RUNTIME",
+    "go_component",
+)
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "hostenv",
+    srcs = [
+        "cgo_disabled.go",
+        "cgo_enabled.go",
+        "hostenv.go",
+    ],
+    importpath = "github.com/ono-sendai-labs/architectural-contracts/go/internal/packagelayout/internal/hostenv",
+    visibility = [
+        "//bazel_rules:__subpackages__",
+        "//go:__subpackages__",
+    ],
+)
+
+go_test(
+    name = "hostenv_test",
+    srcs = ["hostenv_test.go"],
+    embed = [":hostenv"],
+)
+
+go_component(
+    name = "hostenv_component",
+    declared_authority = [
+        MODIFY_SYSTEM_STATE,
+        READ_SYSTEM_STATE,
+        RUNTIME,
+    ],
+    interface_files = ["hostenv.go"],
+    members = [":hostenv"],
+    visibility = ["//go:__subpackages__"],
+)
+
+exports_files(["component.textproto"])

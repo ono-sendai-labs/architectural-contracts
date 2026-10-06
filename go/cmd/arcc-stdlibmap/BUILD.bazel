@@ -5,7 +5,10 @@ go_library(
     srcs = ["main.go"],
     importpath = "github.com/ono-sendai-labs/architectural-contracts/go/cmd/arcc-stdlibmap",
     visibility = ["//bazel_rules/go/private:__pkg__"],
-    deps = ["//go/internal/stdlibmap"],
+    deps = [
+        "//go/internal/layoutdriverhook",
+        "//go/internal/stdlibmap",
+    ],
 )
 
 go_binary(

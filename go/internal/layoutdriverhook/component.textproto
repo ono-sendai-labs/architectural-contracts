@@ -1,0 +1,10 @@
+name: "layout-driver-hook"
+interface_files: "hook.go"
+members: "github.com/ono-sendai-labs/architectural-contracts/go/internal/layoutdriverhook"
+component_dependencies {
+  name: "packagelayout"
+  manifest: "../packagelayout/component.textproto"
+}
+declared_authority: "FILES"
+declared_authority: "MODIFY_SYSTEM_STATE"
+declared_authority: "OPERATING_SYSTEM"

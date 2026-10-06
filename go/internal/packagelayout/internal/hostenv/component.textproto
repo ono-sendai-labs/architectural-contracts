@@ -1,0 +1,6 @@
+name: "packagelayout-hostenv"
+interface_files: "hostenv.go"
+members: "github.com/ono-sendai-labs/architectural-contracts/go/internal/packagelayout/internal/hostenv"
+declared_authority: "MODIFY_SYSTEM_STATE"
+declared_authority: "READ_SYSTEM_STATE"
+declared_authority: "RUNTIME"

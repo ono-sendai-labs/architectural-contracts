@@ -101,7 +101,7 @@ says the component declares — no more and no fewer. Record the probe summary
 - [x] **Step 8** — `schema` → `schema` + `schema-gen` (WARN; last in-tree `PACKAGE_SURFACE` removed) *(done 2026-10-05; `schema` pure, `schema-gen` WARN with 15-site assertion; 0 `TrueAuthority` so `UNSAFE_POINTER` omitted)*
 - [x] **Step 9** — `capslock-runtime` wrapper; `capslockadapter` shrinks *(done 2026-10-05; `capslock-runtime` native-only asserted UNKNOWN surface, `capslockadapter` strict with `REFLECT` ×2)*
 - [x] **Step 10** — `goanalysis-hostfs` sub-component (spike S1) *(done 2026-10-05; S1 passed: `FILES` removed from `goanalysis`, `hostfs` holds `FILES` ×4 + `READ_SYSTEM_STATE` ×1)*
-- [ ] **Step 11** — `packagelayout-hostenv` sub-component, `layout-driver-hook`, `BuildTags` (+ `goanalysis` drops `RUNTIME`/`READ_SYSTEM_STATE`)
+- [x] **Step 11** — `packagelayout-hostenv` sub-component, `layout-driver-hook`, `BuildTags` (+ `goanalysis` drops `RUNTIME`/`READ_SYSTEM_STATE`) *(done 2026-10-05; `goanalysis` now authority-free; only `hostenv.go` imports `runtime`, zero non-test files import `go/build`)*
 - [ ] **Step 12** — `goanalysis`: file splits + three interface files
 - [ ] **Step 13** — `packagelayout`: file splits, `fs.FS` passing, two interface files
 - [ ] **Step 14** — `cli`: declared style with `app/app.go` as the interface
@@ -682,6 +682,17 @@ lists only `go/internal/packagelayout/internal/hostenv/hostenv.go` (and
 `packagelayout.go` until Step 13 finishes removing `build.Default` uses there, if any
 remain — list them in the checklist entry); `just selfcheck` shows both new components
 passing.
+
+**Observed (2026-10-05):**
+- Extracted `go/internal/packagelayout/internal/hostenv` (`packagelayout-hostenv` / `hostenv_component`, `interface_files = ["hostenv.go"]`, `declared_authority = [MODIFY_SYSTEM_STATE, READ_SYSTEM_STATE, RUNTIME]`) along with `cgo_enabled.go` / `cgo_disabled.go`.
+- Added pure `packagelayout.BuildTags`, `BuildTagsForLayout`, `FileMatchesBuildConstraints`, and `NativeGoVersion` in `buildtags.go` with table parity tests against `go/build.Context.MatchFile`. Zero non-test files in `go/` import `go/build`; only `hostenv.go` imports `runtime`.
+- Extracted `go/internal/layoutdriverhook` (`layout-driver-hook` / `layout_driver_hook_component`, `interface_files = ["hook.go"]`, `declared_authority = [FILES, MODIFY_SYSTEM_STATE, OPERATING_SYSTEM]`, `component_deps = [packagelayout]`; `packagelayout` forwards `DriverRequestFromEnv()` because `internal/hostenv` is internal to `packagelayout`). Blank-imported by `cmd/arcc`, `cmd/arcc-stdlibmap`, and test packages that spawn themselves as `GOPACKAGESDRIVER` (`goanalysis`, `stdlibmap`, `cmd/arcc/app`; `packagelayout_test` hooks in-package to avoid a test import cycle).
+- Updated `goanalysis` to use `BuildTags` and `packagelayout.NativeGoVersion()`, dropping both `go/build` and `runtime` imports and setting `declared_authority = []` in both legs.
+- **Probe summary:**
+  - `packagelayout-hostenv`: `MODIFY_SYSTEM_STATE` ×15 (`hostenv.go:49,50,51,52,57,59,63,65,69,71,75,77,85,88,90`), `READ_SYSTEM_STATE` ×10 (`hostenv.go:21,26,32,35,39,40,41,42,44,84`), `RUNTIME` ×1 (`hostenv.go:6` `runtime.init`).
+  - `layout-driver-hook`: `FILES` ×6 (`hook.go:16,19,21,24,24,25`), `MODIFY_SYSTEM_STATE` ×5 (`hook.go:16,21,24,24,25`), `OPERATING_SYSTEM` ×5 (`hook.go:16,21,24,24,25`).
+  - `goanalysis`: **empty** (0 findings).
+  - `packagelayout`: `FILES` ×29, `READ_SYSTEM_STATE` ×2 (`packagelayout.go:2030,2034` `filepath.Abs`), `REFLECT` ×18, `UNSAFE_POINTER` ×18 (zero `OPERATING_SYSTEM`, `MODIFY_SYSTEM_STATE`, or `RUNTIME`).
 
 ---
 

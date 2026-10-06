@@ -1,5 +1,5 @@
 //go:build !cgo
 
-package packagelayout
+package hostenv
 
 const nativeCgoEnabled = false

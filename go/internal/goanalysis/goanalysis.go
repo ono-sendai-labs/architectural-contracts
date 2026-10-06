@@ -4,7 +4,7 @@
 // - What it does: Analyzes Go syntax trees and types to load package structures, validate interface file correctness, scan the typed reference/import vocabulary of member sources, and detect analysis-defeating constructs. There is no SSA, no VTA call graph and no check-time Capslock: every stdlib decision is the StdlibAuthority port's.
 // - What it requires: Directory paths on the local filesystem for the component being checked, package manifests, and bounded surface/report bytes plus explicit build-graph or native read seams. Dependency surfaces and the shared packagelayout loader are consumed through explicit component boundaries; component checks read non-member types from compiled export data.
 // - What it provides: Structural package facts (typed reference and import edges, bypass observations), exact persisted dependency-interface facts, and independent dependency provenance/freshness/authority axes for checking component boundaries.
-// - Ambient Authority: This component is a shell component and requires FILES, EXEC, READ_SYSTEM_STATE, OPERATING_SYSTEM, REFLECT, RUNTIME, and UNSAFE_POINTER.
+// - Ambient Authority: This component is authority-pure and declares no ambient authority.
 package goanalysis
 
 import (
@@ -12,13 +12,11 @@ import (
 	"bytes"
 	"fmt"
 	"go/ast"
-	"go/build"
 	"go/build/constraint"
 	"go/token"
 	"go/types"
 	"path/filepath"
 	"reflect"
-	"runtime"
 	"slices"
 	"sort"
 	"strconv"
@@ -727,7 +725,7 @@ func validateExportProducerVersion(path string) error {
 	if producerMinor == 0 {
 		return nil
 	}
-	current := runtime.Version()
+	current := packagelayout.NativeGoVersion()
 	if !strings.HasPrefix(current, "go1.") {
 		return nil
 	}
@@ -990,12 +988,12 @@ func ValidateInterfaceFiles(componentRoot string, interfaceFiles []string, loade
 	if packagelayout.IsLayoutMode() {
 		root = packagelayout.GetActiveWorkspaceDir()
 	}
-	bctx, err := packagelayout.BuildContextForLayout(nil)
+	bctx, err := packagelayout.BuildTagsForLayout(nil)
 	if err != nil {
 		return nil, err
 	}
 	if packagelayout.IsLayoutMode() {
-		bctx, err = packagelayout.BuildContextForLayout(packagelayout.GetActiveLayout())
+		bctx, err = packagelayout.BuildTagsForLayout(packagelayout.GetActiveLayout())
 		if err != nil {
 			return nil, err
 		}
@@ -1027,12 +1025,16 @@ func ValidateInterfaceFiles(componentRoot string, interfaceFiles []string, loade
 		}
 
 		if sourceFiles == nil || !sourceFiles[cleanedSlash] {
-			if !packagelayout.FileMatchesBuildConstraintsWithContext(absPath, bctx) {
-				exclusions = append(exclusions, InterfaceFileExclusion{
-					File:       cleanedSlash,
-					Constraint: describeInterfaceFileConstraintWithContext(absPath, bctx),
-				})
-				continue
+			src, readErr := hostfs.ReadFile(absPath)
+			if readErr == nil {
+				matched, err := packagelayout.FileMatchesBuildConstraints(bctx, absPath, src)
+				if err == nil && !matched {
+					exclusions = append(exclusions, InterfaceFileExclusion{
+						File:       cleanedSlash,
+						Constraint: describeInterfaceFileConstraintWithContext(absPath, bctx),
+					})
+					continue
+				}
 			}
 			return nil, fmt.Errorf("interface file %q does not belong to any loaded Go package under component root", f)
 		}
@@ -1056,10 +1058,10 @@ func ValidateInterfaceFiles(componentRoot string, interfaceFiles []string, loade
 	return exclusions, nil
 }
 
-func describeInterfaceFileConstraintWithContext(path string, bctx build.Context) string {
+func describeInterfaceFileConstraintWithContext(path string, bctx packagelayout.BuildTags) string {
 	if line, expression, ok := leadingBuildConstraint(path); ok {
 		if !expression.Eval(func(tag string) bool {
-			return buildContextHasTag(bctx, tag)
+			return bctx.HasTag(tag)
 		}) {
 			return line
 		}
@@ -1155,35 +1157,6 @@ func filenameBuildConstraint(name string) string {
 		return fmt.Sprintf("filename suffix %q", "_"+last+".go")
 	}
 	return ""
-}
-
-func buildContextHasTag(bctx build.Context, tag string) bool {
-	if tag == "cgo" {
-		return bctx.CgoEnabled
-	}
-	if tag == bctx.GOOS || tag == bctx.GOARCH || tag == bctx.Compiler {
-		return true
-	}
-	if (bctx.GOOS == "android" && tag == "linux") ||
-		(bctx.GOOS == "illumos" && tag == "solaris") ||
-		(bctx.GOOS == "ios" && tag == "darwin") {
-		return true
-	}
-	if tag == "unix" {
-		switch bctx.GOOS {
-		case "aix", "android", "darwin", "dragonfly", "freebsd", "illumos", "ios", "linux", "netbsd", "openbsd", "solaris":
-			return true
-		}
-	}
-	if tag == "boringcrypto" {
-		tag = "goexperiment.boringcrypto"
-	}
-	for _, candidate := range append(append(append([]string{}, bctx.BuildTags...), bctx.ToolTags...), bctx.ReleaseTags...) {
-		if candidate == tag {
-			return true
-		}
-	}
-	return false
 }
 
 // stripAllBrackets recursively removes all brackets and their contents from a string,

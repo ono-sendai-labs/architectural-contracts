@@ -92,7 +92,22 @@ func TestProjectPackagesSingleOwner(t *testing.T) {
 
 	// The slice under repair; every other component (e.g. goanalysis, which
 	// predates the slice and is remediated separately) is out of scope here.
-	slice := []string{"artifactio", "atomicfile", "capslockadapter", "capslocksymbol", "goanalysis-hostfs", "manifest", "reportio", "schema", "schema-gen", "stdlibauthority", "symbol"}
+	slice := []string{
+		"artifactio",
+		"atomicfile",
+		"capslockadapter",
+		"capslocksymbol",
+		"goanalysis",
+		"goanalysis-hostfs",
+		"layout-driver-hook",
+		"manifest",
+		"packagelayout-hostenv",
+		"reportio",
+		"schema",
+		"schema-gen",
+		"stdlibauthority",
+		"symbol",
+	}
 
 	owner := map[string]string{}
 	for _, name := range slice {
@@ -113,17 +128,20 @@ func TestProjectPackagesSingleOwner(t *testing.T) {
 	}
 
 	wantOwner := map[string]string{
-		modulePrefix + "internal/artifactio":                 "artifactio",
-		modulePrefix + "internal/atomicfile":                 "atomicfile",
-		modulePrefix + "internal/capslockadapter":            "capslockadapter",
-		modulePrefix + "internal/capslocksymbol":             "capslocksymbol",
-		modulePrefix + "internal/goanalysis/internal/hostfs": "goanalysis-hostfs",
-		modulePrefix + "internal/manifest":                   "manifest",
-		modulePrefix + "internal/reportio":                   "reportio",
-		modulePrefix + "internal/schema":                     "schema",
-		modulePrefix + "internal/schema/gen":                 "schema-gen",
-		modulePrefix + "internal/symbol":                     "symbol",
-		modulePrefix + "internal/stdlibauthority":            "stdlibauthority",
+		modulePrefix + "internal/artifactio":                     "artifactio",
+		modulePrefix + "internal/atomicfile":                     "atomicfile",
+		modulePrefix + "internal/capslockadapter":                "capslockadapter",
+		modulePrefix + "internal/capslocksymbol":                 "capslocksymbol",
+		modulePrefix + "internal/goanalysis":                     "goanalysis",
+		modulePrefix + "internal/goanalysis/internal/hostfs":     "goanalysis-hostfs",
+		modulePrefix + "internal/layoutdriverhook":               "layout-driver-hook",
+		modulePrefix + "internal/manifest":                       "manifest",
+		modulePrefix + "internal/packagelayout/internal/hostenv": "packagelayout-hostenv",
+		modulePrefix + "internal/reportio":                       "reportio",
+		modulePrefix + "internal/schema":                         "schema",
+		modulePrefix + "internal/schema/gen":                     "schema-gen",
+		modulePrefix + "internal/symbol":                         "symbol",
+		modulePrefix + "internal/stdlibauthority":                "stdlibauthority",
 	}
 	for pkg, want := range wantOwner {
 		if got := owner[pkg]; got != want {
