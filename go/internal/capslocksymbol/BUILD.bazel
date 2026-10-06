@@ -1,0 +1,45 @@
+load("@rules_arcc//bazel_rules/go:defs.bzl", "go_component")
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "capslocksymbol",
+    srcs = ["capslock.go"],
+    importpath = "github.com/ono-sendai-labs/architectural-contracts/go/internal/capslocksymbol",
+    visibility = [
+        "//bazel_rules:__subpackages__",
+        "//go:__subpackages__",
+    ],
+    deps = [
+        "//go/internal/hostpolicy",
+        "//go/internal/symbol",
+    ],
+)
+
+go_test(
+    name = "capslocksymbol_test",
+    size = "small",
+    srcs = [
+        "capslock_corpus_test.go",
+        "capslock_inventory_test.go",
+        "capslock_test.go",
+    ],
+    deps = [
+        ":capslocksymbol",
+        "//go/internal/hostpolicy",
+        "//go/internal/symbol",
+    ],
+)
+
+# Mirrors the checked-in capslocksymbol/component.textproto.
+go_component(
+    name = "capslocksymbol_component",
+    component_deps = [
+        "//go/internal/hostpolicy:hostpolicy_component",
+        "//go/internal/symbol:symbol_component",
+    ],
+    interface_files = ["capslock.go"],
+    members = [":capslocksymbol"],
+    visibility = ["//go:__subpackages__"],
+)
+
+exports_files(["component.textproto"])

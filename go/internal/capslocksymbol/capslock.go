@@ -1,12 +1,15 @@
-package symbol
+package capslocksymbol
 
 import (
 	"fmt"
 	"go/scanner"
 	"go/token"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/hostpolicy"
+	"github.com/ono-sendai-labs/architectural-contracts/go/internal/symbol"
 )
 
 // ParseCapslock normalizes a Capslock classifier name into the canonical v1
@@ -41,7 +44,7 @@ import (
 // dot could equally be a dotted method separator, and Capslock's text carries
 // no object-kind information. ParseCapslock rejects them; callers that know
 // the package inventory use ParseCapslockFunction to disambiguate.
-func ParseCapslock(name string) (SymbolID, error) {
+func ParseCapslock(name string) (symbol.SymbolID, error) {
 	return parseCapslock(name, nil, nil, nil)
 }
 
@@ -87,7 +90,7 @@ type CapslockInventory interface {
 // spelling maps to, and normalization fails closed — with an actionable
 // error and no SymbolID — whenever either is missing, malformed or does not
 // confirm the declaration. A nil inventory is always rejected.
-func ParseCapslockFunction(fn CapslockFunction, inv CapslockInventory) (SymbolID, error) {
+func ParseCapslockFunction(fn CapslockFunction, inv CapslockInventory) (symbol.SymbolID, error) {
 	if inv == nil {
 		return "", fmt.Errorf("capslock name %q: normalization is inventory-backed; supply the declaration inventory", fn.Name)
 	}
@@ -114,7 +117,7 @@ func ParseCapslockFunction(fn CapslockFunction, inv CapslockInventory) (SymbolID
 	return parseCapslock(fn.Name, knownPackage, inv, resolve)
 }
 
-func parseCapslock(name string, knownPackage func(string) bool, inv CapslockInventory, resolve func(string) (string, bool)) (SymbolID, error) {
+func parseCapslock(name string, knownPackage func(string) bool, inv CapslockInventory, resolve func(string) (string, bool)) (symbol.SymbolID, error) {
 	if recv, method, ok := splitMethod(name); ok {
 		recv, err := stripReceiverBrackets(recv)
 		if err != nil {
@@ -147,7 +150,7 @@ func parseCapslock(name string, knownPackage func(string) bool, inv CapslockInve
 			return "", err
 		}
 		if inv == nil {
-			return Parse("(" + canon + "." + recv[dot+1:] + ")." + method)
+			return symbol.Parse("(" + canon + "." + recv[dot+1:] + ")." + method)
 		}
 		// The inventory resolves the method to its canonical declaring
 		// object: a concrete method's "(pkg.T).Method", or the declaring
@@ -159,7 +162,7 @@ func parseCapslock(name string, knownPackage func(string) bool, inv CapslockInve
 		if !ok {
 			return "", fmt.Errorf("capslock name %q: inventory does not confirm a declaration of %q in %q", name, "("+recv[dot+1:]+")."+method, canon)
 		}
-		return Parse(owner)
+		return symbol.Parse(owner)
 	}
 	// Top-level spelling: type-argument brackets are allowed only as a
 	// trailing group (store.Load[example.com/x.T]); anywhere else they would
@@ -202,7 +205,7 @@ func parseCapslock(name string, knownPackage func(string) bool, inv CapslockInve
 	if err := confirmDeclaration(inv, name, canon, rest[dot+1:]); err != nil {
 		return "", err
 	}
-	return Parse(canon + "." + rest[dot+1:])
+	return symbol.Parse(canon + "." + rest[dot+1:])
 }
 
 // confirmDeclaration enforces the inventory-backed contract: when an
@@ -1031,4 +1034,63 @@ func (p *typeParser) atom() error {
 	default:
 		return p.errorf("unexpected %q in array length", p.lit)
 	}
+}
+
+// validPackagePath checks that a package path consists of path elements made
+// of Go identifier characters (plus '-' and '.', which appear in real import
+// paths such as module hosts).
+func validPackagePath(pkg string) bool {
+	if strings.HasPrefix(pkg, "/") || strings.HasSuffix(pkg, "/") || strings.Contains(pkg, "//") {
+		return false
+	}
+	for _, elem := range strings.Split(pkg, "/") {
+		if elem == "" {
+			return false
+		}
+		for _, part := range strings.Split(elem, ".") {
+			if part == "" {
+				return false
+			}
+			for _, r := range part {
+				if r == '_' || r == '-' || unicode.IsLetter(r) || unicode.IsDigit(r) {
+					continue
+				}
+				return false
+			}
+		}
+	}
+	return true
+}
+
+// splitMethod reports whether text is a "(recv).Name" method spelling, and
+// splits it. This is purely syntactic; validation of the parts is the
+// caller's job.
+func splitMethod(text string) (recv, name string, ok bool) {
+	if !strings.HasPrefix(text, "(") {
+		return "", "", false
+	}
+	inner := text[1:]
+	idx := strings.Index(inner, ").")
+	if idx < 0 {
+		return "", "", false
+	}
+	return inner[:idx], inner[idx+2:], true
+}
+
+// isIdentifier reports whether s is a valid Go identifier (unicode letters,
+// digits and underscores, not starting with a digit).
+func isIdentifier(s string) bool {
+	if s == "" {
+		return false
+	}
+	for i, r := range s {
+		if r == '_' || unicode.IsLetter(r) {
+			continue
+		}
+		if unicode.IsDigit(r) && i > 0 {
+			continue
+		}
+		return false
+	}
+	return utf8.ValidString(s)
 }

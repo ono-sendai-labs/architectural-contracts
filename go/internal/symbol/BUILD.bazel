@@ -4,7 +4,6 @@ load("@rules_go//go:def.bzl", "go_library", "go_test")
 go_library(
     name = "symbol",
     srcs = [
-        "capslock.go",
         "extract.go",
         "symbol.go",
         "typesconv.go",
@@ -23,9 +22,6 @@ go_test(
     name = "symbol_test",
     size = "small",
     srcs = [
-        "capslock_corpus_test.go",
-        "capslock_inventory_test.go",
-        "capslock_test.go",
         "export_test.go",
         "extract_test.go",
         "symbol_test.go",
@@ -41,7 +37,12 @@ go_test(
 go_component(
     name = "symbol_component",
     component_deps = ["//go/internal/hostpolicy:hostpolicy_component"],
-    interface = ":symbol",
+    interface_files = [
+        "extract.go",
+        "symbol.go",
+        "typesconv.go",
+    ],
+    members = [":symbol"],
     visibility = ["//go:__subpackages__"],
 )
 

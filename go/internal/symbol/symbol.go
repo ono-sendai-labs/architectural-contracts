@@ -4,15 +4,14 @@
 //
 // Component Contract (FR10):
 //   - What it does: Defines the SymbolID value type, its single v1 textual
-//     encoding with strict parse/format, a normalizer from Capslock spellings,
+//     encoding with strict parse/format,
 //     go/types object and selection conversion under the declaring-object rule,
 //     and a deterministic exact-declared-surface extractor.
 //   - What it requires: Parse/Format operate on v1 grammar text; go/types
 //     conversion and extraction operate on already type-checked ASTs and their
 //     types.Info; extraction canonicalizes package paths through
 //     hostpolicy.CanonicalizePath.
-//   - What it provides: Parse, Format, Compare, ParseCapslock,
-//     ParseCapslockFunction (with CapslockFunction/CapslockInventory),
+//   - What it provides: Parse, Format, Compare,
 //     FromObject, fromSelection and ExtractSurface.
 //     All pure and deterministic; results are sorted and duplicate-free.
 //     Nothing here reaches a call graph: the check consumes the declaring-

@@ -92,7 +92,7 @@ func TestProjectPackagesSingleOwner(t *testing.T) {
 
 	// The slice under repair; every other component (e.g. goanalysis, which
 	// predates the slice and is remediated separately) is out of scope here.
-	slice := []string{"artifactio", "atomicfile", "manifest", "reportio", "schema", "stdlibauthority", "symbol"}
+	slice := []string{"artifactio", "atomicfile", "capslocksymbol", "manifest", "reportio", "schema", "stdlibauthority", "symbol"}
 
 	owner := map[string]string{}
 	for _, name := range slice {
@@ -115,6 +115,7 @@ func TestProjectPackagesSingleOwner(t *testing.T) {
 	wantOwner := map[string]string{
 		modulePrefix + "internal/artifactio":      "artifactio",
 		modulePrefix + "internal/atomicfile":      "atomicfile",
+		modulePrefix + "internal/capslocksymbol":  "capslocksymbol",
 		modulePrefix + "internal/manifest":        "manifest",
 		modulePrefix + "internal/reportio":        "reportio",
 		modulePrefix + "internal/schema":          "schema",
@@ -530,6 +531,7 @@ func mustRead(t *testing.T, path string) []byte {
 var purePackages = []string{
 	"internal/artifactio",
 	"internal/capanalyzer",
+	"internal/capslocksymbol",
 	"internal/checker",
 	"internal/facts",
 	"internal/hostpolicy",

@@ -46,13 +46,13 @@ type inventory struct {
 
 	// loaded retains the typed package per importable path, and topNames the
 	// inventoried top-level declaration names per path, so the inventory can
-	// serve as the Capslock normalization context (symbol.CapslockInventory)
+	// serve as the Capslock normalization context (capslocksymbol.CapslockInventory)
 	// without reloading the SDK.
 	loaded   map[string]*types.Package
 	topNames map[string]map[string]bool
 }
 
-// KnownPackage implements symbol.CapslockInventory: an import path is known
+// KnownPackage implements capslocksymbol.CapslockInventory: an import path is known
 // exactly when it is an importable package of the inventory (non-importable
 // packages have no symbols, so their names must not normalize).
 func (inv *inventory) KnownPackage(importPath string) bool {
@@ -62,7 +62,7 @@ func (inv *inventory) KnownPackage(importPath string) bool {
 	return inv.loaded[importPath] != nil
 }
 
-// Declares implements symbol.CapslockInventory: the package must declare the
+// Declares implements capslocksymbol.CapslockInventory: the package must declare the
 // name as an inventoried top-level declaration (exported objects, same-
 // package alias targets, and unsafe builtins; never unexported helpers,
 // which Capslock reports but the map drops).
@@ -73,7 +73,7 @@ func (inv *inventory) Declares(pkg, name string) bool {
 	return inv.topNames[pkg][name]
 }
 
-// MethodOwner implements symbol.CapslockInventory: it resolves a method
+// MethodOwner implements capslocksymbol.CapslockInventory: it resolves a method
 // spelled against the receiver type pkg.TypeName to the canonical
 // declaring-object SymbolID text — "(pkg.T).Method" for a concrete method
 // (aliases resolve to the declaring target type) and "pkg.Interface" for an

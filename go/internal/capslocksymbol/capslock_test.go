@@ -1,4 +1,4 @@
-package symbol_test
+package capslocksymbol_test
 
 import (
 	"go/ast"
@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/ono-sendai-labs/architectural-contracts/go/internal/capslocksymbol"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/hostpolicy"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/symbol"
 )
@@ -70,12 +71,12 @@ func TestParseCapslock_Convergence(t *testing.T) {
 			var got symbol.SymbolID
 			var err error
 			if strings.HasPrefix(tt.input, "example.com/store.") {
-				got, err = symbol.ParseCapslockFunction(symbol.CapslockFunction{
+				got, err = capslocksymbol.ParseCapslockFunction(capslocksymbol.CapslockFunction{
 					Name:    tt.input,
 					Package: "example.com/store",
 				}, convergenceInventory{})
 			} else {
-				got, err = symbol.ParseCapslock(tt.input)
+				got, err = capslocksymbol.ParseCapslock(tt.input)
 			}
 			if err != nil {
 				t.Fatalf("ParseCapslock(%q) error = %v", tt.input, err)
@@ -94,7 +95,7 @@ func TestParseCapslock_Convergence(t *testing.T) {
 		"(example.com/store.Box).Get",
 		"(*example.com/store.Box).Get",
 	} {
-		id, err := symbol.ParseCapslock(in)
+		id, err := capslocksymbol.ParseCapslock(in)
 		if err != nil {
 			t.Fatalf("ParseCapslock(%q) error = %v", in, err)
 		}
@@ -150,7 +151,7 @@ func TestParseCapslock_Rejected(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := symbol.ParseCapslock(tt.input)
+			_, err := capslocksymbol.ParseCapslock(tt.input)
 			if err == nil {
 				t.Fatalf("ParseCapslock(%q) = nil error; want rejection", tt.input)
 			}
@@ -216,7 +217,7 @@ func (t T) M() {}
 		{"top-level", "raw.T", "canonical.example/raw.T"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			got, err := symbol.ParseCapslock(tc.input)
+			got, err := capslocksymbol.ParseCapslock(tc.input)
 			if err != nil {
 				t.Fatalf("ParseCapslock(%q) error = %v", tc.input, err)
 			}

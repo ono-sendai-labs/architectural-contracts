@@ -97,7 +97,7 @@ says the component declares — no more and no fewer. Record the probe summary
 - [x] **Step 4** — New component `atomicfile` *(done 2026-10-05; lifted from `artifactio/write.go`, `FILES` ×4)*
 - [x] **Step 5** — `artifactio` authority-free + new `reportio` *(done 2026-10-05; `artifactio` authority-free, `reportio` holds `REFLECT`+`UNSAFE_POINTER`)*
 - [x] **Step 6** — `checker`: file-list interface = `checker.go` *(done 2026-10-05; `interface_files = ["checker.go"]`, 8 internal symbols unexported)*
-- [ ] **Step 7** — `symbol` → `symbol` + `capslocksymbol`
+- [x] **Step 7** — `symbol` → `symbol` + `capslocksymbol` *(done 2026-10-05; `symbol` 653 LOC, `capslocksymbol` 1,105 LOC, both pure)*
 - [ ] **Step 8** — `schema` → `schema` + `schema-gen` (WARN; last in-tree `PACKAGE_SURFACE` removed)
 - [ ] **Step 9** — `capslock-runtime` wrapper; `capslockadapter` shrinks
 - [ ] **Step 10** — `goanalysis-hostfs` sub-component (spike S1)
@@ -441,6 +441,15 @@ vocabulary component (§5.7). New component (ownership).
 
 **Demo.** Non-test `wc -l go/internal/symbol/*.go` ≈ 655; `capslocksymbol_component`
 report passes.
+
+**Status: DONE 2026-10-05.**
+- Extracted `go/internal/capslocksymbol/{capslock.go,capslock_test.go,capslock_corpus_test.go,capslock_inventory_test.go,BUILD.bazel,component.textproto}` (`interface_files = ["capslock.go"]`, `component_deps = [hostpolicy, symbol]`, 0 authority).
+- Updated `go/internal/symbol/{BUILD.bazel,component.textproto,symbol.go}` (`interface_files = ["extract.go", "symbol.go", "typesconv.go"]`, non-test LOC = 653 across the 3 files).
+- Updated sole consumer `go/internal/stdlibmap` (`generate.go`, `inventory.go`, `inventory_test.go`, `stdlibmap.go`, `BUILD.bazel`, `component.textproto`).
+- Updated `justfile` (23 staged components, 22 pass + 1 fail, 19 Bazel gates), `go/cmd/arcc/app/BUILD.bazel`, and `go/internal/manifestparity/ownership_test.go`.
+- Probes:
+  - `symbol`: **empty** (0 findings).
+  - `capslocksymbol`: **empty** (0 findings).
 
 ---
 

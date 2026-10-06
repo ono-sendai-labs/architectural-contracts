@@ -10,6 +10,7 @@ import (
 
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/artifactio"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/capslockadapter"
+	"github.com/ono-sendai-labs/architectural-contracts/go/internal/capslocksymbol"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/schema"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/schema/gen"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/stdlibauthority"
@@ -395,7 +396,7 @@ func normalizeRoot(inv *inventory, f capslockadapter.GenerationFinding) (symbol.
 	// origin is a sanctioned drop: a helper folded into its exported
 	// callers.
 	if strings.ContainsAny(name, "[]") {
-		if _, err := symbol.ParseCapslockFunction(symbol.CapslockFunction{Name: name, Package: pkg}, inv); err == nil {
+		if _, err := capslocksymbol.ParseCapslockFunction(capslocksymbol.CapslockFunction{Name: name, Package: pkg}, inv); err == nil {
 			return "", dropInstantiation, nil
 		} else if !instantiationOriginExported(name) {
 			return "", dropUnexported, nil
@@ -403,7 +404,7 @@ func normalizeRoot(inv *inventory, f capslockadapter.GenerationFinding) (symbol.
 			return "", "", fmt.Errorf("capslock root %q: %w", name, err)
 		}
 	}
-	id, err := symbol.ParseCapslockFunction(symbol.CapslockFunction{Name: name, Package: pkg}, inv)
+	id, err := capslocksymbol.ParseCapslockFunction(capslocksymbol.CapslockFunction{Name: name, Package: pkg}, inv)
 	if err == nil {
 		return id, "", nil
 	}
@@ -1010,7 +1011,7 @@ func buildAuthorityMap(inv *inventory, findings []capslockadapter.GenerationFind
 	}
 	reclassified := map[symbol.SymbolID]bool{}
 	for _, m := range capslockadapter.ReclassifiedHandleUseMethods() {
-		id, err := symbol.ParseCapslock(m)
+		id, err := capslocksymbol.ParseCapslock(m)
 		if err != nil {
 			return nil, fmt.Errorf("building the authority map: reclassified method %q: %w", m, err)
 		}

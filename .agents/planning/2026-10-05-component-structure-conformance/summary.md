@@ -1,10 +1,10 @@
 # Component structure conformance — summary
 
-**Date:** 2026-10-05 · **Revised:** 2026-10-05 (R1, R2) · **Status:** Steps 1–6 of 16
+**Date:** 2026-10-05 · **Revised:** 2026-10-05 (R1, R2) · **Status:** Steps 1–7 of 16
 done (probe script, conventions, spikes S2/S3/S4 resolved, `interface_files` landed,
 Step 3 hygiene/unexports/dead-dep removal complete, Step 4 `atomicfile` extracted,
 Step 5 `artifactio` authority-free + `reportio` split, Step 6 `checker` interface
-shrunk to `checker.go`); Steps 7–16 in progress
+shrunk to `checker.go`, Step 7 `capslocksymbol` split from `symbol`); Steps 8–16 in progress
 
 ## What this is
 

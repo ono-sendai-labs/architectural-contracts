@@ -1,4 +1,4 @@
-package symbol_test
+package capslocksymbol_test
 
 import (
 	"bytes"
@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/ono-sendai-labs/architectural-contracts/go/internal/capslocksymbol"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/symbol"
 )
 
@@ -329,41 +330,41 @@ type nestedGenericHolder struct{ F x.Pair[int] }
 
 	for _, tc := range []struct {
 		name string
-		fn   symbol.CapslockFunction
+		fn   capslocksymbol.CapslockFunction
 		want string
 	}{
-		{"deferred digit-leading type argument", symbol.CapslockFunction{Name: "ctest.Load[" + digitLeading + "]", Package: pkgPath}, "example.com/ctest.Load"},
-		{"deferred qualified unnamed parameter", symbol.CapslockFunction{Name: "ctest.Load[" + qualifiedUnnamedParam + "]", Package: pkgPath}, "example.com/ctest.Load"},
-		{"deferred named variadic parameter", symbol.CapslockFunction{Name: "ctest.Load[" + namedVariadic + "]", Package: pkgPath}, "example.com/ctest.Load"},
-		{"qualified embedded struct field", symbol.CapslockFunction{Name: "ctest.Load[" + qualifiedEmbedded + "]", Package: pkgPath}, "example.com/ctest.Load"},
-		{"qualified interface method parameter", symbol.CapslockFunction{Name: "ctest.Load[" + qualifiedIfaceParam + "]", Package: pkgPath}, "example.com/ctest.Load"},
-		{"bare embedded struct field", symbol.CapslockFunction{Name: "ctest.Load[" + bareEmbedded + "]", Package: pkgPath}, "example.com/ctest.Load"},
-		{"and-not array length from checked declaration", symbol.CapslockFunction{Name: "ctest.Load[" + andNotArray + "]", Package: pkgPath}, "example.com/ctest.Load"},
-		{"slice type from checked declaration", symbol.CapslockFunction{Name: "ctest.Load[" + sliceForm + "]", Package: pkgPath}, "example.com/ctest.Load"},
-		{"map type from checked declaration", symbol.CapslockFunction{Name: "ctest.Load[" + mapForm + "]", Package: pkgPath}, "example.com/ctest.Load"},
-		{"channel type from checked declaration", symbol.CapslockFunction{Name: "ctest.Load[" + chanForm + "]", Package: pkgPath}, "example.com/ctest.Load"},
-		{"multi-result function from checked declaration", symbol.CapslockFunction{Name: "ctest.Load[" + multiResultForm + "]", Package: pkgPath}, "example.com/ctest.Load"},
-		{"grouped named parameters from checked declaration", symbol.CapslockFunction{Name: "ctest.Load[" + groupedParamsForm + "]", Package: pkgPath}, "example.com/ctest.Load"},
-		{"unnamed qualified variadic from checked declaration", symbol.CapslockFunction{Name: "ctest.Load[" + ellipsisVariadicForm + "]", Package: pkgPath}, "example.com/ctest.Load"},
-		{"pointer embedded field from checked declaration", symbol.CapslockFunction{Name: "ctest.Load[" + ptrEmbedForm + "]", Package: pkgPath}, "example.com/ctest.Load"},
-		{"tagged field with a bracket in the tag from checked declaration", symbol.CapslockFunction{Name: "ctest.Load[" + taggedForm + "]", Package: pkgPath}, "example.com/ctest.Load"},
-		{"parenthesized pointer type from checked declaration", symbol.CapslockFunction{Name: "ctest.Load[(" + parenForm + ")]", Package: pkgPath}, "example.com/ctest.Load"},
-		{"nested generic type from checked declaration", symbol.CapslockFunction{Name: "ctest.Load[" + nestedGenericForm + "]", Package: pkgPath}, "example.com/ctest.Load"},
-		{"division array length from checked declaration", symbol.CapslockFunction{Name: "ctest.Load[" + divideForm + "]", Package: pkgPath}, "example.com/ctest.Load"},
-		{"shift array length from checked declaration", symbol.CapslockFunction{Name: "ctest.Load[" + shiftForm + "]", Package: pkgPath}, "example.com/ctest.Load"},
-		{"addition array length from checked declaration", symbol.CapslockFunction{Name: "ctest.Load[" + addForm + "]", Package: pkgPath}, "example.com/ctest.Load"},
-		{"deferred tuple type argument is rejected", symbol.CapslockFunction{Name: "ctest.Load[(int, string)]", Package: pkgPath}, ""},
-		{"deferred named-list type argument is rejected", symbol.CapslockFunction{Name: "ctest.Load[(x int)]", Package: pkgPath}, ""},
-		{"pointer receiver method", symbol.CapslockFunction{Name: "(*ctest.T).M", Package: pkgPath}, "(example.com/ctest.T).M"},
-		{"value receiver method", symbol.CapslockFunction{Name: "(ctest.T).M", Package: pkgPath}, "(example.com/ctest.T).M"},
-		{"interface method spec resolves to its declaring interface", symbol.CapslockFunction{Name: "(*ctest.Iface).Wait", Package: pkgPath}, "example.com/ctest.Iface"},
-		{"method on inventoried receiver not declared", symbol.CapslockFunction{Name: "(*ctest.T).Nope", Package: pkgPath}, ""},
-		{"structured field contradicts name", symbol.CapslockFunction{Name: "ctest.Load[int]", Package: "example.com/other"}, ""},
-		{"declaration not in inventory", symbol.CapslockFunction{Name: "ctest.Nope", Package: pkgPath}, ""},
-		{"syntactically invalid type argument", symbol.CapslockFunction{Name: "ctest.Load[2x.T]", Package: pkgPath}, ""},
+		{"deferred digit-leading type argument", capslocksymbol.CapslockFunction{Name: "ctest.Load[" + digitLeading + "]", Package: pkgPath}, "example.com/ctest.Load"},
+		{"deferred qualified unnamed parameter", capslocksymbol.CapslockFunction{Name: "ctest.Load[" + qualifiedUnnamedParam + "]", Package: pkgPath}, "example.com/ctest.Load"},
+		{"deferred named variadic parameter", capslocksymbol.CapslockFunction{Name: "ctest.Load[" + namedVariadic + "]", Package: pkgPath}, "example.com/ctest.Load"},
+		{"qualified embedded struct field", capslocksymbol.CapslockFunction{Name: "ctest.Load[" + qualifiedEmbedded + "]", Package: pkgPath}, "example.com/ctest.Load"},
+		{"qualified interface method parameter", capslocksymbol.CapslockFunction{Name: "ctest.Load[" + qualifiedIfaceParam + "]", Package: pkgPath}, "example.com/ctest.Load"},
+		{"bare embedded struct field", capslocksymbol.CapslockFunction{Name: "ctest.Load[" + bareEmbedded + "]", Package: pkgPath}, "example.com/ctest.Load"},
+		{"and-not array length from checked declaration", capslocksymbol.CapslockFunction{Name: "ctest.Load[" + andNotArray + "]", Package: pkgPath}, "example.com/ctest.Load"},
+		{"slice type from checked declaration", capslocksymbol.CapslockFunction{Name: "ctest.Load[" + sliceForm + "]", Package: pkgPath}, "example.com/ctest.Load"},
+		{"map type from checked declaration", capslocksymbol.CapslockFunction{Name: "ctest.Load[" + mapForm + "]", Package: pkgPath}, "example.com/ctest.Load"},
+		{"channel type from checked declaration", capslocksymbol.CapslockFunction{Name: "ctest.Load[" + chanForm + "]", Package: pkgPath}, "example.com/ctest.Load"},
+		{"multi-result function from checked declaration", capslocksymbol.CapslockFunction{Name: "ctest.Load[" + multiResultForm + "]", Package: pkgPath}, "example.com/ctest.Load"},
+		{"grouped named parameters from checked declaration", capslocksymbol.CapslockFunction{Name: "ctest.Load[" + groupedParamsForm + "]", Package: pkgPath}, "example.com/ctest.Load"},
+		{"unnamed qualified variadic from checked declaration", capslocksymbol.CapslockFunction{Name: "ctest.Load[" + ellipsisVariadicForm + "]", Package: pkgPath}, "example.com/ctest.Load"},
+		{"pointer embedded field from checked declaration", capslocksymbol.CapslockFunction{Name: "ctest.Load[" + ptrEmbedForm + "]", Package: pkgPath}, "example.com/ctest.Load"},
+		{"tagged field with a bracket in the tag from checked declaration", capslocksymbol.CapslockFunction{Name: "ctest.Load[" + taggedForm + "]", Package: pkgPath}, "example.com/ctest.Load"},
+		{"parenthesized pointer type from checked declaration", capslocksymbol.CapslockFunction{Name: "ctest.Load[(" + parenForm + ")]", Package: pkgPath}, "example.com/ctest.Load"},
+		{"nested generic type from checked declaration", capslocksymbol.CapslockFunction{Name: "ctest.Load[" + nestedGenericForm + "]", Package: pkgPath}, "example.com/ctest.Load"},
+		{"division array length from checked declaration", capslocksymbol.CapslockFunction{Name: "ctest.Load[" + divideForm + "]", Package: pkgPath}, "example.com/ctest.Load"},
+		{"shift array length from checked declaration", capslocksymbol.CapslockFunction{Name: "ctest.Load[" + shiftForm + "]", Package: pkgPath}, "example.com/ctest.Load"},
+		{"addition array length from checked declaration", capslocksymbol.CapslockFunction{Name: "ctest.Load[" + addForm + "]", Package: pkgPath}, "example.com/ctest.Load"},
+		{"deferred tuple type argument is rejected", capslocksymbol.CapslockFunction{Name: "ctest.Load[(int, string)]", Package: pkgPath}, ""},
+		{"deferred named-list type argument is rejected", capslocksymbol.CapslockFunction{Name: "ctest.Load[(x int)]", Package: pkgPath}, ""},
+		{"pointer receiver method", capslocksymbol.CapslockFunction{Name: "(*ctest.T).M", Package: pkgPath}, "(example.com/ctest.T).M"},
+		{"value receiver method", capslocksymbol.CapslockFunction{Name: "(ctest.T).M", Package: pkgPath}, "(example.com/ctest.T).M"},
+		{"interface method spec resolves to its declaring interface", capslocksymbol.CapslockFunction{Name: "(*ctest.Iface).Wait", Package: pkgPath}, "example.com/ctest.Iface"},
+		{"method on inventoried receiver not declared", capslocksymbol.CapslockFunction{Name: "(*ctest.T).Nope", Package: pkgPath}, ""},
+		{"structured field contradicts name", capslocksymbol.CapslockFunction{Name: "ctest.Load[int]", Package: "example.com/other"}, ""},
+		{"declaration not in inventory", capslocksymbol.CapslockFunction{Name: "ctest.Nope", Package: pkgPath}, ""},
+		{"syntactically invalid type argument", capslocksymbol.CapslockFunction{Name: "ctest.Load[2x.T]", Package: pkgPath}, ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			got, err := symbol.ParseCapslockFunction(tc.fn, inv)
+			got, err := capslocksymbol.ParseCapslockFunction(tc.fn, inv)
 			if tc.want == "" {
 				if err == nil {
 					t.Fatalf("ParseCapslockFunction(%+v) = %q; want rejection", tc.fn, got)

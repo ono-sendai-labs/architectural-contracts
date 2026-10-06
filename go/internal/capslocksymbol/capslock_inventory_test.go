@@ -1,11 +1,11 @@
-package symbol_test
+package capslocksymbol_test
 
 import (
 	"strings"
 	"testing"
 
+	"github.com/ono-sendai-labs/architectural-contracts/go/internal/capslocksymbol"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/hostpolicy"
-
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/symbol"
 )
 
@@ -76,32 +76,32 @@ func TestParseCapslockFunction(t *testing.T) {
 
 	for _, tc := range []struct {
 		name string
-		fn   symbol.CapslockFunction
+		fn   capslocksymbol.CapslockFunction
 		want string
 	}{
 		{
 			name: "top-level with structured package",
-			fn:   symbol.CapslockFunction{Name: "store.Load", Package: "example.com/store"},
+			fn:   capslocksymbol.CapslockFunction{Name: "store.Load", Package: "example.com/store"},
 			want: "example.com/store.Load",
 		},
 		{
 			name: "dotful ambiguous spelling disambiguated by structured package",
-			fn:   symbol.CapslockFunction{Name: "yaml.v2.Unmarshal", Package: "gopkg.in/yaml.v2"},
+			fn:   capslocksymbol.CapslockFunction{Name: "yaml.v2.Unmarshal", Package: "gopkg.in/yaml.v2"},
 			want: "gopkg.in/yaml.v2.Unmarshal",
 		},
 		{
 			name: "method with structured package",
-			fn:   symbol.CapslockFunction{Name: "(*store.Box[int]).Get", Package: "example.com/store"},
+			fn:   capslocksymbol.CapslockFunction{Name: "(*store.Box[int]).Get", Package: "example.com/store"},
 			want: "(example.com/store.Box).Get",
 		},
 		{
 			name: "interface method spec resolves to its declaring interface",
-			fn:   symbol.CapslockFunction{Name: "(*store.Iface).Wait", Package: "example.com/store"},
+			fn:   capslocksymbol.CapslockFunction{Name: "(*store.Iface).Wait", Package: "example.com/store"},
 			want: "example.com/store.Iface",
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			got, err := symbol.ParseCapslockFunction(tc.fn, inv)
+			got, err := capslocksymbol.ParseCapslockFunction(tc.fn, inv)
 			if err != nil {
 				t.Fatalf("ParseCapslockFunction(%+v) error = %v", tc.fn, err)
 			}
@@ -116,19 +116,19 @@ func TestParseCapslockFunction(t *testing.T) {
 
 	for _, tc := range []struct {
 		name string
-		fn   symbol.CapslockFunction
-		inv  symbol.CapslockInventory
+		fn   capslocksymbol.CapslockFunction
+		inv  capslocksymbol.CapslockInventory
 	}{
-		{"nil inventory", symbol.CapslockFunction{Name: "os.ReadFile", Package: "os"}, nil},
-		{"malformed structured package", symbol.CapslockFunction{Name: "os.ReadFile", Package: "/os//"}, inv},
-		{"package path with empty segment", symbol.CapslockFunction{Name: "os.ReadFile", Package: "os//x"}, inv},
-		{"declaration not in inventory", symbol.CapslockFunction{Name: "os.WriteFile", Package: "os"}, inv},
-		{"receiver type not in inventory", symbol.CapslockFunction{Name: "(*store.Nox).Get", Package: "example.com/store"}, inv},
-		{"method not declared on inventoried receiver", symbol.CapslockFunction{Name: "(*store.Box).NotDeclared", Package: "example.com/store"}, inv},
-		{"ambiguous spelling with unknown package", symbol.CapslockFunction{Name: "yaml.v2.Unmarshal", Package: "example.com/other"}, inv},
+		{"nil inventory", capslocksymbol.CapslockFunction{Name: "os.ReadFile", Package: "os"}, nil},
+		{"malformed structured package", capslocksymbol.CapslockFunction{Name: "os.ReadFile", Package: "/os//"}, inv},
+		{"package path with empty segment", capslocksymbol.CapslockFunction{Name: "os.ReadFile", Package: "os//x"}, inv},
+		{"declaration not in inventory", capslocksymbol.CapslockFunction{Name: "os.WriteFile", Package: "os"}, inv},
+		{"receiver type not in inventory", capslocksymbol.CapslockFunction{Name: "(*store.Nox).Get", Package: "example.com/store"}, inv},
+		{"method not declared on inventoried receiver", capslocksymbol.CapslockFunction{Name: "(*store.Box).NotDeclared", Package: "example.com/store"}, inv},
+		{"ambiguous spelling with unknown package", capslocksymbol.CapslockFunction{Name: "yaml.v2.Unmarshal", Package: "example.com/other"}, inv},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			if _, err := symbol.ParseCapslockFunction(tc.fn, tc.inv); err == nil {
+			if _, err := capslocksymbol.ParseCapslockFunction(tc.fn, tc.inv); err == nil {
 				t.Fatalf("ParseCapslockFunction(%+v) = nil error; want rejection", tc.fn)
 			}
 		})
@@ -161,14 +161,14 @@ func TestParseCapslockFunction_CanonicalizesNamespace(t *testing.T) {
 
 	for _, tc := range []struct {
 		name string
-		fn   symbol.CapslockFunction
+		fn   capslocksymbol.CapslockFunction
 		want symbol.SymbolID
 	}{
-		{"top-level", symbol.CapslockFunction{Name: "os.ReadFile", Package: "os"}, "canonical.example/os.ReadFile"},
-		{"method", symbol.CapslockFunction{Name: "(*store.Box).Get", Package: "example.com/store"}, "(canonical.example/store.Box).Get"},
+		{"top-level", capslocksymbol.CapslockFunction{Name: "os.ReadFile", Package: "os"}, "canonical.example/os.ReadFile"},
+		{"method", capslocksymbol.CapslockFunction{Name: "(*store.Box).Get", Package: "example.com/store"}, "(canonical.example/store.Box).Get"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			got, err := symbol.ParseCapslockFunction(tc.fn, inv)
+			got, err := capslocksymbol.ParseCapslockFunction(tc.fn, inv)
 			if err != nil {
 				t.Fatalf("ParseCapslockFunction(%+v) error = %v", tc.fn, err)
 			}

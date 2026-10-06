@@ -1,0 +1,11 @@
+name: "capslocksymbol"
+interface_files: "capslock.go"
+members: "github.com/ono-sendai-labs/architectural-contracts/go/internal/capslocksymbol"
+component_dependencies {
+  name: "hostpolicy"
+  manifest: "../hostpolicy/component.textproto"
+}
+component_dependencies {
+  name: "symbol"
+  manifest: "../symbol/component.textproto"
+}

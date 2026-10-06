@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/ono-sendai-labs/architectural-contracts/go/internal/capslocksymbol"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/symbol"
 )
 
@@ -267,57 +268,57 @@ func TestInventoryImplementsCapslockInventory(t *testing.T) {
 	if err != nil {
 		t.Fatalf("BuildInventory: %v", err)
 	}
-	var _ symbol.CapslockInventory = inv
+	var _ capslocksymbol.CapslockInventory = inv
 
 	cases := []struct {
 		name     string
-		capslock symbol.CapslockFunction
+		capslock capslocksymbol.CapslockFunction
 		want     string
 		wantErr  string
 	}{
 		{
 			name:     "pointer method",
-			capslock: symbol.CapslockFunction{Name: "(*osx.File).Read", Package: "example.com/osx"},
+			capslock: capslocksymbol.CapslockFunction{Name: "(*osx.File).Read", Package: "example.com/osx"},
 			want:     "(example.com/osx.File).Read",
 		},
 		{
 			name:     "top-level func",
-			capslock: symbol.CapslockFunction{Name: "example.com/osx.Open", Package: "example.com/osx"},
+			capslock: capslocksymbol.CapslockFunction{Name: "example.com/osx.Open", Package: "example.com/osx"},
 			want:     "example.com/osx.Open",
 		},
 		{
 			name:     "interface method spec",
-			capslock: symbol.CapslockFunction{Name: "(example.com/osx.I).M", Package: "example.com/osx"},
+			capslock: capslocksymbol.CapslockFunction{Name: "(example.com/osx.I).M", Package: "example.com/osx"},
 			want:     "example.com/osx.I",
 		},
 		{
 			name:     "unresolved method",
-			capslock: symbol.CapslockFunction{Name: "(*example.com/osx.File).Write", Package: "example.com/osx"},
+			capslock: capslocksymbol.CapslockFunction{Name: "(*example.com/osx.File).Write", Package: "example.com/osx"},
 			wantErr:  "does not confirm a declaration",
 		},
 		{
 			name:     "interface method on a struct",
-			capslock: symbol.CapslockFunction{Name: "(*example.com/osx.File).M", Package: "example.com/osx"},
+			capslock: capslocksymbol.CapslockFunction{Name: "(*example.com/osx.File).M", Package: "example.com/osx"},
 			wantErr:  "does not confirm a declaration",
 		},
 		{
 			name:     "unknown symbol",
-			capslock: symbol.CapslockFunction{Name: "example.com/osx.Missing", Package: "example.com/osx"},
+			capslock: capslocksymbol.CapslockFunction{Name: "example.com/osx.Missing", Package: "example.com/osx"},
 			wantErr:  "does not confirm a declaration",
 		},
 		{
 			name:     "unknown package",
-			capslock: symbol.CapslockFunction{Name: "example.com/otherpkg.Y", Package: "example.com/otherpkg"},
+			capslock: capslocksymbol.CapslockFunction{Name: "example.com/otherpkg.Y", Package: "example.com/otherpkg"},
 			wantErr:  "does not confirm a declaration",
 		},
 		{
 			name:     "unexported helper is not a declaration",
-			capslock: symbol.CapslockFunction{Name: "(*example.com/osx.File).secret", Package: "example.com/osx"},
+			capslock: capslocksymbol.CapslockFunction{Name: "(*example.com/osx.File).secret", Package: "example.com/osx"},
 			wantErr:  "does not confirm a declaration",
 		},
 	}
 	for _, tc := range cases {
-		id, err := symbol.ParseCapslockFunction(tc.capslock, inv)
+		id, err := capslocksymbol.ParseCapslockFunction(tc.capslock, inv)
 		if tc.wantErr != "" {
 			if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
 				t.Fatalf("%s: ParseCapslockFunction(%v) = (%q, %v); want error %q", tc.name, tc.capslock.Name, id, err, tc.wantErr)

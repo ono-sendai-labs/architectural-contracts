@@ -43,7 +43,7 @@
 //     IsInternalPath, Loader, BuildInventory with its total Inventory
 //     (Packages/Symbols/Inits, sorted and duplicate-free; the Inventory is
 //     also the inventory-backed Capslock normalization context —
-//     symbol.CapslockInventory — for the generator's reconciliation),
+//     capslocksymbol.CapslockInventory — for the generator's reconciliation),
 //     TargetConfig, GenerationDescriptor, ClassifierRule,
 //     CanonicalClassifierText, DeriveSDKKey,
 //     GenerationClassifierRules, RuleVersion, FindingSource(Func),

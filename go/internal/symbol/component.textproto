@@ -2,7 +2,6 @@ name: "symbol"
 interface_files: "symbol.go"
 interface_files: "typesconv.go"
 interface_files: "extract.go"
-interface_files: "capslock.go"
 members: "github.com/ono-sendai-labs/architectural-contracts/go/internal/symbol"
 component_dependencies {
   name: "hostpolicy"

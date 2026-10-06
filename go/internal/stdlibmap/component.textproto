@@ -34,6 +34,10 @@ component_dependencies {
   manifest: "../capslockadapter/component.textproto"
 }
 component_dependencies {
+  name: "capslocksymbol"
+  manifest: "../capslocksymbol/component.textproto"
+}
+component_dependencies {
   name: "schema"
   manifest: "../schema/component.textproto"
 }
