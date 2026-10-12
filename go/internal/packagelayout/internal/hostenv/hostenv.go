@@ -36,7 +36,6 @@ func IsNotExist(err error) bool {
 	return os.IsNotExist(err) || err == fs.ErrNotExist
 }
 
-
 type NativeDefaults struct {
 	GOROOT     string
 	GOOS       string

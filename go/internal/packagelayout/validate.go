@@ -39,10 +39,12 @@ func (s subFS) resolve(name string) string {
 	return path.Join(s.root, filepath.ToSlash(name))
 }
 
-func (s subFS) Open(name string) (fs.File, error)          { return s.base.Open(s.resolve(name)) }
-func (s subFS) Stat(name string) (fs.FileInfo, error)      { return fs.Stat(s.base, s.resolve(name)) }
-func (s subFS) ReadFile(name string) ([]byte, error)       { return fs.ReadFile(s.base, s.resolve(name)) }
-func (s subFS) ReadDir(name string) ([]fs.DirEntry, error) { return fs.ReadDir(s.base, s.resolve(name)) }
+func (s subFS) Open(name string) (fs.File, error)     { return s.base.Open(s.resolve(name)) }
+func (s subFS) Stat(name string) (fs.FileInfo, error) { return fs.Stat(s.base, s.resolve(name)) }
+func (s subFS) ReadFile(name string) ([]byte, error)  { return fs.ReadFile(s.base, s.resolve(name)) }
+func (s subFS) ReadDir(name string) ([]fs.DirEntry, error) {
+	return fs.ReadDir(s.base, s.resolve(name))
+}
 
 // layoutPackageIndex is the identity index shared by source-backed and
 // member-only validation. Package IDs are the graph references; import paths
