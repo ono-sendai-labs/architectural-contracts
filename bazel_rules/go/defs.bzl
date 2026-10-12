@@ -346,10 +346,11 @@ There are two authoring styles:
     the interface library's Go providers (when `interface` is used) so it can be
     used as a `deps` entry.
   * `PACKAGE_SURFACE` has no interface library or files (`interface` and
-    `interface_files` are omitted). Its complete surface is the declared `members`
-    set, which is required, and no Go providers are forwarded. Use this for a
-    toolchain-injected runtime or an existing library that has no architectural
-    interface.
+    `interface_files` are omitted). Its complete surface is derived from the declared
+    `members` set, or for `authority = UNKNOWN`, from `member_roots` (the transitive
+    reachable packages, optionally filtered by `member_patterns`) and any direct
+    `members`, minus covered dependencies. No Go providers are forwarded. Use this
+    for a toolchain-injected runtime or an asserted boundary around an unowned closure.
 
 Expands to:
 

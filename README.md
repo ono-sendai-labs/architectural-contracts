@@ -156,10 +156,12 @@ The attributes mirror the manifest schema below:
 
 - **`interface`** — the single `go_library` holding the component's public API. Passing a list is a load-time error. Required for the default (declared) style; rejected under `PACKAGE_SURFACE`.
 - **`members`** — additional `go_library` labels the component owns. The rule resolves each to its import path and writes the **fully expanded literal list** into the manifest's `members`, which is also the layout's `roots`. Member packages are analysis roots, so their authority is charged to this component whoever calls them, and their imports are checked against the component's declarations.
+- **`member_roots`** — Go library roots whose transitive closures form the component's member packages. Allowed **only** when `authority = UNKNOWN`. Its reachable packages (minus covered dependencies and runtime packages) form the asserted package-level surface without requiring manual enumeration of every internal library.
+- **`member_patterns`** — optional import-path patterns (exact path or prefix ending with `/...`) filtering candidate packages reachable from `member_roots`. Allowed **only** when `authority = UNKNOWN` and `member_roots` is non-empty. Closure packages that do not match are not members and remain uncovered for consumers.
 - **`component_deps`** — other `go_component` targets this one depends on. Their packages are covered by them, so arcc checks references through their exact declared interfaces (the `app` example stays authority-free this way).
-- **`interface_style`** — omit for the declared style, or pass `PACKAGE_SURFACE` (exported by `defs.bzl`) to wrap a library that has no architectural interface. Under `PACKAGE_SURFACE`, `interface` must be absent and `members` non-empty. Members are always literal target labels; import-path patterns are rejected.
+- **`interface_style`** — omit for the declared style, or pass `PACKAGE_SURFACE` (exported by `defs.bzl`) to wrap a library that has no architectural interface. Under `PACKAGE_SURFACE`, `interface` must be absent and `members` or `member_roots` non-empty. Members and member roots are always literal target labels; import-path wildcards are rejected in labels.
 - **`declared_authority`** — authority constants from `defs.bzl` (`FILES`, `NETWORK`, …). Empty means the component claims to be authority-free.
-- **`authority`** — verification status, `DECLARED` by default. Use explicit `UNKNOWN` only with `interface_style = PACKAGE_SURFACE` and concrete `members` when adopting code whose authority has not been checked; its boundary is rendered `untrusted` and `declared_authority` must be empty. `UNKNOWN` is distinct from `DECLARED` with an empty authority set.
+- **`authority`** — verification status, `DECLARED` by default. Use explicit `UNKNOWN` only with `interface_style = PACKAGE_SURFACE` and concrete `members` or `member_roots` when adopting code whose authority has not been checked; its boundary is rendered `untrusted` and `declared_authority` must be empty. `UNKNOWN` is distinct from `DECLARED` with an empty authority set.
 - **`check_tags`** — scheduling tags for the generated `.check` target only. Generic `tags`, including `manual`, never select authority or producer semantics.
 - **`contract`** — optional contract documents; Bazel-only metadata arcc never reads.
 
@@ -175,13 +177,14 @@ go_component(
 )
 ```
 
-An unowned package-level wrapper is explicit about its verification status:
+An unowned package-level wrapper is explicit about its verification status, either listing literal packages via `members` or capturing a foreign closure via `member_roots`:
 
 ```python
 go_component(
     name = "third_party_component",
     interface_style = PACKAGE_SURFACE,
-    members = ["//vendor/library"],
+    member_roots = ["//vendor/github.com/some/complex/tool"],
+    member_patterns = ["github.com/some/complex/tool/..."],
     authority = UNKNOWN,
 )
 ```

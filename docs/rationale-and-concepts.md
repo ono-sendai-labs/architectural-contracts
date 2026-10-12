@@ -119,6 +119,19 @@ component is:
   *use-relationship must be explicitly declared*, and it is declared at the
   granularity of *other components*, not individual files or symbols.
 
+- **Asserted boundaries for unowned closures (`member_roots`).** While owned first-party
+  components declare explicit interfaces and checked conformance, foreign, third-party,
+  or legacy closures often lack architectural manifests. To reason compositionally
+  about a system containing unowned code without manually cataloguing every internal
+  package, callers can establish an *asserted boundary* (`authority = UNKNOWN`) wrapping
+  unowned closures via `member_roots` (and optional `member_patterns` filters).
+  `member_roots` is strictly restricted to `authority = UNKNOWN`: declared and checked
+  components must define their members explicitly rather than sweeping transitive
+  dependencies into an unchecked boundary. Asserted components emit package-level
+  surfaces at analysis time without running full conformance checks or re-exporting
+  underlying language providers, ensuring unowned closures are bounded and visible
+  to consumer verification without masquerading as checked components.
+
 ### 3.2 Conformance and change surfacing
 
 The declarative description of a component — its interface files, its private
