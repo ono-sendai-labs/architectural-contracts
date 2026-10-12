@@ -486,6 +486,13 @@ asserted_surface_comparison(
     component_duplicate = "//bazel_rules/go/tests/testdata/reportboundary/reordered_duplicate:reordered_component",
 )
 
+asserted_surface_comparison(
+    name = "reordered_member_roots_comparison",
+    component_a = "//bazel_rules/go/tests/testdata/reportboundary/manual:reordered_member_roots_a",
+    component_b = "//bazel_rules/go/tests/testdata/reportboundary/manual:reordered_member_roots_b",
+    component_duplicate = "//bazel_rules/go/tests/testdata/reportboundary/manual:reordered_member_roots_a",
+)
+
 sh_test(
     name = "reordered_unknown_surface_bytes_test",
     size = "small",

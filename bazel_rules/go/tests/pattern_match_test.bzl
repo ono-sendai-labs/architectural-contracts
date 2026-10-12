@@ -71,11 +71,27 @@ def _pattern_match_malformed_tests(name):
         tests = test_names,
     )
 
+def _pattern_match_prefix_ellipsis_impl(env, target):
+    env.expect.that_bool(match_path("example.com/foo/...", "example.com/foo")).equals(True)
+    env.expect.that_bool(match_path("example.com/foo/...", "example.com/foo/bar")).equals(True)
+    env.expect.that_bool(match_path("example.com/foo/...", "example.com/foo/bar/baz")).equals(True)
+    env.expect.that_bool(match_path("example.com/foo/...", "example.com/foobar")).equals(False)
+    env.expect.that_bool(match_path("example.com/foo/...", "example.com/other")).equals(False)
+
+def _pattern_match_prefix_ellipsis_test(name):
+    analysis_test(
+        name = name,
+        target = _TARGET,
+        impl = _pattern_match_prefix_ellipsis_impl,
+        attr_values = {"size": "small"},
+    )
+
 def pattern_match_test_suite(name):
     test_suite(
         name = name,
         tests = [
             _pattern_match_valid_parity_test,
             _pattern_match_malformed_tests,
+            _pattern_match_prefix_ellipsis_test,
         ],
     )

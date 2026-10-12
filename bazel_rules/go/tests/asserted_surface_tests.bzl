@@ -7,6 +7,7 @@ checked emitter and the stamped map artifact by //bazel_rules/go/tests:asserted_
 which can compare built artifacts; the structural assertions live here.
 """
 
+load("@rules_go//go:def.bzl", "GoInfo")
 load("@rules_testing//lib:analysis_test.bzl", "analysis_test", "test_suite")
 load("@rules_testing//lib:truth.bzl", "matching")
 load("//bazel_rules:providers.bzl", "ArccComponentInfo")
@@ -43,6 +44,13 @@ asserted_surface_comparison = rule(
 _ASSERTED_COMPONENT = "//bazel_rules/go/tests/testdata/reportboundary/manual:manual_component"
 _TAGGED_DECLARED_COMPONENT = "//bazel_rules/go/tests/testdata/reportboundary/manual:tagged_declared_component"
 _DIRECT_INVALID_AUTHORITY_COMPONENT = "//bazel_rules/go/tests/testdata/reportboundary/manual:direct_invalid_authority_component"
+_MEMBER_ROOTS_COMPONENT = "//bazel_rules/go/tests/testdata/reportboundary/manual:member_roots_component"
+_MEMBER_ROOTS_FILTERED_COMPONENT = "//bazel_rules/go/tests/testdata/reportboundary/manual:member_roots_filtered_component"
+_MEMBER_ROOTS_PREFIX_FILTERED_COMPONENT = "//bazel_rules/go/tests/testdata/reportboundary/manual:member_roots_prefix_filtered_component"
+_MEMBER_ROOTS_AND_MEMBERS_COMPONENT = "//bazel_rules/go/tests/testdata/reportboundary/manual:member_roots_and_members_component"
+_INVALID_DECLARED_MEMBER_ROOTS_COMPONENT = "//bazel_rules/go/tests/testdata/reportboundary/manual:direct_invalid_declared_member_roots_component"
+_INVALID_PATTERNS_WITHOUT_ROOTS_COMPONENT = "//bazel_rules/go/tests/testdata/reportboundary/manual:direct_invalid_patterns_without_roots_component"
+_INVALID_EMPTY_MEMBERSHIP_COMPONENT = "//bazel_rules/go/tests/testdata/reportboundary/manual:direct_invalid_empty_membership_component"
 
 def _invalid_direct_authority_fails_test(name):
     analysis_test(
@@ -257,6 +265,157 @@ def _default_outputs_unchanged_impl(env, target):
         "manual_component.surface.json",
     ])
 
+def _member_roots_happy_path_test(name):
+    analysis_test(
+        name = name,
+        target = _MEMBER_ROOTS_COMPONENT,
+        impl = _member_roots_happy_path_impl,
+        attr_values = {"size": "small"},
+    )
+
+def _member_roots_happy_path_impl(env, target):
+    info = target[ArccComponentInfo]
+    env.expect.that_str(info.provenance).equals("asserted")
+    if info.report != None:
+        env.fail("asserted component's report must be None")
+    if info.surface == None:
+        env.fail("asserted component must publish a surface")
+
+    # Transitive closure from :api includes api, core, extradep, lowlevel;
+    # shared is excluded because it is covered by shared_component.
+    expected = [
+        "example.com/aspect/api",
+        "example.com/aspect/core",
+        "example.com/aspect/extradep",
+        "example.com/aspect/lowlevel",
+    ]
+    env.expect.that_collection([pkg.importpath for pkg in info.closure.to_list()]).contains_exactly(expected).in_order()
+
+    action = _asserted_surface_action(env, target)
+    content = json.decode(action.content)
+    env.expect.that_collection(content["packages"]).contains_exactly(expected).in_order()
+
+def _member_roots_pattern_filter_test(name):
+    analysis_test(
+        name = name,
+        target = _MEMBER_ROOTS_FILTERED_COMPONENT,
+        impl = _member_roots_pattern_filter_impl,
+        attr_values = {"size": "small"},
+    )
+
+def _member_roots_pattern_filter_impl(env, target):
+    action = _asserted_surface_action(env, target)
+    content = json.decode(action.content)
+    env.expect.that_collection(content["packages"]).contains_exactly([
+        "example.com/aspect/lowlevel",
+    ])
+
+def _member_roots_prefix_pattern_filter_test(name):
+    analysis_test(
+        name = name,
+        target = _MEMBER_ROOTS_PREFIX_FILTERED_COMPONENT,
+        impl = _member_roots_prefix_pattern_filter_impl,
+        attr_values = {"size": "small"},
+    )
+
+def _member_roots_prefix_pattern_filter_impl(env, target):
+    action = _asserted_surface_action(env, target)
+    content = json.decode(action.content)
+    env.expect.that_collection(content["packages"]).contains_exactly([
+        "example.com/aspect/extradep",
+    ])
+
+def _member_roots_and_members_union_test(name):
+    analysis_test(
+        name = name,
+        target = _MEMBER_ROOTS_AND_MEMBERS_COMPONENT,
+        impl = _member_roots_and_members_union_impl,
+        attr_values = {"size": "small"},
+    )
+
+def _member_roots_and_members_union_impl(env, target):
+    action = _asserted_surface_action(env, target)
+    content = json.decode(action.content)
+    env.expect.that_collection(content["packages"]).contains_exactly([
+        "example.com/aspect/member",
+        "example.com/aspect/memberdep",
+        "example.com/reportboundary/manual",
+    ]).in_order()
+
+def _member_roots_no_reexport_test(name):
+    analysis_test(
+        name = name,
+        target = _MEMBER_ROOTS_COMPONENT,
+        impl = _member_roots_no_reexport_impl,
+        attr_values = {"size": "small"},
+    )
+
+def _member_roots_no_reexport_impl(env, target):
+    if GoInfo in target:
+        env.fail("asserted component with member_roots must not provide GoInfo")
+
+def _invalid_declared_member_roots_fails_test(name):
+    analysis_test(
+        name = name,
+        target = _INVALID_DECLARED_MEMBER_ROOTS_COMPONENT,
+        expect_failure = True,
+        impl = _invalid_declared_member_roots_fails_impl,
+        attr_values = {"size": "small"},
+    )
+
+def _invalid_declared_member_roots_fails_impl(env, target):
+    env.expect.that_target(target).failures().contains_predicate(
+        matching.contains("member_roots is only allowed when authority = UNKNOWN"),
+    )
+
+def _invalid_patterns_without_roots_fails_test(name):
+    analysis_test(
+        name = name,
+        target = _INVALID_PATTERNS_WITHOUT_ROOTS_COMPONENT,
+        expect_failure = True,
+        impl = _invalid_patterns_without_roots_fails_impl,
+        attr_values = {"size": "small"},
+    )
+
+def _invalid_patterns_without_roots_fails_impl(env, target):
+    env.expect.that_target(target).failures().contains_predicate(
+        matching.contains("member_patterns requires non-empty member_roots"),
+    )
+
+def _invalid_empty_membership_fails_test(name):
+    analysis_test(
+        name = name,
+        target = _INVALID_EMPTY_MEMBERSHIP_COMPONENT,
+        expect_failure = True,
+        impl = _invalid_empty_membership_fails_impl,
+        attr_values = {"size": "small"},
+    )
+
+def _invalid_empty_membership_fails_impl(env, target):
+    env.expect.that_target(target).failures().contains_predicate(
+        matching.contains("authority UNKNOWN requires non-empty members or member_roots"),
+    )
+
+def _reordered_member_roots_provider_test(name):
+    analysis_test(
+        name = name,
+        target = "//bazel_rules/go/tests:reordered_member_roots_comparison",
+        impl = _reordered_member_roots_provider_impl,
+        attr_values = {"size": "small"},
+    )
+
+def _reordered_member_roots_provider_impl(env, target):
+    expected = [
+        "example.com/aspect/member",
+        "example.com/aspect/memberdep",
+        "example.com/reportboundary/manual",
+    ]
+    package_sets = target[_AssertedSurfaceComparisonInfo].package_sets
+    for package_set in package_sets:
+        env.expect.that_collection(package_set).contains_exactly(expected).in_order()
+    if package_sets[0] != package_sets[1]:
+        env.fail("reordered member_roots produced different package collections: %s vs %s" % (package_sets[0], package_sets[1]))
+
 def asserted_surface_test_suite(name):
     test_suite(
         name = name,
@@ -269,5 +428,14 @@ def asserted_surface_test_suite(name):
             _reordered_unknown_provider_test,
             _invalid_direct_authority_fails_test,
             _explicit_check_of_asserted_component_fails_test,
+            _member_roots_happy_path_test,
+            _member_roots_pattern_filter_test,
+            _member_roots_prefix_pattern_filter_test,
+            _member_roots_and_members_union_test,
+            _member_roots_no_reexport_test,
+            _invalid_declared_member_roots_fails_test,
+            _invalid_patterns_without_roots_fails_test,
+            _invalid_empty_membership_fails_test,
+            _reordered_member_roots_provider_test,
         ],
     )

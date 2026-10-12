@@ -41,3 +41,88 @@ go_component(
     tags = ["manual"],
     visibility = ["//bazel_rules:__subpackages__"],
 )
+
+go_component(
+    name = "member_roots_component",
+    authority = UNKNOWN,
+    component_deps = ["//bazel_rules/go/tests/testdata/shared:shared_component"],
+    interface_style = PACKAGE_SURFACE,
+    member_roots = ["//bazel_rules/go/tests/testdata/api"],
+    visibility = ["//bazel_rules:__subpackages__"],
+)
+
+go_component(
+    name = "member_roots_filtered_component",
+    authority = UNKNOWN,
+    interface_style = PACKAGE_SURFACE,
+    member_patterns = ["example.com/aspect/lowlevel"],
+    member_roots = ["//bazel_rules/go/tests/testdata/api"],
+    visibility = ["//bazel_rules:__subpackages__"],
+)
+
+go_component(
+    name = "member_roots_prefix_filtered_component",
+    authority = UNKNOWN,
+    interface_style = PACKAGE_SURFACE,
+    member_patterns = ["example.com/aspect/extradep/..."],
+    member_roots = ["//bazel_rules/go/tests/testdata/api"],
+    visibility = ["//bazel_rules:__subpackages__"],
+)
+
+go_component(
+    name = "member_roots_and_members_component",
+    authority = UNKNOWN,
+    interface_style = PACKAGE_SURFACE,
+    member_roots = ["//bazel_rules/go/tests/testdata/member"],
+    members = [":manual"],
+    visibility = ["//bazel_rules:__subpackages__"],
+)
+
+go_component(
+    name = "reordered_member_roots_a",
+    authority = UNKNOWN,
+    interface_style = PACKAGE_SURFACE,
+    member_roots = [
+        "//bazel_rules/go/tests/testdata/member",
+        ":manual",
+    ],
+    visibility = ["//bazel_rules:__subpackages__"],
+)
+
+go_component(
+    name = "reordered_member_roots_b",
+    authority = UNKNOWN,
+    interface_style = PACKAGE_SURFACE,
+    member_roots = [
+        ":manual",
+        "//bazel_rules/go/tests/testdata/member",
+    ],
+    visibility = ["//bazel_rules:__subpackages__"],
+)
+
+testing_go_component_direct(
+    name = "direct_invalid_declared_member_roots_component",
+    authority = DECLARED,
+    interface = ":manual",
+    member_roots = ["//bazel_rules/go/tests/testdata/api"],
+    tags = ["manual"],
+    visibility = ["//bazel_rules:__subpackages__"],
+)
+
+testing_go_component_direct(
+    name = "direct_invalid_patterns_without_roots_component",
+    authority = UNKNOWN,
+    interface_style = PACKAGE_SURFACE,
+    member_patterns = ["example.com/..."],
+    members = [":manual"],
+    tags = ["manual"],
+    visibility = ["//bazel_rules:__subpackages__"],
+)
+
+testing_go_component_direct(
+    name = "direct_invalid_empty_membership_component",
+    authority = UNKNOWN,
+    interface_style = PACKAGE_SURFACE,
+    tags = ["manual"],
+    visibility = ["//bazel_rules:__subpackages__"],
+)
