@@ -4,13 +4,13 @@ load("@rules_arcc//bazel_rules/go:defs.bzl", "go_component")
 # packages that are neither members, covered, nor stdlib.
 go_component(
     name = "failing_hazard_component",
+    check_tags = ["manual"],
     interface = "//bazel_rules/go/tests/testdata/hazard/impl1",
     members = [
         "//bazel_rules/go/tests/testdata/hazard/impl2",
         "//bazel_rules/go/tests/testdata/hazard/impl3",
         "//bazel_rules/go/tests/testdata/hazard/impl4",
     ],
-    check_tags = ["manual"],
     visibility = ["//bazel_rules:__subpackages__"],
 )
 
@@ -18,6 +18,7 @@ go_component(
 # explicit membership.
 go_component(
     name = "repaired_hazard_component",
+    check_tags = ["manual"],
     interface = "//bazel_rules/go/tests/testdata/hazard/impl1",
     members = [
         "//bazel_rules/go/tests/testdata/hazard/impl2",
@@ -27,6 +28,5 @@ go_component(
         "//bazel_rules/go/tests/testdata/hazard/util2",
         "//bazel_rules/go/tests/testdata/hazard/util3",
     ],
-    check_tags = ["manual"],
     visibility = ["//bazel_rules:__subpackages__"],
 )

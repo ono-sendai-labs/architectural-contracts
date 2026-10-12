@@ -9,14 +9,14 @@ load("//bazel_rules/go/tests:testing.bzl", "testing_go_component")
 # contribute both itself and its member-only dependency to the closure/layout.
 go_component(
     name = "member_component",
-    interface = "//bazel_rules/go/tests/testdata/api:api",
+    check_tags = ["manual"],
+    interface = "//bazel_rules/go/tests/testdata/api",
     # The first label is also reached transitively from :member. This overlap
     # pins import-path deduplication across independent roots.
     members = [
         "//bazel_rules/go/tests/testdata/memberdep",
         "//bazel_rules/go/tests/testdata/member",
     ],
-    check_tags = ["manual"],
     visibility = ["//bazel_rules:__subpackages__"],
 )
 
@@ -24,12 +24,12 @@ go_component(
 # sequence and package layout bytes.
 go_component(
     name = "member_component_reversed",
-    interface = "//bazel_rules/go/tests/testdata/api:api",
+    check_tags = ["manual"],
+    interface = "//bazel_rules/go/tests/testdata/api",
     members = [
         "//bazel_rules/go/tests/testdata/member",
         "//bazel_rules/go/tests/testdata/memberdep",
     ],
-    check_tags = ["manual"],
     visibility = ["//bazel_rules:__subpackages__"],
 )
 
@@ -38,9 +38,9 @@ go_component(
 # to inspect the emitted declaration.
 go_component(
     name = "analysis_defeating_policy_component",
-    interface = "//bazel_rules/go/tests/testdata/api:api",
     analysis_defeating_policy = "warn",
     check_tags = ["manual"],
+    interface = "//bazel_rules/go/tests/testdata/api",
     visibility = ["//bazel_rules:__subpackages__"],
 )
 
@@ -49,23 +49,23 @@ go_component(
 # the style and member declarations into the manifest.
 go_component(
     name = "package_surface_component",
+    check_tags = ["manual"],
     interface_style = PACKAGE_SURFACE,
     members = [
         "//bazel_rules/go/tests/testdata/memberdep",
         "//bazel_rules/go/tests/testdata/member",
     ],
-    check_tags = ["manual"],
     visibility = ["//bazel_rules:__subpackages__"],
 )
 
 # Test target for auto-attached infra component.
 testing_go_component(
     name = "auto_attached_infra_component",
-    interface = "//bazel_rules/go/tests/testdata/api:api",
+    check_tags = ["manual"],
     infra_deps = [":package_surface_component"],
+    interface = "//bazel_rules/go/tests/testdata/api",
     test_infra_attach = "ALWAYS",
     test_infra_patterns = ["example.com/aspect/member*"],
-    check_tags = ["manual"],
     visibility = ["//bazel_rules:__subpackages__"],
 )
 
@@ -73,12 +73,12 @@ testing_go_component(
 # test_infra_patterns, so attachment must emit the package-surface dependency.
 testing_go_component(
     name = "closure_attached_infra_component",
-    interface = "//bazel_rules/go/tests/testdata/api:api",
-    members = ["//bazel_rules/go/tests/testdata/core"],
+    check_tags = ["manual"],
     infra_deps = [":package_surface_component"],
+    interface = "//bazel_rules/go/tests/testdata/api",
+    members = ["//bazel_rules/go/tests/testdata/core"],
     test_infra_attach = "CLOSURE",
     test_infra_patterns = ["example.com/aspect/core*"],
-    check_tags = ["manual"],
     visibility = ["//bazel_rules:__subpackages__"],
 )
 
@@ -86,32 +86,32 @@ testing_go_component(
 # declared member to arrive together as the two root targets from M9.
 testing_go_component(
     name = "root_collection_attached_infra_component",
-    interface = "//bazel_rules/go/tests/testdata/api:api",
-    members = ["//bazel_rules/go/tests/testdata/core"],
-    infra_deps = [":package_surface_component"],
-    test_infra_attach = "ROOTS",
     check_tags = ["manual"],
+    infra_deps = [":package_surface_component"],
+    interface = "//bazel_rules/go/tests/testdata/api",
+    members = ["//bazel_rules/go/tests/testdata/core"],
+    test_infra_attach = "ROOTS",
     visibility = ["//bazel_rules:__subpackages__"],
 )
 
 # Test target for declining infra component attachment using a closure-inspecting predicate.
 testing_go_component(
     name = "declining_infra_component",
-    interface = "//bazel_rules/go/tests/testdata/api:api",
+    check_tags = ["manual"],
     infra_deps = [":package_surface_component"],
+    interface = "//bazel_rules/go/tests/testdata/api",
     test_infra_attach = "CLOSURE",
     test_infra_patterns = ["example.com/runtime/*"],
-    check_tags = ["manual"],
     visibility = ["//bazel_rules:__subpackages__"],
 )
 
 # Test target for explicitly declining infrastructure attachment.
 testing_go_component(
     name = "never_infra_component",
-    interface = "//bazel_rules/go/tests/testdata/api:api",
-    infra_deps = [":package_surface_component"],
-    test_infra_attach = "NEVER",
     check_tags = ["manual"],
+    infra_deps = [":package_surface_component"],
+    interface = "//bazel_rules/go/tests/testdata/api",
+    test_infra_attach = "NEVER",
     visibility = ["//bazel_rules:__subpackages__"],
 )
 
@@ -119,45 +119,45 @@ testing_go_component(
 # binding emission rejects the conflicting edge identity.
 testing_go_component(
     name = "authored_wins_infra_component",
-    tags = ["manual"],
-    interface = "//bazel_rules/go/tests/testdata/api:api",
+    check_tags = ["manual"],
     component_deps = [":package_surface_component"],
     infra_deps = [":package_surface_component"],
+    interface = "//bazel_rules/go/tests/testdata/api",
+    tags = ["manual"],
     test_infra_attach = "ALWAYS",
-    check_tags = ["manual"],
     visibility = ["//bazel_rules:__subpackages__"],
 )
 
 # Test targets for deterministic ordering of multi-entry infra registry.
 testing_go_component(
     name = "multi_infra_a",
-    interface = "//bazel_rules/go/tests/testdata/api:api",
-    members = [
-        "//bazel_rules/go/tests/testdata/core",
-        "//bazel_rules/go/tests/testdata/extradep",
-    ],
+    check_tags = ["manual"],
     infra_deps = [
         ":package_surface_component",
         "//bazel_rules/go/tests/testdata/infra/runtime:runtime_component",
     ],
+    interface = "//bazel_rules/go/tests/testdata/api",
+    members = [
+        "//bazel_rules/go/tests/testdata/core",
+        "//bazel_rules/go/tests/testdata/extradep",
+    ],
     test_infra_attach = "ALWAYS",
-    check_tags = ["manual"],
     visibility = ["//bazel_rules:__subpackages__"],
 )
 
 testing_go_component(
     name = "multi_infra_b",
-    interface = "//bazel_rules/go/tests/testdata/api:api",
-    members = [
-        "//bazel_rules/go/tests/testdata/extradep",
-        "//bazel_rules/go/tests/testdata/core",
-    ],
+    check_tags = ["manual"],
     infra_deps = [
         "//bazel_rules/go/tests/testdata/infra/runtime:runtime_component",
         ":package_surface_component",
     ],
+    interface = "//bazel_rules/go/tests/testdata/api",
+    members = [
+        "//bazel_rules/go/tests/testdata/extradep",
+        "//bazel_rules/go/tests/testdata/core",
+    ],
     test_infra_attach = "ALWAYS",
-    check_tags = ["manual"],
     visibility = ["//bazel_rules:__subpackages__"],
 )
 
@@ -165,10 +165,10 @@ testing_go_component(
 # covered, nor stdlib.
 go_component(
     name = "undeclared_dep_component",
-    interface = "//bazel_rules/go/tests/testdata/api:api",
+    check_tags = ["manual"],
+    interface = "//bazel_rules/go/tests/testdata/api",
     members = [
         "//bazel_rules/go/tests/testdata/member",
     ],
-    check_tags = ["manual"],
     visibility = ["//bazel_rules:__subpackages__"],
 )

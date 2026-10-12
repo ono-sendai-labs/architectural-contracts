@@ -1,12 +1,16 @@
 """Testing macro for go_component test targets in analysis tests."""
 
+load("//bazel_rules:providers.bzl", "ArccComponentInfo")
+load("//bazel_rules/go:defs.bzl", "DECLARED", "UNKNOWN", "validate_component_shape")
+load("//bazel_rules/go:providers.bzl", "ArccPackageInfo", "ArccStdlibMapInfo")
+load("//bazel_rules/go/private:arcc_metadata.bzl", "arcc_sdk_key_fields")
+load("//bazel_rules/go/private:aspect.bzl", "arcc_deps_aspect")
 load("//bazel_rules/go/private:check.bzl", "arcc_check_test")
 load(
     "//bazel_rules/go/private:component.bzl",
     "GO_COMPONENT_ATTRS",
     "go_component_impl",
 )
-load("//bazel_rules/go/private:aspect.bzl", "arcc_deps_aspect")
 load(
     "//bazel_rules/go/private:go_adapter.bzl",
     "GO_PROVIDERS",
@@ -17,10 +21,6 @@ load(
     "validate_sdk_export_data",
 )
 load("//bazel_rules/go/private:paths.bzl", "match_path")
-load("//bazel_rules:providers.bzl", "ArccComponentInfo")
-load("//bazel_rules/go:providers.bzl", "ArccPackageInfo", "ArccStdlibMapInfo")
-load("//bazel_rules/go/private:arcc_metadata.bzl", "arcc_sdk_key_fields")
-load("//bazel_rules/go:defs.bzl", "DECLARED", "UNKNOWN", "validate_component_shape")
 
 TestingInfraAttachmentInfo = provider(fields = ["attached_targets"])
 

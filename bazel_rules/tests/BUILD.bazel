@@ -4,16 +4,16 @@ load("@rules_shell//shell:sh_test.bzl", "sh_test")
 # themselves (those live in //bazel_rules/go/tests).
 sh_test(
     name = "arcc_binary_test",
-    srcs = ["arcc_binary_test.sh"],
     size = "small",
+    srcs = ["arcc_binary_test.sh"],
     args = ["$(rootpath //:arcc)"],
     data = ["//:arcc"],
 )
 
 sh_test(
     name = "authority_sync_test",
-    srcs = ["authority_sync_test.sh"],
     size = "small",
+    srcs = ["authority_sync_test.sh"],
     args = [
         "$(rootpath //bazel_rules:authority.bzl)",
         "$(rootpath //go/internal/schema:capabilities.go)",

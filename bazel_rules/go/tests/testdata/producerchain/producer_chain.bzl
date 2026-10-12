@@ -79,6 +79,7 @@ def _node_target(variant, level, index):
 def _entry_source(variant, width, type_surface):
     lines = ["package entry", ""]
     lines.append("import (")
+
     # Match Task 1: the directly imported entry package fans out to every
     # top-level node, while the checked members stay in separate wrappers.
     for index in range(width):

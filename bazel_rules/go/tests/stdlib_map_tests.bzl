@@ -49,6 +49,7 @@ def _declares_a_single_canonical_map_output_impl(env, target):
     env.expect.that_collection(
         [f.short_path for f in target[DefaultInfo].files.to_list()],
     ).contains_exactly(["arcc_stdlib_map.stdlib-map.json"])
+
     # The map generation and one shared export projection are the execution
     # actions; the config file is an analysis-time write with no execution.
     env.expect.that_collection(
@@ -93,22 +94,27 @@ def _action_inputs_are_complete_and_minimal_impl(env, target):
     # the SDK's bin/ or pkg/tool/, no cache or home path, no dependency-
     # component source, no unrelated workspace file.
     env.expect.that_collection([
-        p for p in inputs
+        p
+        for p in inputs
         if p.endswith("/bin/go") or "/bin/go_" in p or "pkg/tool/" in p
     ]).contains_exactly([])
     env.expect.that_collection([
-        p for p in inputs
+        p
+        for p in inputs
         if "/.cache/" in p or "gomodcache" in p or "gopath" in p or (p.endswith(".go") and "/src/" not in p)
     ]).contains_exactly([])
+
     # Source/oracle generation has no compiled-export role; those artifacts
     # belong only to the component export-data contract.
     env.expect.that_collection([
-        p for p in inputs
+        p
+        for p in inputs
         if p.endswith("stdlib.pkg.json") or p.endswith("/gocache") or
            p.endswith("/pkg") or "/pkg/tool/" in p
     ]).contains_exactly([])
     env.expect.that_collection([
-        p for p in inputs
+        p
+        for p in inputs
         if (p.startswith("go/") and not p.startswith("go/cmd/arcc/arcc_") and not p.startswith("go/cmd/arcc-stdlibmap/arcc-stdlibmap_")) or
            p.startswith("examples/") or p.startswith("bazel_rules/")
     ]).contains_exactly([])
@@ -129,7 +135,8 @@ def _action_executes_no_toolchain_binary_impl(env, target):
     argv = list(action.argv)
     env.expect.that_str(argv[0]).contains("go/cmd/arcc-stdlibmap/arcc-stdlibmap")
     env.expect.that_collection([
-        p for p in [f.short_path for f in action.inputs.to_list()]
+        p
+        for p in [f.short_path for f in action.inputs.to_list()]
         if "/bin/go" in p or "/bin/go_" in p or "pkg/tool/" in p
     ]).contains_exactly([])
 
@@ -152,13 +159,15 @@ def _argv_uses_the_explicit_input_path_impl(env, target):
     env.expect.that_str(argv_text).contains("--package-list=")
     env.expect.that_str(argv_text).contains("--config-file=")
     env.expect.that_str(argv_text).contains("--sdk-root=")
+
     # The SDK root is the SDK's src/ directory (execroot-relative), given
     # exactly once.
     sdk_root_args = [a for a in argv if a.startswith("--sdk-root=")]
     env.expect.that_int(len(sdk_root_args)).equals(1)
     env.expect.that_bool(sdk_root_args[0].endswith("/src")).equals(True)
     env.expect.that_collection([
-        flag for flag in ("--toolchain=", "--goos=", "--goarch=", "--cgo", "--tags=", "--goexperiment=")
+        flag
+        for flag in ("--toolchain=", "--goos=", "--goarch=", "--cgo", "--tags=", "--goexperiment=")
         if flag in argv_text
     ]).contains_exactly([])
 
@@ -250,6 +259,7 @@ def _provider_carries_the_complete_sdk_key_metadata_impl(env, target):
     # well-formed; their VALUES are pinned against the stamped map artifact
     # and the checked emitter's surface by //bazel_rules/go/tests:asserted_surface_sdk_key_test.
     info = target[ArccStdlibMapInfo]
+
     # The classifier hash is a hex-encoded SHA-256 digest (stdlibmap.ClassifierHash).
     env.expect.that_int(len(info.classifier_hash)).equals(64)
     env.expect.that_int(info.map_format_version).equals(1)
@@ -316,6 +326,7 @@ def _cgo_enabled_configuration_fails_analysis_impl(env, target):
         fail("expected the cgo-enabled stdlib-map target to fail analysis")
     messages = [c.message for c in target[AnalysisFailureInfo].causes.to_list()]
     env.expect.that_int(len(messages)).equals(1)
+
     # The AnalysisFailureInfo cause message is the rule's fail() traceback,
     # which embeds the fail() text: the target name and the pure-mode flag.
     env.expect.that_str(messages[0]).contains("stdlib map arcc_stdlib_map")

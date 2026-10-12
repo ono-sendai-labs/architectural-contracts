@@ -13,8 +13,8 @@ go_library(
 # the report without weakening the stdlib map or hiding the component check.
 go_component(
     name = "parsecsv_component",
-    interface = ":parsecsv",
     analysis_defeating_policy = ANALYSIS_DEFEATING_POLICY_WARN,
+    interface = ":parsecsv",
     visibility = ["//visibility:public"],
 )
 

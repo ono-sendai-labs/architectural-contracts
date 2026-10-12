@@ -1,9 +1,9 @@
 """Analysis tests for the host-injected runtime adapter contract."""
 
+load("@rules_go//go:def.bzl", "GoArchive", "GoInfo")
 load("@rules_testing//lib:analysis_test.bzl", "analysis_test")
 load("@rules_testing//lib:truth.bzl", "matching")
 load("@rules_testing//lib/private:util.bzl", "get_test_name_from_function")
-load("@rules_go//go:def.bzl", "GoArchive", "GoInfo")
 load("//bazel_rules:providers.bzl", "ArccComponentInfo")
 load("//bazel_rules/go:providers.bzl", "ArccPackageInfo")
 load("//bazel_rules/go/private:aspect.bzl", "arcc_deps_aspect")

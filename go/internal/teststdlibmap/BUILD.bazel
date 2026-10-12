@@ -5,7 +5,10 @@ go_library(
     srcs = ["pinned.go"],
     embedsrcs = ["testdata/linux_amd64.stdlib-map.json"],
     importpath = "github.com/ono-sendai-labs/architectural-contracts/go/internal/teststdlibmap",
-    visibility = ["//go/cmd/arcc:__subpackages__", "//go/internal:__subpackages__"],
+    visibility = [
+        "//go/cmd/arcc:__subpackages__",
+        "//go/internal:__subpackages__",
+    ],
     deps = [
         "//go/internal/artifactio",
         "//go/internal/schema/gen",

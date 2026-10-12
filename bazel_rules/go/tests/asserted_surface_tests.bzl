@@ -195,6 +195,7 @@ def _surface_content_is_package_level_impl(env, target):
     env.expect.that_str(sdk_key["toolchainVersion"]).contains("go1.")
     env.expect.that_str(sdk_key["goos"]).equals("linux")
     env.expect.that_str(sdk_key["goarch"]).equals("amd64")
+
     # The generator-owned key fields are mirrored in arcc_metadata.bzl; their
     # values are equality-pinned against the checked emitter by
     # asserted_surface_sdk_key_test. Here: present and well-formed.

@@ -21,6 +21,7 @@ TransitionedStdlibMapInfo = provider(
 
 def _republish_impl(ctx):
     info = ctx.attr.map[0][ArccStdlibMapInfo]
+
     # Republish under the wrapper's own short_path: the map artifacts of
     # different configurations share one short_path (they are the same rule
     # output name in different configuration trees), and runfiles collapse on

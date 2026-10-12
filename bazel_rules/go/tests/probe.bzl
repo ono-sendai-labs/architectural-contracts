@@ -309,6 +309,7 @@ transitioned_component_layout = rule(
 
 def _checked_analysis_surface_impl(ctx):
     info = ctx.attr.component[ArccComponentInfo]
+
     # Republish under the wrapper's own short_path: the surfaces of different
     # configurations share one short_path (same rule output name in different
     # configuration trees) and runfiles collapse on short_path.

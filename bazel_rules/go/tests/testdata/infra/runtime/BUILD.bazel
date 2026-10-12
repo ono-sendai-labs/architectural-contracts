@@ -1,5 +1,5 @@
-load("@rules_go//go:def.bzl", "go_library")
 load("@rules_arcc//bazel_rules/go:defs.bzl", "FILES", "PACKAGE_SURFACE", "go_component")
+load("@rules_go//go:def.bzl", "go_library")
 
 go_library(
     name = "runtime",

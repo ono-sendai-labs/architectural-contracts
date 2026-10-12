@@ -148,12 +148,12 @@ def _checked_analysis_launcher(argv, expected_report, expected_surface, expect_v
         '  echo "arcc_checked_analysis_test: surface differs between identical runs" >&2',
         "  exit 1",
         "fi",
-        'if ! cmp -s ' + _shell_quote(expected_report) + ' "$TEST_TMPDIR/run1.report.json"; then',
+        "if ! cmp -s " + _shell_quote(expected_report) + ' "$TEST_TMPDIR/run1.report.json"; then',
         '  echo "arcc_checked_analysis_test: reproduced report differs from the analysis action\'s report" >&2',
         "  diff -u " + _shell_quote(expected_report) + ' "$TEST_TMPDIR/run1.report.json" >&2 || true',
         "  exit 1",
         "fi",
-        'if ! cmp -s ' + _shell_quote(expected_surface) + ' "$TEST_TMPDIR/run1.surface.json"; then',
+        "if ! cmp -s " + _shell_quote(expected_surface) + ' "$TEST_TMPDIR/run1.surface.json"; then',
         '  echo "arcc_checked_analysis_test: reproduced surface differs from the analysis action\'s surface" >&2',
         "  diff -u " + _shell_quote(expected_surface) + ' "$TEST_TMPDIR/run1.surface.json" >&2 || true',
         "  exit 1",
@@ -178,7 +178,7 @@ def _checked_analysis_launcher(argv, expected_report, expected_surface, expect_v
         '  cat "$TEST_TMPDIR/run1.surface.json" >&2',
         "  exit 1",
         "fi",
-        'if ! ' + _shell_quote(arcc) + ' stdlibmap inspect ' + _shell_quote(map_path) +
+        "if ! " + _shell_quote(arcc) + " stdlibmap inspect " + _shell_quote(map_path) +
         ' --expect-key="toolchain_version=$toolchain,goos=$goos,goarch=$goarch" >/dev/null 2>&1; then',
         '  echo "arcc_checked_analysis_test: surface SDK key does not identify the attached stdlib map" >&2',
         "  exit 1",
@@ -352,7 +352,7 @@ def _launcher_content_with_grep(verdict_argv, report_path, expected_strings, exp
         # shell-quoted argument), so quotes, `$(...)`, `%` signs and newlines
         # in an expected string stay data — never generated shell code.
         lines += [
-            'if ! grep -F -- %s %s > /dev/null; then' % (_shell_quote(s), _shell_quote(report_path)),
+            "if ! grep -F -- %s %s > /dev/null; then" % (_shell_quote(s), _shell_quote(report_path)),
             '  echo "arcc_check_grep_test: expected string not found in the component report:" >&2',
             "  printf '%s\\n' " + _shell_quote(s) + " >&2",
             "  cat " + _shell_quote(report_path) + " >&2",

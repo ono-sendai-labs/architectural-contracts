@@ -15,8 +15,8 @@ go_library(
 # suite; the component itself stays on the checked path.
 go_component(
     name = "nested_component",
+    check_tags = ["manual"],
     component_deps = ["//bazel_rules/go/tests/testdata/nested/child:child_component"],
     interface = ":nested",
-    check_tags = ["manual"],
     visibility = ["//bazel_rules:__subpackages__"],
 )

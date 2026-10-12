@@ -19,19 +19,19 @@ go_library(
 # directions: surfaces/export data are present, source is absent.
 go_component(
     name = "strict_component",
+    check_tags = ["manual"],
     component_deps = ["//bazel_rules/go/tests/testdata/shared:shared_component"],
     interface_style = "PACKAGE_SURFACE",
     members = [":defeat"],
-    check_tags = ["manual"],
     visibility = ["//bazel_rules:__subpackages__"],
 )
 
 go_component(
     name = "warn_component",
+    analysis_defeating_policy = "warn",
+    check_tags = ["manual"],
     component_deps = ["//bazel_rules/go/tests/testdata/shared:shared_component"],
     interface_style = "PACKAGE_SURFACE",
     members = [":defeat"],
-    analysis_defeating_policy = "warn",
-    check_tags = ["manual"],
     visibility = ["//bazel_rules:__subpackages__"],
 )

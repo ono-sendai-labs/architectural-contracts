@@ -1,5 +1,5 @@
-load("@rules_go//go:def.bzl", "go_library")
 load("@rules_arcc//bazel_rules/go:defs.bzl", "PACKAGE_SURFACE", "UNKNOWN")
+load("@rules_go//go:def.bzl", "go_library")
 load("//bazel_rules/go/tests:testing.bzl", "testing_go_component")
 
 go_library(
@@ -9,7 +9,10 @@ go_library(
     visibility = ["//visibility:public"],
 )
 
-exports_files(["consumer/runtime_consumer.go"], visibility = ["//visibility:public"])
+exports_files(
+    ["consumer/runtime_consumer.go"],
+    visibility = ["//visibility:public"],
+)
 
 # This is the matching infrastructure wrapper. UNKNOWN keeps the fixture's
 # boundary asserted, so the consumer test proves that the auto-attached edge
@@ -29,18 +32,18 @@ testing_go_component(
 # effective package view.
 testing_go_component(
     name = "runtime_injection_component",
-    interface = "//bazel_rules/go/tests/testdata/api:api",
+    check_tags = ["manual"],
     component_deps = ["//bazel_rules/go/tests/testdata/shared:shared_component"],
+    infra_deps = [":runtime_boundary"],
+    interface = "//bazel_rules/go/tests/testdata/api",
     members = [
         "//bazel_rules/go/tests/testdata/core",
         "//bazel_rules/go/tests/testdata/extradep",
         "//bazel_rules/go/tests/testdata/lowlevel",
         "//bazel_rules/go/tests:injected_runtime_member",
     ],
-    infra_deps = [":runtime_boundary"],
-    test_runtime_deps = [":runtime"],
     test_infra_attach = "CLOSURE",
     test_infra_patterns = ["example.com/injected/runtime"],
-    check_tags = ["manual"],
+    test_runtime_deps = [":runtime"],
     visibility = ["//bazel_rules:__subpackages__"],
 )

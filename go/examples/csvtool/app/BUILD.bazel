@@ -60,10 +60,10 @@ go_test(
         "//go/examples/csvtool/app:app_component",
         "//go/examples/csvtool/csvfile:component.textproto",
         "//go/examples/csvtool/csvfile:csvfile_component",
-        "//go/examples/csvtool/toprow:component.textproto",
-        "//go/examples/csvtool/toprow:toprow_component",
         "//go/examples/csvtool/internal/parsecsv:component.textproto",
         "//go/examples/csvtool/internal/parsecsv:parsecsv_component",
+        "//go/examples/csvtool/toprow:component.textproto",
+        "//go/examples/csvtool/toprow:toprow_component",
     ],
     deps = ["//go/internal/manifestparity"],
 )

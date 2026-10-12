@@ -42,12 +42,12 @@ go_test(
         "manifest_test.go",
         "schema_test.go",
     ],
+    embed = [":manifest"],
     # keep: TestSelfHostingManifests walks the checked-in source tree by
     # relative path (sibling manifests, their interface files and imports), so
     # it needs the working copy rather than a runfiles tree. It runs under
     # `just ci`'s `go test ./...`; `manual` keeps it out of `bazel test //...`.
     tags = ["manual"],
-    embed = [":manifest"],
 )
 
 # Mirrors the checked-in manifest/component.textproto. The generated schema
@@ -60,7 +60,7 @@ go_component(
         "//go/internal/schema:schema_component",
         "//go/internal/schema/gen:schema_gen_component",
     ],
-    members = [],
     interface = ":manifest",
+    members = [],
     visibility = ["//go:__subpackages__"],
 )

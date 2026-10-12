@@ -1,5 +1,5 @@
-load("@rules_go//go:def.bzl", "go_library")
 load("@rules_arcc//bazel_rules/go:defs.bzl", "PACKAGE_SURFACE")
+load("@rules_go//go:def.bzl", "go_library")
 load("//bazel_rules/go/tests:testing.bzl", "testing_go_component")
 
 go_library(
@@ -15,10 +15,10 @@ go_library(
 # infra candidate when it is used as a consumer in the analysis tests.
 testing_go_component(
     name = "runtime_component",
+    check_tags = ["manual"],
+    infra_deps = ["//bazel_rules/go/tests/testdata/infra/runtime:runtime_component"],
     interface_style = PACKAGE_SURFACE,
     members = [":same_short_name"],
-    infra_deps = ["//bazel_rules/go/tests/testdata/infra/runtime:runtime_component"],
     test_infra_attach = "ALWAYS",
-    check_tags = ["manual"],
     visibility = ["//visibility:public"],
 )

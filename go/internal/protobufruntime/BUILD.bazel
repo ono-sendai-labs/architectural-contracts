@@ -7,6 +7,7 @@ load("@rules_arcc//bazel_rules/go:defs.bzl", "PACKAGE_SURFACE", "UNKNOWN", "go_c
 # this surface.
 go_component(
     name = "protobuf-runtime",
+    authority = UNKNOWN,
     interface_style = PACKAGE_SURFACE,
     members = [
         "@org_golang_google_protobuf//encoding/protojson:protojson",
@@ -39,8 +40,10 @@ go_component(
         "@org_golang_google_protobuf//runtime/protoiface:protoiface",
         "@org_golang_google_protobuf//runtime/protoimpl:protoimpl",
     ],
-    authority = UNKNOWN,
     visibility = ["//go:__subpackages__"],
 )
 
-exports_files(["component.surface.json", "component.textproto"])
+exports_files([
+    "component.surface.json",
+    "component.textproto",
+])

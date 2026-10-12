@@ -15,7 +15,7 @@ go_library(
 # explicitly with expect_violation = True.
 go_component(
     name = "violation_component",
-    interface = ":violation",
     check_tags = ["manual"],
+    interface = ":violation",
     visibility = ["//bazel_rules:__subpackages__"],
 )

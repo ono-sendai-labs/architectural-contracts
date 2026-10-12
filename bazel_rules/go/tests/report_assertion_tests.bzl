@@ -306,12 +306,14 @@ def _hostile_grep_strings_stay_data_impl(env, target):
     content = _launcher(env, target)
     env.expect.that_str(content).contains("grep -F --")
     env.expect.that_str(content).contains("printf '%s\\n'")
+
     # Each hostile string appears exactly once, as a shell-quoted operand.
     env.expect.that_str(content).contains("'$(whoami)'")
     env.expect.that_str(content).contains("''\\''; rm -rf / #'")
     env.expect.that_str(content).contains("'a\nb'")
     env.expect.that_str(content).contains("'-e'")
     env.expect.that_str(content).contains("'100%s'")
+
     # The old diagnostic interpolated the string raw into an echo: gone.
     _assert_absent(env, content, "expected string '")
 

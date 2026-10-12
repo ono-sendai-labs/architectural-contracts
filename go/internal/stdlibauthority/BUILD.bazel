@@ -19,8 +19,8 @@ go_test(
 # Mirrors the checked-in stdlibauthority/component.textproto.
 go_component(
     name = "stdlibauthority_component",
-    interface = ":stdlibauthority",
     component_deps = ["//go/internal/symbol:symbol_component"],
+    interface = ":stdlibauthority",
     visibility = ["//go:__subpackages__"],
 )
 

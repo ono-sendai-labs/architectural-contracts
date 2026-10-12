@@ -5,6 +5,7 @@ load("@rules_arcc//bazel_rules/go:defs.bzl", "PACKAGE_SURFACE", "UNKNOWN", "go_c
 # loading the foreign source merely to derive an assertion about it.
 go_component(
     name = "x-tools",
+    authority = UNKNOWN,
     interface_style = PACKAGE_SURFACE,
     members = [
         "@org_golang_x_mod//semver:semver",
@@ -39,8 +40,10 @@ go_component(
         "@org_golang_x_tools//internal/typesinternal:typesinternal",
         "@org_golang_x_tools//internal/versions:versions",
     ],
-    authority = UNKNOWN,
     visibility = ["//go:__subpackages__"],
 )
 
-exports_files(["component.surface.json", "component.textproto"])
+exports_files([
+    "component.surface.json",
+    "component.textproto",
+])

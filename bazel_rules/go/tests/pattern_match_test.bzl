@@ -79,4 +79,3 @@ def pattern_match_test_suite(name):
             _pattern_match_malformed_tests,
         ],
     )
-

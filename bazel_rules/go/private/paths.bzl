@@ -167,4 +167,3 @@ def match_path(pattern, name):
             p += 1
 
     return p == p_len and n == n_len
-

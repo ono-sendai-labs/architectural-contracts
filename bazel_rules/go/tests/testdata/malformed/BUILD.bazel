@@ -25,7 +25,7 @@ go_library(
 
 go_component(
     name = "broken_go_component",
-    interface = ":broken",
     check_tags = ["manual"],
+    interface = ":broken",
     visibility = ["//bazel_rules:__subpackages__"],
 )

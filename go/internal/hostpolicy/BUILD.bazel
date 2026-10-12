@@ -16,7 +16,10 @@ go_library(
 go_test(
     name = "hostpolicy_test",
     size = "small",
-    srcs = ["hostpolicy_test.go", "namespace_test.go"],
+    srcs = [
+        "hostpolicy_test.go",
+        "namespace_test.go",
+    ],
     deps = [":hostpolicy"],
 )
 

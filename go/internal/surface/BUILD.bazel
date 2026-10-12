@@ -17,8 +17,8 @@ go_library(
     deps = [
         "//go/internal/manifest",
         "//go/internal/schema/gen",
-        "//go/internal/symbol",
         "//go/internal/stdlibauthority",
+        "//go/internal/symbol",
     ],
 )
 

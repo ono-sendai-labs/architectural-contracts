@@ -1,6 +1,6 @@
 load("@rules_arcc//bazel_rules/go:defs.bzl", "DECLARED", "PACKAGE_SURFACE", "UNKNOWN", "go_component")
-load("//bazel_rules/go/tests:testing.bzl", "testing_go_component_direct")
 load("@rules_go//go:def.bzl", "go_library")
+load("//bazel_rules/go/tests:testing.bzl", "testing_go_component_direct")
 
 go_library(
     name = "manual",
@@ -15,9 +15,9 @@ go_library(
 # so the component is PACKAGE_SURFACE: its complete surface is its member set.
 go_component(
     name = "manual_component",
+    authority = UNKNOWN,
     interface_style = PACKAGE_SURFACE,
     members = [":manual"],
-    authority = UNKNOWN,
     visibility = ["//bazel_rules:__subpackages__"],
 )
 
@@ -25,8 +25,8 @@ go_component(
 # still reject unsupported authority values in the private implementation.
 testing_go_component_direct(
     name = "direct_invalid_authority_component",
-    interface = ":manual",
     authority = "NOT_AN_AUTHORITY",
+    interface = ":manual",
     tags = ["manual"],
     visibility = ["//bazel_rules:__subpackages__"],
 )
@@ -36,8 +36,8 @@ testing_go_component_direct(
 # generated check carry the conventional Bazel `manual` scheduling tag.
 go_component(
     name = "tagged_declared_component",
-    interface = ":manual",
     authority = DECLARED,
+    interface = ":manual",
     tags = ["manual"],
     visibility = ["//bazel_rules:__subpackages__"],
 )

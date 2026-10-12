@@ -16,7 +16,7 @@ go_library(
 # expect_violation = True.
 go_component(
     name = "funcvalue_component",
-    interface = ":funcvalue",
     check_tags = ["manual"],
+    interface = ":funcvalue",
     visibility = ["//bazel_rules:__subpackages__"],
 )
