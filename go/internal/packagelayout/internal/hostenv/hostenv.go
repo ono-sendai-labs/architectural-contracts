@@ -47,6 +47,7 @@ type NativeDefaults struct {
 }
 
 func NativeTargetDefaults() NativeDefaults {
+	//lint:ignore SA1019 runtime.GOROOT is the only toolchain-independent way to locate the SDK source tree of the running binary; its deprecation note concerns relocated binaries, which does not apply here.
 	return NativeDefaults{
 		GOROOT:     runtime.GOROOT(),
 		GOOS:       runtime.GOOS,

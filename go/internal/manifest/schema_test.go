@@ -6,6 +6,7 @@ import (
 
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/schema/gen"
 	"google.golang.org/protobuf/encoding/prototext"
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protoreflect"
 )
 
@@ -77,7 +78,7 @@ func TestComponentSchema_AdditiveFieldsAndTextproto(t *testing.T) {
 	if err := prototext.Unmarshal(encoded, &decoded); err != nil {
 		t.Fatalf("unmarshal extended component: %v", err)
 	}
-	if !reflect.DeepEqual(component, &decoded) {
+	if !proto.Equal(component, &decoded) {
 		t.Errorf("extended component round trip mismatch:\n got: %v\nwant: %v", &decoded, component)
 	}
 }

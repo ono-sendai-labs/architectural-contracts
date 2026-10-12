@@ -2289,6 +2289,7 @@ func TestValidateAndResolve_ImportRecovery_IncompleteGraph(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			tmpDir := t.TempDir()
+			//lint:ignore SA1019 runtime.GOROOT is the only toolchain-independent way to locate the SDK source tree of the running binary; its deprecation note concerns relocated binaries, which does not apply here.
 			sdkSrc := filepath.Join(runtime.GOROOT(), "src")
 			// This case needs a real SDK source tree to discover the stdlib
 			// against. `go test` has one via runtime.GOROOT(); the rules_go

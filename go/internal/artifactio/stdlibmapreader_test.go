@@ -190,7 +190,7 @@ func TestStdlibMapReaderEvidenceOrderAndCopies(t *testing.T) {
 	frames = append(frames, stdlibauthority.Frame{Function: "extra"})
 	again := reader.Evidence(symbol.SymbolID("(os.File).Read"), "FILES")
 	if len(again) != 3 || again[0].Function != "h" {
-		t.Errorf("mutated returned slice leaked into adapter state: %+v", again)
+		t.Errorf("mutated returned slice %+v leaked into adapter state: %+v", frames, again)
 	}
 
 	// Capability slices are defensive copies too.

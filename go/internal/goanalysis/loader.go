@@ -744,6 +744,7 @@ func completeLoadedExportTypes(pkgs []*packages.Package, memberPaths map[string]
 		if err != nil {
 			return fmt.Errorf("reading export data for package %q from %q: %w", pkg.PkgPath, pkg.ExportFile, err)
 		}
+		//lint:ignore SA1019 gcexportdata.NewReader is the only API that locates export data inside compiler .a archives; revisit before Go 1.29 drops archive support.
 		reader, err := gcexportdata.NewReader(file)
 		if err == nil {
 			var imported *types.Package

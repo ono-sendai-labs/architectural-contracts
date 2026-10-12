@@ -7,7 +7,7 @@ import (
 )
 
 func TestNormalizePackageList(t *testing.T) {
-	got, err := NormalizePackageList([]string{
+	_, err := NormalizePackageList([]string{
 		"os", "internal/secret", "strings", "os", "crypto/internal/boring", "", "net/http", "internal", " os ",
 	})
 	if err == nil {
@@ -17,7 +17,7 @@ func TestNormalizePackageList(t *testing.T) {
 		t.Fatalf("NormalizePackageList error %q: want it to name the malformed path", err)
 	}
 
-	got, err = NormalizePackageList([]string{
+	got, err := NormalizePackageList([]string{
 		"os", "internal/secret", "strings", "os", "crypto/internal/boring", "net/http", "internal", "strings",
 	})
 	if err != nil {

@@ -90,7 +90,7 @@ func TestJoin_InputsUnchanged(t *testing.T) {
 	}
 
 	// The result must not alias an input even when only one side contributes.
-	if solo := manifest.Join(manifest.DeclaredAuthority("FILES"), manifest.DeclaredAuthority()); solo.Known != true || &solo.Set == nil {
+	if solo := manifest.Join(manifest.DeclaredAuthority("FILES"), manifest.DeclaredAuthority()); !solo.Known || solo.Set == nil {
 		t.Fatal("Join with known-empty lost the known state")
 	}
 }
