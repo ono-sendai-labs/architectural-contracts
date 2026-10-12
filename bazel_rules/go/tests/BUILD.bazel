@@ -394,11 +394,11 @@ sh_test(
     srcs = ["malformed_manifest_tool_error_test.sh"],
     args = [
         "$(rootpath //:arcc)",
-        "$(rootpath //bazel_rules/go/tests/testdata/malformed:broken.component.textproto)",
+        "$(rootpath //bazel_rules/go/tests/testdata/malformed:broken.component.textproto.invalid)",
     ],
     data = [
         "//:arcc",
-        "//bazel_rules/go/tests/testdata/malformed:broken.component.textproto",
+        "//bazel_rules/go/tests/testdata/malformed:broken.component.textproto.invalid",
     ],
 )
 

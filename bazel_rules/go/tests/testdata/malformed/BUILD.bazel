@@ -2,7 +2,7 @@
 # AC 2): tool errors must fail the Bazel action, while violations (exit 1)
 # must not.
 #
-# broken.component.textproto is a manifest no parser accepts, exercised
+# broken.component.textproto.invalid is a manifest no parser accepts, exercised
 # directly by malformed_manifest_tool_error_test. broken_go_component wraps a
 # Go library whose source does not parse: its import-graph projection or
 # ArccCheck action is expected to FAIL at execution when the arcc output group
@@ -14,7 +14,7 @@
 load("@rules_arcc//bazel_rules/go:defs.bzl", "go_component")
 load("@rules_go//go:def.bzl", "go_library")
 
-exports_files(["broken.component.textproto"])
+exports_files(["broken.component.textproto.invalid"])
 
 go_library(
     name = "broken",
