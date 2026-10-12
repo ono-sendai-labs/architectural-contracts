@@ -123,6 +123,12 @@ def _validate_component_authority(name, kwargs):
         ))
 
     if authority != UNKNOWN:
+        if kwargs.get("member_roots"):
+            fail(("component %s: member_roots is only allowed when authority = UNKNOWN; " +
+                  "use authority = UNKNOWN for asserted components or list explicit targets in members.") % name)
+        if kwargs.get("member_patterns"):
+            fail(("component %s: member_patterns is only allowed when authority = UNKNOWN; " +
+                  "remove member_patterns or use authority = UNKNOWN with member_roots.") % name)
         return authority
 
     if kwargs.get("declared_authority"):
@@ -135,9 +141,12 @@ def _validate_component_authority(name, kwargs):
     if kwargs.get("interface_style") != PACKAGE_SURFACE:
         fail(("component %s: authority UNKNOWN requires interface_style = %s for its " +
               "package-level asserted surface.") % (name, PACKAGE_SURFACE))
-    if not kwargs.get("members"):
-        fail(("component %s: authority UNKNOWN requires non-empty members for its " +
+    if not kwargs.get("members") and not kwargs.get("member_roots"):
+        fail(("component %s: authority UNKNOWN requires non-empty members or member_roots for its " +
               "package-level asserted surface.") % name)
+    if kwargs.get("member_patterns") and not kwargs.get("member_roots"):
+        fail(("component %s: member_patterns requires non-empty member_roots; " +
+              "remove member_patterns or declare member_roots.") % name)
     return authority
 
 def _validate_component_shape(name, kwargs):
@@ -174,8 +183,8 @@ def _validate_component_shape(name, kwargs):
             name,
             PACKAGE_SURFACE,
         ))
-    if not members:
-        fail("component %s: interface_style %s requires non-empty members." % (
+    if not members and not kwargs.get("member_roots"):
+        fail("component %s: interface_style %s requires non-empty members or member_roots." % (
             name,
             PACKAGE_SURFACE,
         ))
@@ -215,6 +224,17 @@ def _go_component_impl(name, visibility, **kwargs):
             fail("component %s: members must be literal target labels: %r" % (name, m_str))
 
     set_kwargs["members"] = sorted(target_members.keys())
+
+    raw_member_roots = set_kwargs.get("member_roots", [])
+    target_member_roots = {}
+    for r in raw_member_roots:
+        r_str = str(r)
+        if _is_label(r_str) and not _has_wildcards(r_str):
+            target_member_roots[r_str] = True
+        else:
+            fail("component %s: member_roots must be literal target labels: %r" % (name, r_str))
+
+    set_kwargs["member_roots"] = sorted(target_member_roots.keys())
     if "infra_deps" not in set_kwargs:
         set_kwargs["infra_deps"] = go_infra_deps()
 
@@ -268,6 +288,18 @@ go_component = macro(
             configurable = False,
             doc = "Concrete go_library target labels declared as component members. " +
                   "Import-path patterns are rejected; membership is literal.",
+        ),
+        "member_roots": attr.string_list(
+            configurable = False,
+            doc = "Go library roots whose transitive closures form the component's member packages. " +
+                  "Allowed only with authority = UNKNOWN.",
+        ),
+        "member_patterns": attr.string_list(
+            configurable = False,
+            doc = "Optional import-path patterns (exact path or prefix ending with '/...') " +
+                  "filtering candidate packages reachable from member_roots. Allowed only with " +
+                  "authority = UNKNOWN and non-empty member_roots. Closure packages that do not " +
+                  "match are not members and remain uncovered for consumers.",
         ),
         "component_deps": attr.label_list(
             configurable = False,

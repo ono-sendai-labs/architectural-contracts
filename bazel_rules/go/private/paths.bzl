@@ -96,7 +96,10 @@ def _match_char_class(char_class, ch, pattern):
     return not matched if negated else matched
 
 def match_path(pattern, name):
-    """Reports whether `name` matches `pattern` using Go path.Match semantics."""
+    """Reports whether `name` matches `pattern` using Go path.Match semantics, with support for '/...' prefix matching."""
+    if pattern.endswith("/..."):
+        prefix = pattern[:-4]
+        return name == prefix or name.startswith(prefix + "/")
     _validate_pattern_syntax(pattern)
 
     p_len = len(pattern)

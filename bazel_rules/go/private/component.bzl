@@ -808,6 +808,14 @@ def go_component_impl(ctx, attachment_fn = go_attached_infra, runtime_packages_f
             ", ".join(ALL_COMPONENT_AUTHORITIES),
         ))
 
+    if ctx.attr.authority != UNKNOWN:
+        if ctx.attr.member_roots:
+            fail(("component %s: member_roots is only allowed when authority = UNKNOWN; " +
+                  "use authority = UNKNOWN for asserted components or list explicit targets in members.") % ctx.label.name)
+        if ctx.attr.member_patterns:
+            fail(("component %s: member_patterns is only allowed when authority = UNKNOWN; " +
+                  "remove member_patterns or use authority = UNKNOWN with member_roots.") % ctx.label.name)
+
     if ctx.attr.authority == UNKNOWN:
         if ctx.attr.declared_authority:
             fail(("component %s: authority UNKNOWN requires declared_authority to be empty; " +
@@ -819,9 +827,12 @@ def go_component_impl(ctx, attachment_fn = go_attached_infra, runtime_packages_f
         if ctx.attr.interface_style != "PACKAGE_SURFACE":
             fail(("component %s: authority UNKNOWN requires interface_style = PACKAGE_SURFACE " +
                   "for its package-level asserted surface") % ctx.label.name)
-        if not ctx.attr.members:
-            fail(("component %s: authority UNKNOWN requires non-empty members for its " +
+        if not ctx.attr.members and not ctx.attr.member_roots:
+            fail(("component %s: authority UNKNOWN requires non-empty members or member_roots for its " +
                   "package-level asserted surface") % ctx.label.name)
+        if ctx.attr.member_patterns and not ctx.attr.member_roots:
+            fail(("component %s: member_patterns requires non-empty member_roots; " +
+                  "remove member_patterns or declare member_roots.") % ctx.label.name)
 
     for authority in ctx.attr.declared_authority:
         if authority not in ALL_AUTHORITIES:
@@ -837,7 +848,7 @@ def go_component_impl(ctx, attachment_fn = go_attached_infra, runtime_packages_f
             ctx.attr.analysis_defeating_policy,
         ))
 
-    roots = ([ctx.attr.interface] if ctx.attr.interface else []) + ctx.attr.members
+    roots = ([ctx.attr.interface] if ctx.attr.interface else []) + ctx.attr.members + ctx.attr.member_roots
 
     ordinary_root_packages = []
     for root in roots:
@@ -935,11 +946,30 @@ def go_component_impl(ctx, attachment_fn = go_attached_infra, runtime_packages_f
             if match_path(pattern, importpath):
                 covered[importpath] = comp_name
 
+    injected_set = {pkg.importpath: True for pkg in injected_packages}
+    member_root_packages = {}
+    for root in ctx.attr.member_roots:
+        for pkg in root[ArccPackageInfo].packages.to_list():
+            importpath = pkg.importpath
+            if importpath in covered or importpath in injected_set:
+                continue
+            if ctx.attr.member_patterns:
+                matched = False
+                for pattern in ctx.attr.member_patterns:
+                    if match_path(pattern, importpath):
+                        matched = True
+                        break
+                if not matched:
+                    continue
+            member_root_packages[importpath] = True
+
     effective_members = {}
     if interface_importpath:
         effective_members[interface_importpath] = True
     for m_path in member_importpaths:
         effective_members[m_path] = True
+    for r_path in sorted(member_root_packages.keys()):
+        effective_members[r_path] = True
 
     members = _classify(ctx, merged, effective_members, covered)
 
@@ -1230,6 +1260,18 @@ _GO_COMPONENT_BASE_ATTRS = {
         aspects = [arcc_deps_aspect],
         doc = "Concrete Go library labels whose transitive closures are analyzed " +
               "alongside the interface closure.",
+    ),
+    "member_roots": attr.label_list(
+        providers = GO_PROVIDERS,
+        aspects = [arcc_deps_aspect],
+        doc = "Go library roots whose transitive closures form the component's member packages. " +
+              "Allowed only with authority = UNKNOWN.",
+    ),
+    "member_patterns": attr.string_list(
+        doc = "Optional import-path patterns (exact path or prefix ending with '/...') " +
+              "filtering candidate packages reachable from member_roots. Allowed only with " +
+              "authority = UNKNOWN and non-empty member_roots. Closure packages that do not " +
+              "match are not members and remain uncovered for consumers.",
     ),
     "component_deps": attr.label_list(
         providers = [ArccComponentInfo],
