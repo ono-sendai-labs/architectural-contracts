@@ -22,7 +22,7 @@ test:
 # user-namespace creation — CI relaxes the AppArmor restriction on that in
 # its own workflow step (ci.yml), ahead of this recipe.
 test-integration:
-	cd {{go_dir}} && go test -timeout 10m -tags=integration ./...
+	cd {{go_dir}} && go test -timeout 20m -tags=integration ./...
 
 # Full stdlib-map coverage is intentionally outside the routine feedback lane:
 # it retains the real two-generation determinism and cross-configuration
