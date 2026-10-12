@@ -35,14 +35,20 @@ test-integration-full:
 stdlibmap-pin-check:
 	bash scripts/check-routine-stdlib-map-pin.sh
 
-lint:
+lint-bazel:
+	files=$(ls -d BUILD.bazel MODULE.bazel bazel_rules go 2>/dev/null || true); [ -z "$files" ] || buildifier -mode=check -r $files
+
+lint: lint-bazel
 	cd {{go_dir}} && go vet ./...
 	cd {{go_dir}} && test -z "$(gofmt -l .)"
 
 lint-gate-test:
 	bash scripts/test-lint-gate.sh
 
-fmt:
+fmt-bazel:
+	files=$(ls -d BUILD.bazel MODULE.bazel bazel_rules go 2>/dev/null || true); [ -z "$files" ] || buildifier -r $files
+
+fmt: fmt-bazel
 	cd {{go_dir}} && go fmt ./...
 
 gen:

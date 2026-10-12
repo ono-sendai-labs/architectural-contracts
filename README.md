@@ -57,6 +57,11 @@ To compile and use the `arcc` tool, you need:
   ```bash
   go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.36.11
   ```
+- **`buildifier`** (required to lint and format Bazel and Starlark files via `just lint` or `just fmt`). You can install it using:
+  ```bash
+  go install github.com/bazelbuild/buildtools/buildifier@v0.0.0-20250204160707-ad48c76ab9b5
+  ```
+  *(Pinned to tag `v8.0.3` via its commit pseudo-version).*
   Ensure your Go binary installation directory (typically `$GOPATH/bin` or `$HOME/go/bin`) is in your system's `PATH`.
 
 *Note: If you do not have `protoc` or `protoc-gen-go` installed, you can still build and run tests using `just` or Go directly without running the protobuf verification steps (see below).*

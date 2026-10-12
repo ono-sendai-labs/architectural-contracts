@@ -33,6 +33,10 @@ jobs:
       - name: Install protoc-gen-go
         run: go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.36.11
 
+      - name: Install buildifier
+        # Pinned to tag v8.0.3 (commit ad48c76ab9b5) to match google3's import; pseudo-version required due to missing /v8 in buildtools go.mod
+        run: go install github.com/bazelbuild/buildtools/buildifier@v0.0.0-20250204160707-ad48c76ab9b5
+
       # just test-integration forces Bazel's linux-sandbox strategy (the
       # restricted-PATH hermeticity driver). Bazel silently drops that
       # strategy from its registered set if unprivileged user-namespace
