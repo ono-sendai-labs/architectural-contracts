@@ -801,8 +801,8 @@ func validateExportProducerVersion(path string) error {
 			continue
 		}
 		minorText := strings.TrimPrefix(field, "go1.")
-		if dot := strings.IndexByte(minorText, '.'); dot >= 0 {
-			minorText = minorText[:dot]
+		if sep := strings.IndexAny(minorText, ".-"); sep >= 0 {
+			minorText = minorText[:sep]
 		}
 		producerMinor, err = strconv.Atoi(minorText)
 		if err != nil {
@@ -818,8 +818,8 @@ func validateExportProducerVersion(path string) error {
 		return nil
 	}
 	currentMinorText := strings.TrimPrefix(current, "go1.")
-	if dot := strings.IndexByte(currentMinorText, '.'); dot >= 0 {
-		currentMinorText = currentMinorText[:dot]
+	if sep := strings.IndexAny(currentMinorText, ".-"); sep >= 0 {
+		currentMinorText = currentMinorText[:sep]
 	}
 	currentMinor, err := strconv.Atoi(currentMinorText)
 	if err != nil {
