@@ -157,6 +157,9 @@ type GenerationInput struct {
 	// as the loader and oracle (round-1 finding: the analysis must describe the
 	// target, not the host).
 	Findings FindingSource
+	// Parallelism bounds concurrent Capslock analysis of importable packages.
+	// When <= 0, runtime.GOMAXPROCS(0) is used.
+	Parallelism int
 }
 
 // Generate produces the total stdlib authority map (task reqs 1–10): it

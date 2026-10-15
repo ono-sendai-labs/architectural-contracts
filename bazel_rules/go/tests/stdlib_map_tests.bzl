@@ -186,7 +186,7 @@ def _action_is_hermetic_by_execution_requirements_impl(env, target):
     # use_default_shell_env is False, since a default shell env would surface
     # through the action's effective environment), and the network-blocking
     # execution requirement is verified by inspection of the rule source
-    # (stdlib_map.bzl sets execution_requirements = {"block-network": "1"}).
+    # (stdlib_map.bzl sets execution_requirements = {"block-network": "1", "cpu:8": ""}).
     action = _map_action(target)
     env.expect.that_dict(action.env).contains_exactly({})
     env.expect.that_str(list(action.argv)[0]).contains("go/cmd/arcc-stdlibmap/arcc-stdlibmap")

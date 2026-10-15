@@ -6,6 +6,7 @@ import (
 	"go/types"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 
 	"google.golang.org/protobuf/proto"
@@ -693,6 +694,7 @@ func TestGenerateRoundTripsAndKeysTheMap(t *testing.T) {
 // to go/types' init). -------------------------------------------------------
 
 func TestGenerateBatchesFindingsPerPackage(t *testing.T) {
+	var mu sync.Mutex
 	calls := 0
 	var gotPaths []string
 	loader := typeCheckLoader(t, map[string]string{"os": genOsSrc, "example.com/genpkg": genGenSrc})
@@ -702,8 +704,10 @@ func TestGenerateBatchesFindingsPerPackage(t *testing.T) {
 		Oracle:      explicitPackageList([]string{"os", "example.com/genpkg"}),
 		Loader:      loader,
 		Findings: FindingSourceFunc(func(paths []string) ([]capslockadapter.GenerationFinding, error) {
+			mu.Lock()
 			calls++
 			gotPaths = append(gotPaths, strings.Join(paths, ","))
+			mu.Unlock()
 			return genFindings(), nil
 		}),
 	}
@@ -716,6 +720,57 @@ func TestGenerateBatchesFindingsPerPackage(t *testing.T) {
 	slices.Sort(gotPaths)
 	if !slices.Equal(gotPaths, []string{"example.com/genpkg", "os"}) {
 		t.Fatalf("batches = %v; want one single-package batch per importable package", gotPaths)
+	}
+}
+
+func TestGenerateParallelismDeterminism(t *testing.T) {
+	loader := typeCheckLoader(t, map[string]string{"os": genOsSrc, "example.com/genpkg": genGenSrc})
+	inSeq := GenerationInput{
+		Target:      TargetConfig{ToolchainVersion: "go1.26.4", GOOS: "linux", GOARCH: "amd64"},
+		RuleVersion: "test-rules-v1",
+		Oracle:      explicitPackageList([]string{"os", "example.com/genpkg"}),
+		Loader:      loader,
+		Findings:    FindingSourceFunc(func([]string) ([]capslockadapter.GenerationFinding, error) { return genFindings(), nil }),
+		Parallelism: 1,
+	}
+	seqOut, err := Generate(inSeq)
+	if err != nil {
+		t.Fatalf("Generate (sequential): %v", err)
+	}
+
+	inPar := inSeq
+	inPar.Parallelism = 4
+	parOut, err := Generate(inPar)
+	if err != nil {
+		t.Fatalf("Generate (parallel): %v", err)
+	}
+
+	if !bytes.Equal(seqOut.Bytes, parOut.Bytes) {
+		t.Fatalf("sequential and parallel generation produced different bytes")
+	}
+}
+
+func TestGenerateErrorStopsRemainingWork(t *testing.T) {
+	loader := typeCheckLoader(t, map[string]string{"os": genOsSrc, "example.com/genpkg": genGenSrc})
+	in := GenerationInput{
+		Target:      TargetConfig{ToolchainVersion: "go1.26.4", GOOS: "linux", GOARCH: "amd64"},
+		RuleVersion: "test-rules-v1",
+		Oracle:      explicitPackageList([]string{"os", "example.com/genpkg"}),
+		Loader:      loader,
+		Findings: FindingSourceFunc(func(paths []string) ([]capslockadapter.GenerationFinding, error) {
+			if slices.Contains(paths, "os") {
+				return nil, errors.New("synthetic failure")
+			}
+			return genFindings(), nil
+		}),
+	}
+	_, err := Generate(in)
+	if err == nil {
+		t.Fatalf("Generate: expected error, got nil")
+	}
+	wantPrefix := "generating the stdlib map: package \"os\": synthetic failure"
+	if err.Error() != wantPrefix {
+		t.Fatalf("error = %q; want %q", err.Error(), wantPrefix)
 	}
 }
 

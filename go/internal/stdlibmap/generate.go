@@ -2,11 +2,15 @@ package stdlibmap
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"go/types"
 	"regexp"
+	"runtime"
 	"sort"
 	"strings"
+
+	"golang.org/x/sync/errgroup"
 
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/artifactio"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/capslockadapter"
@@ -67,14 +71,59 @@ func generate(in GenerationInput) (*GeneratedMap, error) {
 	// analysed as one program — at full-stdlib scale it attributes
 	// net/http's shutdown path to go/types' init (Step 6 cutover finding).
 	// Per-package batches bound the analysis to each package's own closure,
-	// so every root's verdict describes that package only. The cost is
-	// linear in the importable count and paid once per SDK configuration.
+	// so every root's verdict describes that package only.
+	//
+	// Concurrency & parallelism:
+	// Batches are completely independent and analysed concurrently using a
+	// worker pool bounded by runtime.GOMAXPROCS(0) (or in.Parallelism if set).
+	// Peak RSS scales with parallelism (each worker holds a stdlib package
+	// closure); the bound prevents memory exhaustion while maximizing throughput.
+	//
+	// Concurrency safety audit:
+	// - Capslock analyzer and classifier code (interesting.Classifier) contain
+	//   no shared mutable state or package-level caches during analysis.
+	// - NativeLoader.Environment() produces an immutable []string slice computed
+	//   once before worker launch.
+	// - layoutdriverhook (GOPACKAGESDRIVER self-exec) spawns subprocesses that
+	//   read the layout file and communicate via stdin/stdout; no shared temp files
+	//   or pid-less paths are written.
+	//
+	// Determinism:
+	// Results are captured into a slice indexed by package position (results[i])
+	// and concatenated in the original input order after all workers complete,
+	// ensuring byte-identical reproducibility with the sequential algorithm.
+	limit := in.Parallelism
+	if limit <= 0 {
+		limit = runtime.GOMAXPROCS(0)
+	}
+	if limit <= 0 {
+		limit = 1
+	}
+
+	g, ctx := errgroup.WithContext(context.Background())
+	g.SetLimit(limit)
+
+	results := make([][]capslockadapter.GenerationFinding, len(importable))
+	for i, pkgPath := range importable {
+		i, pkgPath := i, pkgPath
+		g.Go(func() error {
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+			batch, err := findingsSource.Findings([]string{pkgPath})
+			if err != nil {
+				return fmt.Errorf("package %q: %w", pkgPath, err)
+			}
+			results[i] = batch
+			return nil
+		})
+	}
+	if err := g.Wait(); err != nil {
+		return nil, fmt.Errorf("generating the stdlib map: %w", err)
+	}
+
 	findings := make([]capslockadapter.GenerationFinding, 0, 1024)
-	for _, pkgPath := range importable {
-		batch, err := findingsSource.Findings([]string{pkgPath})
-		if err != nil {
-			return nil, fmt.Errorf("generating the stdlib map: package %q: %w", pkgPath, err)
-		}
+	for _, batch := range results {
 		findings = append(findings, batch...)
 	}
 	// Provenance for SAFE roots comes from the generation classifier itself:

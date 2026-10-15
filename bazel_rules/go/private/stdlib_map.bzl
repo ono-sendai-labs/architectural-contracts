@@ -13,7 +13,8 @@ input or requirement: the generator loads the standard library through
 itself) and runs Capslock in-process, so the action sets no GOROOT, GOCACHE
 or PATH at all (design I5, Appendix C).
 
-The action blocks network access. Generation is keyed to the one adapter target
+The action blocks network access and requests multi-core execution (cpu:8)
+for concurrent per-package Capslock analysis. Generation is keyed to the one adapter target
 identity — the config file stamps the SDK key (target configuration,
 classifier fingerprint and map format version are carried by the generator) —
 so cross-compilation and build-tag transitions build distinct, correctly
@@ -165,7 +166,8 @@ def _arcc_stdlib_map_impl(ctx):
     # One ordinary hermetic action; no environment is constructed because the
     # generator needs none (no GOROOT, GOCACHE or PATH — design I5). The
     # generator is an exec-configuration tool: it describes the target
-    # through its declared configuration inputs.
+    # through its declared configuration inputs. It runs concurrent per-package
+    # Capslock analysis across available CPU cores (cpu:8 requested).
     ctx.actions.run(
         executable = ctx.executable._arcc,
         arguments = [
@@ -182,7 +184,10 @@ def _arcc_stdlib_map_impl(ctx):
         ),
         tools = [ctx.executable._arcc],
         outputs = [output],
-        execution_requirements = {"block-network": "1"},
+        execution_requirements = {
+            "block-network": "1",
+            "cpu:8": "",
+        },
         mnemonic = "ArccStdlibMap",
         progress_message = "Generating stdlib authority map %s (%s/%s)" % (label, mode.goos, mode.goarch),
         use_default_shell_env = False,
