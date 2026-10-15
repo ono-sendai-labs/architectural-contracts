@@ -1,10 +1,13 @@
 // Package gen provides protobuf generated types.
 //
 // Component Contract (FR10):
-// - What it does: Generated API and structures for manifest protobuf schemas. This package is an implementation detail of the schema component.
+// - What it does: Generated API and structures for manifest protobuf schemas.
+//   This package is an implementation detail of the schema component.
 // - What it requires: Protobuf unmarshaler to populate the models.
 // - What it provides: Protoreflect-enabled struct types for parsing manifests.
-// - Ambient Authority: This component is clean of filesystem/network ambient authority but leverages REFLECT, RUNTIME, SYSTEM_CALLS, and UNSAFE_POINTER internally via protobuf unmarshaling.
+// - Ambient Authority: This component is clean of filesystem/network ambient
+//   authority but leverages REFLECT, RUNTIME, SYSTEM_CALLS, and UNSAFE_POINTER
+//   internally via protobuf unmarshaling.
 syntax = "proto3";
 
 package archcontracts.v1;
@@ -19,10 +22,12 @@ option go_package = "github.com/ono-sendai-labs/architectural-contracts/go/inter
 // field: the component's informal contract is doc-comment prose in its
 // interface files (FR10).
 message Component {
-  string name = 1;                          // logical component name
-  repeated string interface_files = 2;      // .go files holding the public surface, relative to the
-                                            // component root; multi-package components use subdir
-                                            // paths (store/api.go)
+  string name = 1;  // logical component name
+
+  // .go files holding the public surface, relative to the component root;
+  // multi-package components use subdir paths (store/api.go)
+  repeated string interface_files = 2;
+
   repeated ComponentDependency component_dependencies = 3;
   // Reserved: retired field `absorbed_dependencies`. Never reuse.
   reserved 4;
@@ -34,8 +39,10 @@ message Component {
   // Never reuse numbers 8 or 9, or either name.
   reserved 8, 9;
   reserved "own_check_runs", "certification_reference";
-  repeated string declared_authority = 5;   // capability names, validated at parse time against the
-                                            // known capability set (C11); empty = ambient-authority-free
+
+  // capability names, validated at parse time against the known capability set
+  // (C11); empty = ambient-authority-free
+  repeated string declared_authority = 5;
 
   // Member packages: the code this component is responsible for and analyzes
   // as roots. Entries are literal import paths; glob metacharacters are
@@ -101,14 +108,16 @@ enum InterfaceStyle {
 }
 
 message ComponentDependency {
-  string name = 1;                          // referenced component's name; must match the `name`
-                                            // in the resolved manifest (C12)
-  string manifest = 2;                      // path to that component's manifest, relative to the
-                                            // DECLARING manifest's directory; the resolved manifest's
-                                            // own directory is the dependency's component root and the
-                                            // source of truth for its declared interface symbols
-                                            // (interface packages are DERIVED — packages containing
-                                            // interface files, C10)
+  // referenced component's name; must match the `name` in the resolved
+  // manifest (C12)
+  string name = 1;
+
+  // path to that component's manifest, relative to the DECLARING manifest's
+  // directory; the resolved manifest's own directory is the dependency's
+  // component root and the source of truth for its declared interface symbols
+  // (interface packages are DERIVED — packages containing interface files, C10)
+  string manifest = 2;
+
   // The emitter injected this edge rather than an author writing it. An
   // unused auto-attached edge is not the author's mistake.
   bool auto_attached = 3;
