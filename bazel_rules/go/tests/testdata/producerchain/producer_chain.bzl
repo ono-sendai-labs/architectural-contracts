@@ -51,6 +51,9 @@ def _padded(value, width):
     text = str(value)
     return "0" * (width - len(text)) + text
 
+def _package_name(importpath):
+    return importpath.rsplit("/", 1)[-1]
+
 def _write_source(name, filename, content):
     native.genrule(
         name = name + "_source",
@@ -76,8 +79,8 @@ def _node_importpath(variant, level, index):
 def _node_target(variant, level, index):
     return ":%s_node_l%s_i%s" % (variant, _padded(level, 2), _padded(index, 2))
 
-def _entry_source(variant, width, type_surface):
-    lines = ["package entry", ""]
+def _entry_source(variant, width, type_surface, importpath):
+    lines = ["package " + _package_name(importpath), ""]
     lines.append("import (")
 
     # Match Task 1: the directly imported entry package fans out to every
@@ -101,11 +104,11 @@ def _entry_source(variant, width, type_surface):
         ])
     return "\n".join(lines)
 
-def _node_source(variant, depth, width, level, index):
+def _node_source(variant, depth, width, level, importpath):
     # The component layout derives a package name from the final import-path
     # segment. Keep the generated source clause aligned with that deterministic
     # adapter fallback rather than relying on a source read during analysis.
-    lines = ["package i" + _padded(index, 2)]
+    lines = ["package " + _package_name(importpath)]
     imports = []
     if level + 1 < depth:
         for child in range(width):
@@ -113,27 +116,25 @@ def _node_source(variant, depth, width, level, index):
     if imports:
         lines.append("")
         lines.append("import (")
-        for importpath in imports:
-            lines.append("\t_ \"" + importpath + "\"")
+        for target_import in imports:
+            lines.append("\t_ \"" + target_import + "\"")
         lines.extend([")", ""])
     return "\n".join(lines)
 
-def _member_source(variant):
-    entry = "%s/%s/entry" % (_BASE_IMPORT, variant)
+def _member_source(importpath, entry_importpath):
     return "\n".join([
-        "package member",
+        "package " + _package_name(importpath),
         "",
-        "import entry \"" + entry + "\"",
+        "import entry \"" + entry_importpath + "\"",
         "",
         "func Use() entry.Value { return entry.Make() }",
     ])
 
-def _dependency_member_source(variant):
-    entry = "%s/%s/entry" % (_BASE_IMPORT, variant)
+def _dependency_member_source(importpath, entry_importpath):
     return "\n".join([
-        "package dependency_member",
+        "package " + _package_name(importpath),
         "",
-        "import entry \"" + entry + "\"",
+        "import entry \"" + entry_importpath + "\"",
         "",
         "func Use() entry.Value { return entry.Make() }",
     ])
@@ -154,11 +155,12 @@ def _define_variant(depth, width, type_surface, direct_surface = False):
             if level + 1 < depth:
                 for child in range(width):
                     child_targets.append(_node_target(variant, level + 1, child))
+            importpath = _node_importpath(variant, level, index)
             _library(
                 name = name,
-                importpath = _node_importpath(variant, level, index),
+                importpath = importpath,
                 filename = name + ".go",
-                content = _node_source(variant, depth, width, level, index),
+                content = _node_source(variant, depth, width, level, importpath),
                 deps = child_targets,
             )
             node_targets.append(":" + name)
@@ -171,25 +173,27 @@ def _define_variant(depth, width, type_surface, direct_surface = False):
         name = entry_name,
         importpath = entry_importpath,
         filename = entry_name + ".go",
-        content = _entry_source(variant, width, type_surface),
+        content = _entry_source(variant, width, type_surface, entry_importpath),
         deps = top_node_targets,
     )
 
     member_name = variant + "_member"
+    member_importpath = "%s/%s/member" % (_BASE_IMPORT, variant)
     _library(
         name = member_name,
-        importpath = "%s/%s/member" % (_BASE_IMPORT, variant),
+        importpath = member_importpath,
         filename = member_name + ".go",
-        content = _member_source(variant),
+        content = _member_source(member_importpath, entry_importpath),
         deps = [":" + entry_name],
     )
 
     dependency_member_name = variant + "_dependency_member"
+    dependency_member_importpath = "%s/%s/dependency_member" % (_BASE_IMPORT, variant)
     _library(
         name = dependency_member_name,
-        importpath = "%s/%s/dependency_member" % (_BASE_IMPORT, variant),
+        importpath = dependency_member_importpath,
         filename = dependency_member_name + ".go",
-        content = _dependency_member_source(variant),
+        content = _dependency_member_source(dependency_member_importpath, entry_importpath),
         deps = [":" + entry_name],
     )
 

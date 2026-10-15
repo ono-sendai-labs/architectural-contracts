@@ -460,6 +460,10 @@ sh_test(
         "//conditions:default": [],
     }),
     tags = ["manual"],
+    target_compatible_with = select({
+        ":stdlibmap_full": [],
+        "//conditions:default": ["@platforms//:incompatible"],
+    }),
 )
 
 arcc_deps_aspect_full_test_suite(name = "arcc_deps_aspect_full_tests")
