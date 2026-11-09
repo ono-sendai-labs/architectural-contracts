@@ -594,9 +594,9 @@ def _frame_symlink_commands(files, workspace_name, preferred_files = []):
 
         # Tree and generated files produced under an external repository keep
         # a `../repo/...` runfiles short path even though their sandbox path is
-        # a declared bazel-out path. Recreate that repository frame from the
+        # an output-root (generated) path. Recreate that repository frame from the
         # declared output root; the stdlib metadata path uses this frame.
-        if f.path.startswith("bazel-out/") and short_path.startswith("../"):
+        if (not f.is_source) and short_path.startswith("../"):
             marker = "/external/"
             marker_index = f.path.find(marker)
             if marker_index == -1:
@@ -616,10 +616,10 @@ def _frame_symlink_commands(files, workspace_name, preferred_files = []):
         if not short_path.startswith("../"):
             # Generated outputs keep their package-relative runfiles spelling
             # in the layout, while Bazel stages the declared input under its
-            # bazel-out path in the action sandbox. Recreate that frame link
+            # output-root (generated) path in the action sandbox. Recreate that frame link
             # just as the runfiles tree would; source files already have an
             # identical path and need no link.
-            if f.path != short_path and f.path.startswith("bazel-out/"):
+            if f.path != short_path and not f.is_source:
                 generated_candidates.setdefault(short_path, []).append((
                     0 if preferred.get(f.path, False) else 1,
                     f.path,

@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -516,8 +517,9 @@ declared_authority: "FILE"
 }
 
 func importToComponent(imp string) (string, bool) {
-	const repoImportPrefix = "github.com/ono-sendai-labs/architectural-contracts/go/internal/"
-	if strings.HasPrefix(imp, repoImportPrefix) {
+	manifestPkg := reflect.TypeOf(manifest.Manifest{}).PkgPath()
+	repoImportPrefix := strings.TrimSuffix(manifestPkg, "manifest")
+	if repoImportPrefix != "" && strings.HasPrefix(imp, repoImportPrefix) {
 		sub := imp[len(repoImportPrefix):]
 		parts := strings.Split(sub, "/")
 		if len(parts) > 0 {
@@ -564,7 +566,31 @@ func getNonTestImports(t *testing.T, dir string) map[string]bool {
 	return imports
 }
 
+// chdirToPackageDir ensures the working directory is the package directory so relative manifest paths resolve.
+func chdirToPackageDir(t *testing.T) {
+	t.Helper()
+	if _, err := os.Stat("../capanalyzer/component.textproto"); err == nil {
+		return
+	}
+	if _, thisFile, _, ok := runtime.Caller(0); ok {
+		pkgDir := filepath.Dir(thisFile)
+		if _, err := os.Stat(filepath.Join(pkgDir, "../capanalyzer/component.textproto")); err == nil {
+			t.Chdir(pkgDir)
+			return
+		}
+		if testSrcdir := os.Getenv("TEST_SRCDIR"); testSrcdir != "" {
+			candidate := filepath.Join(testSrcdir, pkgDir)
+			if _, err := os.Stat(filepath.Join(candidate, "../capanalyzer/component.textproto")); err == nil {
+				t.Chdir(candidate)
+				return
+			}
+		}
+	}
+	t.Skipf("package directory not found")
+}
+
 func TestSelfHostingManifests(t *testing.T) {
+	chdirToPackageDir(t)
 	type expectedManifest struct {
 		name           string
 		interfaceFiles []string

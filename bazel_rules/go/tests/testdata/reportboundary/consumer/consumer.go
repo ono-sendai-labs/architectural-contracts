@@ -1,8 +1,9 @@
 package consumer
 
 import (
-	"example.com/aspect/shared"
 	"example.com/reportboundary/manual"
+
+	"example.com/aspect/shared"
 )
 
 func Values() string {

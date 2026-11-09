@@ -1,6 +1,7 @@
 package archcontracts
 
 import (
+	"strings"
 	"testing"
 
 	"google.golang.org/protobuf/encoding/protojson"
@@ -106,14 +107,20 @@ func TestSurface_InterfaceStyleReusesComponentEnum(t *testing.T) {
 // (task req 4): surface reuses component enums and the shared SDKKey.
 func TestSurface_ImportsComponentAndStdlibMap(t *testing.T) {
 	fd := (&manifestgen.SurfaceManifest{}).ProtoReflect().Descriptor().ParentFile()
-	deps := map[string]bool{}
+	var hasComponent, hasStdlibMap bool
 	for i := 0; i < fd.Imports().Len(); i++ {
-		deps[string(fd.Imports().Get(i).Path())] = true
+		p := string(fd.Imports().Get(i).Path())
+		if strings.HasSuffix(p, "archcontracts/v1/component.proto") {
+			hasComponent = true
+		}
+		if strings.HasSuffix(p, "archcontracts/v1/stdlibmap.proto") {
+			hasStdlibMap = true
+		}
 	}
-	if !deps["archcontracts/v1/component.proto"] {
+	if !hasComponent {
 		t.Error("surface.proto must import archcontracts/v1/component.proto")
 	}
-	if !deps["archcontracts/v1/stdlibmap.proto"] {
+	if !hasStdlibMap {
 		t.Error("surface.proto must import archcontracts/v1/stdlibmap.proto for SDKKey")
 	}
 }

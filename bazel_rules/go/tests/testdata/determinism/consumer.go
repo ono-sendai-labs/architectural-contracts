@@ -3,7 +3,7 @@ package consumer
 import (
 	"os"
 
-	"example.com/arcc/determinism/dependency"
+	dependency "example.com/arcc/determinism/dependency"
 	"example.com/arcc/determinism/unknown"
 )
 

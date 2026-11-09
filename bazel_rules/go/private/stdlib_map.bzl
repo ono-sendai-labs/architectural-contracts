@@ -194,7 +194,10 @@ def _arcc_stdlib_map_impl(ctx):
     )
 
     return [
-        DefaultInfo(files = depset([output])),
+        DefaultInfo(
+            files = depset([output]),
+            runfiles = ctx.runfiles(files = [output]),
+        ),
         ArccStdlibMapInfo(
             map = output,
             toolchain_version = mode.toolchain_version,

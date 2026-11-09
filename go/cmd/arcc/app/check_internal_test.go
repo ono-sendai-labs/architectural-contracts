@@ -64,6 +64,9 @@ func writeMapArtifact(t *testing.T, m *gen.StdlibMap) string {
 // another native target (review round 1, finding 1): in native mode the
 // resolver discovers the current target and rejects a map whose key differs.
 func TestAuthorityFromDeclaredMapNativeTargetMismatch(t *testing.T) {
+	if _, err := stdlibmap.NativeTargetConfig(); err != nil {
+		t.Skipf("no native toolchain target available: %v", err)
+	}
 	target := stdlibmap.TargetConfig{
 		ToolchainVersion: "go1.26.4",
 		GOOS:             "plan9",
