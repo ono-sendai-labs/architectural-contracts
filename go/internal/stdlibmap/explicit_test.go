@@ -186,7 +186,8 @@ func TestGenerateExplicitKeepsBuildExcludedPackage(t *testing.T) {
 	out, err := generateExplicit(
 		TargetConfig{ToolchainVersion: "go1.26.4", GOOS: "linux", GOARCH: "amd64"},
 		[]string{"fmt", "strings", "unsafe", "internal/testcap", "pinned"},
-		sdkRoot)
+		sdkRoot,
+		0)
 	if err != nil {
 		t.Fatalf("generateExplicit() error = %v", err)
 	}

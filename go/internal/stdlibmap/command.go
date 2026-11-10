@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"strconv"
 	"strings"
 
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/schema/gen"
@@ -41,7 +42,7 @@ func runGenerateCommand(args []string, stdout, stderr io.Writer) int {
 			fmt.Fprintf(stderr, "error: %v\n", err)
 			return 2
 		}
-		out, err := generateExplicit(*target, paths, opts.sdkRoot)
+		out, err := generateExplicit(*target, paths, opts.sdkRoot, opts.parallelism)
 		if err != nil {
 			fmt.Fprintf(stderr, "error: %v\n", err)
 			return 2
@@ -80,7 +81,8 @@ func runGenerateCommand(args []string, stdout, stderr io.Writer) int {
 		Oracle: PackageOracleFunc(func() ([]PackageEntry, error) {
 			return NativeStdPackageList(context.Background(), NativeEnvironment(target))
 		}),
-		Loader: &NativeLoader{Env: TargetEnv(target)},
+		Loader:      &NativeLoader{Env: TargetEnv(target)},
+		Parallelism: opts.parallelism,
 	})
 	if err != nil {
 		fmt.Fprintf(stderr, "error: %v\n", err)
@@ -94,11 +96,13 @@ type generateOptions struct {
 	cgo, explicit                                 bool
 	buildTags                                     []string
 	packageList, configFile, sdkRoot              string
+	parallelism                                   int
 }
 
 func parseGenerateOptions(args []string) (*generateOptions, error) {
 	opts := &generateOptions{}
 	hasOutput := false
+	hasParallelism := false
 	seen := map[string]int{"--package-list": 0, "--config-file": 0, "--sdk-root": 0}
 	isNative := func(arg string) bool {
 		for _, prefix := range []string{"--toolchain=", "--goos=", "--goarch=", "--tags=", "--goexperiment="} {
@@ -119,6 +123,17 @@ func parseGenerateOptions(args []string) (*generateOptions, error) {
 			if opts.output == "" {
 				return nil, fmt.Errorf("empty output value")
 			}
+		case strings.HasPrefix(arg, "--parallelism="):
+			if hasParallelism {
+				return nil, fmt.Errorf("duplicate option: --parallelism")
+			}
+			hasParallelism = true
+			val := strings.TrimPrefix(arg, "--parallelism=")
+			p, err := strconv.Atoi(val)
+			if err != nil || p < 0 {
+				return nil, fmt.Errorf("invalid --parallelism value %q: must be a non-negative integer", val)
+			}
+			opts.parallelism = p
 		case strings.HasPrefix(arg, "--package-list="):
 			if seen["--package-list"] > 0 {
 				return nil, fmt.Errorf("duplicate option: --package-list")

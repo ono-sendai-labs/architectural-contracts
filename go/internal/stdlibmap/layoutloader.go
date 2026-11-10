@@ -149,7 +149,7 @@ func generateViaLayout(in GenerationInput, layout *packagelayout.Layout) (*Gener
 // A cgo-enabled target configuration is rejected before any loading, with an
 // error naming the design's out-of-scope decision (task req 8, design
 // §Explicitly out of scope).
-func generateExplicit(target TargetConfig, packageList []string, sdkRoot string) (*GeneratedMap, error) {
+func generateExplicit(target TargetConfig, packageList []string, sdkRoot string, parallelism int) (*GeneratedMap, error) {
 	if target.CgoEnabled {
 		return nil, fmt.Errorf("generating the stdlib map for target %s/%s: cgo-enabled target configurations are out of scope (the design's explicit out-of-scope decision, DR-11); hermetic generation needs the SDK's cgo packages preprocessed by a C toolchain, which this design defines no seam for; regenerate with cgo_enabled=false", target.GOOS, target.GOARCH)
 	}
@@ -177,6 +177,7 @@ func generateExplicit(target TargetConfig, packageList []string, sdkRoot string)
 		Target:      target,
 		RuleVersion: RuleVersion,
 		Oracle:      PackageOracleFunc(func() ([]PackageEntry, error) { return entries, nil }),
+		Parallelism: parallelism,
 	}
 	return generateViaLayout(in, layout)
 }

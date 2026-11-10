@@ -159,6 +159,7 @@ def _argv_uses_the_explicit_input_path_impl(env, target):
     env.expect.that_str(argv_text).contains("--package-list=")
     env.expect.that_str(argv_text).contains("--config-file=")
     env.expect.that_str(argv_text).contains("--sdk-root=")
+    env.expect.that_str(argv_text).contains("--parallelism=8")
 
     # The SDK root is the SDK's src/ directory (execroot-relative), given
     # exactly once.

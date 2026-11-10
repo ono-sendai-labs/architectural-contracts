@@ -343,7 +343,8 @@ Usage:
         [--report-verdict-only]
   arcc verdict <report> (--expect=pass|fail | --expect-file=<verdict-golden>)
   arcc artifact-shape <report|surface|stdlib-map|layout> <artifact> [--golden=<shape.json> | --print]
-  arcc stdlibmap generate --output=<path> [--toolchain=<version>] [--goos=<os>] [--goarch=<arch>] [--cgo] [--tags=<t1,t2>] [--goexperiment=<exp>]
+  arcc stdlibmap generate --output=<path> [--toolchain=<version>] [--goos=<os>] [--goarch=<arch>] [--cgo] [--tags=<t1,t2>] [--goexperiment=<exp>] [--parallelism=<N>]
+  arcc stdlibmap generate --output=<path> --package-list=<file> --config-file=<file> --sdk-root=<dir> [--parallelism=<N>]  (explicit-input mode)
   arcc stdlibmap inspect <artifact> [--expect-key=<field=value,...>] [summary | symbol <id> | init <pkg>]...
   arcc --version
 ```
@@ -419,8 +420,8 @@ on a developer's existing sibling files.
 `arcc stdlibmap generate` produces the canonical standard-library authority
 map for a target configuration: by default the current toolchain (`go env`
 and `go list std`), or an explicit target (`--toolchain`, `--goos`,
-`--goarch`, `--cgo`, `--tags`, `--goexperiment`) for cross-compilation and
-the later Bazel rule. The output is written atomically; two runs over the
+`--goarch`, `--cgo`, `--tags`, `--goexperiment`, `--parallelism`) for
+cross-compilation and the later Bazel rule. The output is written atomically; two runs over the
 same configuration produce byte-identical artifacts. Native users can also
 rely on the on-demand cache: it is keyed by a digest of the complete SDK key
 under the user cache directory's `arcc` subtree, revalidates every hit

@@ -124,6 +124,8 @@ def _project_stdlib_export_data(ctx, descriptor):
         )],
     )
 
+_STDLIB_MAP_CPUS = 8
+
 def _arcc_stdlib_map_impl(ctx):
     label = ctx.label
     source = go_stdlib_source_data(ctx)
@@ -167,7 +169,8 @@ def _arcc_stdlib_map_impl(ctx):
     # generator needs none (no GOROOT, GOCACHE or PATH — design I5). The
     # generator is an exec-configuration tool: it describes the target
     # through its declared configuration inputs. It runs concurrent per-package
-    # Capslock analysis across available CPU cores (cpu:8 requested).
+    # Capslock analysis with worker pool bounded to the reserved CPUs
+    # (cpu:8 requested) so memory use is predictable on remote executors.
     ctx.actions.run(
         executable = ctx.executable._arcc,
         arguments = [
@@ -177,6 +180,7 @@ def _arcc_stdlib_map_impl(ctx):
             "--package-list=" + source.package_list.path,
             "--config-file=" + config.path,
             "--sdk-root=" + sdk_root,
+            "--parallelism=%d" % _STDLIB_MAP_CPUS,
         ],
         inputs = depset(
             direct = [source.package_list, config],
@@ -186,7 +190,7 @@ def _arcc_stdlib_map_impl(ctx):
         outputs = [output],
         execution_requirements = {
             "block-network": "1",
-            "cpu:8": "",
+            "cpu:%d" % _STDLIB_MAP_CPUS: "",
         },
         mnemonic = "ArccStdlibMap",
         progress_message = "Generating stdlib authority map %s (%s/%s)" % (label, mode.goos, mode.goarch),

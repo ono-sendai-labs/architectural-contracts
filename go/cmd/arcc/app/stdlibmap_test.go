@@ -68,6 +68,21 @@ func TestStdlibmapUsageErrors(t *testing.T) {
 			wantStderr: "duplicate option: --output",
 		},
 		{
+			name:       "generate with negative parallelism",
+			args:       []string{"stdlibmap", "generate", "--output=a", "--parallelism=-1"},
+			wantStderr: "parallelism",
+		},
+		{
+			name:       "generate with non-numeric parallelism",
+			args:       []string{"stdlibmap", "generate", "--output=a", "--parallelism=xyz"},
+			wantStderr: "parallelism",
+		},
+		{
+			name:       "generate with duplicate parallelism",
+			args:       []string{"stdlibmap", "generate", "--output=a", "--parallelism=2", "--parallelism=4"},
+			wantStderr: "duplicate option: --parallelism",
+		},
+		{
 			name:       "inspect without an artifact",
 			args:       []string{"stdlibmap", "inspect"},
 			wantStderr: "requires exactly one artifact path",
@@ -269,6 +284,11 @@ func TestStdlibmapGenerateExplicitUsage(t *testing.T) {
 			args:       []string{"stdlibmap", "generate", "--output=" + out, "--package-list=" + filepath.Join(dir, "absent.txt"), "--config-file=" + validConfig, "--sdk-root=" + sdkRoot},
 			wantStderr: "package list",
 		},
+		{
+			name:       "explicit flags with negative parallelism",
+			args:       []string{"stdlibmap", "generate", "--output=" + out, "--package-list=" + list, "--config-file=" + validConfig, "--sdk-root=" + sdkRoot, "--parallelism=-1"},
+			wantStderr: "parallelism",
+		},
 	}
 	// The usage contract is checked before any host discovery: an empty PATH
 	// would make any accidental `go env`/`go list` fail, so the specific
@@ -291,5 +311,34 @@ func TestStdlibmapGenerateExplicitUsage(t *testing.T) {
 				t.Fatalf("stderr = %q; want it to mention %q", stderr.String(), tt.wantStderr)
 			}
 		})
+	}
+}
+
+func TestStdlibmapGenerateParallelismFlag(t *testing.T) {
+	runner := &app.Runner{}
+	dir := t.TempDir()
+	list := filepath.Join(dir, "list.txt")
+	if err := os.WriteFile(list, []byte("fmt\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	config := filepath.Join(dir, "config.txt")
+	if err := os.WriteFile(config, []byte("toolchain_version=go1.26.4\ngoos=linux\ngoarch=amd64\ncgo_enabled=false\nbuild_tags=\ngoexperiment=\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out := filepath.Join(dir, "map.json")
+	var stdout, stderr strings.Builder
+	code := runner.Run([]string{
+		"stdlibmap", "generate",
+		"--output=" + out,
+		"--package-list=" + list,
+		"--config-file=" + config,
+		"--sdk-root=/nonexistent-sdk",
+		"--parallelism=4",
+	}, &stdout, &stderr)
+	if code != 2 {
+		t.Fatalf("exit code = %d, want 2", code)
+	}
+	if strings.Contains(stderr.String(), "parallelism") {
+		t.Fatalf("unexpected parallelism error: %s", stderr.String())
 	}
 }
