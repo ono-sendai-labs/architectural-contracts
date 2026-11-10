@@ -518,7 +518,13 @@ declared_authority: "FILE"
 
 func importToComponent(imp string) (string, bool) {
 	manifestPkg := reflect.TypeOf(manifest.Manifest{}).PkgPath()
-	repoImportPrefix := strings.TrimSuffix(manifestPkg, "manifest")
+	// Anchor on the last "/internal/" segment to tolerate hosts that append
+	// the package name as an extra path segment (e.g. ".../internal/manifest/manifest").
+	idx := strings.LastIndex(manifestPkg, "/internal/")
+	if idx < 0 {
+		return "", false
+	}
+	repoImportPrefix := manifestPkg[:idx+len("/internal/")]
 	if repoImportPrefix != "" && strings.HasPrefix(imp, repoImportPrefix) {
 		sub := imp[len(repoImportPrefix):]
 		parts := strings.Split(sub, "/")
