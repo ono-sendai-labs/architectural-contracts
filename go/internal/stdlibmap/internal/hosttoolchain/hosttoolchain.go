@@ -27,6 +27,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 )
 
@@ -223,4 +224,9 @@ func CopyProjectedExport(sourcePath, destinationPath string, mode fs.FileMode) e
 		}
 	}
 	return destination.Close()
+}
+
+// GOMAXPROCS returns the current GOMAXPROCS value.
+func GOMAXPROCS() int {
+	return runtime.GOMAXPROCS(0)
 }

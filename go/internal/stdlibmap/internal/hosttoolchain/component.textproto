@@ -8,3 +8,4 @@ members: "github.com/ono-sendai-labs/architectural-contracts/go/internal/stdlibm
 declared_authority: "EXEC"
 declared_authority: "FILES"
 declared_authority: "READ_SYSTEM_STATE"
+declared_authority: "RUNTIME"

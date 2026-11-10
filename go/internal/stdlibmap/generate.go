@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"go/types"
 	"regexp"
-	"runtime"
 	"sort"
 	"strings"
 
@@ -18,6 +17,7 @@ import (
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/schema"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/schema/gen"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/stdlibauthority"
+	"github.com/ono-sendai-labs/architectural-contracts/go/internal/stdlibmap/internal/hosttoolchain"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/symbol"
 )
 
@@ -75,7 +75,7 @@ func generate(in GenerationInput) (*GeneratedMap, error) {
 	//
 	// Concurrency & parallelism:
 	// Batches are completely independent and analysed concurrently using a
-	// worker pool bounded by runtime.GOMAXPROCS(0) (or in.Parallelism if set).
+	// worker pool bounded by hosttoolchain.GOMAXPROCS() (or in.Parallelism if set).
 	// Peak RSS scales with parallelism (each worker holds a stdlib package
 	// closure); the bound prevents memory exhaustion while maximizing throughput.
 	//
@@ -94,7 +94,7 @@ func generate(in GenerationInput) (*GeneratedMap, error) {
 	// ensuring byte-identical reproducibility with the sequential algorithm.
 	limit := in.Parallelism
 	if limit <= 0 {
-		limit = runtime.GOMAXPROCS(0)
+		limit = hosttoolchain.GOMAXPROCS()
 	}
 	if limit <= 0 {
 		limit = 1

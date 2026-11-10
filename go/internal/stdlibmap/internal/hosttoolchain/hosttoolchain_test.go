@@ -32,3 +32,9 @@ func TestHostToolchainFilesystemHelpers(t *testing.T) {
 		t.Fatalf("Stat(%q) after cleanup = %v, want not-exist", path, err)
 	}
 }
+
+func TestGOMAXPROCS(t *testing.T) {
+	if n := hosttoolchain.GOMAXPROCS(); n <= 0 {
+		t.Fatalf("GOMAXPROCS() = %d, want > 0", n)
+	}
+}
