@@ -83,7 +83,7 @@ func TestResolveXToolsSurface_DoesNotReadOrLoadForeignSource(t *testing.T) {
 		ToolchainVersion: "go1.26.4",
 		GOOS:             "linux",
 		GOARCH:           "amd64",
-		ClassifierHash:   "adc198ed82f2ae81de8f2d00e26a0c90a22a1317a19579476ab0d7e33cc52eed",
+		ClassifierHash:   "09836797493de6f1fcd0560a5a80f6fd0ebf875f6aa873ada1dda0ffd0041d24",
 		MapFormatVersion: 1,
 	}
 	surfaceBytes, err := os.ReadFile("../xtools/component.surface.json")

@@ -39,7 +39,7 @@ MAP_FORMAT_VERSION = 1
 
 # Mirrors stdlibmap.ClassifierHash over the current generation descriptor: the
 # classifier_hash component of the SDK key. See the module doc block.
-CLASSIFIER_HASH = "adc198ed82f2ae81de8f2d00e26a0c90a22a1317a19579476ab0d7e33cc52eed"
+CLASSIFIER_HASH = "09836797493de6f1fcd0560a5a80f6fd0ebf875f6aa873ada1dda0ffd0041d24"
 
 def arcc_sdk_key_fields(info):
     """Assembles the complete SDK-key identity of the target configuration.
