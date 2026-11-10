@@ -22,6 +22,11 @@ rules import only this adapter and consume host-neutral structs, files, depsets,
 and private rule attributes. A host using another Go ruleset ports arcc by
 replacing this file; the generic rules stay byte-identical.
 
+Along with the Go provider and SDK seams, the adapter declares the target label
+of the arcc CLI tool (`ARCC_TARGET`) and the package namespace ID
+(`HOST_NAMESPACE`) matching `hostpolicy.NamespaceID` in that binary, which
+rule-emitted surfaces stamp.
+
 Upstream binds to rules_go (GoInfo / GoArchive / @rules_go//go:toolchain).
 
 The platform seam returns target settings when the host exposes them. A host
@@ -33,6 +38,7 @@ load("@rules_go//go:def.bzl", "GoArchive", "GoInfo")
 load("@rules_go//go/private:providers.bzl", "GoConfigInfo", "GoStdLib")
 load("//bazel_rules:providers.bzl", "ArccComponentInfo")
 load("//bazel_rules/go:providers.bzl", "ArccStdlibMapInfo")
+load(":arcc_metadata.bzl", "DEFAULT_NAMESPACE")
 load(":paths.bzl", "runfiles_path")
 
 # Providers a Go library target must carry to take part as a component
@@ -74,6 +80,13 @@ def merge_private_rule_attrs(base, additions, contract):
 # a host that builds arcc under a different label overrides this in its adapter,
 # so check.bzl stays byte-identical across hosts.
 ARCC_TARGET = "//:arcc"
+
+# The namespace ID the component's analysis action and rule-emitted surfaces
+# stamp into surface JSON metadata. It must equal the `hostpolicy.NamespaceID`
+# of the arcc binary this adapter binds (`ARCC_TARGET`). Upstream uses
+# `DEFAULT_NAMESPACE` ("upstream"); a host that sets its own NamespaceID in its
+# arcc binary overrides this constant in its adapter.
+HOST_NAMESPACE = DEFAULT_NAMESPACE
 
 def is_go_target(target):
     """Reports whether target is a Go library arcc can project onto a closure node.

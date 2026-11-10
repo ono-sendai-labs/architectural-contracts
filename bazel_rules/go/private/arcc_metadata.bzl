@@ -25,8 +25,9 @@ or version changes that key, this file is the one place to update.
 # emitter stamps into every surface (`"arcc " + version`).
 ARCC_PRODUCER_VERSION = "arcc 0.0.0-dev"
 
-# Mirrors hostpolicy's default NamespaceID: the canonical namespace the
-# checked emitter records (DR-08).
+# Mirrors hostpolicy's default NamespaceID: the canonical upstream namespace
+# the checked emitter records (DR-08). Hosts override this via HOST_NAMESPACE
+# in the adapter.
 DEFAULT_NAMESPACE = "upstream"
 
 # Mirrors artifactio.SurfaceFormatVersion: the only supported major surface

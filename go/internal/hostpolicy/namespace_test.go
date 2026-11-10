@@ -37,11 +37,29 @@ func restoreSeams(t *testing.T) {
 	})
 }
 
+// installUpstreamDefaults saves the current seams via restoreSeams(t) and
+// installs upstream default values for the duration of the test. Tests that
+// rely on defaults being in effect must call this helper rather than inspecting
+// process-global state directly, and must not run in parallel.
+func installUpstreamDefaults(t *testing.T) {
+	t.Helper()
+	restoreSeams(t)
+	hostpolicy.NamespaceID = "upstream"
+	identity := func(p string) string { return p }
+	hostpolicy.CanonicalizePath = identity
+	hostpolicy.IsCanonicalPath = func(p string) bool { return hostpolicy.CanonicalizePath(p) == p }
+	requireUpstreamDefaults(t)
+}
+
 func TestUpstreamDefaultsAreStable(t *testing.T) {
+	if hostpolicy.NamespaceID != "upstream" {
+		t.Skipf("host policy is installed (NamespaceID = %q); package defaults are not under test", hostpolicy.NamespaceID)
+	}
 	requireUpstreamDefaults(t)
 }
 
 func TestIsCanonicalPathDefaultAgreesWithIdentity(t *testing.T) {
+	installUpstreamDefaults(t)
 	for _, p := range []string{"", "fmt", "example.com/aspect/core"} {
 		want := hostpolicy.CanonicalizePath(p) == p
 		if got := hostpolicy.IsCanonicalPath(p); got != want {
@@ -51,8 +69,7 @@ func TestIsCanonicalPathDefaultAgreesWithIdentity(t *testing.T) {
 }
 
 func TestHostOverrideIsIdempotent(t *testing.T) {
-	restoreSeams(t)
-	requireUpstreamDefaults(t)
+	installUpstreamDefaults(t)
 
 	rewrite := func(p string) string {
 		if rest, ok := strings.CutPrefix(p, "orig/"); ok {
@@ -78,8 +95,7 @@ func TestHostOverrideIsIdempotent(t *testing.T) {
 }
 
 func TestNamespaceIDOverrideAndRestore(t *testing.T) {
-	restoreSeams(t)
-	requireUpstreamDefaults(t)
+	installUpstreamDefaults(t)
 
 	hostpolicy.NamespaceID = "acme-rewritten"
 	if hostpolicy.NamespaceID != "acme-rewritten" {
@@ -88,7 +104,7 @@ func TestNamespaceIDOverrideAndRestore(t *testing.T) {
 }
 
 func TestValidateCanonicalPath(t *testing.T) {
-	restoreSeams(t)
+	installUpstreamDefaults(t)
 
 	tests := []struct {
 		name    string
@@ -150,10 +166,9 @@ func TestValidateCanonicalPath(t *testing.T) {
 }
 
 func TestValidateStdlibPaths(t *testing.T) {
-	restoreSeams(t)
+	installUpstreamDefaults(t)
 
 	t.Run("identity policy accepts stdlib paths", func(t *testing.T) {
-		requireUpstreamDefaults(t)
 		if err := hostpolicy.ValidateStdlibPaths([]string{"fmt", "net/http", "os/exec"}); err != nil {
 			t.Errorf("ValidateStdlibPaths under identity = %v, want nil", err)
 		}

@@ -7,6 +7,7 @@ import (
 	"slices"
 	"testing"
 
+	"github.com/ono-sendai-labs/architectural-contracts/go/internal/hostpolicy"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/manifest"
 )
 
@@ -131,7 +132,7 @@ func TestXToolsNativeSurfaceIsAsserted(t *testing.T) {
 	if !slices.Equal(got.Packages, wrapper.Members) || !slices.IsSorted(got.Packages) {
 		t.Fatalf("native x-tools surface packages = %v, want sorted manifest members %v", got.Packages, wrapper.Members)
 	}
-	if got.Namespace != "upstream" || got.SDKKey.ToolchainVersion != "go1.26.4" || got.SDKKey.GOOS != "linux" || got.SDKKey.GOARCH != "amd64" || got.SDKKey.CgoEnabled || len(got.SDKKey.BuildTags) != 0 || got.SDKKey.Goexperiment != "" || got.SDKKey.ClassifierHash == "" || got.SDKKey.MapFormatVersion != 1 || got.ProducerVersion == "" {
+	if got.Namespace != hostpolicy.NamespaceID || got.SDKKey.ToolchainVersion != "go1.26.4" || got.SDKKey.GOOS != "linux" || got.SDKKey.GOARCH != "amd64" || got.SDKKey.CgoEnabled || len(got.SDKKey.BuildTags) != 0 || got.SDKKey.Goexperiment != "" || got.SDKKey.ClassifierHash == "" || got.SDKKey.MapFormatVersion != 1 || got.ProducerVersion == "" {
 		t.Fatalf("native x-tools surface target identity = %+v", got)
 	}
 

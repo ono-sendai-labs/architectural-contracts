@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/ono-sendai-labs/architectural-contracts/go/internal/hostpolicy"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/manifest"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/manifestparity"
 )
@@ -443,7 +444,7 @@ func TestCapslockRuntimeHasOneConcreteOwnerAndNativeSurface(t *testing.T) {
 	if !slices.Equal(got.Packages, wrapper.Members) || !slices.IsSorted(got.Packages) {
 		t.Fatalf("native capslock-runtime surface packages = %v, want sorted manifest members %v", got.Packages, wrapper.Members)
 	}
-	if got.Namespace != "upstream" || got.SDKKey.ToolchainVersion != "go1.26.4" || got.SDKKey.GOOS != "linux" || got.SDKKey.GOARCH != "amd64" || got.SDKKey.ClassifierHash == "" || got.SDKKey.MapFormatVersion != 1 || got.ProducerVersion == "" {
+	if got.Namespace != hostpolicy.NamespaceID || got.SDKKey.ToolchainVersion != "go1.26.4" || got.SDKKey.GOOS != "linux" || got.SDKKey.GOARCH != "amd64" || got.SDKKey.ClassifierHash == "" || got.SDKKey.MapFormatVersion != 1 || got.ProducerVersion == "" {
 		t.Fatalf("native capslock-runtime surface target identity = %+v", got)
 	}
 	mapData, err := os.ReadFile(filepath.Join("..", "teststdlibmap", "testdata", "linux_amd64.stdlib-map.json"))
@@ -513,7 +514,7 @@ func TestProtobufRuntimeNativeSurfaceIsAsserted(t *testing.T) {
 	if !slices.Equal(got.Packages, wrapper.Members) || !slices.IsSorted(got.Packages) {
 		t.Fatalf("native protobuf surface packages = %v, want sorted manifest members %v", got.Packages, wrapper.Members)
 	}
-	if got.Namespace != "upstream" || got.SDKKey.ToolchainVersion != "go1.26.4" || got.SDKKey.GOOS != "linux" || got.SDKKey.GOARCH != "amd64" || got.SDKKey.ClassifierHash == "" || got.SDKKey.MapFormatVersion != 1 || got.ProducerVersion == "" {
+	if got.Namespace != hostpolicy.NamespaceID || got.SDKKey.ToolchainVersion != "go1.26.4" || got.SDKKey.GOOS != "linux" || got.SDKKey.GOARCH != "amd64" || got.SDKKey.ClassifierHash == "" || got.SDKKey.MapFormatVersion != 1 || got.ProducerVersion == "" {
 		t.Fatalf("native protobuf surface target identity = %+v", got)
 	}
 	mapData, err := os.ReadFile(filepath.Join("..", "teststdlibmap", "testdata", "linux_amd64.stdlib-map.json"))

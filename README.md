@@ -216,6 +216,12 @@ across hosts. Alongside the provider/importpath/srcs accessors, it carries three
 host-replaceable SDK contracts, plus the runtime-injection and infrastructure
 contracts:
 
+- **`HOST_NAMESPACE`** — the package namespace ID that rule-emitted surfaces stamp
+  into surface JSON metadata. It must equal the `hostpolicy.NamespaceID` configured
+  in the `arcc` binary (`ARCC_TARGET`). Upstream default is `DEFAULT_NAMESPACE`
+  (`"upstream"`).
+- **`ARCC_TARGET`** — the label of the `arcc` binary executed by analysis and check
+  actions. Upstream default is `"//:arcc"`.
 - **`sdk_source_attrs()` / `go_stdlib_source_data(ctx)`** — the source-backed
   map contract. It supplies the SDK source depset, the independent package
   oracle, the SDK `src/` root and the target identity to `arcc_stdlib_map`.

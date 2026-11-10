@@ -39,7 +39,7 @@ load(
 )
 load("//bazel_rules:providers.bzl", "ArccComponentInfo")
 load("//bazel_rules/go:providers.bzl", "ArccPackageInfo", "ArccStdlibMapInfo")
-load(":arcc_metadata.bzl", "ARCC_PRODUCER_VERSION", "DEFAULT_NAMESPACE", "SURFACE_FORMAT_VERSION", "arcc_sdk_key_fields")
+load(":arcc_metadata.bzl", "ARCC_PRODUCER_VERSION", "SURFACE_FORMAT_VERSION", "arcc_sdk_key_fields")
 load(":aspect.bzl", "arcc_deps_aspect", "merge_by_importpath")
 load(":command.bzl", "arcc_check_argv")
 load(
@@ -47,6 +47,7 @@ load(
     "ARCC_TARGET",
     "GO_PROVIDERS",
     "GO_TOOLCHAINS",
+    "HOST_NAMESPACE",
     "extra_runtime_packages",
     "forward_go_providers",
     "go_attached_infra",
@@ -533,7 +534,7 @@ def _asserted_surface_content(component_name, packages, key):
         lines.append("    %s%s" % (json.encode(package), comma))
     lines += [
         "  ],",
-        "  \"namespace\": %s," % json.encode(DEFAULT_NAMESPACE),
+        "  \"namespace\": %s," % json.encode(HOST_NAMESPACE),
         "  \"sdkKey\": {",
         "    \"toolchainVersion\": %s," % json.encode(key.toolchain_version),
         "    \"goos\": %s," % json.encode(key.goos),
