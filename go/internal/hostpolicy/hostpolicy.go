@@ -51,6 +51,23 @@ var CanonicalizePath = func(p string) string { return p }
 // import prefixes overrides this with its own stable ID.
 var NamespaceID = "upstream"
 
+// HostToolchainReleaseTags returns the complete list of release tags
+// (go1.1 … go1.N) that the given toolchainVersion implies under the host's
+// toolchain naming scheme, and reports whether the version was recognised as
+// a host toolchain.
+//
+// When ok is true, the returned tags slice is used directly (defensively copied
+// by the caller). When ok is false or HostToolchainReleaseTags is nil, standard
+// Go toolchain version parsing (go1.N(.M)) applies.
+//
+// Upstream leaves this nil: ordinary go1.N(.M) version strings are parsed
+// directly. A host whose toolchain cannot be expressed as go1.N(.M) at Bazel
+// analysis time installs a function here at init that recognises its own
+// toolchain identifier and returns the corresponding release tags.
+//
+// It must remain safe for concurrent reads; hosts set it once during init.
+var HostToolchainReleaseTags func(toolchainVersion string) (tags []string, ok bool)
+
 // IsCanonicalPath reports whether a package path is already a fixed point of
 // CanonicalizePath, i.e. CanonicalizePath(p) == p. The invariant that ties the
 // two hooks together is:

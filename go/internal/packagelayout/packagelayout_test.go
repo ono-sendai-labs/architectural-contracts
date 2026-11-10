@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"runtime"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -3022,4 +3023,92 @@ func sortedCopy(s []string) []string {
 	out := append([]string{}, s...)
 	sort.Strings(out)
 	return out
+}
+
+func TestHostToolchainReleaseTagsSeam(t *testing.T) {
+	original := hostpolicy.HostToolchainReleaseTags
+	t.Cleanup(func() { hostpolicy.HostToolchainReleaseTags = original })
+
+	t.Run("nil hook falls back to go1 parser", func(t *testing.T) {
+		hostpolicy.HostToolchainReleaseTags = nil
+
+		tags, err := effectiveReleaseTags("go1.26.4")
+		if err != nil {
+			t.Fatalf("effectiveReleaseTags(go1.26.4) error = %v", err)
+		}
+		if len(tags) != 26 || tags[0] != "go1.1" || tags[len(tags)-1] != "go1.26" {
+			t.Errorf("effectiveReleaseTags(go1.26.4) = %v, want go1.1 ... go1.26", tags)
+		}
+
+		if _, err := effectiveReleaseTags("invalid-version"); err == nil {
+			t.Error("effectiveReleaseTags(invalid-version) succeeded, want error under nil hook")
+		}
+	})
+
+	t.Run("hook recognizes synthetic identifier in layout-pinned and native paths", func(t *testing.T) {
+		syntheticTags := []string{"go1.1", "go1.2", "go1.3", "host-custom-tag"}
+		nativeSyntheticTags := []string{"go1.1", "host-native-tag"}
+
+		hostpolicy.HostToolchainReleaseTags = func(v string) ([]string, bool) {
+			switch v {
+			case "hosttoolchain-test":
+				return syntheticTags, true
+			case hostenv.NativeTargetDefaults().Version:
+				return nativeSyntheticTags, true
+			default:
+				return nil, false
+			}
+		}
+
+		// 1. Layout-pinned path:
+		layout := &Layout{
+			Platform: &Platform{
+				GOOS:             "linux",
+				GOARCH:           "amd64",
+				ToolchainVersion: strPtr("hosttoolchain-test"),
+			},
+		}
+		layoutTags, err := BuildTagsForLayout(layout)
+		if err != nil {
+			t.Fatalf("BuildTagsForLayout() error = %v", err)
+		}
+		if !slices.Equal(layoutTags.ReleaseTags, syntheticTags) {
+			t.Errorf("BuildTagsForLayout() ReleaseTags = %v, want %v", layoutTags.ReleaseTags, syntheticTags)
+		}
+
+		// Defensive copy check: modifying layoutTags.ReleaseTags must not mutate syntheticTags.
+		layoutTags.ReleaseTags[0] = "mutated"
+		if syntheticTags[0] == "mutated" {
+			t.Errorf("hook return slice was not defensively cloned by effectiveReleaseTags")
+		}
+
+		// 2. Native path:
+		nativeTags := nativeBuildTags()
+		if !slices.Equal(nativeTags.ReleaseTags, nativeSyntheticTags) {
+			t.Errorf("nativeBuildTags() ReleaseTags = %v, want %v", nativeTags.ReleaseTags, nativeSyntheticTags)
+		}
+	})
+
+	t.Run("hook returns ok=false falls back to parser", func(t *testing.T) {
+		hostpolicy.HostToolchainReleaseTags = func(v string) ([]string, bool) {
+			if v == "other-toolchain" {
+				return []string{"go1.1"}, true
+			}
+			return nil, false
+		}
+
+		// Valid go1 version parses normally
+		tags, err := effectiveReleaseTags("go1.20")
+		if err != nil {
+			t.Fatalf("effectiveReleaseTags(go1.20) error = %v", err)
+		}
+		if len(tags) != 20 || tags[len(tags)-1] != "go1.20" {
+			t.Errorf("effectiveReleaseTags(go1.20) = %v, want 20 tags ending with go1.20", tags)
+		}
+
+		// Garbage returns error
+		if _, err := effectiveReleaseTags("garbage-version"); err == nil {
+			t.Error("effectiveReleaseTags(garbage-version) succeeded, want error when hook returns ok=false")
+		}
+	})
 }

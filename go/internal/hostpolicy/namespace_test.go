@@ -14,6 +14,9 @@ func requireUpstreamDefaults(t *testing.T) {
 	if hostpolicy.NamespaceID != "upstream" {
 		t.Errorf("NamespaceID = %q, want %q", hostpolicy.NamespaceID, "upstream")
 	}
+	if hostpolicy.HostToolchainReleaseTags != nil {
+		t.Errorf("HostToolchainReleaseTags != nil (%p), want nil under upstream defaults", hostpolicy.HostToolchainReleaseTags)
+	}
 	for _, p := range []string{"", "fmt", "example.com/aspect/core", "orig/foo", "canon/foo"} {
 		if got := hostpolicy.CanonicalizePath(p); got != p {
 			t.Errorf("CanonicalizePath(%q) = %q, want identity", p, got)
@@ -29,11 +32,12 @@ func requireUpstreamDefaults(t *testing.T) {
 // must not run in parallel.
 func restoreSeams(t *testing.T) {
 	t.Helper()
-	ns, canon, isCanon := hostpolicy.NamespaceID, hostpolicy.CanonicalizePath, hostpolicy.IsCanonicalPath
+	ns, canon, isCanon, toolchainTags := hostpolicy.NamespaceID, hostpolicy.CanonicalizePath, hostpolicy.IsCanonicalPath, hostpolicy.HostToolchainReleaseTags
 	t.Cleanup(func() {
 		hostpolicy.NamespaceID = ns
 		hostpolicy.CanonicalizePath = canon
 		hostpolicy.IsCanonicalPath = isCanon
+		hostpolicy.HostToolchainReleaseTags = toolchainTags
 	})
 }
 
@@ -48,6 +52,7 @@ func installUpstreamDefaults(t *testing.T) {
 	identity := func(p string) string { return p }
 	hostpolicy.CanonicalizePath = identity
 	hostpolicy.IsCanonicalPath = func(p string) bool { return hostpolicy.CanonicalizePath(p) == p }
+	hostpolicy.HostToolchainReleaseTags = nil
 	requireUpstreamDefaults(t)
 }
 

@@ -239,6 +239,12 @@ contracts:
   It is derived from target configuration, never from execution-host values.
   `go_build_platform(target)` remains a compatibility projection for package
   probes; generic component/map consumers use `go_target_identity`.
+- **`HostToolchainReleaseTags`** — package-level hook in `hostpolicy`
+  (`go/internal/hostpolicy`). When a host's Go toolchain version cannot be
+  expressed as `go1.N(.M)` at Bazel analysis time, `go_target_identity` can
+  stamp an opaque host toolchain identifier, and this hook informs the Go tools
+  which release build tags (`go1.1` … `go1.N`) that identifier implies. Upstream
+  default is `nil` (standard `go1.N(.M)` parsing).
 
 These are the canonical three SDK seams: source/oracle data via
 `go_stdlib_source_data`, compiled export data via `go_stdlib_export_data`, and

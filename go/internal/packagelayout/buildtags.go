@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/ono-sendai-labs/architectural-contracts/go/internal/hostpolicy"
 	"github.com/ono-sendai-labs/architectural-contracts/go/internal/packagelayout/internal/hostenv"
 )
 
@@ -194,11 +195,24 @@ func defaultArchToolTags(goarch string) []string {
 	}
 }
 
+// effectiveReleaseTags returns the release tags for the given toolchain
+// version. If hostpolicy.HostToolchainReleaseTags is set and recognises the
+// version, its tags are defensively cloned and returned; otherwise, standard
+// go1.N(.M) version parsing applies.
+func effectiveReleaseTags(version string) ([]string, error) {
+	if hostpolicy.HostToolchainReleaseTags != nil {
+		if tags, ok := hostpolicy.HostToolchainReleaseTags(version); ok {
+			return slices.Clone(tags), nil
+		}
+	}
+	return releaseTagsForVersion(version)
+}
+
 // nativeBuildTags reconstructs the fields of build.Default that the layout
 // code consumes, backed by hostenv.NativeTargetDefaults().
 func nativeBuildTags() BuildTags {
 	d := hostenv.NativeTargetDefaults()
-	releaseTags, _ := releaseTagsForVersion(d.Version)
+	releaseTags, _ := effectiveReleaseTags(d.Version)
 	toolTags := baselineExperimentTags(d.GOOS, d.GOARCH)
 	toolTags = append(toolTags, defaultArchToolTags(d.GOARCH)...)
 	return BuildTags{
@@ -240,7 +254,7 @@ func buildTagsForLayout(l *Layout) (BuildTags, error) {
 	pinned := platform.ToolchainVersion != nil || platform.GOEXPERIMENT != nil
 	if pinned {
 		if platform.ToolchainVersion != nil {
-			relTags, err := releaseTagsForVersion(*platform.ToolchainVersion)
+			relTags, err := effectiveReleaseTags(*platform.ToolchainVersion)
 			if err != nil {
 				return BuildTags{}, err
 			}

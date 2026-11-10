@@ -5,6 +5,10 @@ interface_files: "layout.go"
 interface_files: "api.go"
 members: "github.com/ono-sendai-labs/architectural-contracts/go/internal/packagelayout"
 component_dependencies {
+  name: "hostpolicy"
+  manifest: "../hostpolicy/component.textproto"
+}
+component_dependencies {
   name: "packagelayout-hostenv"
   manifest: "./internal/hostenv/component.textproto"
 }

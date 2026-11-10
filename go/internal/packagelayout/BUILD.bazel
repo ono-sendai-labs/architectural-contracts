@@ -20,6 +20,7 @@ go_library(
         "//go:__subpackages__",
     ],
     deps = [
+        "//go/internal/hostpolicy",
         "//go/internal/packagelayout/internal/hostenv",
         "@org_golang_x_tools//go/packages",
     ],
@@ -49,6 +50,7 @@ go_test(
 go_component(
     name = "packagelayout_component",
     component_deps = [
+        "//go/internal/hostpolicy:hostpolicy_component",
         "//go/internal/packagelayout/internal/hostenv:hostenv_component",
         "//go/internal/xtools:x-tools",
     ],
