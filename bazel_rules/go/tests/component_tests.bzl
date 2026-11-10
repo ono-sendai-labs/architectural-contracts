@@ -10,6 +10,7 @@ load("@rules_go//go:def.bzl", "GoInfo")
 load("@rules_testing//lib:analysis_test.bzl", "analysis_test", "test_suite")
 load("@rules_testing//lib:truth.bzl", "matching")
 load("//bazel_rules:providers.bzl", "ArccComponentInfo")
+load("//bazel_rules/go:providers.bzl", "ArccStdlibMapInfo")
 load("//bazel_rules/go/tests:testing.bzl", "TestingInfraAttachmentInfo")
 
 _API_COMPONENT = "//bazel_rules/go/tests/testdata/api:api_component"
@@ -916,6 +917,12 @@ def _export_layout_shape_test(name):
         name = name,
         target = _API_COMPONENT,
         impl = _export_layout_shape_impl,
+        attrs = {
+            "stdlib_map": attr.label(
+                default = "//:arcc_stdlib_map",
+                providers = [ArccStdlibMapInfo],
+            ),
+        },
         attr_values = {"size": "small"},
     )
 
@@ -939,7 +946,9 @@ def _export_layout_shape_impl(env, target):
     env.expect.that_str(content).contains('"ordinary_import_data":')
     env.expect.that_str(content).contains('"metadata": "__ARCC_ORDINARY_IMPORT_DATA__"')
     env.expect.that_str(content).contains('"metadata": "rules_go+/stdlib_/stdlib.pkg.json"')
-    env.expect.that_str(content).contains('"toolchain_version": "go1.26.4"')
+    expected_version = env.ctx.attr.stdlib_map[ArccStdlibMapInfo].toolchain_version
+    env.expect.that_str(expected_version).not_equals("")
+    env.expect.that_str(content).contains('"toolchain_version": "%s"' % expected_version)
     package_sections = content.split('"ID":')
 
     # The first package is the member root `api`; its section must keep source

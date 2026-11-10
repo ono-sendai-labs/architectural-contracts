@@ -11,6 +11,7 @@ load("@rules_go//go:def.bzl", "GoInfo")
 load("@rules_testing//lib:analysis_test.bzl", "analysis_test", "test_suite")
 load("@rules_testing//lib:truth.bzl", "matching")
 load("//bazel_rules:providers.bzl", "ArccComponentInfo")
+load("//bazel_rules/go:providers.bzl", "ArccStdlibMapInfo")
 load("//bazel_rules/go/private:go_adapter.bzl", "HOST_NAMESPACE")
 
 _AssertedSurfaceComparisonInfo = provider(fields = ["package_sets"])
@@ -180,6 +181,12 @@ def _surface_content_is_package_level_test(name):
         name = name,
         target = _ASSERTED_COMPONENT,
         impl = _surface_content_is_package_level_impl,
+        attrs = {
+            "stdlib_map": attr.label(
+                default = "//:arcc_stdlib_map",
+                providers = [ArccStdlibMapInfo],
+            ),
+        },
         attr_values = {"size": "small"},
     )
 
@@ -201,7 +208,8 @@ def _surface_content_is_package_level_impl(env, target):
     env.expect.that_str(content["producerVersion"]).equals("arcc 0.0.0-dev")
 
     sdk_key = content["sdkKey"]
-    env.expect.that_str(sdk_key["toolchainVersion"]).contains("go1.")
+    expected_version = env.ctx.attr.stdlib_map[ArccStdlibMapInfo].toolchain_version
+    env.expect.that_str(sdk_key["toolchainVersion"]).equals(expected_version)
     env.expect.that_str(sdk_key["goos"]).equals("linux")
     env.expect.that_str(sdk_key["goarch"]).equals("amd64")
 

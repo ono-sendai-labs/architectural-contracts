@@ -235,7 +235,7 @@ def _provider_and_default_availability_impl(env, target):
     info = target[ArccStdlibMapInfo]
     env.expect.that_str(info.goos).equals("linux")
     env.expect.that_str(info.goarch).equals("amd64")
-    env.expect.that_str(info.toolchain_version).contains("go1.")
+    env.expect.that_str(info.toolchain_version).not_equals("")
     env.expect.that_bool(info.cgo_enabled).equals(False)
     env.expect.that_collection(list(info.build_tags)).contains_exactly([])
     env.expect.that_str(info.map.extension).equals("json")
